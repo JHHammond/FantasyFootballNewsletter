@@ -961,11 +961,18 @@ def sign_in(email, password):
     except Exception:
         return False, "Invalid email or password."
 
+# Where Google should send users back to after sign-in. Hardcoding localhost
+# meant OAuth broke the moment the app was deployed anywhere. Set APP_URL in
+# .env for production; whatever you use must also be on the redirect allowlist
+# under Authentication → URL Configuration in the Supabase dashboard.
+APP_URL = os.getenv("APP_URL", "http://localhost:8501")
+
+
 def get_google_oauth_url():
     try:
         res = supabase.auth.sign_in_with_oauth({
             "provider": "google",
-            "options": {"redirect_to": "http://localhost:8501"}
+            "options": {"redirect_to": APP_URL}
         })
         return res.url
     except Exception:
@@ -1054,29 +1061,94 @@ def delete_joke(joke_id):
         return True
     except Exception: return False
 
+NEWSPAPER_BUCKET = "newspapers"
+
+
+def _newspaper_path(league_id, season, week):
+    """<user_id>/<league_id>/<season>/week-NN.html
+
+    The leading user ID isn't decoration — the storage RLS policy in
+    migrations/000_bootstrap.sql checks that the first path segment matches
+    auth.uid(), which is what stops one user writing into another's folder.
+    """
+    user = get_user()
+    return f"{user.id}/{league_id}/{season}/week-{int(week):02d}.html"
+
+
+def upload_newspaper_html(league_id, week, season, html):
+    """Put the rendered edition in the storage bucket. Returns (path, url)."""
+    path = _newspaper_path(league_id, season, week)
+    storage = supabase.storage.from_(NEWSPAPER_BUCKET)
+    payload = html.encode("utf-8")
+    options = {"content-type": "text/html; charset=utf-8", "upsert": "true"}
+    try:
+        storage.upload(path, payload, options)
+    except Exception:
+        # Older supabase-py raises instead of upserting when the object exists.
+        storage.update(path, payload, options)
+    return path, storage.get_public_url(path)
+
+
 def save_newspaper(league_id, week, season, html, ai_cache):
+    """Store the edition: HTML in the bucket, metadata + AI output in Postgres.
+
+    The HTML deliberately does NOT live in a Postgres column. At ~60KB an
+    edition it's what exhausted the previous project's 500MB database, and
+    storage is a separate 1GB allowance on the free tier.
+    """
+    try:
+        storage_path, public_url = upload_newspaper_html(league_id, week, season, html)
+    except Exception as e:
+        st.error(f"Couldn't upload the newspaper: {e}")
+        st.info(
+            "If this says the bucket doesn't exist, run "
+            "migrations/000_bootstrap.sql in the Supabase SQL editor."
+        )
+        return False
+
+    row = {
+        "league_id": league_id,
+        "week": week,
+        "season": season,
+        "storage_path": storage_path,
+        "public_url": public_url,
+        # jsonb column: pass the dict straight through. The old code
+        # json.dumps'd on insert but not on update, putting two different
+        # types in the same column.
+        "ai_cache": ai_cache or None,
+    }
+
     try:
         existing = supabase.table("newspapers").select("id")\
             .eq("league_id", league_id).eq("week", week).eq("season", season).execute()
         if existing.data:
-            supabase.table("newspapers").update({
-                "html_content": html, "ai_cache": ai_cache,
-            }).eq("id", existing.data[0]["id"]).execute()
+            supabase.table("newspapers").update(row)\
+                .eq("id", existing.data[0]["id"]).execute()
         else:
-            supabase.table("newspapers").insert({
-                "league_id": league_id, "week": week, "season": season,
-                "html_content": html,
-                "ai_cache": json.dumps(ai_cache) if ai_cache else None,
-            }).execute()
+            supabase.table("newspapers").insert(row).execute()
         return True
     except Exception as e:
         st.error(f"Error saving: {e}"); return False
 
 def get_saved_newspapers(league_id):
     try:
-        return supabase.table("newspapers").select("id, week, season, generated_at")\
-            .eq("league_id", league_id).order("week", desc=True).execute().data or []
+        return supabase.table("newspapers")\
+            .select("id, week, season, generated_at, public_url, storage_path")\
+            .eq("league_id", league_id)\
+            .order("season", desc=True).order("week", desc=True)\
+            .execute().data or []
     except Exception: return []
+
+
+def fetch_newspaper_html(record):
+    """Pull an archived edition's HTML back out of the bucket."""
+    path = record.get("storage_path")
+    if not path:
+        return None
+    try:
+        return supabase.storage.from_(NEWSPAPER_BUCKET).download(path).decode("utf-8")
+    except Exception:
+        return None
 
 
 # ─── Landing page ──────────────────────────────────────────
@@ -1688,7 +1760,7 @@ def page_history():
                 date_str = dt.strftime("%B %d, %Y")
             except Exception:
                 date_str = ""
-            c1, c2 = st.columns([5, 1])
+            c1, c2, c3 = st.columns([4, 1, 1])
             with c1:
                 st.markdown(f"""
                 <div style="padding:16px 20px;background:var(--white);border:1.5px solid var(--border);margin-bottom:6px;">
@@ -1699,12 +1771,19 @@ def page_history():
                 </div>
                 """, unsafe_allow_html=True)
             with c2:
+                # The bucket is public, so this link works for anyone in the
+                # league without an account. That's the whole point of putting
+                # editions in storage rather than a database column.
+                if rec.get("public_url"):
+                    st.link_button("🔗  Share", rec["public_url"], use_container_width=True)
+            with c3:
                 if st.button("View", key=f"v_{rec['id']}", use_container_width=True):
                     try:
-                        res = supabase.table("newspapers").select("html_content")\
-                            .eq("id", rec["id"]).execute()
-                        if res.data:
-                            st.components.v1.html(res.data[0]["html_content"], height=900, scrolling=True)
+                        html = fetch_newspaper_html(rec)
+                        if html:
+                            st.components.v1.html(html, height=900, scrolling=True)
+                        else:
+                            st.warning("Couldn't load that edition from storage.")
                     except Exception as e:
                         st.error(f"Error: {e}")
 
