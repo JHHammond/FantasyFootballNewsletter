@@ -1,33 +1,31 @@
-import os
+"""
+CLI entry point -- generate one newspaper for one league/week.
+
+Now platform-agnostic: change PROVIDER to "espn" (once that adapter is written)
+and nothing else here has to change.
+"""
+
 import json
+import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
 print("RUNNING FILE:", os.path.abspath(__file__))
 
-from newspaper import save_newspaper_html, build_power_rankings_from_matchups
-from fetch_data import (
-    get_league,
-    get_users,
-    get_rosters,
-    get_matchups,
-    get_players,
-    get_projections,
-    build_roster_map,
-    pair_matchups,
-    enrich_games_with_player_stats,
-)
+from newspaper import build_power_rankings_from_matchups, save_newspaper_html
+from providers import ProviderError, load_week, week_to_legacy_games
 from storylines import get_weekly_storylines
-from lineup_optimizer import add_lineup_gap_to_games
 from writer import generate_full_newspaper_content
 
 # --- Config ---
+PROVIDER = "sleeper"
 LEAGUE_ID = "1252396303246176256"
 WEEK = 1
 SEASON = 2025
-USE_CACHE = True  # ← flip to True after first run to avoid API costs (true is free)
+USE_CACHE = True  # AI content cache -- avoids re-paying for identical prose
 
 CACHE_FILE = f"cache_week_{WEEK}.json"
 
@@ -53,30 +51,25 @@ def save_recap_to_file(recap_text, week):
 
 
 def main():
-    print("[data] Fetching league data...")
-    league = get_league(LEAGUE_ID)
-    users = get_users(LEAGUE_ID)
-    rosters = get_rosters(LEAGUE_ID)
-    matchups = get_matchups(LEAGUE_ID, WEEK)
-    players_data = get_players()
+    print(f"[data] Fetching week {WEEK} from {PROVIDER}...")
+    try:
+        # One call replaces the old six: league, users, rosters, matchups,
+        # players, projections -- plus pairing, enrichment and the lineup
+        # optimizer, all of which now live in the provider layer.
+        week_data = load_week(PROVIDER, LEAGUE_ID, SEASON, WEEK)
+    except ProviderError as exc:
+        print(f"[data] Could not load the week: {exc}")
+        return
 
-    print("[data] Fetching projections...")
-    projections = get_projections(SEASON, WEEK)
-    print(f"[data] Got projections for {len(projections)} players")
+    league_name = week_data.league.name
+    games = week_to_legacy_games(week_data)
 
-    roster_positions = league.get("roster_positions", [])
-    league_name = league.get("name", "Fantasy League")
-
-    roster_map = build_roster_map(rosters, users, current_week=WEEK)
-    games = pair_matchups(matchups, roster_map)
-    games = add_lineup_gap_to_games(games, roster_positions, players_data)
-
-    print("[data] Enriching games with player stats...")
-    games = enrich_games_with_player_stats(games, players_data, projections)
+    print(f"[data] {league_name}: {len(games)} matchups, "
+          f"{len(week_data.teams)} teams")
 
     summary = get_weekly_storylines(games)
 
-    # --- AI content: use cache if available, otherwise call API ---
+    # --- AI content: use cache if available, otherwise call the API ---
     if USE_CACHE and Path(CACHE_FILE).exists():
         print(f"[writer] Loading from cache ({CACHE_FILE}) — no API call made")
         with open(CACHE_FILE, "r") as f:

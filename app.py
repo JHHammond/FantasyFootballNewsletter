@@ -996,20 +996,42 @@ def get_user_leagues():
         return supabase.table("leagues").select("*").eq("user_id", user.id).execute().data or []
     except Exception: return []
 
-def save_league(sleeper_id, league_name, paper_name, commissioner, season):
+def save_league(platform_league_id, league_name, paper_name, commissioner, season,
+                provider="sleeper"):
     user = get_user()
     if not user: return None
+    row = {
+        "user_id": user.id,
+        # Kept for backwards compatibility with rows written before the
+        # provider layer existed. See migrations/001_add_provider.sql.
+        "sleeper_league_id": platform_league_id,
+        "platform_league_id": platform_league_id,
+        "provider": provider,
+        "league_name": league_name,
+        "paper_name": paper_name or f"The {league_name} Times",
+        "commissioner_name": commissioner,
+        "season": season,
+    }
     try:
-        res = supabase.table("leagues").insert({
-            "user_id": user.id,
-            "sleeper_league_id": sleeper_id,
-            "league_name": league_name,
-            "paper_name": paper_name or f"The {league_name} Times",
-            "commissioner_name": commissioner,
-            "season": season,
-        }).execute()
+        res = supabase.table("leagues").insert(row).execute()
         return res.data[0] if res.data else None
     except Exception as e:
+        # If the migration hasn't been run yet, retry without the new columns
+        # so the app keeps working instead of hard-failing on Add League.
+        if "provider" in str(e) or "platform_league_id" in str(e):
+            legacy = {k: v for k, v in row.items()
+                      if k not in ("provider", "platform_league_id")}
+            try:
+                res = supabase.table("leagues").insert(legacy).execute()
+                st.warning(
+                    "Saved, but your `leagues` table is missing the `provider` "
+                    "and `platform_league_id` columns. Run "
+                    "migrations/001_add_provider.sql to enable other platforms."
+                )
+                return res.data[0] if res.data else None
+            except Exception as inner:
+                st.error(f"Error saving league: {inner}")
+                return None
         st.error(f"Error saving league: {e}")
         return None
 
@@ -1417,10 +1439,24 @@ def page_add_league():
     """, unsafe_allow_html=True)
     st.markdown('<div class="cw">', unsafe_allow_html=True)
 
+    from providers import available_providers, get_provider
+
+    platforms = [p for p in available_providers() if p["implemented"]]
+    platform_labels = {p["display_name"]: p["name"] for p in platforms}
+
     with st.form("add_league"):
         st.markdown('<div class="sec-label">League Info</div>', unsafe_allow_html=True)
-        sleeper_id = st.text_input("Sleeper League ID", placeholder="e.g. 1252396303246176256")
-        commissioner = st.text_input("Commissioner's Sleeper Username")
+
+        if len(platform_labels) > 1:
+            platform_label = st.selectbox("Platform", list(platform_labels))
+        else:
+            platform_label = next(iter(platform_labels))
+        provider_name = platform_labels[platform_label]
+
+        platform_id = st.text_input(
+            f"{platform_label} League ID", placeholder="e.g. 1252396303246176256"
+        )
+        commissioner = st.text_input(f"Commissioner's {platform_label} Username")
         c1, c2 = st.columns(2)
         with c1:
             season = st.number_input("Season Year", min_value=2020, max_value=2030, value=2025)
@@ -1428,19 +1464,21 @@ def page_add_league():
             custom_paper = st.text_input("Custom Paper Name", placeholder="e.g. The Kevlarville Times")
         st.markdown("<br>", unsafe_allow_html=True)
         if st.form_submit_button("Connect League", use_container_width=True, type="primary"):
-            if not sleeper_id or not commissioner:
+            if not platform_id or not commissioner:
                 st.error("League ID and Commissioner username are required.")
             else:
-                with st.spinner("Connecting to Sleeper..."):
+                with st.spinner(f"Connecting to {platform_label}..."):
                     try:
-                        r = requests.get(f"https://api.sleeper.app/v1/league/{sleeper_id}")
-                        if r.status_code != 200:
+                        provider = get_provider(provider_name)
+                        name = provider.verify_league(platform_id.strip(), int(season))
+                        if not name:
                             st.error("League not found. Check your League ID.")
                         else:
-                            data = r.json()
-                            name = data.get("name", "My League")
                             paper = custom_paper.strip() or f"The {name} Times"
-                            saved = save_league(sleeper_id, name, paper, commissioner, int(season))
+                            saved = save_league(
+                                platform_id.strip(), name, paper, commissioner,
+                                int(season), provider=provider_name,
+                            )
                             if saved:
                                 st.success(f"✅ Connected **{name}**!")
                                 st.session_state["page"] = "dashboard"; st.rerun()
@@ -1561,37 +1599,26 @@ def _run_generation(league, week, season, jokes):
     if project_dir not in sys.path:
         sys.path.insert(0, project_dir)
 
-    from fetch_data import (
-        get_league, get_users, get_rosters, get_matchups,
-        get_players, get_projections, build_roster_map,
-        pair_matchups, enrich_games_with_player_stats,
-    )
+    from providers import ProviderError, load_week, week_to_legacy_games
     from storylines import get_weekly_storylines
-    from lineup_optimizer import add_lineup_gap_to_games
     from writer import generate_full_newspaper_content
     from newspaper import build_power_rankings_from_matchups, build_edition, render_html
 
-    league_id = league["sleeper_league_id"]
+    provider_name = league.get("provider") or "sleeper"
+    league_id = league.get("platform_league_id") or league["sleeper_league_id"]
     commissioner = league.get("commissioner_name", "")
     paper_name = league.get("paper_name") or f"The {league['league_name']} Times"
     jokes_text = "\n".join(f"- {j['joke']}" for j in jokes) if jokes else ""
 
-    prog = st.progress(0, text="Fetching league data from Sleeper...")
+    prog = st.progress(0, text=f"Fetching league data from {provider_name.title()}...")
 
     try:
-        league_data = get_league(league_id)
-        users = get_users(league_id)
-        rosters = get_rosters(league_id)
-        matchups_raw = get_matchups(league_id, week)
-        players_data = get_players()
-        prog.progress(20, text="Fetching projections...")
+        # The provider layer handles fetching, pairing, projections and the
+        # lineup optimizer. Swapping platforms is a one-word change here.
+        week_data = load_week(provider_name, league_id, season, week)
+        prog.progress(30, text="Reading the box scores...")
 
-        projections = get_projections(season, week)
-        roster_positions = league_data.get("roster_positions", [])
-        roster_map = build_roster_map(rosters, users, current_week=week)
-        games = pair_matchups(matchups_raw, roster_map)
-        games = add_lineup_gap_to_games(games, roster_positions, players_data)
-        games = enrich_games_with_player_stats(games, players_data, projections)
+        games = week_to_legacy_games(week_data)
         summary = get_weekly_storylines(games)
         prog.progress(40, text="Writing with AI — ~20 seconds...")
 
@@ -1617,6 +1644,10 @@ def _run_generation(league, week, season, jokes):
         with st.expander("👁️  Preview", expanded=True):
             st.components.v1.html(html, height=900, scrolling=True)
 
+    except ProviderError as e:
+        # Expected, explainable failures: bad league ID, private league,
+        # week hasn't been played yet. No stack trace needed.
+        st.error(f"Couldn't load that week: {e}")
     except Exception as e:
         st.error(f"Generation failed: {e}")
         st.exception(e)

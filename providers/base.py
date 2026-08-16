@@ -1,0 +1,97 @@
+"""
+The contract every fantasy platform adapter implements.
+
+Adding a platform means writing one subclass of FantasyProvider and registering
+it. Nothing else in the codebase should need to change -- if it does, something
+platform-specific has leaked into the normalized model and belongs back here.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Optional
+
+from .cache import TTLCache
+from .models import League, WeekData
+
+
+class ProviderError(Exception):
+    """Base for anything a provider can fail at."""
+
+
+class LeagueNotFound(ProviderError):
+    """The league ID doesn't exist, or isn't visible to us."""
+
+
+class AuthRequired(ProviderError):
+    """The league is private and we have no valid credentials for it."""
+
+
+class WeekNotAvailable(ProviderError):
+    """That week hasn't been played, or the platform has no data for it yet."""
+
+
+class FantasyProvider(ABC):
+    """One fantasy platform, normalized."""
+
+    #: Short lowercase identifier. Used as the key in the registry and as the
+    #: namespace prefix on every player ID this provider emits.
+    name: str = "abstract"
+
+    #: Human-readable, for UI.
+    display_name: str = "Abstract Provider"
+
+    #: False for platforms where we can't read a league without user credentials.
+    supports_public_leagues: bool = True
+
+    #: False if the platform gives us no weekly projections -- the writer then
+    #: has to skip every "beat/missed projection" storyline.
+    supports_projections: bool = True
+
+    def __init__(self, cache: Optional[TTLCache] = None, **credentials):
+        self.cache = cache or TTLCache(namespace=self.name)
+        self.credentials = credentials
+
+    # -- required ----------------------------------------------------------
+
+    @abstractmethod
+    def get_league(self, league_id: str, season: int) -> League:
+        """Fetch league configuration: name, roster slots, scoring, team count.
+
+        Raises LeagueNotFound or AuthRequired.
+        """
+
+    @abstractmethod
+    def get_week(self, league_id: str, season: int, week: int) -> WeekData:
+        """Fetch one week of results, fully normalized.
+
+        Every Team returned must carry its record ENTERING this week, its
+        starting lineup with per-player points, and its bench. Implementations
+        are responsible for pairing matchups and handling byes.
+
+        Raises WeekNotAvailable if the week hasn't happened.
+        """
+
+    # -- optional ----------------------------------------------------------
+
+    def verify_league(self, league_id: str, season: int) -> Optional[str]:
+        """Return the league's name if it exists and we can read it, else None.
+
+        Used by the "Add League" form to validate input before saving. The
+        default implementation just tries get_league; override if a platform
+        offers something cheaper.
+        """
+        try:
+            return self.get_league(league_id, season).name
+        except ProviderError:
+            return None
+
+    def namespaced_id(self, raw_id: str | int) -> str:
+        """Prefix a platform's player ID so IDs can never collide across platforms."""
+        return f"{self.name}:{raw_id}"
+
+    def clear_cache(self) -> int:
+        return self.cache.clear()
+
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__} name={self.name!r}>"
