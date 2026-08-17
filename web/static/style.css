@@ -322,3 +322,16 @@ textarea { resize: vertical; }
     .field-narrow { max-width: none; }
     .wrap { padding: 28px 18px 60px; }
 }
+
+/* ---------- demo mode ---------- */
+
+.demo-banner {
+    background: var(--gold);
+    color: #241f00;
+    text-align: center;
+    padding: 9px 16px;
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+}

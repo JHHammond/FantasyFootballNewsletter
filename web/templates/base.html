@@ -11,6 +11,11 @@
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+    {% if demo_mode %}
+    <div class="demo-banner">
+        Demo mode &mdash; nothing is saved. Everything disappears when the server restarts.
+    </div>
+    {% endif %}
     <header class="masthead">
         <a class="masthead-logo" href="/">The Commissioner&rsquo;s Desk</a>
         {% block nav %}{% endblock %}

@@ -50,7 +50,17 @@ from newspaper import (  # noqa: E402
     render_html,
 )
 
-from . import db, slugs  # noqa: E402
+from . import slugs  # noqa: E402
+
+# DEMO_MODE=1 swaps Supabase for an in-memory store, so the whole app can be
+# clicked through — including real generation from real league data — before
+# any database exists. State evaporates on restart. Never enable in production.
+DEMO_MODE = os.getenv("DEMO_MODE") == "1"
+
+if DEMO_MODE:
+    from . import demo_db as db  # noqa: E402
+else:
+    from . import db  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent
 CURRENT_SEASON = int(os.getenv("CURRENT_SEASON", "2025"))
@@ -58,6 +68,7 @@ CURRENT_SEASON = int(os.getenv("CURRENT_SEASON", "2025"))
 app = FastAPI(title="The Commissioner's Desk", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.globals["demo_mode"] = DEMO_MODE
 
 
 # ---------------------------------------------------------------------------
