@@ -1,17 +1,22 @@
 """
 In-memory stand-in for db.py. Same functions, no Supabase.
 
-Turn it on with DEMO_MODE=1. Everything works — creating a league, adding
-jokes, generating a real paper from real Sleeper data with real Claude prose,
-reading it at a public URL — it just evaporates when you stop the server.
+Turn it on with DEMO_MODE=1. Everything works — creating a league, adding lore,
+generating a real paper from real league data with real Claude prose, reading
+it at a public URL, subscribing, unsubscribing, magic-link recovery — it just
+evaporates when you stop the server.
 
 The point is being able to click through the whole product before deciding how
 to set up a database. Do not run this in production: one process holds all
-state, and restarting loses every league.
+state, and restarting loses everything.
+
+This module must stay function-for-function identical to db.py. If they drift,
+demo mode stops telling you the truth about production.
 """
 
 from __future__ import annotations
 
+import secrets
 import threading
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -20,13 +25,19 @@ from uuid import uuid4
 _lock = threading.Lock()
 
 _LEAGUES: dict[str, dict[str, Any]] = {}
-_JOKES: dict[str, dict[str, Any]] = {}
+_LORE: dict[str, dict[str, Any]] = {}
 _PAPERS: dict[tuple[str, int, int], dict[str, Any]] = {}
 _STORAGE: dict[str, str] = {}
+_SUBSCRIBERS: dict[str, dict[str, Any]] = {}
+_MAGIC_LINKS: dict[str, dict[str, Any]] = {}
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _token() -> str:
+    return secrets.token_urlsafe(24)
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +46,10 @@ def _now() -> str:
 
 def create_league(**kw) -> dict[str, Any]:
     with _lock:
-        league = {"id": str(uuid4()), "created_at": _now(), **kw}
+        league = {
+            "id": str(uuid4()), "created_at": _now(),
+            "owner_email": None, "auto_send": False, **kw,
+        }
         _LEAGUES[league["id"]] = league
         return dict(league)
 
@@ -71,30 +85,28 @@ def update_league(league_id: str, fields: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Jokes
+# Lore
 # ---------------------------------------------------------------------------
 
-def get_jokes(league_id: str) -> list[dict[str, Any]]:
-    return [
-        dict(j) for j in _JOKES.values()
-        if j["league_id"] == league_id and j["active"]
-    ]
+def get_lore(league_id: str) -> list[dict[str, Any]]:
+    return [dict(l) for l in _LORE.values()
+            if l["league_id"] == league_id and l["active"]]
 
 
-def add_joke(league_id: str, text: str) -> None:
+def add_lore(league_id: str, text: str) -> None:
     with _lock:
-        jid = str(uuid4())
-        _JOKES[jid] = {
-            "id": jid, "league_id": league_id, "joke": text,
+        lid = str(uuid4())
+        _LORE[lid] = {
+            "id": lid, "league_id": league_id, "entry": text,
             "active": True, "created_at": _now(),
         }
 
 
-def deactivate_joke(joke_id: str, league_id: str) -> None:
+def deactivate_lore(lore_id: str, league_id: str) -> None:
     with _lock:
-        joke = _JOKES.get(joke_id)
-        if joke and joke["league_id"] == league_id:
-            joke["active"] = False
+        entry = _LORE.get(lore_id)
+        if entry and entry["league_id"] == league_id:
+            entry["active"] = False
 
 
 # ---------------------------------------------------------------------------
@@ -118,11 +130,13 @@ def download_paper(path: str) -> Optional[str]:
 
 def save_paper(league_id, week, season, storage_path_, public_url, ai_cache) -> None:
     with _lock:
+        existing = _PAPERS.get((league_id, season, week), {})
         _PAPERS[(league_id, season, week)] = {
-            "id": str(uuid4()),
+            "id": existing.get("id", str(uuid4())),
             "league_id": league_id, "week": week, "season": season,
             "storage_path": storage_path_, "public_url": public_url,
             "ai_cache": ai_cache, "generated_at": _now(),
+            "emailed_at": existing.get("emailed_at"),
         }
 
 
@@ -135,3 +149,117 @@ def list_papers(league_id: str) -> list[dict[str, Any]]:
 def get_paper(league_id: str, season: int, week: int) -> Optional[dict[str, Any]]:
     found = _PAPERS.get((league_id, season, week))
     return dict(found) if found else None
+
+
+# ---------------------------------------------------------------------------
+# Subscribers
+# ---------------------------------------------------------------------------
+
+def subscribe(league_id: str, email: str, source: str = "reader") -> Optional[dict[str, Any]]:
+    email = email.strip().lower()
+    with _lock:
+        existing = next(
+            (s for s in _SUBSCRIBERS.values()
+             if s["league_id"] == league_id and s["email"] == email),
+            None,
+        )
+        if existing:
+            if existing["confirmed"] and not existing.get("unsubscribed_at"):
+                return None
+            existing["confirm_token"] = _token()
+            existing["unsubscribed_at"] = None
+            existing["source"] = source
+            return dict(existing)
+
+        sid = str(uuid4())
+        _SUBSCRIBERS[sid] = {
+            "id": sid, "league_id": league_id, "email": email,
+            "confirmed": False, "confirm_token": _token(),
+            "unsubscribe_token": _token(), "unsubscribed_at": None,
+            "confirmed_at": None, "created_at": _now(), "source": source,
+        }
+        return dict(_SUBSCRIBERS[sid])
+
+
+def confirm_subscription(token: str) -> Optional[dict[str, Any]]:
+    with _lock:
+        row = next((s for s in _SUBSCRIBERS.values() if s["confirm_token"] == token), None)
+        if not row:
+            return None
+        row["confirmed"] = True
+        row["confirmed_at"] = _now()
+        row["unsubscribed_at"] = None
+        out = dict(row)
+    out["leagues"] = _LEAGUES.get(out["league_id"])
+    return out
+
+
+def unsubscribe(token: str) -> Optional[dict[str, Any]]:
+    with _lock:
+        row = next((s for s in _SUBSCRIBERS.values() if s["unsubscribe_token"] == token), None)
+        if not row:
+            return None
+        row["unsubscribed_at"] = _now()
+        out = dict(row)
+    out["leagues"] = _LEAGUES.get(out["league_id"])
+    return out
+
+
+def active_subscribers(league_id: str) -> list[dict[str, Any]]:
+    return [
+        dict(s) for s in _SUBSCRIBERS.values()
+        if s["league_id"] == league_id and s["confirmed"] and not s.get("unsubscribed_at")
+    ]
+
+
+def subscriber_count(league_id: str) -> int:
+    return len(active_subscribers(league_id))
+
+
+# ---------------------------------------------------------------------------
+# Magic links
+# ---------------------------------------------------------------------------
+
+def leagues_for_email(email: str) -> list[dict[str, Any]]:
+    email = (email or "").strip().lower()
+    return [dict(l) for l in _LEAGUES.values()
+            if (l.get("owner_email") or "").lower() == email]
+
+
+def create_magic_link(email: str, token: str, expires_at: str) -> None:
+    with _lock:
+        _MAGIC_LINKS[token] = {
+            "id": str(uuid4()), "email": email.strip().lower(),
+            "token": token, "expires_at": expires_at,
+            "used_at": None, "created_at": _now(),
+        }
+
+
+def consume_magic_link(token: str) -> Optional[str]:
+    with _lock:
+        row = _MAGIC_LINKS.get(token)
+        if not row or row.get("used_at"):
+            return None
+        try:
+            expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            return None
+        if datetime.now(timezone.utc) > expires:
+            return None
+        row["used_at"] = _now()
+        return row["email"]
+
+
+# ---------------------------------------------------------------------------
+# Auto-send bookkeeping
+# ---------------------------------------------------------------------------
+
+def leagues_with_auto_send() -> list[dict[str, Any]]:
+    return [dict(l) for l in _LEAGUES.values() if l.get("auto_send")]
+
+
+def mark_emailed(league_id: str, season: int, week: int) -> None:
+    with _lock:
+        paper = _PAPERS.get((league_id, season, week))
+        if paper:
+            paper["emailed_at"] = _now()

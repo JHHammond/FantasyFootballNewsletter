@@ -9,6 +9,14 @@
     <h1 class="page-title">{{ paper_name }}</h1>
 </header>
 
+{% if subscribed %}
+<div class="alert alert-success">
+    Check your email. We sent a link to confirm &mdash; click it and you're in.
+</div>
+{% endif %}
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
 {% if papers %}
 <ul class="paper-list paper-list-public">
     {% for p in papers %}
@@ -21,13 +29,27 @@
     </li>
     {% endfor %}
 </ul>
+
+<section class="card">
+    <h2 class="card-title">Get it in your inbox</h2>
+    <p class="card-sub">
+        We'll send you each new edition when it drops. Nothing else, ever.
+    </p>
+    <form method="post" action="/p/{{ league.public_slug }}/subscribe" class="inline-form">
+        <label class="field">
+            <span class="field-label">Email</span>
+            <input type="email" name="email" required placeholder="you@email.com" />
+        </label>
+        <button type="submit" class="btn btn-primary">Sign me up</button>
+    </form>
+</section>
 {% else %}
-<p class="empty">No editions published yet. Check back after Sunday.</p>
+<p class="empty">Nothing published yet. Check back after Sunday.</p>
 {% endif %}
 
 <section class="cta">
     <h2 class="section-title">Want one for your league?</h2>
-    <p>It&rsquo;s free and takes about a minute to set up.</p>
-    <a class="btn btn-primary" href="/">Create a paper</a>
+    <p>It's free and takes about a minute.</p>
+    <a class="btn btn-primary" href="/">Make a paper</a>
 </section>
 {% endblock %}

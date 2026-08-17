@@ -4,7 +4,7 @@ import json
 import random
 import markdown
 
-from ads import CLASSIFIEDS_CSS, render_classifieds
+from ads import CLASSIFIEDS_CSS, SUBSCRIBE_CSS, render_classifieds, render_subscribe_block
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -931,7 +931,7 @@ def build_week_ticker(summary):
     return "".join(blocks)
 
 
-def build_edition(league_name, week, summary, matchups, power_rankings, ai_content=None, ads=None):
+def build_edition(league_name, week, summary, matchups, power_rankings, ai_content=None, ads=None, subscribe_slug=None):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
 
@@ -1086,6 +1086,9 @@ def build_edition(league_name, week, summary, matchups, power_rankings, ai_conte
         # Ad inventory. Falls back to house ads so the paper never has a
         # visible hole. See ads.py for the network-fill hooks.
         "classifieds_html": render_classifieds(ads),
+        # The reader just finished two thousand words of this. Best moment
+        # we will ever get to ask for an email.
+        "subscribe_html": render_subscribe_block(subscribe_slug, league_name),
     }
 
 
@@ -1099,6 +1102,7 @@ def render_html(edition):
     <title>{edition['paper_name']}</title>
     <style>
         {CLASSIFIEDS_CSS}
+        {SUBSCRIBE_CSS}
         * {{ box-sizing: border-box; }}
 
         body {{
@@ -1907,6 +1911,9 @@ def render_html(edition):
             </div>
         </div>
 
+        <!-- SUBSCRIBE — see ads.py -->
+        {edition.get('subscribe_html', '')}
+
         <!-- CLASSIFIEDS — ad inventory, see ads.py -->
         {edition.get('classifieds_html', '')}
 
@@ -1916,8 +1923,8 @@ def render_html(edition):
 """
 
 
-def save_newspaper_html(league_name, week, summary, matchups, power_rankings, ai_content=None, output_dir="output", ads=None):
-    edition = build_edition(league_name, week, summary, matchups, power_rankings, ai_content, ads=ads)
+def save_newspaper_html(league_name, week, summary, matchups, power_rankings, ai_content=None, output_dir="output", ads=None, subscribe_slug=None):
+    edition = build_edition(league_name, week, summary, matchups, power_rankings, ai_content, ads=ads, subscribe_slug=subscribe_slug)
     html = render_html(edition)
 
     output_path = Path(output_dir)

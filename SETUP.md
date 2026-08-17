@@ -10,10 +10,13 @@ pip install -r requirements.txt
 
 ## 2. Supabase
 
-New project → SQL Editor → paste all of **`migrations/002_accountless.sql`** → Run.
+New project → SQL Editor → run these three in order:
 
-That's the only migration you need. It creates the tables, the storage bucket,
-and turns row-level security on with no policies — see below for why.
+1. **`migrations/002_accountless.sql`** — tables, storage bucket, RLS posture
+2. **`migrations/003_email.sql`** — subscribers, magic links, auto-send
+3. **`migrations/004_lore.sql`** — renames `inside_jokes` to `lore`
+
+Skip `000` and `001`; they're the account-based schema and are superseded.
 
 Then Project Settings → API, and put these in `.env`:
 
@@ -22,6 +25,14 @@ SUPABASE_URL=https://<your-project-ref>.supabase.co
 SUPABASE_SERVICE_KEY=<the service_role key>
 ANTHROPIC_API_KEY=<your key>
 CURRENT_SEASON=2025
+
+# Email — optional. Without RESEND_API_KEY, sends are printed to the
+# terminal instead, which is fine for local development.
+RESEND_API_KEY=re_...
+EMAIL_FROM="The Commissioner's Desk <papers@yourdomain.com>"
+MAILING_ADDRESS="Your Name, 123 Street, City ST 00000"
+BASE_URL=https://yourdomain.com
+TASK_KEY=<random string; protects the weekly send endpoint>
 ```
 
 **This time you want the service_role key, not anon.** That's the opposite of
@@ -108,3 +119,74 @@ python verify_provider.py       # live Sleeper fetch
 `legacy_streamlit_app.py` is the old front end, kept for reference. It's not
 wired to anything anymore — it still expects accounts and the pre-accountless
 schema. Delete it whenever.
+
+## Email
+
+Three capture points, none of them a wall:
+
+| Where | Ask | Type |
+|---|---|---|
+| Manage page | "We'll email you the link" | transactional |
+| Foot of every paper | "Get this in your inbox" | marketing |
+| Archive page | same | marketing |
+
+Readers go through **double opt-in** — a subscription isn't active until the
+address clicks a confirmation link. It costs some conversion and buys
+deliverability, plus it stops anyone signing up an address they don't own.
+
+Every marketing email carries a one-click unsubscribe link and `List-Unsubscribe`
+headers, so Gmail and Apple Mail show their own unsubscribe button. Without
+those, people unsubscribe by hitting "report spam", which damages the sending
+domain for every league at once.
+
+`MAILING_ADDRESS` appears in the marketing footer. CAN-SPAM requires a physical
+address on marketing mail; the manage-link email is transactional and exempt.
+
+**Without `RESEND_API_KEY` set, nothing is sent** — messages print to the
+terminal. Good for local work, and it's why the tests need no credentials.
+
+### Costs
+
+Resend's free tier is 3,000 emails/month but capped at **100 per day**. A weekly
+newsletter all firing on the same morning hits the daily cap first — roughly 16
+leagues at 6 subscribers each. Pro at $20/mo removes the daily limit.
+
+## Recovery instead of accounts
+
+`/recover` takes an email and sends back the manage links for every paper
+registered to it. Links work once and expire in 30 minutes. That's the whole of
+authentication — no passwords, no signup form, no account settings.
+
+The page gives the same response whether or not the address is known, so it
+can't be used to check who has an account.
+
+If a commissioner never gave us an email and loses their bookmark, they're
+locked out. That's the honest cost of no accounts, which is why the manage page
+asks for an address in a yellow box on first visit.
+
+## Weekly auto-send
+
+Turn on "Do it for me every week" in a league's settings. Then run the job
+weekly, whichever way your host supports:
+
+```bash
+python -m web.tasks 3                    # real cron
+```
+
+```bash
+curl -X POST https://yourdomain.com/tasks/weekly \
+     -H "X-Task-Key: $TASK_KEY" -d "week=3"      # external scheduler
+```
+
+It generates the week if it doesn't exist, emails every confirmed subscriber,
+and stamps `emailed_at`. **Safe to run twice** — the stamp is checked before
+sending, so a retrying cron or a second process won't double-mail anyone.
+
+A suggested crontab for Tuesday mornings, computing the NFL week from the
+season start:
+
+```
+0 9 * * 2  cd /app && python -m web.tasks $(python -c "
+from datetime import date
+print(max(1, min(18, (date.today() - date(2025, 9, 2)).days // 7 + 1)))")
+```

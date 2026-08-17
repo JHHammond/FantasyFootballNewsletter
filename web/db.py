@@ -112,27 +112,27 @@ def update_league(league_id: str, fields: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Inside jokes — the thing that makes one league's paper unlike another's
+# Lore — the thing that makes one league's paper unlike another's
 # ---------------------------------------------------------------------------
 
-def get_jokes(league_id: str) -> list[dict[str, Any]]:
+def get_lore(league_id: str) -> list[dict[str, Any]]:
     res = (
-        client().table("inside_jokes").select("*")
+        client().table("lore").select("*")
         .eq("league_id", league_id).eq("active", True)
         .order("created_at").execute()
     )
     return res.data or []
 
 
-def add_joke(league_id: str, text: str) -> None:
-    client().table("inside_jokes").insert({"league_id": league_id, "joke": text}).execute()
+def add_lore(league_id: str, text: str) -> None:
+    client().table("lore").insert({"league_id": league_id, "entry": text}).execute()
 
 
-def deactivate_joke(joke_id: str, league_id: str) -> None:
+def deactivate_lore(lore_id: str, league_id: str) -> None:
     # league_id in the filter so a stray ID from another league can't be touched.
     (
-        client().table("inside_jokes").update({"active": False})
-        .eq("id", joke_id).eq("league_id", league_id).execute()
+        client().table("lore").update({"active": False})
+        .eq("id", lore_id).eq("league_id", league_id).execute()
     )
 
 
@@ -206,3 +206,149 @@ def get_paper(league_id: str, season: int, week: int) -> Optional[dict[str, Any]
         .limit(1).execute()
     )
     return res.data[0] if res.data else None
+
+
+# ---------------------------------------------------------------------------
+# Subscribers
+#
+# Double opt-in: `subscribe` creates or revives an UNCONFIRMED row and returns
+# the confirm token. Nothing is ever mailed to an address that hasn't clicked
+# through, which is both the legal posture and the reason the sending domain
+# stays out of spam folders.
+# ---------------------------------------------------------------------------
+
+def subscribe(league_id: str, email: str, source: str = "reader") -> Optional[dict[str, Any]]:
+    """Create or revive a subscription. Returns the row, or None if already confirmed."""
+    email = email.strip().lower()
+    existing = (
+        client().table("subscribers").select("*")
+        .eq("league_id", league_id).eq("email", email).limit(1).execute()
+    )
+
+    if existing.data:
+        row = existing.data[0]
+        if row["confirmed"] and not row.get("unsubscribed_at"):
+            return None  # already on the list; don't re-send a confirmation
+        # Previously unsubscribed or never confirmed: issue a fresh token.
+        new_token = _token()
+        client().table("subscribers").update({
+            "confirm_token": new_token,
+            "unsubscribed_at": None,
+            "source": source,
+        }).eq("id", row["id"]).execute()
+        row["confirm_token"] = new_token
+        return row
+
+    res = client().table("subscribers").insert({
+        "league_id": league_id,
+        "email": email,
+        "confirm_token": _token(),
+        "unsubscribe_token": _token(),
+        "source": source,
+    }).execute()
+    return res.data[0] if res.data else None
+
+
+def confirm_subscription(token: str) -> Optional[dict[str, Any]]:
+    res = (
+        client().table("subscribers").select("*, leagues(*)")
+        .eq("confirm_token", token).limit(1).execute()
+    )
+    if not res.data:
+        return None
+    row = res.data[0]
+    client().table("subscribers").update({
+        "confirmed": True,
+        "confirmed_at": "now()",
+        "unsubscribed_at": None,
+    }).eq("id", row["id"]).execute()
+    return row
+
+
+def unsubscribe(token: str) -> Optional[dict[str, Any]]:
+    res = (
+        client().table("subscribers").select("*, leagues(*)")
+        .eq("unsubscribe_token", token).limit(1).execute()
+    )
+    if not res.data:
+        return None
+    row = res.data[0]
+    client().table("subscribers").update({"unsubscribed_at": "now()"})\
+        .eq("id", row["id"]).execute()
+    return row
+
+
+def active_subscribers(league_id: str) -> list[dict[str, Any]]:
+    """Confirmed and not unsubscribed. The weekly send reads exactly this."""
+    res = (
+        client().table("subscribers").select("*")
+        .eq("league_id", league_id).eq("confirmed", True)
+        .is_("unsubscribed_at", "null").execute()
+    )
+    return res.data or []
+
+
+def subscriber_count(league_id: str) -> int:
+    return len(active_subscribers(league_id))
+
+
+# ---------------------------------------------------------------------------
+# Magic links — the whole of "authentication"
+# ---------------------------------------------------------------------------
+
+def leagues_for_email(email: str) -> list[dict[str, Any]]:
+    res = (
+        client().table("leagues").select("*")
+        .ilike("owner_email", email.strip()).execute()
+    )
+    return res.data or []
+
+
+def create_magic_link(email: str, token: str, expires_at: str) -> None:
+    client().table("magic_links").insert({
+        "email": email.strip().lower(),
+        "token": token,
+        "expires_at": expires_at,
+    }).execute()
+
+
+def consume_magic_link(token: str) -> Optional[str]:
+    """Return the email if the token is valid and unused, then burn it."""
+    res = client().table("magic_links").select("*").eq("token", token).limit(1).execute()
+    if not res.data:
+        return None
+    row = res.data[0]
+    if row.get("used_at"):
+        return None
+
+    from datetime import datetime, timezone
+    try:
+        expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    if datetime.now(timezone.utc) > expires:
+        return None
+
+    client().table("magic_links").update({"used_at": "now()"}).eq("id", row["id"]).execute()
+    return row["email"]
+
+
+# ---------------------------------------------------------------------------
+# Auto-send bookkeeping
+# ---------------------------------------------------------------------------
+
+def leagues_with_auto_send() -> list[dict[str, Any]]:
+    res = client().table("leagues").select("*").eq("auto_send", True).execute()
+    return res.data or []
+
+
+def mark_emailed(league_id: str, season: int, week: int) -> None:
+    (
+        client().table("newspapers").update({"emailed_at": "now()"})
+        .eq("league_id", league_id).eq("season", season).eq("week", week).execute()
+    )
+
+
+def _token() -> str:
+    import secrets
+    return secrets.token_urlsafe(24)

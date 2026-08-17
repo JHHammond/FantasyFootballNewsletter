@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Get your link back{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1 class="hero-title">Lost your link?</h1>
+    <p class="hero-sub">
+        Put in the email you used and we'll send it back. If you never gave us
+        one, we can't help &mdash; sorry, that's the tradeoff for not making you
+        sign up.
+    </p>
+</section>
+
+{% if sent %}
+<div class="alert alert-success">
+    If that address has a paper, the link is on its way. It works once and
+    expires in 30 minutes.
+</div>
+{% else %}
+<section class="card">
+    <form method="post" action="/recover" class="inline-form">
+        <label class="field">
+            <span class="field-label">Email</span>
+            <input type="email" name="email" required placeholder="you@email.com" />
+        </label>
+        <button type="submit" class="btn btn-primary">Send it</button>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

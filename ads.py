@@ -167,3 +167,99 @@ def render_classifieds(ads: Optional[list[Ad]] = None, limit: int = 4) -> str:
         <div class="classifieds-title">Classifieds</div>
         <div class="classifieds-grid">{blocks}</div>
     </div>'''
+
+
+# ---------------------------------------------------------------------------
+# Subscribe block
+#
+# Goes at the foot of every paper. Someone who has just read the whole thing is
+# the warmest audience this product will ever have — far warmer than anyone
+# looking at a landing page — so this is where the email ask belongs.
+#
+# Renders nothing when no slug is passed (e.g. the CLI writing a local file),
+# because a form posting to a server that isn't there is worse than no form.
+# ---------------------------------------------------------------------------
+
+SUBSCRIBE_CSS = """
+    .subscribe-block {
+        border: 3px double #111;
+        padding: 24px 28px;
+        margin: 28px 0;
+        text-align: center;
+        background: #fffdf8;
+    }
+    .subscribe-kicker {
+        font-family: "Barlow Condensed", "Georgia", serif;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: #6b6050;
+    }
+    .subscribe-head {
+        font-family: "Playfair Display", Georgia, serif;
+        font-size: 26px;
+        font-weight: 900;
+        margin: 6px 0 4px;
+    }
+    .subscribe-sub {
+        font-size: 14px;
+        color: #3a3a3a;
+        margin-bottom: 16px;
+    }
+    .subscribe-form {
+        display: flex;
+        gap: 8px;
+        max-width: 420px;
+        margin: 0 auto;
+    }
+    .subscribe-form input {
+        flex: 1;
+        font-family: Georgia, serif;
+        font-size: 15px;
+        padding: 11px 13px;
+        border: 1px solid #cfc8b8;
+        background: #fff;
+    }
+    .subscribe-form button {
+        font-family: "Barlow Condensed", sans-serif;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        padding: 11px 20px;
+        border: none;
+        background: #2d5016;
+        color: #fff;
+        cursor: pointer;
+    }
+    .subscribe-form button:hover { background: #1e3a0f; }
+    .subscribe-fine {
+        font-size: 11px;
+        color: #6b6050;
+        margin-top: 10px;
+    }
+    @media (max-width: 600px) {
+        .subscribe-form { flex-direction: column; }
+    }
+"""
+
+
+def render_subscribe_block(public_slug: Optional[str], paper_name: str = "") -> str:
+    if not public_slug:
+        return ""
+    name = _escape(paper_name or "this paper")
+    return f'''
+    <div class="subscribe-block">
+        <div class="subscribe-kicker">Don&rsquo;t miss next week</div>
+        <div class="subscribe-head">Get this in your inbox</div>
+        <div class="subscribe-sub">
+            We&rsquo;ll send you {name} the second it drops. That&rsquo;s it &mdash;
+            no other emails, ever.
+        </div>
+        <form class="subscribe-form" method="post" action="/p/{_escape(public_slug)}/subscribe">
+            <input type="email" name="email" placeholder="you@email.com" required />
+            <button type="submit">Sign me up</button>
+        </form>
+        <div class="subscribe-fine">One click to unsubscribe. We won&rsquo;t sell your email.</div>
+    </div>'''

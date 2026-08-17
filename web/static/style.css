@@ -335,3 +335,18 @@ textarea { resize: vertical; }
     font-weight: 600;
     letter-spacing: 0.6px;
 }
+
+/* ---------- checkbox + misc ---------- */
+
+.check {
+    display: flex;
+    gap: 11px;
+    align-items: flex-start;
+    font-size: 15px;
+    cursor: pointer;
+}
+.check input { margin-top: 4px; width: 16px; height: 16px; flex-shrink: 0; }
+.check-help { display: block; font-size: 13px; color: var(--muted); margin-top: 3px; }
+
+.how-note { margin-top: 18px; font-size: 14px; color: var(--muted); }
+.how-note a { color: var(--green); }

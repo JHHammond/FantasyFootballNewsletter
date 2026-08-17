@@ -1,19 +1,27 @@
 """
 The Commissioner's Desk — web app.
 
-No accounts, by design. Monetization is ads inside the paper, which means the
-metric that matters is how many people open a paper, and a signup wall sits
-directly in front of the one person who has to create it while doing nothing
-for the ten who read it.
+No accounts, by design. Monetization is ads inside the paper, so the number
+that matters is how many people open one, and a signup wall stands in front of
+the single person who has to create it while doing nothing for the ten who
+read it.
 
-So instead of auth there are two URLs per league:
+Email does the two jobs an account would have done, but asks only after the
+product has proven itself:
 
-    /l/<admin_token>            manage the league. Secret. Bookmark it.
-    /p/<public_slug>            read the papers. Share freely.
+    recovery      — commissioner gives us an address, gets their manage link
+                    re-sent. Magic links replace passwords entirely.
+    distribution  — readers subscribe from inside the paper, so reach stops
+                    depending on one person pasting a link every Monday.
+
+Two URLs per league:
+
+    /l/<admin_token>            manage. Secret. Bookmark it.
+    /p/<public_slug>            read. Share freely.
 
 Run locally:
 
-    uvicorn web.app:app --reload --port 8000
+    DEMO_MODE=1 uvicorn web.app:app --reload --port 8000
 """
 
 from __future__ import annotations
@@ -22,6 +30,7 @@ import os
 import sys
 import time
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,7 +39,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-# The generation pipeline lives in the project root, one level up.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 load_dotenv()
@@ -39,18 +47,10 @@ from providers import (  # noqa: E402
     ProviderError,
     available_providers,
     get_provider,
-    load_week,
-    week_to_legacy_games,
-)
-from storylines import get_weekly_storylines  # noqa: E402
-from writer import generate_full_newspaper_content  # noqa: E402
-from newspaper import (  # noqa: E402
-    build_edition,
-    build_power_rankings_from_matchups,
-    render_html,
 )
 
-from . import slugs  # noqa: E402
+from . import emailer, slugs  # noqa: E402
+from .generate import generate_and_store, paper_name_for  # noqa: E402
 
 # DEMO_MODE=1 swaps Supabase for an in-memory store, so the whole app can be
 # clicked through — including real generation from real league data — before
@@ -64,6 +64,7 @@ else:
 
 BASE_DIR = Path(__file__).resolve().parent
 CURRENT_SEASON = int(os.getenv("CURRENT_SEASON", "2025"))
+MAGIC_LINK_TTL_MINUTES = 30
 
 app = FastAPI(title="The Commissioner's Desk", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -74,20 +75,22 @@ templates.env.globals["demo_mode"] = DEMO_MODE
 # ---------------------------------------------------------------------------
 # Rate limiting
 #
-# Removing accounts removes the natural brake on abuse. Generation costs real
-# Claude tokens, so an open endpoint that spends money on demand needs a guard.
-# In-memory is fine for a single process; move to Redis when you run more.
+# Removing accounts removed the natural brake on abuse. Generation costs real
+# Claude tokens and email costs deliverability reputation, so both need a cap.
+# In-memory is fine for one process; move to Redis when you run more.
 # ---------------------------------------------------------------------------
 
-_GENERATION_LOG: dict[str, list[float]] = defaultdict(list)
+_HITS: dict[str, list[float]] = defaultdict(list)
 GENERATIONS_PER_HOUR = 10
 LEAGUE_CREATES_PER_HOUR = 5
+SUBSCRIBES_PER_HOUR = 20
+RECOVERIES_PER_HOUR = 5
 
 
 def _rate_limited(key: str, limit: int, window: int = 3600) -> bool:
     now = time.time()
-    hits = [t for t in _GENERATION_LOG[key] if now - t < window]
-    _GENERATION_LOG[key] = hits
+    hits = [t for t in _HITS[key] if now - t < window]
+    _HITS[key] = hits
     if len(hits) >= limit:
         return True
     hits.append(now)
@@ -108,8 +111,8 @@ def _client_ip(request: Request) -> str:
 def _require_league(token: str) -> dict:
     """Load a league by admin token, or 404.
 
-    404 rather than 403 on a bad token: a wrong guess should be
-    indistinguishable from a league that doesn't exist.
+    404 rather than 403: a wrong guess should be indistinguishable from a
+    league that doesn't exist.
     """
     league = db.league_by_admin_token(token)
     if not league:
@@ -117,12 +120,12 @@ def _require_league(token: str) -> dict:
     return league
 
 
-def _paper_name(league: dict) -> str:
-    return league.get("paper_name") or f"The {league['league_name']} Times"
-
-
 def _render(request: Request, template: str, **context) -> HTMLResponse:
     return templates.TemplateResponse(request, template, context)
+
+
+def _implemented_providers():
+    return [p for p in available_providers() if p["implemented"]]
 
 
 # ---------------------------------------------------------------------------
@@ -131,11 +134,8 @@ def _render(request: Request, template: str, **context) -> HTMLResponse:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return _render(
-        request, "index.html",
-        providers=[p for p in available_providers() if p["implemented"]],
-        season=CURRENT_SEASON,
-    )
+    return _render(request, "index.html",
+                   providers=_implemented_providers(), season=CURRENT_SEASON)
 
 
 @app.post("/leagues")
@@ -149,47 +149,39 @@ def create_league(
 ):
     ip = _client_ip(request)
     if _rate_limited(f"create:{ip}", LEAGUE_CREATES_PER_HOUR):
-        return _render(
-            request, "index.html",
-            providers=[p for p in available_providers() if p["implemented"]],
-            season=season,
-            error="You've created several leagues in the last hour. Try again later.",
-        )
+        return _render(request, "index.html",
+                       providers=_implemented_providers(), season=season,
+                       error="You've made a few of these already. Give it an hour.")
 
     league_id = league_id.strip()
 
-    # Already set up? Don't create a duplicate — but don't hand the existing
-    # league's admin token to whoever typed the ID either. Anyone can read a
-    # Sleeper league ID off a URL; that can't be enough to seize control.
+    # Already set up? Point at the paper, but never hand over the admin token.
+    # Anyone can read a Sleeper league ID off a URL; that can't be enough to
+    # take control of someone else's paper.
     existing = db.find_existing_league(provider, league_id, season)
     if existing:
         return _render(
             request, "index.html",
-            providers=[p for p in available_providers() if p["implemented"]],
-            season=season,
+            providers=_implemented_providers(), season=season,
             error=(
-                f"That league already has a paper: "
+                f"This league already has a paper — "
                 f"<a href='/p/{existing['public_slug']}'>read it here</a>. "
-                "If you set it up, use the manage link you bookmarked."
+                f"If it's yours and you lost the link, "
+                f"<a href='/recover'>get it back</a>."
             ),
         )
 
     try:
         adapter = get_provider(provider)
         name = adapter.verify_league(league_id, season)
+        detail = "Double-check the ID."
     except (ProviderError, ValueError) as exc:
-        name = None
-        detail = str(exc)
-    else:
-        detail = "Check the ID and try again."
+        name, detail = None, str(exc)
 
     if not name:
-        return _render(
-            request, "index.html",
-            providers=[p for p in available_providers() if p["implemented"]],
-            season=season,
-            error=f"Couldn't find that league. {detail}",
-        )
+        return _render(request, "index.html",
+                       providers=_implemented_providers(), season=season,
+                       error=f"Couldn't find that league. {detail}")
 
     league = db.create_league(
         provider=provider,
@@ -205,98 +197,105 @@ def create_league(
 
 
 # ---------------------------------------------------------------------------
-# Manage a league
+# Manage
 # ---------------------------------------------------------------------------
 
 @app.get("/l/{token}", response_class=HTMLResponse)
-def manage(request: Request, token: str, new: int = 0, generated: int = 0, error: str = ""):
+def manage(
+    request: Request, token: str,
+    new: int = 0, generated: int = 0, error: str = "", notice: str = "",
+):
     league = _require_league(token)
     return _render(
         request, "league.html",
         league=league,
-        paper_name=_paper_name(league),
-        jokes=db.get_jokes(league["id"]),
+        paper_name=paper_name_for(league),
+        lore=db.get_lore(league["id"]),
         papers=db.list_papers(league["id"]),
+        subscriber_count=db.subscriber_count(league["id"]),
         is_new=bool(new),
         generated_week=generated or None,
         error=error,
+        notice=notice,
     )
 
 
-@app.post("/l/{token}/jokes")
-def add_joke(token: str, joke: str = Form(...)):
+@app.post("/l/{token}/lore")
+def add_lore(token: str, entry: str = Form(...)):
     league = _require_league(token)
-    text = joke.strip()
+    text = entry.strip()
     if text:
-        db.add_joke(league["id"], text[:500])
+        db.add_lore(league["id"], text[:500])
     return RedirectResponse(f"/l/{token}", status_code=303)
 
 
-@app.post("/l/{token}/jokes/{joke_id}/remove")
-def remove_joke(token: str, joke_id: str):
+@app.post("/l/{token}/lore/{lore_id}/remove")
+def remove_lore(token: str, lore_id: str):
     league = _require_league(token)
-    db.deactivate_joke(joke_id, league["id"])
+    db.deactivate_lore(lore_id, league["id"])
     return RedirectResponse(f"/l/{token}", status_code=303)
 
 
 @app.post("/l/{token}/settings")
-def update_settings(token: str, paper_name: str = Form(""), commissioner: str = Form("")):
+def update_settings(
+    token: str,
+    paper_name: str = Form(""),
+    commissioner: str = Form(""),
+    auto_send: str = Form(""),
+):
     league = _require_league(token)
     db.update_league(league["id"], {
         "paper_name": paper_name.strip() or None,
         "commissioner_name": commissioner.strip(),
+        "auto_send": auto_send == "on",
     })
     return RedirectResponse(f"/l/{token}", status_code=303)
+
+
+@app.post("/l/{token}/email")
+def save_owner_email(token: str, email: str = Form(...)):
+    """Commissioner asks us to email them their manage link.
+
+    Transactional, not marketing — it's a direct response to them clicking a
+    button, and it's the recovery mechanism that makes going accountless safe.
+    """
+    league = _require_league(token)
+    address = email.strip().lower()
+    if not address or "@" not in address:
+        return RedirectResponse(f"/l/{token}?error=That+doesn't+look+like+an+email.",
+                                status_code=303)
+
+    db.update_league(league["id"], {"owner_email": address})
+    result = emailer.send_manage_link(address, paper_name_for(league), league["admin_token"])
+
+    if not result.ok:
+        return RedirectResponse(
+            f"/l/{token}?error=Couldn't+send+that+email.+Try+again+in+a+bit.",
+            status_code=303)
+    return RedirectResponse(f"/l/{token}?notice=Sent.+Check+your+inbox.",
+                            status_code=303)
 
 
 # ---------------------------------------------------------------------------
 # Generation
 #
-# A plain `def` rather than `async def` on purpose: FastAPI runs sync handlers
-# in a threadpool, so this ~30-second call doesn't block the event loop and
-# freeze every other request.
+# A plain `def`, not `async def`: FastAPI runs sync handlers in a threadpool,
+# so this ~30-second call doesn't block the event loop and freeze everything.
 # ---------------------------------------------------------------------------
 
 @app.post("/l/{token}/generate")
 def generate(request: Request, token: str, week: int = Form(...)):
     league = _require_league(token)
-    ip = _client_ip(request)
 
-    if _rate_limited(f"gen:{ip}", GENERATIONS_PER_HOUR):
+    if _rate_limited(f"gen:{_client_ip(request)}", GENERATIONS_PER_HOUR):
         return RedirectResponse(
-            f"/l/{token}?error=Too+many+generations+this+hour.+Try+again+later.",
-            status_code=303,
-        )
-
-    season = league["season"]
-    jokes = db.get_jokes(league["id"])
-    jokes_text = "\n".join(f"- {j['joke']}" for j in jokes)
-    paper_name = _paper_name(league)
+            f"/l/{token}?error=That's+a+lot+of+papers+this+hour.+Try+later.",
+            status_code=303)
 
     try:
-        week_data = load_week(league["provider"], league["platform_league_id"], season, week)
+        generate_and_store(db, league, week)
     except ProviderError as exc:
         return RedirectResponse(f"/l/{token}?error={exc}", status_code=303)
-
-    games = week_to_legacy_games(week_data)
-    summary = get_weekly_storylines(games)
-
-    ai_content = generate_full_newspaper_content(
-        league_name=paper_name,
-        week=week,
-        games=games,
-        summary=summary,
-        commissioner_name=league.get("commissioner_name") or "",
-        inside_jokes=jokes_text,
-    )
-
-    power_rankings = build_power_rankings_from_matchups(games)
-    edition = build_edition(paper_name, week, summary, games, power_rankings, ai_content)
-    edition["paper_name"] = paper_name
-    html = render_html(edition)
-
-    path, public_url = db.upload_paper(league["public_slug"], season, week, html)
-    db.save_paper(league["id"], week, season, path, public_url, ai_content)
 
     return RedirectResponse(f"/l/{token}?generated={week}", status_code=303)
 
@@ -306,39 +305,163 @@ def generate(request: Request, token: str, week: int = Form(...)):
 # ---------------------------------------------------------------------------
 
 @app.get("/p/{slug}", response_class=HTMLResponse)
-def league_papers(request: Request, slug: str):
+def league_papers(request: Request, slug: str, subscribed: int = 0, error: str = ""):
     league = db.league_by_public_slug(slug)
     if not league:
-        raise HTTPException(status_code=404, detail="No paper found at that address.")
-    return _render(
-        request, "archive.html",
-        league=league,
-        paper_name=_paper_name(league),
-        papers=db.list_papers(league["id"]),
-    )
+        raise HTTPException(status_code=404, detail="No paper at that address.")
+    return _render(request, "archive.html",
+                   league=league, paper_name=paper_name_for(league),
+                   papers=db.list_papers(league["id"]),
+                   subscribed=bool(subscribed), error=error)
 
 
 @app.get("/p/{slug}/{season}/week-{week}", response_class=HTMLResponse)
 def read_paper(slug: str, season: int, week: int):
-    """Serve the paper from our own domain rather than redirecting to the CDN.
+    """Serve from our own domain rather than redirecting to the CDN.
 
-    Keeping readers on this domain is what makes the pages worth anything to an
-    ad network, and means the URL people share carries the product's name.
+    Keeping readers here is what makes the pages worth anything to an ad
+    network, and means the shared URL carries the product's name.
     """
     league = db.league_by_public_slug(slug)
     if not league:
-        raise HTTPException(status_code=404, detail="No paper found at that address.")
+        raise HTTPException(status_code=404, detail="No paper at that address.")
 
     html = db.download_paper(db.storage_path(slug, season, week))
     if not html:
-        raise HTTPException(status_code=404, detail="That week hasn't been published.")
+        raise HTTPException(status_code=404, detail="That week isn't out yet.")
 
     return HTMLResponse(
         content=html,
-        # Editions never change once published, so let the browser and any CDN
-        # in front of this hold onto them.
+        # Editions never change once published.
         headers={"Cache-Control": "public, max-age=3600, s-maxage=86400"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Subscriptions
+# ---------------------------------------------------------------------------
+
+@app.post("/p/{slug}/subscribe")
+def subscribe(request: Request, slug: str, email: str = Form(...)):
+    league = db.league_by_public_slug(slug)
+    if not league:
+        raise HTTPException(status_code=404, detail="No paper at that address.")
+
+    if _rate_limited(f"sub:{_client_ip(request)}", SUBSCRIBES_PER_HOUR):
+        return RedirectResponse(f"/p/{slug}?error=Slow+down+a+second.", status_code=303)
+
+    address = email.strip().lower()
+    if "@" not in address:
+        return RedirectResponse(f"/p/{slug}?error=That+doesn't+look+like+an+email.",
+                                status_code=303)
+
+    row = db.subscribe(league["id"], address, source="reader")
+    if row:
+        # Double opt-in. Nothing is ever sent to an address that hasn't clicked
+        # through — protects deliverability and stops people signing up others.
+        emailer.send_confirm_subscription(
+            address, paper_name_for(league), row["confirm_token"])
+
+    # Same response whether or not they were already subscribed, so this
+    # endpoint can't be used to check who's on the list.
+    return RedirectResponse(f"/p/{slug}?subscribed=1", status_code=303)
+
+
+@app.get("/subscribe/confirm/{token}", response_class=HTMLResponse)
+def confirm_subscription(request: Request, token: str):
+    row = db.confirm_subscription(token)
+    if not row:
+        return _render(request, "message.html",
+                       heading="That link's no good",
+                       body="It may have already been used. Try subscribing again "
+                            "from the bottom of any edition.")
+    league = row.get("leagues") or {}
+    slug = league.get("public_slug")
+    return _render(request, "message.html",
+                   heading="You're in",
+                   body="Next week's edition lands in your inbox the moment it's out.",
+                   link_url=f"/p/{slug}" if slug else "/",
+                   link_label="Read the back catalogue")
+
+
+@app.get("/unsubscribe/{token}", response_class=HTMLResponse)
+def unsubscribe(request: Request, token: str):
+    """One click, no confirmation step, no login. Required by CAN-SPAM, and
+    the alternative is people hitting 'report spam' instead."""
+    row = db.unsubscribe(token)
+    if not row:
+        return _render(request, "message.html",
+                       heading="Already done",
+                       body="That address isn't on the list.")
+    return _render(request, "message.html",
+                   heading="You're off the list",
+                   body="No more emails. You can still read every edition on the web.")
+
+
+# ---------------------------------------------------------------------------
+# Magic-link recovery — this is the entirety of "authentication"
+# ---------------------------------------------------------------------------
+
+@app.get("/recover", response_class=HTMLResponse)
+def recover_form(request: Request, sent: int = 0):
+    return _render(request, "recover.html", sent=bool(sent))
+
+
+@app.post("/recover")
+def recover(request: Request, email: str = Form(...)):
+    if _rate_limited(f"rec:{_client_ip(request)}", RECOVERIES_PER_HOUR):
+        return RedirectResponse("/recover?sent=1", status_code=303)
+
+    address = email.strip().lower()
+    leagues = db.leagues_for_email(address) if "@" in address else []
+
+    if leagues:
+        token = slugs.admin_token()
+        expires = datetime.now(timezone.utc) + timedelta(minutes=MAGIC_LINK_TTL_MINUTES)
+        db.create_magic_link(address, token, expires.isoformat())
+        emailer.send_magic_link(address, token, len(leagues))
+
+    # Always the same response, even when we sent nothing. Otherwise this page
+    # tells a stranger whether an address has an account here.
+    return RedirectResponse("/recover?sent=1", status_code=303)
+
+
+@app.get("/recover/{token}", response_class=HTMLResponse)
+def use_magic_link(request: Request, token: str):
+    email = db.consume_magic_link(token)
+    if not email:
+        return _render(request, "message.html",
+                       heading="Link expired",
+                       body="Magic links work once and last 30 minutes.",
+                       link_url="/recover", link_label="Send me a new one")
+
+    leagues = db.leagues_for_email(email)
+    if not leagues:
+        return _render(request, "message.html",
+                       heading="Nothing here",
+                       body="No papers are registered to that address.")
+    if len(leagues) == 1:
+        return RedirectResponse(f"/l/{leagues[0]['admin_token']}", status_code=303)
+
+    return _render(request, "picker.html", leagues=leagues)
+
+
+# ---------------------------------------------------------------------------
+# Weekly auto-send, triggered by cron
+# ---------------------------------------------------------------------------
+
+@app.post("/tasks/weekly")
+def run_weekly(request: Request, week: int = Form(...)):
+    """Protected by a shared secret so this can be hit by any external cron.
+
+    There's a CLI equivalent in web/tasks.py if your host gives you real cron.
+    """
+    expected = os.getenv("TASK_KEY")
+    if not expected or request.headers.get("x-task-key") != expected:
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    from .tasks import send_weekly
+    return send_weekly(db, week)
 
 
 @app.get("/healthz")

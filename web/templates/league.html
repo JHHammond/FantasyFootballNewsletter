@@ -6,21 +6,21 @@
 
 {% if is_new %}
 <div class="alert alert-bookmark">
-    <strong>Bookmark this page right now.</strong>
-    This link is the only way back in &mdash; there&rsquo;s no account and no password
-    reset. Lose it and you lose control of the paper.
+    <strong>Bookmark this page. For real.</strong>
+    This link is the only way back in. No account, no password reset, nothing.
+    Lose it and you're locked out &mdash; or drop your email below and we'll
+    send it to you.
 </div>
 {% endif %}
 
-{% if error %}
-<div class="alert alert-error">{{ error }}</div>
-{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if notice %}<div class="alert alert-success">{{ notice }}</div>{% endif %}
 
 {% if generated_week %}
 <div class="alert alert-success">
-    Week {{ generated_week }} is published.
-    <a href="/p/{{ league.public_slug }}/{{ league.season }}/week-{{ generated_week }}">Read it</a>
-    or send your league the link below.
+    Week {{ generated_week }} is live.
+    <a href="/p/{{ league.public_slug }}/{{ league.season }}/week-{{ generated_week }}">Go read it</a>,
+    then send your league the link below.
 </div>
 {% endif %}
 
@@ -30,8 +30,14 @@
 </header>
 
 <section class="card">
-    <h2 class="card-title">Share with your league</h2>
-    <p class="card-sub">Anyone with this link can read every edition. No sign-in.</p>
+    <h2 class="card-title">Send this to your league</h2>
+    <p class="card-sub">
+        Anyone with this link can read every edition. No sign-in, no app to download.
+        {% if subscriber_count %}
+        <br /><strong>{{ subscriber_count }}</strong>
+        {{ 'person is' if subscriber_count == 1 else 'people are' }} getting it by email.
+        {% endif %}
+    </p>
     <div class="copy-row">
         <input type="text" readonly value="{{ request.base_url }}p/{{ league.public_slug }}"
                onclick="this.select()" class="copy-input" />
@@ -39,8 +45,8 @@
 </section>
 
 <section class="card">
-    <h2 class="card-title">Generate a paper</h2>
-    <p class="card-sub">Run this after Sunday&rsquo;s games are final. Takes about thirty seconds.</p>
+    <h2 class="card-title">Make this week's paper</h2>
+    <p class="card-sub">Run it once Sunday's games are final. Takes about 30 seconds.</p>
     <form method="post" action="/l/{{ league.admin_token }}/generate" class="inline-form">
         <label class="field field-narrow">
             <span class="field-label">Week</span>
@@ -51,31 +57,50 @@
 </section>
 
 <section class="card">
-    <h2 class="card-title">Inside jokes</h2>
+    <h2 class="card-title">The lore</h2>
     <p class="card-sub">
-        The difference between a generic recap and one that sounds like it was
-        written by someone in your league. Be specific.
+        Every league has stuff only you guys know. Who chokes, who talks the most
+        trash, who's been on tilt since Week 1, who's still bringing up a trade
+        from three years ago. Dump it here and it shows up in the paper every week.
+        <br /><br />
+        The paper works without this. It's a lot funnier with it.
     </p>
 
-    {% if jokes %}
+    {% if lore %}
     <ul class="joke-list">
-        {% for joke in jokes %}
+        {% for item in lore %}
         <li class="joke">
-            <span>{{ joke.joke }}</span>
-            <form method="post" action="/l/{{ league.admin_token }}/jokes/{{ joke.id }}/remove">
-                <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
+            <span>{{ item.entry }}</span>
+            <form method="post" action="/l/{{ league.admin_token }}/lore/{{ item.id }}/remove">
+                <button type="submit" class="btn btn-ghost btn-sm">Delete</button>
             </form>
         </li>
         {% endfor %}
     </ul>
     {% else %}
-    <p class="empty">Nothing yet. The paper works without these, but it&rsquo;s much better with them.</p>
+    <p class="empty">Nothing yet. Even two or three lines makes a big difference.</p>
     {% endif %}
 
-    <form method="post" action="/l/{{ league.admin_token }}/jokes" class="stack">
-        <textarea name="joke" rows="2" maxlength="500"
-                  placeholder="Nick always benches his best player. Champ sold his soul for a mediocre roster."></textarea>
-        <button type="submit" class="btn">Add joke</button>
+    <form method="post" action="/l/{{ league.admin_token }}/lore" class="stack">
+        <textarea name="entry" rows="2" maxlength="500"
+                  placeholder="Nick benches his best guy every single week. Champ sold his soul and still went 6-8."></textarea>
+        <button type="submit" class="btn">Add it</button>
+    </form>
+</section>
+
+<section class="card">
+    <h2 class="card-title">Don't lose this page</h2>
+    <p class="card-sub">
+        We'll email you the link so it's not just sitting in your browser history.
+        That's the only thing we use it for.
+    </p>
+    <form method="post" action="/l/{{ league.admin_token }}/email" class="inline-form">
+        <label class="field">
+            <span class="field-label">Your email</span>
+            <input type="email" name="email" required
+                   value="{{ league.owner_email or '' }}" placeholder="you@email.com" />
+        </label>
+        <button type="submit" class="btn">Email me the link</button>
     </form>
 </section>
 
@@ -95,7 +120,7 @@
         {% endfor %}
     </ul>
     {% else %}
-    <p class="empty">No editions yet. Generate one above.</p>
+    <p class="empty">Nothing yet. Generate one up top.</p>
     {% endif %}
 </section>
 
@@ -107,8 +132,18 @@
             <input type="text" name="paper_name" value="{{ league.paper_name or '' }}" />
         </label>
         <label class="field">
-            <span class="field-label">Commissioner username</span>
+            <span class="field-label">Your username</span>
             <input type="text" name="commissioner" value="{{ league.commissioner_name or '' }}" />
+        </label>
+        <label class="check">
+            <input type="checkbox" name="auto_send" {% if league.auto_send %}checked{% endif %} />
+            <span>
+                Do it for me every week.
+                <span class="check-help">
+                    We'll generate Tuesday morning and email it to everyone who
+                    subscribed, so you don't have to remember.
+                </span>
+            </span>
         </label>
         <button type="submit" class="btn">Save</button>
     </form>
