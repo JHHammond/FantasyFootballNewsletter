@@ -1,0 +1,18 @@
+# The Commissioner's Desk
+
+# Web app
+fastapi>=0.115
+uvicorn[standard]>=0.30
+jinja2>=3.1
+python-multipart>=0.0.9      # required for HTML form parsing
+
+# Data + generation
+requests>=2.31
+supabase>=2.4
+anthropic>=0.34
+markdown>=3.5
+python-dotenv>=1.0
+
+# Tests
+pytest>=7.4
+httpx>=0.27                  # FastAPI's TestClient depends on this

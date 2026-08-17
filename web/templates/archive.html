@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}{{ paper_name }}{% endblock %}
+{% block description %}Every weekly edition of {{ paper_name }}, the newspaper for {{ league.league_name }}.{% endblock %}
+
+{% block content %}
+<header class="page-head">
+    <div class="eyebrow">{{ league.league_name }} &middot; {{ league.season }} season</div>
+    <h1 class="page-title">{{ paper_name }}</h1>
+</header>
+
+{% if papers %}
+<ul class="paper-list paper-list-public">
+    {% for p in papers %}
+    <li class="paper-row">
+        <div>
+            <div class="paper-week">Week {{ p.week }}</div>
+            <div class="paper-meta">{{ p.season }} season</div>
+        </div>
+        <a class="btn" href="/p/{{ league.public_slug }}/{{ p.season }}/week-{{ p.week }}">Read</a>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p class="empty">No editions published yet. Check back after Sunday.</p>
+{% endif %}
+
+<section class="cta">
+    <h2 class="section-title">Want one for your league?</h2>
+    <p>It&rsquo;s free and takes about a minute to set up.</p>
+    <a class="btn btn-primary" href="/">Create a paper</a>
+</section>
+{% endblock %}

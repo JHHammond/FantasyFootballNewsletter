@@ -1,81 +1,110 @@
-# Setting up a fresh Supabase project
+# Setup
 
-Order matters — do these top to bottom.
+The app is FastAPI + Jinja templates. There are no user accounts.
 
-## 1. Create the project
+## 1. Install
 
-New project in Supabase. Any region, any name. Wait for it to finish
-provisioning before continuing.
+```bash
+pip install -r requirements.txt
+```
 
-## 2. Run the schema
+## 2. Supabase
 
-SQL Editor → New query → paste all of `migrations/000_bootstrap.sql` → Run.
+New project → SQL Editor → paste all of **`migrations/002_accountless.sql`** → Run.
 
-That one file creates:
+That's the only migration you need. It creates the tables, the storage bucket,
+and turns row-level security on with no policies — see below for why.
 
-- the `leagues`, `inside_jokes`, and `newspapers` tables
-- row-level security policies on all three (without these, the anon key can
-  read every league in the database)
-- the `newspapers` storage bucket, public-read, with write access locked to
-  each user's own folder
-
-You do **not** need `001_add_provider.sql`. That's only for upgrading an
-existing pre-provider database — the bootstrap already includes those columns.
-
-## 3. Environment variables
-
-Project Settings → API. Copy into `.env`:
+Then Project Settings → API, and put these in `.env`:
 
 ```
 SUPABASE_URL=https://<your-project-ref>.supabase.co
-SUPABASE_KEY=<the anon public key>
-ANTHROPIC_API_KEY=<your existing key>
-APP_URL=http://localhost:8501
+SUPABASE_SERVICE_KEY=<the service_role key>
+ANTHROPIC_API_KEY=<your key>
+CURRENT_SEASON=2025
 ```
 
-Use the **anon public** key, not the service role key. The service role key
-bypasses row-level security entirely — if it ever reaches a browser, every
-league in your database is readable by anyone.
+**This time you want the service_role key, not anon.** That's the opposite of
+the usual advice, and it's a direct consequence of dropping accounts.
 
-`APP_URL` is new. OAuth redirect used to be hardcoded to localhost, which broke
-on deploy. Set it to your real URL in production.
+With logins, the browser held the anon key and row-level security decided what
+each user could see. With no logins there's no `auth.uid()` for RLS to check,
+so RLS can't protect anything. Instead: RLS is enabled with *zero* policies
+(deny everything), the server holds the service_role key and is the only thing
+that ever talks to the database, and authorization happens by unguessable token.
 
-## 4. Auth configuration
+Which means: **the service key must never reach a browser.** It stays in the
+server's environment. Don't put it in a template, a client-side script, or a
+public repo.
 
-- **Authentication → URL Configuration**: add `http://localhost:8501` to the
-  redirect allowlist, plus your deployed URL when you have one. Sign-in fails
-  silently if the redirect isn't allowlisted.
-- **Authentication → Providers**: enable Google if you want the OAuth button.
-  Email/password works with no extra setup.
-
-## 5. Verify
+## 3. Run
 
 ```bash
-python verify_provider.py       # live Sleeper fetch, no DB involved
-python -m pytest tests/ -v      # 43 tests, offline
-streamlit run app.py            # sign up, add a league, generate a week
+uvicorn web.app:app --reload --port 8000
 ```
 
-Generating a week should end with a downloadable paper *and* a new object in
-Storage → newspapers. If the upload errors with "bucket not found", step 2
-didn't finish.
+Open `http://localhost:8000`.
 
-## What changed about storage
+## 4. Try it
 
-Rendered HTML is ~60KB an edition. It used to go in a Postgres column, which is
-what exhausted the last project's 500MB database. It now goes in the
-`newspapers` storage bucket — a separate 1GB allowance on the free tier — and
-the database keeps only the path, a public URL, and `ai_cache` (Claude's
-output, a few KB).
+1. Paste league ID `1252396303246176256`, season 2025, hit **Create my paper**.
+2. You land on the manage page. **Bookmark it** — that URL is the only
+   credential this league has, and there's no reset.
+3. Add two or three inside jokes.
+4. Generate week 1. Takes ~30 seconds and spends real Claude tokens.
+5. Open the share link in a private window. It should render with no login.
 
-The bucket is public-read on purpose: the Share button in the archive hands
-someone a link that opens without an account. Anyone with the URL can read that
-edition, which is the intent, but it does mean the link is the only thing
-protecting it. Path names include UUIDs, so they aren't guessable.
+## The two URLs
 
-## Rough capacity
+| URL | Who has it | What it does |
+|---|---|---|
+| `/l/<admin_token>` | just the commissioner | generate, edit jokes, settings |
+| `/p/<public_slug>` | the whole league | read every edition |
 
-At ~20KB of `ai_cache` per edition, 500MB of database holds on the order of
-20,000 editions — about 1,400 leagues for a full 14-week season. Storage fills
-first: 1GB at 60KB an edition is roughly 16,000 papers. Both are far enough out
-that the next thing to worry about is the Claude API bill, not Supabase.
+The admin token is 192 bits of entropy, so guessing isn't a realistic attack.
+Losing it is — there's no email on file to recover with. The manage page says
+so in a yellow box on first visit.
+
+## Ads
+
+Classified blocks render at the foot of every paper (`ads.py`). They're house
+ads today, styled as period-appropriate classifieds rather than banner units —
+a classified reads as part of the paper, whereas people have spent twenty years
+learning to ignore anything shaped like a leaderboard.
+
+Each slot still carries `data-ad-slot` and `data-ad-size` with standard IAB
+dimensions, so handing inventory to an ad network later means pointing a script
+at `[data-ad-slot]`. No redesign needed.
+
+To customize per league, pass an `ads=[Ad(...)]` list into `build_edition()`.
+
+## Rate limits
+
+Generation costs money and there's no login gating it, so `web/app.py` caps
+each IP at 10 generations and 5 league creations per hour. In-memory, which is
+fine for one process — move it to Redis if you run more than one.
+
+## Deploying
+
+Any host that runs a Python process: Railway, Render, Fly.io. The start command
+is:
+
+```
+uvicorn web.app:app --host 0.0.0.0 --port $PORT
+```
+
+Set the same environment variables there. No build step, no Node, no static
+asset pipeline.
+
+## Tests
+
+```bash
+python -m pytest tests/ -v      # 65 tests, no network, no database
+python verify_provider.py       # live Sleeper fetch
+```
+
+## What happened to the Streamlit app
+
+`legacy_streamlit_app.py` is the old front end, kept for reference. It's not
+wired to anything anymore — it still expects accounts and the pre-accountless
+schema. Delete it whenever.

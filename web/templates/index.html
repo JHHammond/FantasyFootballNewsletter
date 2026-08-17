@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero">
+    <h1 class="hero-title">Your fantasy league<br />deserves a <em>newspaper</em>.</h1>
+    <p class="hero-sub">
+        Paste your league ID. Get a full weekly paper &mdash; brutal recaps, power
+        rankings, awards, and your league&rsquo;s own running jokes. Share it with a link.
+    </p>
+    <p class="hero-note">No account. No password. Nothing to cancel.</p>
+</section>
+
+{% if error %}
+<div class="alert alert-error">{{ error|safe }}</div>
+{% endif %}
+
+<section class="card">
+    <form method="post" action="/leagues" class="stack">
+        {% if providers|length > 1 %}
+        <label class="field">
+            <span class="field-label">Platform</span>
+            <select name="provider">
+                {% for p in providers %}
+                <option value="{{ p.name }}">{{ p.display_name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        {% else %}
+        <input type="hidden" name="provider" value="{{ providers[0].name }}" />
+        {% endif %}
+
+        <label class="field">
+            <span class="field-label">{{ providers[0].display_name }} league ID</span>
+            <input type="text" name="league_id" required
+                   placeholder="1252396303246176256" autocomplete="off" />
+            <span class="field-help">
+                In Sleeper: League &rarr; Settings &rarr; League Info. Or copy the long
+                number out of your league&rsquo;s web URL.
+            </span>
+        </label>
+
+        <div class="field-row">
+            <label class="field">
+                <span class="field-label">Commissioner username <span class="opt">optional</span></span>
+                <input type="text" name="commissioner" placeholder="yourusername" autocomplete="off" />
+                <span class="field-help">Gets flattering coverage. Use responsibly.</span>
+            </label>
+
+            <label class="field field-narrow">
+                <span class="field-label">Season</span>
+                <input type="number" name="season" value="{{ season }}" min="2020" max="2030" />
+            </label>
+        </div>
+
+        <label class="field">
+            <span class="field-label">Paper name <span class="opt">optional</span></span>
+            <input type="text" name="paper_name" placeholder="The Kevlarville Times" autocomplete="off" />
+        </label>
+
+        <button type="submit" class="btn btn-primary btn-lg">Create my paper</button>
+    </form>
+</section>
+
+<section class="how">
+    <h2 class="section-title">How it works</h2>
+    <ol class="steps">
+        <li>
+            <strong>Connect your league.</strong>
+            Paste the ID. We pull rosters, scores and matchups automatically.
+        </li>
+        <li>
+            <strong>Add your lore.</strong>
+            Who always chokes, who sold their soul, what the running joke is.
+            These get woven into every edition.
+        </li>
+        <li>
+            <strong>Generate after Sunday.</strong>
+            About thirty seconds later you have a full paper and a link to share.
+        </li>
+    </ol>
+</section>
+{% endblock %}

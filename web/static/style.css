@@ -1,0 +1,324 @@
+/* The Commissioner's Desk — app chrome.
+   Deliberately small. The newspaper itself carries the visual weight; these
+   pages just need to get out of the way and let someone create one. */
+
+:root {
+    --cream:  #f2ede3;
+    --paper:  #fffdf8;
+    --ink:    #111111;
+    --ink-2:  #3a3a3a;
+    --muted:  #6b6050;
+    --line:   #d8d0c0;
+    --green:  #2d5016;
+    --green-d:#1e3a0f;
+    --gold:   #c8a200;
+    --red:    #a11313;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: var(--cream);
+    color: var(--ink);
+    font-family: "Barlow", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- chrome ---------- */
+
+.masthead {
+    border-bottom: 3px double var(--ink);
+    padding: 18px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--paper);
+}
+
+.masthead-logo {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+    color: var(--ink);
+    text-decoration: none;
+}
+
+.wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+}
+
+.site-footer {
+    border-top: 1px solid var(--line);
+    padding: 24px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+/* ---------- hero ---------- */
+
+.hero { text-align: center; margin-bottom: 36px; }
+
+.hero-title {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 46px;
+    font-weight: 900;
+    line-height: 1.08;
+    letter-spacing: -1px;
+    margin-bottom: 16px;
+}
+.hero-title em { font-style: italic; color: var(--green); }
+
+.hero-sub {
+    font-size: 18px;
+    color: var(--ink-2);
+    max-width: 520px;
+    margin: 0 auto 10px;
+}
+
+.hero-note {
+    font-size: 14px;
+    color: var(--muted);
+    font-style: italic;
+}
+
+/* ---------- cards ---------- */
+
+.card {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 26px;
+    margin-bottom: 22px;
+}
+
+.card-title {
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+
+.card-sub {
+    font-size: 14px;
+    color: var(--ink-2);
+    margin-bottom: 18px;
+}
+
+.page-head { margin-bottom: 28px; }
+
+.eyebrow {
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--muted);
+}
+
+.page-title {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 36px;
+    font-weight: 900;
+    line-height: 1.1;
+}
+
+.section-title {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 14px;
+}
+
+/* ---------- forms ---------- */
+
+.stack { display: flex; flex-direction: column; gap: 18px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.field-row { display: flex; gap: 16px; }
+.field-narrow { max-width: 140px; }
+
+.field-label {
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--ink-2);
+}
+
+.opt {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--muted);
+    font-style: italic;
+}
+
+.field-help { font-size: 13px; color: var(--muted); }
+
+input[type="text"], input[type="number"], select, textarea, .copy-input {
+    font-family: inherit;
+    font-size: 16px;
+    padding: 11px 13px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    border-radius: 0;
+    width: 100%;
+}
+
+input:focus, select:focus, textarea:focus {
+    outline: 2px solid var(--green);
+    outline-offset: -1px;
+}
+
+textarea { resize: vertical; }
+
+.inline-form { display: flex; gap: 14px; align-items: flex-end; }
+
+.copy-input {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 14px;
+    background: var(--cream);
+    cursor: pointer;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+    display: inline-block;
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    padding: 11px 22px;
+    border: 1.5px solid var(--ink);
+    background: transparent;
+    color: var(--ink);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+
+.btn:hover { background: var(--ink); color: var(--paper); }
+
+.btn-primary {
+    background: var(--green);
+    border-color: var(--green);
+    color: #fff;
+}
+.btn-primary:hover { background: var(--green-d); border-color: var(--green-d); }
+
+.btn-lg { padding: 14px 28px; font-size: 16px; }
+.btn-sm { padding: 7px 14px; font-size: 13px; }
+
+.btn-ghost {
+    border-color: var(--line);
+    color: var(--muted);
+}
+.btn-ghost:hover { background: var(--red); border-color: var(--red); color: #fff; }
+
+/* ---------- alerts ---------- */
+
+.alert {
+    padding: 16px 20px;
+    margin-bottom: 22px;
+    border-left: 4px solid var(--ink);
+    background: var(--paper);
+    font-size: 15px;
+}
+
+.alert-error { border-left-color: var(--red); }
+.alert-success { border-left-color: var(--green); }
+.alert-bookmark { border-left-color: var(--gold); background: #fffbe8; }
+.alert a { color: var(--green); }
+
+/* ---------- lists ---------- */
+
+.joke-list, .paper-list { list-style: none; margin-bottom: 20px; }
+
+.joke {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px;
+}
+
+.paper-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.paper-week {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 19px;
+    font-weight: 700;
+}
+
+.paper-meta { font-size: 13px; color: var(--muted); }
+
+.empty { color: var(--muted); font-style: italic; margin-bottom: 18px; }
+
+/* ---------- how it works ---------- */
+
+.how { margin-top: 44px; }
+
+.steps { list-style: none; counter-reset: step; }
+
+.steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 14px 0 14px 46px;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px;
+    color: var(--ink-2);
+}
+
+.steps li::before {
+    content: counter(step, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 14px;
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--gold);
+}
+
+.steps strong { color: var(--ink); }
+
+/* ---------- cta ---------- */
+
+.cta {
+    margin-top: 44px;
+    padding: 30px;
+    text-align: center;
+    border: 3px double var(--ink);
+    background: var(--paper);
+}
+.cta p { color: var(--ink-2); margin-bottom: 18px; }
+
+/* ---------- small screens ---------- */
+
+@media (max-width: 640px) {
+    .hero-title { font-size: 34px; }
+    .page-title { font-size: 28px; }
+    .field-row { flex-direction: column; }
+    .field-narrow { max-width: none; }
+    .wrap { padding: 28px 18px 60px; }
+}

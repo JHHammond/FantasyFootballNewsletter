@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}The Commissioner's Desk{% endblock %}</title>
+    <meta name="description" content="{% block description %}Weekly AI-written newspapers for your fantasy football league. Free, no account needed.{% endblock %}" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Barlow+Condensed:wght@400;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <header class="masthead">
+        <a class="masthead-logo" href="/">The Commissioner&rsquo;s Desk</a>
+        {% block nav %}{% endblock %}
+    </header>
+
+    <main class="wrap">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <span>Generated from real league data. Free, forever, no account.</span>
+    </footer>
+</body>
+</html>

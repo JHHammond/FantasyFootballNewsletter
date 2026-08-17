@@ -4,6 +4,8 @@ import json
 import random
 import markdown
 
+from ads import CLASSIFIEDS_CSS, render_classifieds
+
 
 BASE_DIR = Path(__file__).resolve().parent
 MEME_INDEX_PATH = BASE_DIR / "memes" / "meme_index.json"
@@ -929,7 +931,7 @@ def build_week_ticker(summary):
     return "".join(blocks)
 
 
-def build_edition(league_name, week, summary, matchups, power_rankings, ai_content=None):
+def build_edition(league_name, week, summary, matchups, power_rankings, ai_content=None, ads=None):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
 
@@ -1081,6 +1083,9 @@ def build_edition(league_name, week, summary, matchups, power_rankings, ai_conte
         "week_ticker_html": build_week_ticker(summary),
         "honor_roll_html": build_honor_roll_and_detention(matchups)[0],
         "detention_html": build_honor_roll_and_detention(matchups)[1],
+        # Ad inventory. Falls back to house ads so the paper never has a
+        # visible hole. See ads.py for the network-fill hooks.
+        "classifieds_html": render_classifieds(ads),
     }
 
 
@@ -1093,6 +1098,7 @@ def render_html(edition):
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{edition['paper_name']}</title>
     <style>
+        {CLASSIFIEDS_CSS}
         * {{ box-sizing: border-box; }}
 
         body {{
@@ -1901,14 +1907,17 @@ def render_html(edition):
             </div>
         </div>
 
+        <!-- CLASSIFIEDS — ad inventory, see ads.py -->
+        {edition.get('classifieds_html', '')}
+
     </div>
 </body>
 </html>
 """
 
 
-def save_newspaper_html(league_name, week, summary, matchups, power_rankings, ai_content=None, output_dir="output"):
-    edition = build_edition(league_name, week, summary, matchups, power_rankings, ai_content)
+def save_newspaper_html(league_name, week, summary, matchups, power_rankings, ai_content=None, output_dir="output", ads=None):
+    edition = build_edition(league_name, week, summary, matchups, power_rankings, ai_content, ads=ads)
     html = render_html(edition)
 
     output_path = Path(output_dir)
