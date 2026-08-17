@@ -31,7 +31,18 @@ create table if not exists public.lore (
 );
 
 -- Index names follow the table through a rename, so give them the new name.
-alter index if exists inside_jokes_league_active_idx rename to lore_league_active_idx;
+-- `ALTER INDEX IF EXISTS ... RENAME TO` only guards the SOURCE name — it still
+-- errors if the destination already exists, which makes a second run fail. So
+-- check both.
+do $$
+begin
+    if exists (select 1 from pg_class where relname = 'inside_jokes_league_active_idx')
+       and not exists (select 1 from pg_class where relname = 'lore_league_active_idx')
+    then
+        alter index inside_jokes_league_active_idx rename to lore_league_active_idx;
+    end if;
+end $$;
+
 create index if not exists lore_league_active_idx on public.lore (league_id, active);
 
 alter table public.lore enable row level security;
