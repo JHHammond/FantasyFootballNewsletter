@@ -472,3 +472,165 @@ def test_slugify_handles_junk():
 def test_admin_token_is_unguessable():
     assert len(slugs.admin_token()) >= 30
     assert len({slugs.admin_token() for _ in range(100)}) == 100
+
+
+# ---------------------------------------------------------------------------
+# Setup wizard
+# ---------------------------------------------------------------------------
+
+def test_creating_a_league_goes_to_setup_not_manage(client, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok())
+    r = client.post("/leagues", data={"league_id": "999", "season": 2025},
+                    follow_redirects=False)
+    assert r.headers["location"].endswith("/setup")
+
+
+def test_setup_page_asks_only_what_the_api_cannot_answer(client, league):
+    """Scoring, superflex and team count come from Sleeper. Asking again is a
+    form for no reason."""
+    text = client.get("/l/secret-admin-token/setup").text.lower()
+    assert "dynasty" in text
+    assert "punishment" in text
+    assert "lore" in text
+    assert "ppr" not in text
+    assert "superflex" not in text
+    assert "how many teams" not in text
+
+
+def test_setup_saves_everything(client, league):
+    client.post("/l/secret-admin-token/setup", data={
+        "format": "dynasty", "tone": "brutal", "founded_year": "2014",
+        "stakes": "$100 buy-in", "punishment": "Tattoo picked by the group chat",
+        "lore": "Nick benches his best guy\nChamp sold his soul",
+    })
+    saved = demo_db._LEAGUES[league["id"]]
+    assert saved["format"] == "dynasty"
+    assert saved["tone"] == "brutal"
+    assert saved["founded_year"] == 2014
+    assert saved["punishment"].startswith("Tattoo")
+    assert saved["setup_complete"] is True
+    assert len(demo_db.get_lore(league["id"])) == 2
+
+
+def test_setup_lore_accepts_a_pasted_bulleted_list(client, league):
+    client.post("/l/secret-admin-token/setup", data={
+        "lore": "- Nick benches his best guy\n• Champ sold his soul\n\n  \n* Dave never wins",
+    })
+    entries = sorted(e["entry"] for e in demo_db.get_lore(league["id"]))
+    assert entries == ["Champ sold his soul", "Dave never wins", "Nick benches his best guy"]
+
+
+def test_setup_rejects_junk_values(client, league):
+    client.post("/l/secret-admin-token/setup", data={
+        "format": "sqlinjection", "tone": "nuclear", "founded_year": "banana",
+    })
+    saved = demo_db._LEAGUES[league["id"]]
+    assert saved["format"] == "redraft"
+    assert saved["tone"] == "standard"
+    assert saved["founded_year"] is None
+
+
+def test_setup_can_be_skipped(client, league):
+    r = client.post("/l/secret-admin-token/skip-setup", follow_redirects=False)
+    assert r.headers["location"] == "/l/secret-admin-token?new=1"
+    assert demo_db._LEAGUES[league["id"]]["setup_complete"] is True
+
+
+def test_setup_requires_the_token(client, league):
+    assert client.get("/l/wrong/setup").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Generate lands on the paper
+# ---------------------------------------------------------------------------
+
+def test_generate_redirects_to_the_published_paper(client, league, monkeypatch):
+    """Waiting 30 seconds and being handed a URL to click is a bad payoff."""
+    def fake_generate(db_, lg, week):
+        db_.upload_paper(lg["public_slug"], lg["season"], week, "<h1>PAPER</h1>")
+        db_.save_paper(lg["id"], week, lg["season"], "p", "u", {})
+        return {}
+
+    monkeypatch.setattr(webapp, "generate_and_store", fake_generate)
+    r = client.post("/l/secret-admin-token/generate", data={"week": 3},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/l/secret-admin-token/published/3"
+
+
+def test_published_page_frames_the_paper(client, league):
+    demo_db.save_paper(league["id"], 3, 2025, "p", "u", {})
+    demo_db._STORAGE[demo_db.storage_path(league["public_slug"], 2025, 3)] = "<h1>P</h1>"
+    r = client.get("/l/secret-admin-token/published/3")
+    assert r.status_code == 200
+    assert "<iframe" in r.text
+    assert f"/p/{league['public_slug']}/2025/week-3" in r.text
+
+
+def test_published_page_has_a_copy_button(client, league):
+    demo_db.save_paper(league["id"], 3, 2025, "p", "u", {})
+    r = client.get("/l/secret-admin-token/published/3")
+    assert "copy-btn" in r.text
+    assert "clipboard" in r.text
+
+
+def test_published_page_requires_the_token(client, league):
+    demo_db.save_paper(league["id"], 3, 2025, "p", "u", {})
+    assert client.get("/l/wrong/published/3").status_code == 404
+
+
+def test_unpublished_week_bounces_back_to_manage(client, league):
+    r = client.get("/l/secret-admin-token/published/9", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith("/l/secret-admin-token?error=")
+
+
+# ---------------------------------------------------------------------------
+# League context reaches the writer
+# ---------------------------------------------------------------------------
+
+def test_dynasty_and_redraft_produce_different_instructions():
+    from web.generate import build_league_context
+
+    dynasty = build_league_context({"format": "dynasty"}, [])
+    redraft = build_league_context({"format": "redraft"}, [])
+    assert "DYNASTY" in dynasty
+    assert "rookie" in dynasty.lower()
+    assert "Do NOT" in redraft
+
+
+def test_punishment_is_flagged_as_prime_material():
+    from web.generate import build_league_context
+
+    ctx = build_league_context(
+        {"format": "redraft", "punishment": "Has to get a tattoo"}, [])
+    assert "LAST PLACE PUNISHMENT" in ctx
+    assert "tattoo" in ctx
+
+
+def test_lore_reaches_the_context():
+    from web.generate import build_league_context
+
+    ctx = build_league_context({"format": "redraft"},
+                               [{"entry": "Nick benches his best guy"}])
+    assert "Nick benches his best guy" in ctx
+
+
+def test_tone_changes_the_system_prompt():
+    from writer import system_prompt
+
+    assert "NO MERCY" in system_prompt("brutal")
+    assert "KEEP IT LIGHT" in system_prompt("friendly")
+    assert "No profanity" in system_prompt("friendly")
+    assert system_prompt("standard") == system_prompt(None)
+
+
+def test_settings_page_can_edit_setup_answers(client, league):
+    client.post("/l/secret-admin-token/settings", data={
+        "paper_name": "The Kevlarville Times", "commissioner": "john",
+        "format": "dynasty", "tone": "friendly",
+        "stakes": "$50", "punishment": "Wears a dress to the draft",
+    })
+    saved = demo_db._LEAGUES[league["id"]]
+    assert saved["format"] == "dynasty"
+    assert saved["tone"] == "friendly"
+    assert saved["punishment"] == "Wears a dress to the draft"

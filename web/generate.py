@@ -28,6 +28,60 @@ def paper_name_for(league: dict[str, Any]) -> str:
     return league.get("paper_name") or f"The {league['league_name']} Times"
 
 
+FORMAT_NOTES = {
+    "dynasty": (
+        "This is a DYNASTY league — rosters carry over every year and there is "
+        "a rookie draft. Long-term consequences are real: bad trades haunt "
+        "people for seasons, rebuilding is a legitimate strategy worth mocking "
+        "or respecting, and draft capital matters."
+    ),
+    "keeper": (
+        "This is a KEEPER league — managers hold a few players year to year. "
+        "Keeper decisions from past seasons are fair game."
+    ),
+    "redraft": (
+        "This is a REDRAFT league — everyone starts fresh each year. Do NOT "
+        "reference rookie picks, rebuilds, or multi-year consequences; none of "
+        "that exists here."
+    ),
+}
+
+
+def build_league_context(league: dict[str, Any], lore_entries: list) -> str:
+    """Everything the columnist should know that the platform API can't say.
+
+    Fed to the writer alongside the week's stats. The API knows the scores; it
+    has no idea that last place has to get a tattoo.
+    """
+    parts: list[str] = []
+
+    fmt = (league.get("format") or "redraft").lower()
+    parts.append(FORMAT_NOTES.get(fmt, FORMAT_NOTES["redraft"]))
+
+    founded = league.get("founded_year")
+    if founded:
+        parts.append(
+            f"The league has been running since {founded}. Its history is fair "
+            f"game and long-running grudges are real."
+        )
+
+    if league.get("stakes"):
+        parts.append(f"What they play for: {league['stakes']}")
+
+    if league.get("punishment"):
+        parts.append(
+            f"LAST PLACE PUNISHMENT: {league['punishment']} — bring this up "
+            f"whenever a team is bad enough to be in danger of it. It is the "
+            f"single funniest thing about this league."
+        )
+
+    if lore_entries:
+        parts.append("LEAGUE LORE — work these in wherever they fit:")
+        parts.extend(f"- {entry['entry']}" for entry in lore_entries)
+
+    return "\n".join(parts)
+
+
 def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
     """Fetch, write, render, upload, record. Returns a summary of what was made.
 
@@ -37,7 +91,7 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
     paper_name = paper_name_for(league)
 
     lore_entries = db.get_lore(league["id"])
-    lore_text = "\n".join(f"- {entry['entry']}" for entry in lore_entries)
+    league_context = build_league_context(league, lore_entries)
 
     week_data = load_week(league["provider"], league["platform_league_id"], season, week)
     games = week_to_legacy_games(week_data)
@@ -49,7 +103,8 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         games=games,
         summary=summary,
         commissioner_name=league.get("commissioner_name") or "",
-        inside_jokes=lore_text,
+        inside_jokes=league_context,
+        tone=league.get("tone") or "standard",
     )
 
     power_rankings = build_power_rankings_from_matchups(games)

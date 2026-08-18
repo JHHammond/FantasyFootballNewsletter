@@ -39,9 +39,25 @@
         {% endif %}
     </p>
     <div class="copy-row">
-        <input type="text" readonly value="{{ request.base_url }}p/{{ league.public_slug }}"
+        <input type="text" readonly id="share-link"
+               value="{{ request.base_url }}p/{{ league.public_slug }}"
                onclick="this.select()" class="copy-input" />
+        <button type="button" class="btn btn-primary" id="share-copy">Copy</button>
     </div>
+    <script>
+    document.getElementById('share-copy').addEventListener('click', async function () {
+        const input = document.getElementById('share-link');
+        const original = this.textContent;
+        try {
+            await navigator.clipboard.writeText(input.value);
+        } catch (err) {
+            input.select();
+            document.execCommand('copy');
+        }
+        this.textContent = 'Copied';
+        setTimeout(() => { this.textContent = original; }, 1800);
+    });
+    </script>
 </section>
 
 <section class="card">
@@ -115,7 +131,7 @@
                 <div class="paper-meta">{{ p.season }} season</div>
             </div>
             <a class="btn btn-sm"
-               href="/p/{{ league.public_slug }}/{{ p.season }}/week-{{ p.week }}">Read</a>
+               href="/l/{{ league.admin_token }}/published/{{ p.week }}">Read</a>
         </li>
         {% endfor %}
     </ul>
@@ -134,6 +150,32 @@
         <label class="field">
             <span class="field-label">Your username</span>
             <input type="text" name="commissioner" value="{{ league.commissioner_name or '' }}" />
+        </label>
+        <div class="field-row">
+            <label class="field">
+                <span class="field-label">League type</span>
+                <select name="format">
+                    <option value="redraft" {% if league.format == 'redraft' %}selected{% endif %}>Redraft</option>
+                    <option value="keeper"  {% if league.format == 'keeper'  %}selected{% endif %}>Keeper</option>
+                    <option value="dynasty" {% if league.format == 'dynasty' %}selected{% endif %}>Dynasty</option>
+                </select>
+            </label>
+            <label class="field">
+                <span class="field-label">How mean</span>
+                <select name="tone">
+                    <option value="friendly" {% if league.tone == 'friendly' %}selected{% endif %}>Keep it light</option>
+                    <option value="standard" {% if league.tone == 'standard' %}selected{% endif %}>Normal</option>
+                    <option value="brutal"   {% if league.tone == 'brutal'   %}selected{% endif %}>No mercy</option>
+                </select>
+            </label>
+        </div>
+        <label class="field">
+            <span class="field-label">What you play for</span>
+            <input type="text" name="stakes" maxlength="300" value="{{ league.stakes or '' }}" />
+        </label>
+        <label class="field">
+            <span class="field-label">Last place punishment</span>
+            <input type="text" name="punishment" maxlength="300" value="{{ league.punishment or '' }}" />
         </label>
         <label class="check">
             <input type="checkbox" name="auto_send" {% if league.auto_send %}checked{% endif %} />

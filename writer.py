@@ -72,6 +72,32 @@ Always sign off with personality. Never be neutral. Never be boring. Always be f
 """
 
 
+TONE_GUIDANCE = {
+    "friendly": """
+TONE OVERRIDE — KEEP IT LIGHT:
+This league asked for good-natured ribbing, not evisceration. Someone in it is
+a coworker, a spouse, or a boss.
+- Tease the situation, not the person's character
+- No profanity at all
+- Bad performances are funny-unlucky, never pathetic
+- Never call anyone a fraud, garbage, or worthless
+- Still be specific and football-literate; just land jokes instead of punches
+""",
+    "standard": "",
+    "brutal": """
+TONE OVERRIDE — NO MERCY:
+This league explicitly asked for maximum brutality. Hold nothing back.
+Profanity encouraged. Nobody is safe. Still keep every insult grounded in an
+actual football failure — cruelty without evidence is just noise.
+""",
+}
+
+
+def system_prompt(tone: str = "standard") -> str:
+    """The house voice, adjusted for how hard this league wants to be hit."""
+    return KEVLARVILLE_SYSTEM_PROMPT + TONE_GUIDANCE.get(tone or "standard", "")
+
+
 def format_performer(performer):
     """Format a top/bottom performer dict for the prompt."""
     if not performer:
@@ -125,12 +151,17 @@ def build_game_context(game):
     }
 
 
-def call_claude(prompt, max_tokens=400):
-    """Make a single call to the Claude API and return the text response."""
+def call_claude(prompt, max_tokens=400, system=None):
+    """Make a single call to the Claude API and return the text response.
+
+    `system` is passed explicitly rather than read from a module global because
+    generation runs across a ThreadPoolExecutor — a global would race between
+    two leagues generating at the same time with different tone settings.
+    """
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=max_tokens,
-        system=KEVLARVILLE_SYSTEM_PROMPT,
+        system=system or KEVLARVILLE_SYSTEM_PROMPT,
         messages=[
             {"role": "user", "content": prompt}
         ]
@@ -138,7 +169,7 @@ def call_claude(prompt, max_tokens=400):
     return message.content[0].text.strip()
 
 
-def generate_headline(summary, week, league_name, commissioner_name="", inside_jokes=""):
+def generate_headline(summary, week, league_name, commissioner_name="", inside_jokes="", system=None):
     context = {
         "week": week,
         "league_name": league_name,
@@ -161,10 +192,10 @@ Max 10 words. Just the headline text, nothing else.
 
 Week data: {json.dumps(context, indent=2)}
 """
-    return call_claude(prompt, max_tokens=60)
+    return call_claude(prompt, max_tokens=60, system=system)
 
 
-def generate_lead_story(summary, week, league_name, commissioner_name="", inside_jokes=""):
+def generate_lead_story(summary, week, league_name, commissioner_name="", inside_jokes="", system=None):
     games_context = []
     for game in [
         summary.get("closest_game"),
@@ -195,10 +226,10 @@ Do not use bullet points. Just flowing prose.
 
 Week data: {json.dumps(context, indent=2)}
 """
-    return call_claude(prompt, max_tokens=600)
+    return call_claude(prompt, max_tokens=600, system=system)
 
 
-def generate_matchup_headline(game_context, commissioner_name="", inside_jokes=""):
+def generate_matchup_headline(game_context, commissioner_name="", inside_jokes="", system=None):
     prompt = f"""
 Write a MATCHUP HEADLINE for this game. ALL CAPS. Max 8 words.
 Be creative — reference the score, the margin, and any relevant drama.
@@ -208,10 +239,10 @@ Game data: {json.dumps(game_context, indent=2)}
 Commissioner: {commissioner_name}
 Inside jokes: {inside_jokes}
 """
-    return call_claude(prompt, max_tokens=60)
+    return call_claude(prompt, max_tokens=60, system=system)
 
 
-def generate_matchup_body(game_context, commissioner_name="", inside_jokes=""):
+def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", system=None):
     prompt = f"""
 Write the MATCHUP RECAP body paragraph for this game in the Kevlarville Times.
 4-6 sentences. Be specific, funny, and savage. Call out players by name.
@@ -234,10 +265,10 @@ Rules:
 Game data: {json.dumps(game_context, indent=2)}
 Inside jokes to work in if relevant: {inside_jokes}
 """
-    return call_claude(prompt, max_tokens=450)
+    return call_claude(prompt, max_tokens=450, system=system)
 
 
-def generate_awards(summary, commissioner_name="", inside_jokes=""):
+def generate_awards(summary, commissioner_name="", inside_jokes="", system=None):
     highest = summary.get("highest_score", {})
     lowest = summary.get("lowest_score", {})
     bench = summary.get("bench_blunder", {})
@@ -309,7 +340,7 @@ Format as JSON array like this:
 Inside jokes: {inside_jokes}
 Data: {json.dumps(context, indent=2)}
 """
-    raw = call_claude(prompt, max_tokens=900)
+    raw = call_claude(prompt, max_tokens=900, system=system)
 
     # Strip markdown code fences if Claude wraps in ```json
     cleaned = raw.strip()
@@ -328,7 +359,7 @@ Data: {json.dumps(context, indent=2)}
         ]
 
 
-def generate_fraud_watch(summary, commissioner_name="", inside_jokes=""):
+def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=None):
     fraud = summary.get("fraud")
     lowest = summary.get("lowest_score", {})
 
@@ -355,10 +386,10 @@ Be savage, be funny, be specific to the sport.
 
 Subject: {json.dumps(context, indent=2)}
 """
-    return call_claude(prompt, max_tokens=300)
+    return call_claude(prompt, max_tokens=300, system=system)
 
 
-def generate_power_rankings_comments(teams, commissioner_name=""):
+def generate_power_rankings_comments(teams, commissioner_name="", system=None):
     """
     Generate power rankings comments for ALL teams in one API call.
     teams: list of dicts with keys: team, record, score, rank
@@ -386,7 +417,7 @@ Return ONLY a JSON object mapping team name to comment, like this:
 }}
 No markdown. No extra text. Just the JSON object.
 """
-    raw = call_claude(prompt, max_tokens=600)
+    raw = call_claude(prompt, max_tokens=600, system=system)
 
     cleaned = raw.strip()
     if cleaned.startswith("```"):
@@ -400,7 +431,7 @@ No markdown. No extra text. Just the JSON object.
         return {t["team"]: "Still under review." for t in teams}
 
 
-def generate_game_teasers(game_contexts, commissioner_name="", inside_jokes=""):
+def generate_game_teasers(game_contexts, commissioner_name="", inside_jokes="", system=None):
     """
     Generate one-line teaser hooks for all games in one API call.
     Returns a list of strings in the same order as game_contexts.
@@ -426,7 +457,7 @@ No extra text. Just the JSON array.
 
 Inside jokes: {inside_jokes}
 """
-    raw = call_claude(prompt, max_tokens=400)
+    raw = call_claude(prompt, max_tokens=400, system=system)
 
     cleaned = raw.strip()
     if cleaned.startswith("```"):
@@ -443,7 +474,8 @@ Inside jokes: {inside_jokes}
 
 
 def generate_full_newspaper_content(league_name, week, games, summary,
-                                     commissioner_name="", inside_jokes=""):
+                                     commissioner_name="", inside_jokes="",
+                                     tone="standard"):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -452,7 +484,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import time
 
-    print(f"[writer] Generating AI content for Week {week} (parallel mode)...")
+    sys_prompt = system_prompt(tone)
+    print(f"[writer] Generating AI content for Week {week} (parallel mode, tone={tone})...")
     start = time.time()
 
     # Build all game contexts upfront
@@ -471,10 +504,10 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     tasks = {}
 
     # Top-level tasks
-    tasks["headline"] = lambda: generate_headline(summary, week, league_name, commissioner_name, inside_jokes)
-    tasks["lead_story"] = lambda: generate_lead_story(summary, week, league_name, commissioner_name, inside_jokes)
-    tasks["awards"] = lambda: generate_awards(summary, commissioner_name, inside_jokes)
-    tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, inside_jokes)
+    tasks["headline"] = lambda: generate_headline(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt)
+    tasks["lead_story"] = lambda: generate_lead_story(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt)
+    tasks["awards"] = lambda: generate_awards(summary, commissioner_name, inside_jokes, sys_prompt)
+    tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, inside_jokes, sys_prompt)
     # Build full team list for power rankings (all teams, not just winners)
     all_teams_for_rankings = []
     for gc in game_contexts:
@@ -491,19 +524,19 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         t["rank"] = i + 1
 
     tasks["power_rankings_comments"] = lambda teams=all_teams_for_rankings: generate_power_rankings_comments(
-        teams, commissioner_name
+        teams, commissioner_name, sys_prompt
     )
 
     # 3. AI teaser hooks for left column — one call for all games
     tasks["game_teasers"] = lambda: generate_game_teasers(
-        [gc["ctx"] for gc in game_contexts], commissioner_name, inside_jokes
+        [gc["ctx"] for gc in game_contexts], commissioner_name, inside_jokes, sys_prompt
     )
 
     # Per-game tasks — headline and body for each game
     for i, game_data in enumerate(game_contexts):
         ctx = game_data["ctx"]
-        tasks[f"matchup_headline_{i}"] = lambda c=ctx: generate_matchup_headline(c, commissioner_name, inside_jokes)
-        tasks[f"matchup_body_{i}"] = lambda c=ctx: generate_matchup_body(c, commissioner_name, inside_jokes)
+        tasks[f"matchup_headline_{i}"] = lambda c=ctx: generate_matchup_headline(c, commissioner_name, inside_jokes, sys_prompt)
+        tasks[f"matchup_body_{i}"] = lambda c=ctx: generate_matchup_body(c, commissioner_name, inside_jokes, sys_prompt)
 
     # Fire all tasks in parallel
     results = {}

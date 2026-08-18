@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block wrapclass %}wrap-wide{% endblock %}
+
+{% block title %}{{ paper_name }} — Week {{ week }}{% endblock %}
+
+{% block content %}
+<div class="published-bar">
+    <div>
+        <div class="eyebrow">Week {{ week }} is live</div>
+        <div class="published-title">{{ paper_name }}</div>
+    </div>
+    <div class="published-actions">
+        <button type="button" class="btn btn-primary" id="copy-btn"
+                data-link="{{ request.base_url }}p/{{ league.public_slug }}">
+            Copy share link
+        </button>
+        <a class="btn" href="{{ paper_url }}" target="_blank" rel="noopener">Full screen</a>
+        <a class="btn btn-ghost" href="/l/{{ league.admin_token }}">Back</a>
+    </div>
+</div>
+
+<p class="published-hint">
+    Send that link to your league. Anyone can open it &mdash; no sign-in, no app.
+    {% if subscriber_count %}
+    {{ subscriber_count }} {{ 'person' if subscriber_count == 1 else 'people' }}
+    already get it by email.
+    {% endif %}
+</p>
+
+<div class="paper-frame">
+    <iframe src="{{ paper_url }}" title="{{ paper_name }} Week {{ week }}"></iframe>
+</div>
+
+<script>
+document.getElementById('copy-btn').addEventListener('click', async function () {
+    const link = this.dataset.link;
+    const original = this.textContent;
+    try {
+        await navigator.clipboard.writeText(link);
+    } catch (err) {
+        // Older browsers, or a page not served over https.
+        const tmp = document.createElement('textarea');
+        tmp.value = link;
+        document.body.appendChild(tmp);
+        tmp.select();
+        document.execCommand('copy');
+        document.body.removeChild(tmp);
+    }
+    this.textContent = 'Copied';
+    setTimeout(() => { this.textContent = original; }, 1800);
+});
+</script>
+{% endblock %}

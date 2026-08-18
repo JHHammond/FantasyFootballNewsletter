@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Set up {{ paper_name }}{% endblock %}
+
+{% block content %}
+<header class="page-head">
+    <div class="eyebrow">{{ league.league_name }} &middot; {{ league.season }}</div>
+    <h1 class="page-title">Tell us about your league</h1>
+    <p class="hero-sub" style="margin:12px 0 0;text-align:left;">
+        We already pulled your rosters, scores and scoring settings from
+        {{ league.provider|title }}. What it can't tell us is why your league is
+        funny. That's this page. Takes a minute, and you can change any of it later.
+    </p>
+</header>
+
+<form method="post" action="/l/{{ league.admin_token }}/setup">
+    <section class="card">
+        <h2 class="card-title">What kind of league</h2>
+        <p class="card-sub">
+            Changes what the paper can even talk about. In a dynasty league a bad
+            trade haunts someone for years. In a redraft league it doesn't exist.
+        </p>
+        <div class="radio-row">
+            <label class="radio-card">
+                <input type="radio" name="format" value="redraft" checked />
+                <span><strong>Redraft</strong><em>Fresh draft every year</em></span>
+            </label>
+            <label class="radio-card">
+                <input type="radio" name="format" value="keeper" />
+                <span><strong>Keeper</strong><em>Hold a few guys each year</em></span>
+            </label>
+            <label class="radio-card">
+                <input type="radio" name="format" value="dynasty" />
+                <span><strong>Dynasty</strong><em>Full rosters carry over</em></span>
+            </label>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2 class="card-title">How mean should it be</h2>
+        <p class="card-sub">
+            The default is pretty savage. If your boss or your wife is in the
+            league, maybe dial it back.
+        </p>
+        <div class="radio-row">
+            <label class="radio-card">
+                <input type="radio" name="tone" value="friendly" />
+                <span><strong>Keep it light</strong><em>Ribbing, no profanity</em></span>
+            </label>
+            <label class="radio-card">
+                <input type="radio" name="tone" value="standard" checked />
+                <span><strong>Normal</strong><em>Mean but fair</em></span>
+            </label>
+            <label class="radio-card">
+                <input type="radio" name="tone" value="brutal" />
+                <span><strong>No mercy</strong><em>Nobody is safe</em></span>
+            </label>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2 class="card-title">The stakes</h2>
+        <div class="stack">
+            <label class="field">
+                <span class="field-label">What do you play for? <span class="opt">optional</span></span>
+                <input type="text" name="stakes" maxlength="300"
+                       placeholder="$100 buy-in and a trophy nobody wants to give back" />
+            </label>
+            <label class="field">
+                <span class="field-label">Last place punishment <span class="opt">optional</span></span>
+                <input type="text" name="punishment" maxlength="300"
+                       placeholder="Has to get a tattoo picked by the group chat" />
+                <span class="field-help">
+                    If you have one, put it here. It's the funniest thing about
+                    most leagues and the paper will bring it up all season.
+                </span>
+            </label>
+            <label class="field field-narrow">
+                <span class="field-label">Running since <span class="opt">optional</span></span>
+                <input type="number" name="founded_year" min="1980" max="2100" placeholder="2014" />
+            </label>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2 class="card-title">The lore</h2>
+        <p class="card-sub">
+            One per line. Who chokes every year, who's still mad about a trade
+            from 2022, who drafted a kicker in the 8th, who talks the most trash
+            and backs it up the least. This is the single biggest difference
+            between a generic recap and one that sounds like someone in your
+            league wrote it.
+        </p>
+        <textarea name="lore" rows="6" placeholder="Nick benches his best guy every single week
+Champ sold his soul and still went 6-8
+Dave has never made the playoffs and brings up 2019 constantly"></textarea>
+    </section>
+
+    <div class="setup-actions">
+        <button type="submit" class="btn btn-primary btn-lg">Save and continue</button>
+    </div>
+</form>
+
+<form method="post" action="/l/{{ league.admin_token }}/skip-setup" class="setup-skip">
+    <button type="submit" class="btn-link">Skip for now</button>
+</form>
+{% endblock %}

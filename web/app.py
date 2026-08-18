@@ -193,7 +193,7 @@ def create_league(
         public_slug=slugs.public_slug(name),
         admin_token=slugs.admin_token(),
     )
-    return RedirectResponse(f"/l/{league['admin_token']}?new=1", status_code=303)
+    return RedirectResponse(f"/l/{league['admin_token']}/setup", status_code=303)
 
 
 # ---------------------------------------------------------------------------
@@ -242,14 +242,22 @@ def update_settings(
     paper_name: str = Form(""),
     commissioner: str = Form(""),
     auto_send: str = Form(""),
+    format: str = Form("redraft"),
+    tone: str = Form("standard"),
+    stakes: str = Form(""),
+    punishment: str = Form(""),
 ):
     league = _require_league(token)
     db.update_league(league["id"], {
         "paper_name": paper_name.strip() or None,
         "commissioner_name": commissioner.strip(),
         "auto_send": auto_send == "on",
+        "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
+        "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
+        "stakes": stakes.strip()[:300] or None,
+        "punishment": punishment.strip()[:300] or None,
     })
-    return RedirectResponse(f"/l/{token}", status_code=303)
+    return RedirectResponse(f"/l/{token}?notice=Saved.", status_code=303)
 
 
 @app.post("/l/{token}/email")
@@ -277,6 +285,68 @@ def save_owner_email(token: str, email: str = Form(...)):
 
 
 # ---------------------------------------------------------------------------
+# Setup questions
+#
+# Deliberately asked AFTER the league exists, not before. Getting someone in
+# with one field is the whole point; this page is skippable and everything on
+# it is editable later.
+#
+# Every question here is something the platform API cannot tell us. Scoring,
+# superflex, team count and roster slots all come back from Sleeper — asking
+# for those again would be a form for no reason.
+# ---------------------------------------------------------------------------
+
+@app.get("/l/{token}/setup", response_class=HTMLResponse)
+def setup_form(request: Request, token: str):
+    league = _require_league(token)
+    return _render(request, "setup.html",
+                   league=league, paper_name=paper_name_for(league))
+
+
+@app.post("/l/{token}/setup")
+def save_setup(
+    token: str,
+    format: str = Form("redraft"),
+    tone: str = Form("standard"),
+    founded_year: str = Form(""),
+    stakes: str = Form(""),
+    punishment: str = Form(""),
+    lore: str = Form(""),
+):
+    league = _require_league(token)
+
+    year = None
+    if founded_year.strip().isdigit():
+        candidate = int(founded_year.strip())
+        if 1980 <= candidate <= 2100:
+            year = candidate
+
+    db.update_league(league["id"], {
+        "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
+        "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
+        "founded_year": year,
+        "stakes": stakes.strip()[:300] or None,
+        "punishment": punishment.strip()[:300] or None,
+        "setup_complete": True,
+    })
+
+    # One entry per line, so people can paste a list rather than submit six times.
+    for line in lore.splitlines():
+        entry = line.strip().lstrip("-•*").strip()
+        if entry:
+            db.add_lore(league["id"], entry[:500])
+
+    return RedirectResponse(f"/l/{token}?new=1", status_code=303)
+
+
+@app.post("/l/{token}/skip-setup")
+def skip_setup(token: str):
+    league = _require_league(token)
+    db.update_league(league["id"], {"setup_complete": True})
+    return RedirectResponse(f"/l/{token}?new=1", status_code=303)
+
+
+# ---------------------------------------------------------------------------
 # Generation
 #
 # A plain `def`, not `async def`: FastAPI runs sync handlers in a threadpool,
@@ -297,7 +367,28 @@ def generate(request: Request, token: str, week: int = Form(...)):
     except ProviderError as exc:
         return RedirectResponse(f"/l/{token}?error={exc}", status_code=303)
 
-    return RedirectResponse(f"/l/{token}?generated={week}", status_code=303)
+    # Show them the paper. Waiting thirty seconds and being handed a URL to
+    # click is a bad payoff for the one moment the product actually delivers.
+    return RedirectResponse(f"/l/{token}/published/{week}", status_code=303)
+
+
+@app.get("/l/{token}/published/{week}", response_class=HTMLResponse)
+def published(request: Request, token: str, week: int):
+    """The paper itself, framed, with a copy-link button and a way back."""
+    league = _require_league(token)
+    paper = db.get_paper(league["id"], league["season"], week)
+    if not paper:
+        return RedirectResponse(f"/l/{token}?error=That+week+isn't+published+yet.",
+                                status_code=303)
+
+    return _render(
+        request, "published.html",
+        league=league,
+        paper_name=paper_name_for(league),
+        week=week,
+        paper_url=f"/p/{league['public_slug']}/{league['season']}/week-{week}",
+        subscriber_count=db.subscriber_count(league["id"]),
+    )
 
 
 # ---------------------------------------------------------------------------
