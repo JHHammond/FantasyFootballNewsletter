@@ -133,14 +133,25 @@ def download_paper(path: str) -> Optional[str]:
     return _STORAGE.get(path)
 
 
-def save_paper(league_id, week, season, storage_path_, public_url, ai_cache) -> None:
+def save_paper(league_id, week, season, storage_path_, public_url, ai_cache,
+               *, is_edit: bool = False) -> None:
     with _lock:
         existing = _PAPERS.get((league_id, season, week), {})
+
+        if is_edit:
+            original = existing.get("ai_cache_original") or ai_cache
+            edited_at = _now()
+        else:
+            original = ai_cache
+            edited_at = None
+
         _PAPERS[(league_id, season, week)] = {
             "id": existing.get("id", str(uuid4())),
             "league_id": league_id, "week": week, "season": season,
             "storage_path": storage_path_, "public_url": public_url,
-            "ai_cache": ai_cache, "generated_at": _now(),
+            "ai_cache": ai_cache, "ai_cache_original": original,
+            "generated_at": existing.get("generated_at") or _now(),
+            "edited_at": edited_at,
             "emailed_at": existing.get("emailed_at"),
         }
 

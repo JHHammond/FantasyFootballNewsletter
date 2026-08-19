@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Week {{ week }} — {{ paper_name }}{% endblock %}
+
+{% block content %}
+<header class="page-head">
+    <div class="eyebrow">{{ paper_name }} &middot; Week {{ week }}</div>
+    <h1 class="page-title">Edit the paper</h1>
+    <p class="hero-sub" style="margin:12px 0 0;text-align:left;">
+        Change anything you want. Saving re-renders the paper in about a second
+        and doesn't cost anything &mdash; nothing gets re-written, we just use
+        your words instead.
+    </p>
+</header>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+{% if was_edited %}
+<div class="alert alert-success">
+    You've already edited this week. Claude's original is still saved if you
+    want it back.
+</div>
+{% endif %}
+
+<form method="post" action="/l/{{ league.admin_token }}/edit/{{ week }}">
+    {% for group_title, fields in groups %}
+    <section class="card">
+        <h2 class="card-title">{{ group_title }}</h2>
+        <div class="stack">
+            {% for name, label, value, rows in fields %}
+            <label class="field">
+                <span class="field-label">{{ label }}</span>
+                {% if rows <= 2 %}
+                <input type="text" name="{{ name }}" value="{{ value }}" />
+                {% else %}
+                <textarea name="{{ name }}" rows="{{ rows }}">{{ value }}</textarea>
+                {% endif %}
+            </label>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+
+    <div class="edit-actions">
+        <button type="submit" class="btn btn-primary btn-lg">Save and re-render</button>
+        <a class="btn" href="/l/{{ league.admin_token }}/published/{{ week }}">Cancel</a>
+    </div>
+</form>
+
+{% if has_original and was_edited %}
+<form method="post" action="/l/{{ league.admin_token }}/edit/{{ week }}/revert"
+      class="setup-skip">
+    <button type="submit" class="btn-link">Restore Claude's original wording</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -15,6 +15,7 @@
                 data-link="{{ request.base_url }}p/{{ league.public_slug }}">
             Copy share link
         </button>
+        <a class="btn" href="/l/{{ league.admin_token }}/edit/{{ week }}">Edit text</a>
         <a class="btn" href="{{ paper_url }}" target="_blank" rel="noopener">Full screen</a>
         <a class="btn btn-ghost" href="/l/{{ league.admin_token }}">Back</a>
     </div>
@@ -22,6 +23,7 @@
 
 <p class="published-hint">
     Send that link to your league. Anyone can open it &mdash; no sign-in, no app.
+    {% if was_edited %}<br /><em>Edited by you.</em>{% endif %}
     {% if subscriber_count %}
     {{ subscriber_count }} {{ 'person' if subscriber_count == 1 else 'people' }}
     already get it by email.

@@ -82,8 +82,47 @@ def build_league_context(league: dict[str, Any], lore_entries: list) -> str:
     return "\n".join(parts)
 
 
+def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
+                     *, is_edit: bool = False) -> dict[str, Any]:
+    """Render a paper from existing prose and store it.
+
+    Used by generation AND by editing. Re-fetches the week's stats — cached, and
+    a completed week never changes — but makes no Claude call, so editing costs
+    nothing and takes about a second.
+    """
+    season = league["season"]
+    paper_name = paper_name_for(league)
+
+    week_data = load_week(league["provider"], league["platform_league_id"], season, week)
+    games = week_to_legacy_games(week_data)
+    summary = get_weekly_storylines(games)
+    power_rankings = build_power_rankings_from_matchups(games)
+
+    edition = build_edition(
+        paper_name, week, summary, games, power_rankings, ai_content,
+        # Threaded through so the paper can carry its own subscribe form —
+        # the highest-intent moment we get, since the reader just finished it.
+        subscribe_slug=league["public_slug"],
+    )
+    edition["paper_name"] = paper_name
+    html = render_html(edition)
+
+    path, public_url = db.upload_paper(league["public_slug"], season, week, html)
+    db.save_paper(league["id"], week, season, path, public_url, ai_content,
+                  is_edit=is_edit)
+
+    return {
+        "week": week,
+        "season": season,
+        "paper_name": paper_name,
+        "headline": ai_content.get("headline", f"Week {week}"),
+        "public_url": public_url,
+        "storage_path": path,
+    }
+
+
 def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
-    """Fetch, write, render, upload, record. Returns a summary of what was made.
+    """Fetch, write with Claude, render, upload, record.
 
     Raises ProviderError if the platform can't give us the week.
     """
@@ -107,24 +146,4 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         tone=league.get("tone") or "standard",
     )
 
-    power_rankings = build_power_rankings_from_matchups(games)
-    edition = build_edition(
-        paper_name, week, summary, games, power_rankings, ai_content,
-        # Threaded through so the paper can carry its own subscribe form —
-        # the highest-intent moment we get, since the reader just finished it.
-        subscribe_slug=league["public_slug"],
-    )
-    edition["paper_name"] = paper_name
-    html = render_html(edition)
-
-    path, public_url = db.upload_paper(league["public_slug"], season, week, html)
-    db.save_paper(league["id"], week, season, path, public_url, ai_content)
-
-    return {
-        "week": week,
-        "season": season,
-        "paper_name": paper_name,
-        "headline": ai_content.get("headline", f"Week {week}"),
-        "public_url": public_url,
-        "storage_path": path,
-    }
+    return render_and_store(db, league, week, ai_content)

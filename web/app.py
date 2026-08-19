@@ -35,6 +35,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -50,7 +51,7 @@ from providers import (  # noqa: E402
 )
 
 from . import emailer, slugs  # noqa: E402
-from .generate import generate_and_store, paper_name_for  # noqa: E402
+from .generate import generate_and_store, paper_name_for, render_and_store  # noqa: E402
 
 # DEMO_MODE=1 swaps Supabase for an in-memory store, so the whole app can be
 # clicked through — including real generation from real league data — before
@@ -435,12 +436,23 @@ def skip_setup(token: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/l/{token}/generate")
-def generate(request: Request, token: str, week: int = Form(...)):
+def generate(request: Request, token: str, week: int = Form(...),
+             confirm_overwrite: str = Form("")):
     league = _require_league(token)
 
     if _rate_limited(f"gen:{_client_ip(request)}", GENERATIONS_PER_HOUR):
         return RedirectResponse(
             f"/l/{token}?error=That's+a+lot+of+papers+this+hour.+Try+later.",
+            status_code=303)
+
+    # Regenerating throws away hand-edited prose. Ask first rather than
+    # silently deleting someone's work.
+    existing = db.get_paper(league["id"], league["season"], week)
+    if existing and existing.get("edited_at") and confirm_overwrite != "yes":
+        return RedirectResponse(
+            f"/l/{token}?error=Week+{week}+has+your+edits+in+it.+"
+            f"Regenerating+would+wipe+them+-+open+the+editor+and+use+"
+            f"Restore+the+original+if+that's+what+you+want.",
             status_code=303)
 
     try:
@@ -469,7 +481,158 @@ def published(request: Request, token: str, week: int):
         week=week,
         paper_url=f"/p/{league['public_slug']}/{league['season']}/week-{week}",
         subscriber_count=db.subscriber_count(league["id"]),
+        was_edited=bool(paper.get("edited_at")),
     )
+
+
+# ---------------------------------------------------------------------------
+# Editing
+#
+# The paper renders from `ai_cache`, which already holds exactly the structure
+# the renderer wants. So editing means changing that JSON and re-rendering —
+# no Claude call, no cost, about a second.
+#
+# Claude gets it right most of the time and lands a joke badly some of the
+# time. A commissioner who can fix one line will ship the paper; one who can't
+# will quietly stop using it.
+# ---------------------------------------------------------------------------
+
+def _editable_fields(ai: dict) -> dict:
+    """Flatten ai_cache into (name, label, value, rows) groups the form renders."""
+    groups = []
+
+    groups.append(("Front page", [
+        ("headline", "Headline", ai.get("headline", ""), 2),
+        ("lead_story", "Lead story", ai.get("lead_story", ""), 10),
+    ]))
+
+    matchups = ai.get("matchup_content") or []
+    for i, m in enumerate(matchups):
+        label = f"{m.get('winner', '?')} def. {m.get('loser', '?')}"
+        groups.append((f"Game story — {label}", [
+            (f"matchup_headline_{i}", "Headline", m.get("headline", ""), 2),
+            (f"matchup_teaser_{i}", "Front page teaser", m.get("teaser", ""), 2),
+            (f"matchup_body_{i}", "Story", m.get("body", ""), 9),
+        ]))
+
+    awards = ai.get("awards") or []
+    award_fields = []
+    for i, a in enumerate(awards):
+        award_fields.append((f"award_title_{i}", "Title", a.get("title", ""), 1))
+        award_fields.append((f"award_body_{i}", "Write-up", a.get("body", ""), 5))
+    if award_fields:
+        groups.append(("Weekly awards", award_fields))
+
+    groups.append(("Fraud watch", [
+        ("fraud_watch", "Fraud watch", ai.get("fraud_watch", ""), 6),
+    ]))
+
+    rankings = ai.get("power_rankings_comments") or {}
+    ranking_fields = []
+    for i, (team, comment) in enumerate(rankings.items()):
+        ranking_fields.append((f"ranking_value_{i}", team, comment, 2))
+    if ranking_fields:
+        groups.append(("Power rankings", ranking_fields))
+
+    return groups
+
+
+def _apply_edits(ai: dict, form) -> dict:
+    """Fold submitted values back into an ai_cache-shaped dict."""
+    edited = dict(ai)
+
+    for key in ("headline", "lead_story", "fraud_watch"):
+        if key in form:
+            edited[key] = form[key].strip()
+
+    matchups = [dict(m) for m in (ai.get("matchup_content") or [])]
+    for i, m in enumerate(matchups):
+        for suffix, field in (("headline", "headline"), ("body", "body"),
+                              ("teaser", "teaser")):
+            name = f"matchup_{suffix}_{i}"
+            if name in form:
+                m[field] = form[name].strip()
+    if matchups:
+        edited["matchup_content"] = matchups
+
+    awards = [dict(a) for a in (ai.get("awards") or [])]
+    for i, a in enumerate(awards):
+        if f"award_title_{i}" in form:
+            a["title"] = form[f"award_title_{i}"].strip()
+        if f"award_body_{i}" in form:
+            a["body"] = form[f"award_body_{i}"].strip()
+    if awards:
+        edited["awards"] = awards
+
+    rankings = dict(ai.get("power_rankings_comments") or {})
+    for i, team in enumerate(list(rankings)):
+        name = f"ranking_value_{i}"
+        if name in form:
+            rankings[team] = form[name].strip()
+    if rankings:
+        edited["power_rankings_comments"] = rankings
+
+    return edited
+
+
+@app.get("/l/{token}/edit/{week}", response_class=HTMLResponse)
+def edit_form(request: Request, token: str, week: int, error: str = ""):
+    league = _require_league(token)
+    paper = db.get_paper(league["id"], league["season"], week)
+    if not paper or not paper.get("ai_cache"):
+        return RedirectResponse(f"/l/{token}?error=Nothing+to+edit+for+that+week.",
+                                status_code=303)
+
+    return _render(
+        request, "edit.html",
+        league=league,
+        paper_name=paper_name_for(league),
+        week=week,
+        groups=_editable_fields(paper["ai_cache"]),
+        was_edited=bool(paper.get("edited_at")),
+        has_original=bool(paper.get("ai_cache_original")),
+        error=error,
+    )
+
+
+@app.post("/l/{token}/edit/{week}")
+async def save_edits(request: Request, token: str, week: int):
+    league = _require_league(token)
+    paper = db.get_paper(league["id"], league["season"], week)
+    if not paper or not paper.get("ai_cache"):
+        return RedirectResponse(f"/l/{token}?error=Nothing+to+edit+for+that+week.",
+                                status_code=303)
+
+    form = await request.form()
+    edited = _apply_edits(paper["ai_cache"], form)
+
+    # Re-rendering re-fetches the week's stats and rebuilds the HTML. No Claude
+    # call. Off the event loop because it does network I/O.
+    try:
+        await run_in_threadpool(render_and_store, db, league, week, edited, is_edit=True)
+    except ProviderError as exc:
+        return RedirectResponse(f"/l/{token}/edit/{week}?error={exc}", status_code=303)
+
+    return RedirectResponse(f"/l/{token}/published/{week}", status_code=303)
+
+
+@app.post("/l/{token}/edit/{week}/revert")
+async def revert_edits(token: str, week: int):
+    """Put Claude's original words back."""
+    league = _require_league(token)
+    paper = db.get_paper(league["id"], league["season"], week)
+    original = (paper or {}).get("ai_cache_original")
+    if not original:
+        return RedirectResponse(f"/l/{token}/edit/{week}?error=No+original+on+file.",
+                                status_code=303)
+
+    try:
+        await run_in_threadpool(render_and_store, db, league, week, original,
+                                is_edit=False)
+    except ProviderError as exc:
+        return RedirectResponse(f"/l/{token}/edit/{week}?error={exc}", status_code=303)
+
+    return RedirectResponse(f"/l/{token}/published/{week}", status_code=303)
 
 
 # ---------------------------------------------------------------------------

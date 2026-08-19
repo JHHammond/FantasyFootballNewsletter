@@ -167,8 +167,16 @@ def download_paper(path: str) -> Optional[str]:
 
 def save_paper(
     league_id: str, week: int, season: int, storage_path_: str,
-    public_url: str, ai_cache: Any,
+    public_url: str, ai_cache: Any, *, is_edit: bool = False,
 ) -> None:
+    """Store a rendered paper.
+
+    `is_edit=True` means a human changed the prose: keep whatever Claude
+    originally wrote in ai_cache_original so revert stays possible, and stamp
+    edited_at so regeneration can warn before discarding the work.
+
+    `is_edit=False` is a fresh generation, which resets both.
+    """
     row = {
         "league_id": league_id,
         "week": week,
@@ -178,13 +186,24 @@ def save_paper(
         "ai_cache": ai_cache or None,   # jsonb column; pass the dict through
     }
     existing = (
-        client().table("newspapers").select("id")
+        client().table("newspapers").select("id, ai_cache_original")
         .eq("league_id", league_id).eq("week", week).eq("season", season)
         .execute()
     )
+
+    if is_edit:
+        row["edited_at"] = "now()"
+    else:
+        row["ai_cache_original"] = ai_cache or None
+        row["edited_at"] = None
+
     if existing.data:
+        # Never overwrite an original that's already recorded.
+        if is_edit and not existing.data[0].get("ai_cache_original"):
+            row["ai_cache_original"] = ai_cache or None
         client().table("newspapers").update(row).eq("id", existing.data[0]["id"]).execute()
     else:
+        row.setdefault("ai_cache_original", ai_cache or None)
         client().table("newspapers").insert(row).execute()
 
 

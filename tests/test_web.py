@@ -852,3 +852,183 @@ def test_no_offer_when_the_current_season_already_works(client, predraft_league,
     r = client.get("/l/secret-admin-token")
     assert "Use the 2025 season" not in r.text
     assert '<select name="week">' in r.text
+
+
+# ---------------------------------------------------------------------------
+# Edit mode
+#
+# The paper renders from ai_cache, so editing means changing that JSON and
+# re-rendering. No Claude call, no cost.
+# ---------------------------------------------------------------------------
+
+SAMPLE_AI = {
+    "headline": "SATAN FALLS IN KEVLARVILLE",
+    "lead_story": "Week one delivered chaos.",
+    "fraud_watch": "champayyy is a fraud.",
+    "matchup_content": [
+        {"winner": "john", "loser": "champ", "headline": "JOHN WINS",
+         "body": "It was close.", "teaser": "Commissioner prevails",
+         "winner_score": 120.4, "loser_score": 107.8},
+    ],
+    "awards": [
+        {"title": "GARDNER MINSHEW AWARD", "body": "Left 43 points on the bench."},
+    ],
+    "power_rankings_comments": {"john": "Untouchable.", "champ": "Cooked."},
+}
+
+
+@pytest.fixture
+def paper(league):
+    demo_db.upload_paper(league["public_slug"], 2025, 1, "<h1>P</h1>")
+    demo_db.save_paper(league["id"], 1, 2025, "p", "u", dict(SAMPLE_AI))
+    return demo_db.get_paper(league["id"], 2025, 1)
+
+
+@pytest.fixture
+def no_rerender(monkeypatch):
+    """Skip the provider round-trip; we're testing the edit plumbing."""
+    calls = []
+
+    def fake(db_, lg, week, ai_content, *, is_edit=False):
+        calls.append({"week": week, "ai": ai_content, "is_edit": is_edit})
+        db_.save_paper(lg["id"], week, lg["season"], "p", "u", ai_content,
+                       is_edit=is_edit)
+        return {}
+
+    monkeypatch.setattr(webapp, "render_and_store", fake)
+    return calls
+
+
+def test_editor_shows_every_piece_of_prose(client, paper):
+    r = client.get("/l/secret-admin-token/edit/1")
+    assert r.status_code == 200
+    assert "SATAN FALLS IN KEVLARVILLE" in r.text
+    assert "Week one delivered chaos." in r.text
+    assert "It was close." in r.text
+    assert "Left 43 points on the bench." in r.text
+    assert "Untouchable." in r.text
+    assert "champayyy is a fraud." in r.text
+
+
+def test_editor_requires_the_token(client, paper):
+    assert client.get("/l/wrong/edit/1").status_code == 404
+
+
+def test_editing_a_week_that_does_not_exist(client, league):
+    r = client.get("/l/secret-admin-token/edit/9", follow_redirects=False)
+    assert r.status_code == 303
+    assert "Nothing+to+edit" in r.headers["location"]
+
+
+def test_saving_an_edit_changes_the_prose(client, league, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1", data={
+        "headline": "ACTUALLY A DIFFERENT HEADLINE",
+        "lead_story": "Rewritten by hand.",
+        "fraud_watch": "Nobody is a fraud.",
+        "matchup_headline_0": "NEW MATCHUP HEADLINE",
+        "matchup_body_0": "New body text.",
+        "matchup_teaser_0": "New teaser",
+        "award_title_0": "THE NEW AWARD",
+        "award_body_0": "New award text.",
+        "ranking_value_0": "Still untouchable.",
+        "ranking_value_1": "Still cooked.",
+    })
+    ai = no_rerender[0]["ai"]
+    assert ai["headline"] == "ACTUALLY A DIFFERENT HEADLINE"
+    assert ai["lead_story"] == "Rewritten by hand."
+    assert ai["matchup_content"][0]["headline"] == "NEW MATCHUP HEADLINE"
+    assert ai["matchup_content"][0]["body"] == "New body text."
+    assert ai["awards"][0]["title"] == "THE NEW AWARD"
+    assert ai["power_rankings_comments"]["john"] == "Still untouchable."
+
+
+def test_editing_preserves_fields_the_form_never_touches(client, paper, no_rerender):
+    """Scores and team names aren't editable and must survive a save."""
+    client.post("/l/secret-admin-token/edit/1", data={"headline": "NEW"})
+    ai = no_rerender[0]["ai"]
+    assert ai["matchup_content"][0]["winner_score"] == 120.4
+    assert ai["matchup_content"][0]["winner"] == "john"
+
+
+def test_saving_marks_the_paper_as_edited(client, league, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1", data={"headline": "NEW"})
+    assert no_rerender[0]["is_edit"] is True
+    saved = demo_db.get_paper(league["id"], 2025, 1)
+    assert saved["edited_at"] is not None
+
+
+def test_the_original_wording_is_kept(client, league, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1", data={"headline": "NEW"})
+    saved = demo_db.get_paper(league["id"], 2025, 1)
+    assert saved["ai_cache"]["headline"] == "NEW"
+    assert saved["ai_cache_original"]["headline"] == "SATAN FALLS IN KEVLARVILLE"
+
+
+def test_editing_twice_does_not_clobber_the_original(client, league, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1", data={"headline": "FIRST EDIT"})
+    client.post("/l/secret-admin-token/edit/1", data={"headline": "SECOND EDIT"})
+    saved = demo_db.get_paper(league["id"], 2025, 1)
+    assert saved["ai_cache"]["headline"] == "SECOND EDIT"
+    assert saved["ai_cache_original"]["headline"] == "SATAN FALLS IN KEVLARVILLE"
+
+
+def test_reverting_restores_claudes_words(client, league, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1", data={"headline": "NEW"})
+    client.post("/l/secret-admin-token/edit/1/revert")
+    saved = demo_db.get_paper(league["id"], 2025, 1)
+    assert saved["ai_cache"]["headline"] == "SATAN FALLS IN KEVLARVILLE"
+    assert saved["edited_at"] is None
+
+
+def test_saving_redirects_to_the_paper(client, paper, no_rerender):
+    r = client.post("/l/secret-admin-token/edit/1", data={"headline": "NEW"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/l/secret-admin-token/published/1"
+
+
+def test_edits_cannot_be_saved_without_the_token(client, paper, no_rerender):
+    r = client.post("/l/wrong/edit/1", data={"headline": "NEW"},
+                    follow_redirects=False)
+    assert r.status_code == 404
+    assert no_rerender == []
+
+
+# --- regeneration must not silently destroy edits --------------------------
+
+def test_regenerating_an_edited_week_is_blocked(client, league, paper, no_rerender,
+                                                monkeypatch):
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda *a, **k: pytest.fail("should not have regenerated"))
+    client.post("/l/secret-admin-token/edit/1", data={"headline": "NEW"})
+
+    r = client.post("/l/secret-admin-token/generate", data={"week": 1},
+                    follow_redirects=False)
+    assert "error=" in r.headers["location"]
+    assert "wipe" in r.headers["location"]
+
+
+def test_regenerating_an_edited_week_is_allowed_when_confirmed(client, league, paper,
+                                                               no_rerender, monkeypatch):
+    ran = []
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: ran.append(wk))
+    client.post("/l/secret-admin-token/edit/1", data={"headline": "NEW"})
+
+    client.post("/l/secret-admin-token/generate",
+                data={"week": 1, "confirm_overwrite": "yes"})
+    assert ran == [1]
+
+
+def test_regenerating_an_unedited_week_needs_no_confirmation(client, league, paper,
+                                                             monkeypatch):
+    ran = []
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: ran.append(wk))
+    client.post("/l/secret-admin-token/generate", data={"week": 1})
+    assert ran == [1]
+
+
+def test_published_page_offers_the_editor(client, paper):
+    r = client.get("/l/secret-admin-token/published/1")
+    assert "/edit/1" in r.text
+    assert "Edit text" in r.text
