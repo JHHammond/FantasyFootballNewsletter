@@ -868,7 +868,9 @@ SAMPLE_AI = {
     "matchup_content": [
         {"winner": "john", "loser": "champ", "headline": "JOHN WINS",
          "body": "It was close.", "teaser": "Commissioner prevails",
-         "winner_score": 120.4, "loser_score": 107.8},
+         "winner_score": 120.4, "loser_score": 107.8,
+         "winner_record": "1-0", "loser_record": "0-1",
+         "winner_lineup_gap": 16.6, "loser_lineup_gap": 5.4, "margin": 12.6},
     ],
     "awards": [
         {"title": "GARDNER MINSHEW AWARD", "body": "Left 43 points on the bench."},
@@ -1110,7 +1112,7 @@ def test_inline_save_stores_photos(client, paper, no_rerender):
         "edits": {},
         "images": {"hero": "https://cdn.example/photo.jpg"},
     })
-    assert no_rerender[0]["ai"]["images"]["hero"] == "https://cdn.example/photo.jpg"
+    assert no_rerender[0]["ai"]["images"]["hero"]["url"] == "https://cdn.example/photo.jpg"
 
 
 def test_inline_save_ignores_unknown_keys(client, paper, no_rerender):
@@ -1180,3 +1182,130 @@ def test_photo_upload_requires_the_token(client, league):
     r = client.post("/l/wrong/upload-image",
                     files={"photo": ("shot.png", b"PNG", "image/png")})
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Photo sizing and layout
+# ---------------------------------------------------------------------------
+
+def test_resizing_a_photo_is_saved(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {"hero": "https://cdn.example/p.jpg"},
+        "widths": {"hero": 55},
+    })
+    assert no_rerender[0]["ai"]["images"]["hero"]["width"] == 55
+
+
+def test_absurd_widths_are_clamped(client, paper, no_rerender):
+    """A browser can post anything; a 4000%-wide photo would wreck the page
+    for every reader."""
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {"hero": "https://cdn.example/p.jpg"},
+        "widths": {"hero": 4000},
+    })
+    assert no_rerender[0]["ai"]["images"]["hero"]["width"] == 100
+
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {}, "widths": {"hero": -20},
+    })
+    assert no_rerender[-1]["ai"]["images"]["hero"]["width"] == 10
+
+
+def test_a_width_without_a_photo_is_ignored(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {}, "widths": {"nonexistent": 50},
+    })
+    assert "nonexistent" not in (no_rerender[0]["ai"].get("images") or {})
+
+
+def test_resizing_keeps_the_photo_url(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {"hero": "https://cdn.example/p.jpg"}, "widths": {},
+    })
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {}, "widths": {"hero": 40},
+    })
+    hero = no_rerender[-1]["ai"]["images"]["hero"]
+    assert hero["url"] == "https://cdn.example/p.jpg"
+    assert hero["width"] == 40
+
+
+def test_old_plain_string_photos_still_work(client, league, no_rerender):
+    """Rows written before resizing existed hold a bare URL string."""
+    demo_db.save_paper(league["id"], 1, 2025, "p", "u",
+                       {**SAMPLE_AI, "images": {"hero": "https://old/photo.jpg"}})
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {}, "widths": {"hero": 70},
+    })
+    hero = no_rerender[0]["ai"]["images"]["hero"]
+    assert hero["url"] == "https://old/photo.jpg"
+    assert hero["width"] == 70
+
+
+def test_preview_url_is_cache_busted(client, league, paper):
+    """Published papers are cached hard, so without this the iframe keeps
+    showing the copy from before the edit."""
+    r = client.get("/l/secret-admin-token/published/1")
+    assert "week-1?v=" in r.text
+
+
+def test_preview_version_changes_after_an_edit(client, league, paper, no_rerender):
+    before = client.get("/l/secret-admin-token/published/1").text
+    client.post("/l/secret-admin-token/edit/1/inline",
+                json={"edits": {"headline": "CHANGED"}, "images": {}})
+    after = client.get("/l/secret-admin-token/published/1").text
+
+    import re
+    v1 = re.search(r"week-1\?v=(\w+)", before).group(1)
+    v2 = re.search(r"week-1\?v=(\w+)", after).group(1)
+    assert v1 != v2
+
+
+# --- renderer-level layout guarantees --------------------------------------
+
+def _render_paper(ai, editable=False):
+    import tempfile
+    from providers import (SleeperProvider, TTLCache, apply_lineup_gaps,
+                           week_to_legacy_games)
+    from storylines import get_weekly_storylines
+    from newspaper import (build_edition, build_power_rankings_from_matchups,
+                           render_html)
+    from tests import fixtures
+
+    p = SleeperProvider(cache=TTLCache(cache_dir=tempfile.mkdtemp(), namespace="t"))
+    p._get = lambda u, params=None: fixtures.fake_get(u, params)
+    games = week_to_legacy_games(apply_lineup_gaps(p.get_week("TESTLEAGUE", 2025, 3)))
+    summary = get_weekly_storylines(games)
+    rankings = build_power_rankings_from_matchups(games)
+    html = render_html(build_edition("X", 1, summary, games, rankings, ai,
+                                     subscribe_slug="sl", editable=editable))
+    return html.split("</style>", 1)[1]   # skip the CSS so class names in
+                                          # stylesheets don't false-positive
+
+
+def test_no_broken_relative_image_paths(client):
+    """Memes were emitted as ../memes/x.jpg, which resolves to nothing once a
+    paper is served from a URL. That was a broken image on every story."""
+    assert 'src="../' not in _render_paper(dict(SAMPLE_AI))
+
+
+def test_published_paper_has_no_empty_photo_placeholders(client):
+    body = _render_paper(dict(SAMPLE_AI))
+    assert "image-slot-empty" not in body
+    assert "image-wrap-editing" not in body
+
+
+def test_edit_view_shows_photo_placeholders(client):
+    body = _render_paper(dict(SAMPLE_AI), editable=True)
+    assert "image-slot-empty" in body
+    assert "image-wrap-editing" in body
+
+
+def test_uploaded_hero_replaces_the_stock_one(client):
+    """Two hero images stacked on top of each other is never what anyone
+    wanted."""
+    body = _render_paper({**SAMPLE_AI,
+                          "images": {"hero": {"url": "https://x/h.jpg", "width": 70}}})
+    assert body.count("https://x/h.jpg") == 1
+    assert 'alt="Hero image"' not in body
+    assert "width:70%" in body

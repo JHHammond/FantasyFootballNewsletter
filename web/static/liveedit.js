@@ -71,15 +71,45 @@
   document.body.appendChild(picker);
 
   var pendingSlot = null;
+  var widths = {};
+
+  function slotWidthPercent(el) {
+    var parent = el.parentElement;
+    if (!parent || !parent.offsetWidth) return null;
+    var pct = (el.offsetWidth / parent.offsetWidth) * 100;
+    return Math.max(10, Math.min(100, Math.round(pct)));
+  }
 
   Array.prototype.forEach.call(
     document.querySelectorAll("[data-image-slot]"),
     function (el) {
-      el.addEventListener("click", function () {
+      // Click anywhere in the slot to pick a photo — but not when the click
+      // was the tail end of dragging the resize handle.
+      el.addEventListener("click", function (e) {
+        if (el.dataset.justResized === "1") {
+          el.dataset.justResized = "";
+          return;
+        }
         pendingSlot = el.dataset.imageSlot;
         picker.value = "";
         picker.click();
       });
+
+      // Native CSS resize fires no event, so watch the box instead.
+      if (typeof ResizeObserver === "function") {
+        var initial = el.offsetWidth;
+        var observer = new ResizeObserver(function () {
+          if (Math.abs(el.offsetWidth - initial) < 2) return;
+          initial = el.offsetWidth;
+          var pct = slotWidthPercent(el);
+          if (pct === null) return;
+          widths[el.dataset.imageSlot] = pct;
+          el.dataset.justResized = "1";
+          markDirty();
+          setStatus("Photo resized — save to keep it");
+        });
+        observer.observe(el);
+      }
     }
   );
 
@@ -107,20 +137,13 @@
         images[slot] = data.url;
         markDirty();
         setStatus("Photo added — save to publish it");
-        // Swap the placeholder for the real thing straight away.
+        // Fill the slot straight away so the layout reflows immediately,
+        // exactly as it will once saved.
         var el = document.querySelector('[data-image-slot="' + slot + '"]');
         if (el) {
-          var img = document.createElement("img");
-          img.src = data.url;
-          img.setAttribute("data-image-slot", slot);
-          img.style.cssText = el.style.cssText;
-          img.className = "";
-          el.parentNode.replaceChild(img, el);
-          img.addEventListener("click", function () {
-            pendingSlot = slot;
-            picker.value = "";
-            picker.click();
-          });
+          el.innerHTML =
+            '<img src="' + data.url +
+            '" alt="" style="width:100%;height:auto;display:block;" />';
         }
       })
       .catch(function () {
@@ -138,7 +161,7 @@
     fetch(saveUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ edits: dirty, images: images }),
+      body: JSON.stringify({ edits: dirty, images: images, widths: widths }),
     })
       .then(function (r) {
         if (!r.ok) throw new Error("save failed");

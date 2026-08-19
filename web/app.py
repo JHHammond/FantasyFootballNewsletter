@@ -74,6 +74,13 @@ MAGIC_LINK_TTL_MINUTES = 30
 
 app = FastAPI(title="The Commissioner's Desk", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+# Bundled meme images. Papers used to reference these as "../memes/x.jpg",
+# which only resolved when the HTML sat next to the folder on disk — every one
+# of them was a broken image once papers moved to URLs.
+_MEMES_DIR = BASE_DIR.parent / "memes"
+if _MEMES_DIR.is_dir():
+    app.mount("/memes", StaticFiles(directory=_MEMES_DIR), name="memes")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["demo_mode"] = DEMO_MODE
 
@@ -479,12 +486,20 @@ def published(request: Request, token: str, week: int):
         return RedirectResponse(f"/l/{token}?error=That+week+isn't+published+yet.",
                                 status_code=303)
 
+    # Published papers are cached hard (they never change once published), so
+    # without a version in the URL the iframe would keep showing the copy from
+    # before an edit. The token is the last write time.
+    version = str(paper.get("edited_at") or paper.get("generated_at") or "")
+    version = "".join(ch for ch in version if ch.isalnum())[-14:] or "1"
+    base = f"/p/{league['public_slug']}/{league['season']}/week-{week}"
+
     return _render(
         request, "published.html",
         league=league,
         paper_name=paper_name_for(league),
         week=week,
-        paper_url=f"/p/{league['public_slug']}/{league['season']}/week-{week}",
+        paper_url=base,
+        preview_url=f"{base}?v={version}",
         subscriber_count=db.subscriber_count(league["id"]),
         was_edited=bool(paper.get("edited_at")),
     )
@@ -621,7 +636,8 @@ async def save_edits(request: Request, token: str, week: int):
     return RedirectResponse(f"/l/{token}/published/{week}", status_code=303)
 
 
-def _apply_inline_edits(ai: dict, edits: dict, images: dict) -> dict:
+def _apply_inline_edits(ai: dict, edits: dict, images: dict,
+                        widths: dict | None = None) -> dict:
     """Fold inline edits back into an ai_cache-shaped dict.
 
     Keys mirror the data-edit-key attributes the renderer emits. Anything
@@ -670,11 +686,32 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict) -> dict:
     if rankings:
         edited["power_rankings_comments"] = rankings
 
-    if images:
-        merged = dict(ai.get("images") or {})
-        for slot, url in images.items():
-            if isinstance(url, str) and url.strip():
-                merged[str(slot)[:40]] = url.strip()
+    # Photos are stored as {"url", "width"}. Older rows hold a bare URL
+    # string, so normalize on the way through.
+    merged = {}
+    for slot, raw in (ai.get("images") or {}).items():
+        merged[slot] = {"url": raw, "width": None} if isinstance(raw, str) else dict(raw)
+
+    for slot, url in (images or {}).items():
+        if isinstance(url, str) and url.strip():
+            key = str(slot)[:40]
+            entry = merged.get(key) or {}
+            entry["url"] = url.strip()
+            merged[key] = entry
+
+    for slot, width in (widths or {}).items():
+        key = str(slot)[:40]
+        if key not in merged:
+            continue
+        try:
+            value = float(width)
+        except (TypeError, ValueError):
+            continue
+        # Clamp: a browser can send anything, and a 4000%-wide photo would
+        # destroy the layout for every reader.
+        merged[key]["width"] = max(10.0, min(100.0, value))
+
+    if merged:
         edited["images"] = merged
 
     return edited
@@ -726,6 +763,7 @@ async def save_inline_edits(request: Request, token: str, week: int):
         paper["ai_cache"],
         payload.get("edits") or {},
         payload.get("images") or {},
+        payload.get("widths") or {},
     )
 
     try:

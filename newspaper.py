@@ -41,16 +41,52 @@ def md(text):
     return markdown.markdown(raw)
 
 
-def render_image_slot(url, key, editable, style):
-    """A photo in the paper, or an invitation to add one while editing."""
-    if url:
-        return (f'<img src="{url}" alt="" data-image-slot="{key}" '
-                f'style="{style}" />')
-    if not editable:
+def image_entry(images, key):
+    """Normalize a photo entry to {"url", "width"}.
+
+    Stored as a bare URL string before resizing existed, so accept both.
+    `width` is a percentage of the containing column.
+    """
+    raw = (images or {}).get(key)
+    if not raw:
+        return None
+    if isinstance(raw, str):
+        return {"url": raw, "width": None}
+    url = raw.get("url")
+    if not url:
+        return None
+    try:
+        width = float(raw.get("width")) if raw.get("width") else None
+    except (TypeError, ValueError):
+        width = None
+    return {"url": url, "width": width}
+
+
+def render_image_slot(entry, key, editable, wrap_style, default_width):
+    """A photo in the paper, or an invitation to add one while editing.
+
+    The photo lives inside a wrapper that carries the float and margins, so the
+    wrapper can be resized (native CSS `resize` while editing) and the image
+    just fills it. Text reflows around the wrapper as it changes size.
+    """
+    width = (entry or {}).get("width") or default_width
+    # Trim the trailing .0 so the inline style reads like something a person
+    # would have typed.
+    sizing = f"width:{width:g}%;" if width else ""
+
+    if entry and entry.get("url"):
+        inner = (f'<img src="{entry["url"]}" alt="" '
+                 f'style="width:100%;height:auto;display:block;" />')
+    elif editable:
+        inner = ('<div class="image-slot-empty">Click to add a photo</div>')
+    else:
+        # No photo and nobody editing: render nothing at all, so the text
+        # reflows to fill the space instead of leaving a hole.
         return ""
-    # Empty slot, visible only to the commissioner while editing.
-    return (f'<div data-image-slot="{key}" class="image-slot-empty" '
-            f'style="{style}">Click to add a photo</div>')
+
+    editing_class = " image-wrap-editing" if editable else ""
+    return (f'<span class="image-wrap{editing_class}" data-image-slot="{key}" '
+            f'style="{wrap_style}{sizing}">{inner}</span>')
 
 
 def load_memes():
@@ -136,6 +172,25 @@ def select_meme(memes, tags):
         return random.choice(reaction_memes)
 
     return None
+
+
+def meme_url(meme):
+    """Servable URL for a bundled meme, or None.
+
+    These used to be emitted as "../memes/x.jpg", which resolved only when the
+    HTML sat next to the memes folder on disk. Papers are served over HTTP now,
+    so that path silently produced a broken image on every story. Absolute, and
+    None when the file isn't actually there.
+    """
+    if not meme:
+        return None
+    rel = safe(meme.get("file"))
+    if not rel:
+        return None
+    rel = rel.lstrip("./")
+    if not (BASE_DIR / rel).exists():
+        return None
+    return "/" + rel
 
 
 def render_meme_html(meme):
@@ -685,16 +740,17 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
 
         if i == 0:
             # ── LEAD STORY: full width, big headline, photo right ──
-            photo_style = ("float:right;width:260px;max-width:44%;height:auto;"
-                           "margin:0 0 14px 20px;border:1px solid #ccc;")
-            meme_html = render_image_slot(images.get(f"matchup_{i}"),
-                                          f"matchup_{i}", editable, photo_style)
-            if not meme_html:
-                tags = get_story_tags(story)
-                meme = select_meme(memes, tags)
-                if meme:
-                    file_path = safe(meme.get("file"))
-                    meme_html = f'<img src="../{file_path}" alt="meme" style="{photo_style}" />'
+            wrap_style = "float:right;margin:0 0 14px 20px;border:1px solid #ccc;"
+            entry = image_entry(images, f"matchup_{i}")
+            meme_html = render_image_slot(entry, f"matchup_{i}", editable,
+                                          wrap_style, 44)
+            # Only fall back to a meme when no real photo has been uploaded.
+            if not entry:
+                meme = select_meme(memes, get_story_tags(story))
+                if meme and meme_url(meme):
+                    meme_html = (f'<span class="image-wrap" style="{wrap_style}width:44%;">'
+                                 f'<img src="{meme_url(meme)}" alt="" '
+                                 f'style="width:100%;height:auto;display:block;" /></span>')
 
             pull_quote = build_pull_quote(body)
             pull_html = f'<div class="pull-quote">&ldquo;{pull_quote}&rdquo;</div>' if pull_quote else ""
@@ -713,16 +769,16 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
 
         elif i == 1:
             # ── FEATURE: full width, medium headline, photo left ──
-            photo_style = ("float:left;width:200px;max-width:40%;height:auto;"
-                           "margin:0 18px 12px 0;border:1px solid #ccc;")
-            meme_html = render_image_slot(images.get(f"matchup_{i}"),
-                                          f"matchup_{i}", editable, photo_style)
-            if not meme_html:
-                tags = get_story_tags(story)
-                meme = select_meme(memes, tags)
-                if meme:
-                    file_path = safe(meme.get("file"))
-                    meme_html = f'<img src="../{file_path}" alt="meme" style="{photo_style}" />'
+            wrap_style = "float:left;margin:0 18px 12px 0;border:1px solid #ccc;"
+            entry = image_entry(images, f"matchup_{i}")
+            meme_html = render_image_slot(entry, f"matchup_{i}", editable,
+                                          wrap_style, 40)
+            if not entry:
+                meme = select_meme(memes, get_story_tags(story))
+                if meme and meme_url(meme):
+                    meme_html = (f'<span class="image-wrap" style="{wrap_style}width:40%;">'
+                                 f'<img src="{meme_url(meme)}" alt="" '
+                                 f'style="width:100%;height:auto;display:block;" /></span>')
 
             html_parts.append(f'''
             <article class="story-card story-feature">
@@ -1081,11 +1137,17 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     if hero_meme:
         hero_html = f'''
         <div class="hero-image-wrap">
-            <img src="../{hero_meme["file"]}" alt="Hero image"
+            <img src="{meme_url(hero_meme)}" alt=""
                  style="width:100%;max-height:280px;object-fit:cover;object-position:center;
                         display:block;border:2px solid #111;margin-bottom:10px;" />
         </div>'''
     else:
+        hero_html = ""
+
+    # An uploaded hero photo replaces the meme rather than stacking on top of
+    # it. Two hero images is never what anyone wanted.
+    hero_entry = image_entry(images, "hero")
+    if hero_entry or not meme_url(hero_meme):
         hero_html = ""
 
     # --- Front left col: AI teaser hooks per game ---
@@ -1145,9 +1207,8 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         "ed_lead": ed("lead_story", editable),
         "ed_fraud": ed("fraud_watch", editable),
         "hero_image_html": render_image_slot(
-            images.get("hero"), "hero", editable,
-            "width:100%;height:auto;display:block;margin:0 0 14px;"
-            "border:1px solid #ccc;"),
+            hero_entry, "hero", editable,
+            "display:block;margin:0 auto 14px;border:1px solid #ccc;", 100),
         "classifieds_html": render_classifieds(ads),
         # The reader just finished two thousand words of this. Best moment
         # we will ever get to ask for an email.
@@ -1175,18 +1236,36 @@ def render_html(edition):
             outline: 2px solid #2d5016;
             background: #fffdf5;
         }}
-        [data-image-slot] {{ cursor: pointer; }}
-        img[data-image-slot]:hover {{ outline: 2px solid #2d5016; }}
+        .image-wrap {{ display: block; max-width: 100%; }}
+        .image-wrap img {{ max-width: 100%; }}
+        /* Native browser resize handle — drag the corner to resize. Only
+           present while editing; a published paper gets a plain block. */
+        .image-wrap-editing {{
+            resize: horizontal;
+            overflow: hidden;
+            cursor: pointer;
+            min-width: 90px;
+            position: relative;
+        }}
+        .image-wrap-editing:hover {{ outline: 2px solid #2d5016; }}
+        .image-wrap-editing::after {{
+            content: "";
+            position: absolute; right: 0; bottom: 0;
+            width: 14px; height: 14px;
+            background: linear-gradient(135deg, transparent 50%, #2d5016 50%);
+            pointer-events: none;
+        }}
         .image-slot-empty {{
             display: flex; align-items: center; justify-content: center;
             min-height: 120px;
             background: repeating-linear-gradient(45deg, #f2ede3, #f2ede3 10px, #e8e0d0 10px, #e8e0d0 20px);
-            border: 2px dashed #8b8474 !important;
+            border: 2px dashed #8b8474;
             color: #6b6050;
             font-family: "Barlow Condensed", sans-serif;
             font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase;
+            text-align: center;
         }}
-        .image-slot-empty:hover {{ border-color: #2d5016 !important; color: #2d5016; }}
+        .image-wrap-editing:hover .image-slot-empty {{ border-color: #2d5016; color: #2d5016; }}
         {CLASSIFIEDS_CSS}
         {SUBSCRIBE_CSS}
         * {{ box-sizing: border-box; }}
