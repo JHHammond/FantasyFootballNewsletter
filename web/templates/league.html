@@ -78,6 +78,24 @@
     <p class="field-help" style="margin-top:10px;">
         Only weeks with actual results show up here.
     </p>
+    {% elif earlier_season %}
+    <p class="card-sub">
+        Your {{ league.season }} season hasn't been played yet &mdash; if you
+        haven't drafted, that's why. But your <strong>{{ earlier_season.season }}</strong>
+        season is right there with
+        {{ earlier_season.weeks|length }} week{{ '' if earlier_season.weeks|length == 1 else 's' }}
+        of results. Want to write that up instead?
+    </p>
+    <form method="post" action="/l/{{ league.admin_token }}/use-season">
+        <input type="hidden" name="platform_league_id" value="{{ earlier_season.league_id }}" />
+        <input type="hidden" name="season" value="{{ earlier_season.season }}" />
+        <button type="submit" class="btn btn-primary">
+            Use the {{ earlier_season.season }} season
+        </button>
+    </form>
+    <p class="field-help" style="margin-top:10px;">
+        You can switch back once {{ league.season }} kicks off.
+    </p>
     {% else %}
     <p class="card-sub">
         Nothing to write about yet &mdash; {{ league.provider|title }} has no

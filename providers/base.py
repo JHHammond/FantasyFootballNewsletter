@@ -98,6 +98,19 @@ class FantasyProvider(ABC):
         """
         return []
 
+    def season_chain(self, league_id: str, max_hops: int = 10) -> list:
+        """This league and its predecessors, newest first.
+
+        Platforms that roll a league over each year mint a NEW id every season
+        and leave a pointer back to the old one. That matters enormously in the
+        offseason: someone pastes the id they see today, it has no games in it,
+        and their entire previous season is sitting one hop away.
+
+        Returns a list of League objects. Default is just this league.
+        """
+        league = self.describe_league(league_id)
+        return [league] if league else []
+
     def namespaced_id(self, raw_id: str | int) -> str:
         """Prefix a platform's player ID so IDs can never collide across platforms."""
         return f"{self.name}:{raw_id}"

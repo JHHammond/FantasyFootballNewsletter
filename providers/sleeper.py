@@ -312,6 +312,28 @@ class SleeperProvider(FantasyProvider):
             f"weeks:{league_id}:{season}", TTL_LIVE_SCORES * 15, scan
         ) or []
 
+    def season_chain(self, league_id: str, max_hops: int = 10) -> list[League]:
+        """Walk previous_league_id back through earlier seasons, newest first.
+
+        Sleeper creates a brand-new league id when a league rolls over to the
+        next season, so the id a commissioner copies in August points at an
+        empty pre-draft shell while last year's completed season lives at the
+        id in `previous_league_id`.
+        """
+        chain: list[League] = []
+        seen: set[str] = set()
+        current: str | None = str(league_id)
+
+        while current and current not in seen and len(chain) < max_hops:
+            seen.add(current)
+            league = self.describe_league(current)
+            if not league:
+                break
+            chain.append(league)
+            current = league.previous_league_id
+
+        return chain
+
     def get_league(self, league_id: str, season: int | None = None) -> League:
         data = self.cache.get_or_fetch(
             f"league:{league_id}",

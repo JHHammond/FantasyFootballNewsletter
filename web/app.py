@@ -214,17 +214,26 @@ def manage(
     # Only offer weeks the platform actually has results for. Letting someone
     # pick week 1 of a league that hasn't drafted is how you get a confusing
     # error instead of a paper.
+    weeks: list[int] = []
+    earlier_season = None
     try:
-        weeks = get_provider(league["provider"]).available_weeks(
+        adapter = get_provider(league["provider"])
+        weeks = adapter.available_weeks(
             league["platform_league_id"], league["season"])
+
+        # Nothing playable? The offseason case: the id they pasted is this
+        # year's empty shell and last year's completed season is one hop back.
+        if not weeks:
+            earlier_season = _find_playable_previous_season(adapter, league)
     except Exception:
-        weeks = []
+        pass
 
     return _render(
         request, "league.html",
         league=league,
         paper_name=paper_name_for(league),
         weeks=weeks,
+        earlier_season=earlier_season,
         lore=db.get_lore(league["id"]),
         papers=db.list_papers(league["id"]),
         subscriber_count=db.subscriber_count(league["id"]),
@@ -296,6 +305,63 @@ def save_owner_email(token: str, email: str = Form(...)):
             f"/l/{token}?error=Couldn't+send+that+email.+Try+again+in+a+bit.",
             status_code=303)
     return RedirectResponse(f"/l/{token}?notice=Sent.+Check+your+inbox.",
+                            status_code=303)
+
+
+def _find_playable_previous_season(adapter, league: dict):
+    """The most recent earlier season of this league that has real results.
+
+    Returns a dict the template can render, or None. Skips the league we're
+    already pointed at.
+    """
+    try:
+        chain = adapter.season_chain(league["platform_league_id"])
+    except Exception:
+        return None
+
+    for entry in chain[1:]:
+        try:
+            weeks = adapter.available_weeks(entry.league_id, entry.season)
+        except Exception:
+            continue
+        if weeks:
+            return {
+                "league_id": entry.league_id,
+                "season": entry.season,
+                "name": entry.name,
+                "weeks": weeks,
+            }
+    return None
+
+
+@app.post("/l/{token}/use-season")
+def use_season(token: str, platform_league_id: str = Form(...), season: int = Form(...)):
+    """Point this paper at an earlier season of the same league.
+
+    Sleeper gives a rolled-over league a new id each year, so this is how
+    somebody who signed up in the offseason gets to write up last season
+    instead of staring at an empty shell.
+    """
+    league = _require_league(token)
+
+    # Only accept an id that genuinely belongs to this league's own history —
+    # otherwise this endpoint would let anyone repoint a paper at any league.
+    try:
+        adapter = get_provider(league["provider"])
+        chain_ids = {e.league_id for e in adapter.season_chain(league["platform_league_id"])}
+    except Exception:
+        chain_ids = set()
+
+    if str(platform_league_id) not in chain_ids:
+        return RedirectResponse(
+            f"/l/{token}?error=That+season+doesn't+belong+to+this+league.",
+            status_code=303)
+
+    db.update_league(league["id"], {
+        "platform_league_id": str(platform_league_id),
+        "season": int(season),
+    })
+    return RedirectResponse(f"/l/{token}?notice=Now+writing+up+the+{season}+season.",
                             status_code=303)
 
 

@@ -768,3 +768,87 @@ def test_drafted_but_unplayed_league_says_so(monkeypatch, tmp_path):
     league = League(provider="sleeper", league_id="1", name="Kevlarville",
                     season=2025, status="in_season")
     assert "no week has been scored" in p._explain_missing_week(league, 1).lower()
+
+
+# ---------------------------------------------------------------------------
+# Offseason: follow the league's previous season
+#
+# Sleeper mints a new league id every year. Someone signing up in August pastes
+# this year's empty pre-draft shell while last season sits one hop back — which
+# is exactly what happened to Kevlarville 2026.
+# ---------------------------------------------------------------------------
+
+def _chain_provider(current_has_weeks=False):
+    from providers.models import League
+
+    current = League(provider="sleeper", league_id="2026id", name="Kevlarville",
+                     season=2026, status="pre_draft",
+                     previous_league_id="2025id")
+    previous = League(provider="sleeper", league_id="2025id", name="Kevlarville",
+                      season=2025, status="complete")
+
+    class P:
+        def describe_league(self, lid, s=None):
+            return current if lid == "2026id" else previous
+
+        def season_chain(self, lid, max_hops=10):
+            return [current, previous]
+
+        def available_weeks(self, lid, s):
+            if lid == "2025id":
+                return [1, 2, 3, 4]
+            return [1] if current_has_weeks else []
+
+    return lambda provider, **kw: P()
+
+
+@pytest.fixture
+def predraft_league():
+    return demo_db.create_league(
+        provider="sleeper", platform_league_id="2026id",
+        league_name="Kevlarville", paper_name="The Kevlarville Times",
+        commissioner_name="john", season=2026,
+        public_slug="kevlarville-7f3a", admin_token="secret-admin-token",
+    )
+
+
+def test_predraft_league_is_offered_last_season(client, predraft_league, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _chain_provider())
+    r = client.get("/l/secret-admin-token")
+    assert "hasn&#39;t been played yet" in r.text or "hasn't been played yet" in r.text
+    assert "Use the 2025 season" in r.text
+    assert "4 weeks" in r.text
+
+
+def test_switching_to_the_previous_season(client, predraft_league, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _chain_provider())
+    client.post("/l/secret-admin-token/use-season",
+                data={"platform_league_id": "2025id", "season": 2025})
+    saved = demo_db._LEAGUES[predraft_league["id"]]
+    assert saved["platform_league_id"] == "2025id"
+    assert saved["season"] == 2025
+
+
+def test_cannot_repoint_a_paper_at_an_unrelated_league(client, predraft_league, monkeypatch):
+    """Otherwise this endpoint hijacks any league you know the id of."""
+    monkeypatch.setattr(webapp, "get_provider", _chain_provider())
+    r = client.post("/l/secret-admin-token/use-season",
+                    data={"platform_league_id": "999999", "season": 2024},
+                    follow_redirects=False)
+    assert "error=" in r.headers["location"]
+    assert demo_db._LEAGUES[predraft_league["id"]]["platform_league_id"] == "2026id"
+
+
+def test_use_season_requires_the_token(client, predraft_league, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _chain_provider())
+    r = client.post("/l/wrong/use-season",
+                    data={"platform_league_id": "2025id", "season": 2025},
+                    follow_redirects=False)
+    assert r.status_code == 404
+
+
+def test_no_offer_when_the_current_season_already_works(client, predraft_league, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _chain_provider(current_has_weeks=True))
+    r = client.get("/l/secret-admin-token")
+    assert "Use the 2025 season" not in r.text
+    assert '<select name="week">' in r.text
