@@ -15,6 +15,44 @@ def safe(value, fallback=""):
     return fallback if value is None else value
 
 
+def ed(key, editable):
+    """Attributes that make a block editable in place.
+
+    Only ever emitted for the commissioner's private edit view. The copy that
+    gets uploaded and shared is rendered with editable=False, so a published
+    paper never carries contenteditable.
+    """
+    if not editable:
+        return ""
+    return f' data-edit-key="{key}" contenteditable="true" spellcheck="true"'
+
+
+def md(text):
+    """Markdown -> HTML, unless it's already HTML.
+
+    Inline editing hands back innerHTML, so running it through markdown again
+    would be at best a no-op and at worst mangle it.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("<"):
+        return raw
+    return markdown.markdown(raw)
+
+
+def render_image_slot(url, key, editable, style):
+    """A photo in the paper, or an invitation to add one while editing."""
+    if url:
+        return (f'<img src="{url}" alt="" data-image-slot="{key}" '
+                f'style="{style}" />')
+    if not editable:
+        return ""
+    # Empty slot, visible only to the commissioner while editing.
+    return (f'<div data-image-slot="{key}" class="image-slot-empty" '
+            f'style="{style}">Click to add a photo</div>')
+
+
 def load_memes():
     print("LOOKING FOR MEME INDEX AT:", MEME_INDEX_PATH)
 
@@ -498,17 +536,17 @@ def render_avatar_img(url, alt):
     return f'<img src="{url}" alt="{alt}" class="avatar" />'
 
 
-def render_awards_html(awards):
+def render_awards_html(awards, editable=False):
     cards = []
 
-    for award in awards:
+    for i, award in enumerate(awards):
         avatar = render_avatar_img(award.get("avatar"), award["title"])
         cards.append(f"""
         <div class="award-card">
-            <div class="award-title">{award['title']}</div>
+            <div class="award-title"{ed(f"award_title_{i}", editable)}>{award['title']}</div>
             <div class="award-body">
                 {avatar}
-                <span>{award['body']}</span>
+                <span{ed(f"award_body_{i}", editable)}>{award['body']}</span>
             </div>
         </div>
         """)
@@ -533,7 +571,7 @@ def render_standings_html(standings):
     return "\n".join(rows)
 
 
-def build_power_rankings(power_rankings, ai_comments=None):
+def build_power_rankings(power_rankings, ai_comments=None, editable=False):
     if not power_rankings:
         return "<div>No power rankings available.</div>"
 
@@ -560,7 +598,7 @@ def build_power_rankings(power_rankings, ai_comments=None):
             <div class="ranking-card-rank" style="color:{rank_color};">#{i}</div>
             {avatar_html}
             <div class="ranking-card-name">{name}</div>
-            <div class="ranking-card-comment">{comment}</div>
+            <div class="ranking-card-comment"{ed(f"ranking:{name}", editable)}>{comment}</div>
         </div>''')
 
     return "\n".join(cards)
@@ -627,7 +665,7 @@ def render_scorebar(story, compact=False):
     </div>'''
 
 
-def render_matchup_stories_html(stories, memes=None):
+def render_matchup_stories_html(stories, memes=None, editable=False, images=None):
     """
     Render game stories in a varied newspaper layout:
     - Story 0: LEAD — full width, large headline, photo floated right, pull quote
@@ -637,6 +675,7 @@ def render_matchup_stories_html(stories, memes=None):
     """
     if memes is None:
         memes = load_memes()
+    images = images or {}
 
     html_parts = []
 
@@ -646,12 +685,16 @@ def render_matchup_stories_html(stories, memes=None):
 
         if i == 0:
             # ── LEAD STORY: full width, big headline, photo right ──
-            meme_html = ""
-            tags = get_story_tags(story)
-            meme = select_meme(memes, tags)
-            if meme:
-                file_path = safe(meme.get("file"))
-                meme_html = f'<img src="../{file_path}" alt="meme" style="float:right;width:260px;max-width:44%;height:auto;margin:0 0 14px 20px;border:1px solid #ccc;" />'
+            photo_style = ("float:right;width:260px;max-width:44%;height:auto;"
+                           "margin:0 0 14px 20px;border:1px solid #ccc;")
+            meme_html = render_image_slot(images.get(f"matchup_{i}"),
+                                          f"matchup_{i}", editable, photo_style)
+            if not meme_html:
+                tags = get_story_tags(story)
+                meme = select_meme(memes, tags)
+                if meme:
+                    file_path = safe(meme.get("file"))
+                    meme_html = f'<img src="../{file_path}" alt="meme" style="{photo_style}" />'
 
             pull_quote = build_pull_quote(body)
             pull_html = f'<div class="pull-quote">&ldquo;{pull_quote}&rdquo;</div>' if pull_quote else ""
@@ -659,32 +702,36 @@ def render_matchup_stories_html(stories, memes=None):
             html_parts.append(f'''
             <article class="story-card story-lead">
                 <div class="story-label">{genre}</div>
-                <div class="story-headline story-headline-lead">{story["headline"]}</div>
+                <div class="story-headline story-headline-lead"{ed(f"matchup_headline_{i}", editable)}>{story["headline"]}</div>
                 <div class="story-subhead">{story["subhead"]}</div>
                 {render_scorebar(story)}
                 {meme_html}
-                <div class="story-body">{body}</div>
+                <div class="story-body"{ed(f"matchup_body_{i}", editable)}>{body}</div>
                 <div style="clear:both;"></div>
                 {pull_html}
             </article>''')
 
         elif i == 1:
             # ── FEATURE: full width, medium headline, photo left ──
-            meme_html = ""
-            tags = get_story_tags(story)
-            meme = select_meme(memes, tags)
-            if meme:
-                file_path = safe(meme.get("file"))
-                meme_html = f'<img src="../{file_path}" alt="meme" style="float:left;width:200px;max-width:40%;height:auto;margin:0 18px 12px 0;border:1px solid #ccc;" />'
+            photo_style = ("float:left;width:200px;max-width:40%;height:auto;"
+                           "margin:0 18px 12px 0;border:1px solid #ccc;")
+            meme_html = render_image_slot(images.get(f"matchup_{i}"),
+                                          f"matchup_{i}", editable, photo_style)
+            if not meme_html:
+                tags = get_story_tags(story)
+                meme = select_meme(memes, tags)
+                if meme:
+                    file_path = safe(meme.get("file"))
+                    meme_html = f'<img src="../{file_path}" alt="meme" style="{photo_style}" />'
 
             html_parts.append(f'''
             <article class="story-card story-feature">
                 <div class="story-label">{genre}</div>
-                <div class="story-headline story-headline-feature">{story["headline"]}</div>
+                <div class="story-headline story-headline-feature"{ed(f"matchup_headline_{i}", editable)}>{story["headline"]}</div>
                 <div class="story-subhead">{story["subhead"]}</div>
                 {render_scorebar(story)}
                 {meme_html}
-                <div class="story-body">{body}</div>
+                <div class="story-body"{ed(f"matchup_body_{i}", editable)}>{body}</div>
                 <div style="clear:both;"></div>
             </article>''')
 
@@ -702,20 +749,20 @@ def render_matchup_stories_html(stories, memes=None):
                     col_b = f'''
                     <div class="paired-col">
                         <div class="story-label">{genre_b}</div>
-                        <div class="story-headline story-headline-small">{story_b["headline"]}</div>
+                        <div class="story-headline story-headline-small"{ed(f"matchup_headline_{i + 1}", editable)}>{story_b["headline"]}</div>
                         <div class="story-subhead" style="font-size:12px;">{story_b["subhead"]}</div>
                         {render_scorebar(story_b, compact=True)}
-                        <div class="story-body story-body-small">{story_b["body"]}</div>
+                        <div class="story-body story-body-small"{ed(f"matchup_body_{i + 1}", editable)}>{story_b["body"]}</div>
                     </div>'''
 
                 html_parts.append(f'''
                 <div class="paired-stories story-card">
                     <div class="paired-col" style="border-right:1px solid #ddd;padding-right:18px;">
                         <div class="story-label">{genre_a}</div>
-                        <div class="story-headline story-headline-small">{story_a["headline"]}</div>
+                        <div class="story-headline story-headline-small"{ed(f"matchup_headline_{i}", editable)}>{story_a["headline"]}</div>
                         <div class="story-subhead" style="font-size:12px;">{story_a["subhead"]}</div>
                         {render_scorebar(story_a, compact=True)}
-                        <div class="story-body story-body-small">{story_a["body"]}</div>
+                        <div class="story-body story-body-small"{ed(f"matchup_body_{i}", editable)}>{story_a["body"]}</div>
                     </div>
                     {col_b}
                 </div>''')
@@ -727,10 +774,10 @@ def render_matchup_stories_html(stories, memes=None):
             html_parts.append(f'''
             <article class="story-card story-brief">
                 <div class="story-label">{genre}</div>
-                <div class="story-headline story-headline-brief">{story["headline"]}</div>
+                <div class="story-headline story-headline-brief"{ed(f"matchup_headline_{i}", editable)}>{story["headline"]}</div>
                 <div class="story-subhead" style="font-size:12px;">{story["subhead"]}</div>
                 {render_scorebar(story, compact=True)}
-                <div class="story-body story-body-small">{body}</div>
+                <div class="story-body story-body-small"{ed(f"matchup_body_{i}", editable)}>{body}</div>
             </article>''')
 
     return "\n".join(html_parts)
@@ -931,11 +978,17 @@ def build_week_ticker(summary):
     return "".join(blocks)
 
 
-def build_edition(league_name, week, summary, matchups, power_rankings, ai_content=None, ads=None, subscribe_slug=None):
+def build_edition(league_name, week, summary, matchups, power_rankings,
+                  ai_content=None, ads=None, subscribe_slug=None,
+                  editable=False):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
 
     memes = load_memes()
+
+    # Photos the commissioner uploaded, keyed by slot. Lives inside ai_cache
+    # so it travels with the prose and survives a re-render.
+    images = (ai_content or {}).get("images") or {}
 
     # --- Headline ---
     if ai_content and ai_content.get("headline"):
@@ -966,14 +1019,14 @@ def build_edition(league_name, week, summary, matchups, power_rankings, ai_conte
         if sub_match:
             edition_subtitle = sub_match.group(1)
             raw_lead = raw_lead[sub_match.end():].strip()
-        lead_story = markdown.markdown(raw_lead)
+        lead_story = md(raw_lead)
     else:
         lead_story = build_lead_story(league_name, week, summary)
 
 
     # --- Fraud watch ---
     if ai_content and ai_content.get("fraud_watch"):
-        fraud_watch = markdown.markdown(clean_ai_text(ai_content["fraud_watch"]))
+        fraud_watch = md(clean_ai_text(ai_content["fraud_watch"]))
     else:
         fraud_watch = build_fraud_watch(summary)
 
@@ -987,12 +1040,12 @@ def build_edition(league_name, week, summary, matchups, power_rankings, ai_conte
         for award in ai_content["awards"]:
             merged_awards.append({
                 "title": award["title"],
-                "body": markdown.markdown(award["body"]) if award.get("body") else "",
+                "body": md(award["body"]) if award.get("body") else "",
                 "avatar": old_avatar_map.get(award["title"]),
             })
-        awards_html = render_awards_html(merged_awards)
+        awards_html = render_awards_html(merged_awards, editable=editable)
     else:
-        awards_html = render_awards_html(build_weekly_awards(summary))
+        awards_html = render_awards_html(build_weekly_awards(summary), editable=editable)
 
     # --- Matchup stories ---
     if ai_content and ai_content.get("matchup_content"):
@@ -1003,7 +1056,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings, ai_conte
             stories.append({
                 "headline": ai_game["headline"],
                 "subhead": f"{ai_game['winner']} def. {ai_game['loser']} | {ai_game['winner_score']:.1f} - {ai_game['loser_score']:.1f}",
-                "body": markdown.markdown(ai_game["body"]) if ai_game.get("body") else "",
+                "body": md(ai_game["body"]) if ai_game.get("body") else "",
                 "winner_name": ai_game["winner"],
                 "loser_name": ai_game["loser"],
                 "winner_score": ai_game["winner_score"],
@@ -1016,10 +1069,12 @@ def build_edition(league_name, week, summary, matchups, power_rankings, ai_conte
                 "loser_avatar": ai_game.get("loser_avatar"),
                 "margin": ai_game["margin"],
             })
-        matchup_stories_html = render_matchup_stories_html(stories, memes)
+        matchup_stories_html = render_matchup_stories_html(
+            stories, memes, editable=editable, images=images)
     else:
         stories = build_matchup_stories(matchups)
-        matchup_stories_html = render_matchup_stories_html(stories, memes)
+        matchup_stories_html = render_matchup_stories_html(
+            stories, memes, editable=editable, images=images)
 
     # --- Hero image: pick a random reaction/losing meme for front page ---
     hero_meme = select_meme(memes, ["reaction", "losing"])
@@ -1075,7 +1130,8 @@ def build_edition(league_name, week, summary, matchups, power_rankings, ai_conte
         "stats_rows": build_stats_box(summary),
         "power_rankings_html": build_power_rankings(
             power_rankings,
-            ai_comments=ai_content.get("power_rankings_comments") if ai_content else None
+            ai_comments=ai_content.get("power_rankings_comments") if ai_content else None,
+            editable=editable,
         ),
         "awards_html": awards_html,
         "standings_html": render_standings_html(build_standings(matchups)),
@@ -1085,6 +1141,13 @@ def build_edition(league_name, week, summary, matchups, power_rankings, ai_conte
         "detention_html": build_honor_roll_and_detention(matchups)[1],
         # Ad inventory. Falls back to house ads so the paper never has a
         # visible hole. See ads.py for the network-fill hooks.
+        "ed_headline": ed("headline", editable),
+        "ed_lead": ed("lead_story", editable),
+        "ed_fraud": ed("fraud_watch", editable),
+        "hero_image_html": render_image_slot(
+            images.get("hero"), "hero", editable,
+            "width:100%;height:auto;display:block;margin:0 0 14px;"
+            "border:1px solid #ccc;"),
         "classifieds_html": render_classifieds(ads),
         # The reader just finished two thousand words of this. Best moment
         # we will ever get to ask for an email.
@@ -1101,6 +1164,29 @@ def render_html(edition):
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{edition['paper_name']}</title>
     <style>
+        [contenteditable="true"] {{
+            outline: 1px dashed rgba(45,80,22,0.35);
+            outline-offset: 3px;
+            transition: background 0.12s, outline-color 0.12s;
+            cursor: text;
+        }}
+        [contenteditable="true"]:hover {{ background: rgba(200,162,0,0.10); }}
+        [contenteditable="true"]:focus {{
+            outline: 2px solid #2d5016;
+            background: #fffdf5;
+        }}
+        [data-image-slot] {{ cursor: pointer; }}
+        img[data-image-slot]:hover {{ outline: 2px solid #2d5016; }}
+        .image-slot-empty {{
+            display: flex; align-items: center; justify-content: center;
+            min-height: 120px;
+            background: repeating-linear-gradient(45deg, #f2ede3, #f2ede3 10px, #e8e0d0 10px, #e8e0d0 20px);
+            border: 2px dashed #8b8474 !important;
+            color: #6b6050;
+            font-family: "Barlow Condensed", sans-serif;
+            font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase;
+        }}
+        .image-slot-empty:hover {{ border-color: #2d5016 !important; color: #2d5016; }}
         {CLASSIFIEDS_CSS}
         {SUBSCRIBE_CSS}
         * {{ box-sizing: border-box; }}
@@ -1816,7 +1902,7 @@ def render_html(edition):
 
         <!-- HEADLINE -->
         <div class="above-fold">
-            <div class="headline">{edition['headline']}</div>
+            <div class="headline"{edition['ed_headline']}>{edition['headline']}</div>
             <div class="dateline-bar">
                 <span>{edition['dateline_left']}</span>
                 <span style="text-align:center;flex:1;padding:0 12px;">
@@ -1837,8 +1923,9 @@ def render_html(edition):
 
             <!-- CENTER: Hero image + lead story -->
             <div class="front-col-center">
+                {edition['hero_image_html']}
                 {edition['hero_html']}
-                <div class="lead-story">{edition['lead_story']}</div>
+                <div class="lead-story"{edition['ed_lead']}>{edition['lead_story']}</div>
             </div>
 
             <!-- RIGHT COL: Standings + stats -->
@@ -1892,7 +1979,7 @@ def render_html(edition):
         <!-- FRAUD WATCH — dramatic full width callout -->
         <div class="fraud-callout">
             <div class="fraud-callout-label">&#128270; Fraud Watch</div>
-            <div class="fraud-callout-body">{edition['fraud_watch']}</div>
+            <div class="fraud-callout-body"{edition['ed_fraud']}>{edition['fraud_watch']}</div>
         </div>
 
         <!-- WEEKLY AWARDS — full width grid -->

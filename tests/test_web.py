@@ -1028,7 +1028,155 @@ def test_regenerating_an_unedited_week_needs_no_confirmation(client, league, pap
     assert ran == [1]
 
 
-def test_published_page_offers_the_editor(client, paper):
+def test_published_page_offers_both_editors(client, paper):
     r = client.get("/l/secret-admin-token/published/1")
+    assert "/live-edit/1" in r.text
     assert "/edit/1" in r.text
-    assert "Edit text" in r.text
+    assert "Edit on the page" in r.text
+
+
+# ---------------------------------------------------------------------------
+# Inline editing on the rendered page
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def no_editable_render(monkeypatch):
+    """Skip the provider round-trip when rendering the editable view."""
+    monkeypatch.setattr(
+        webapp, "render_editable",
+        lambda db_, lg, wk, ai: (
+            "<html><body>"
+            '<div class="headline" data-edit-key="headline" contenteditable="true">H</div>'
+            '<div data-image-slot="hero" class="image-slot-empty">Click to add a photo</div>'
+            "</body></html>"
+        ),
+    )
+
+
+def test_live_editor_serves_an_editable_page(client, paper, no_editable_render):
+    r = client.get("/l/secret-admin-token/live-edit/1")
+    assert r.status_code == 200
+    assert 'contenteditable="true"' in r.text
+    assert "data-edit-key" in r.text
+
+
+def test_live_editor_injects_the_toolbar(client, paper, no_editable_render):
+    r = client.get("/l/secret-admin-token/live-edit/1")
+    assert "liveedit.js" in r.text
+    assert "ce-config" in r.text
+    assert "/edit/1/inline" in r.text
+    assert "/upload-image" in r.text
+
+
+def test_live_editor_is_never_cached(client, paper, no_editable_render):
+    r = client.get("/l/secret-admin-token/live-edit/1")
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_live_editor_requires_the_token(client, paper, no_editable_render):
+    assert client.get("/l/wrong/live-edit/1").status_code == 404
+
+
+def test_the_published_paper_is_never_editable(client, league, paper):
+    """The whole safety property: readers must never get edit hooks."""
+    demo_db._STORAGE[demo_db.storage_path(league["public_slug"], 2025, 1)] = \
+        "<html><body><div class='headline'>H</div></body></html>"
+    r = client.get(f"/p/{league['public_slug']}/2025/week-1")
+    assert "contenteditable" not in r.text
+    assert "data-edit-key" not in r.text
+    assert "liveedit.js" not in r.text
+
+
+def test_inline_save_applies_text_edits(client, league, paper, no_rerender):
+    r = client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {
+            "headline": "INLINE HEADLINE",
+            "matchup_body_0": "<p>Rewritten in place.</p>",
+            "award_title_0": "NEW AWARD",
+            "ranking:john": "Edited on the page.",
+        },
+        "images": {},
+    })
+    assert r.status_code == 200
+    ai = no_rerender[0]["ai"]
+    assert ai["headline"] == "INLINE HEADLINE"
+    assert ai["matchup_content"][0]["body"] == "<p>Rewritten in place.</p>"
+    assert ai["awards"][0]["title"] == "NEW AWARD"
+    assert ai["power_rankings_comments"]["john"] == "Edited on the page."
+
+
+def test_inline_save_stores_photos(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {},
+        "images": {"hero": "https://cdn.example/photo.jpg"},
+    })
+    assert no_rerender[0]["ai"]["images"]["hero"] == "https://cdn.example/photo.jpg"
+
+
+def test_inline_save_ignores_unknown_keys(client, paper, no_rerender):
+    """The payload comes from a browser; only fields the paper renders count."""
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {"admin_token": "hijacked", "league_id": "1", "matchup_body_99": "x"},
+        "images": {},
+    })
+    ai = no_rerender[0]["ai"]
+    assert "admin_token" not in ai
+    assert "league_id" not in ai
+    assert len(ai["matchup_content"]) == 1
+
+
+def test_inline_save_will_not_invent_a_ranking(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {"ranking:not-a-real-team": "sneaky"},
+        "images": {},
+    })
+    assert "not-a-real-team" not in no_rerender[0]["ai"]["power_rankings_comments"]
+
+
+def test_inline_save_marks_the_paper_edited(client, league, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline",
+                json={"edits": {"headline": "X"}, "images": {}})
+    assert no_rerender[0]["is_edit"] is True
+    assert demo_db.get_paper(league["id"], 2025, 1)["edited_at"] is not None
+
+
+def test_inline_save_requires_the_token(client, paper, no_rerender):
+    r = client.post("/l/wrong/edit/1/inline",
+                    json={"edits": {"headline": "X"}, "images": {}})
+    assert r.status_code == 404
+    assert no_rerender == []
+
+
+# --- photo upload ----------------------------------------------------------
+
+def test_uploading_a_photo(client, league):
+    r = client.post("/l/secret-admin-token/upload-image",
+                    files={"photo": ("shot.png", b"\x89PNG fake bytes", "image/png")})
+    assert r.status_code == 200
+    assert r.json()["url"].startswith("/demo-image/")
+
+
+def test_uploaded_photo_is_served_back(client, league):
+    url = client.post("/l/secret-admin-token/upload-image",
+                      files={"photo": ("shot.png", b"PNGDATA", "image/png")}).json()["url"]
+    r = client.get(url)
+    assert r.status_code == 200
+    assert r.content == b"PNGDATA"
+
+
+def test_non_images_are_rejected(client, league):
+    r = client.post("/l/secret-admin-token/upload-image",
+                    files={"photo": ("evil.html", b"<script>", "text/html")})
+    assert r.status_code == 400
+
+
+def test_oversized_photos_are_rejected(client, league):
+    r = client.post("/l/secret-admin-token/upload-image",
+                    files={"photo": ("big.jpg", b"x" * (9 * 1024 * 1024), "image/jpeg")})
+    assert r.status_code == 413
+
+
+def test_photo_upload_requires_the_token(client, league):
+    r = client.post("/l/wrong/upload-image",
+                    files={"photo": ("shot.png", b"PNG", "image/png")})
+    assert r.status_code == 404

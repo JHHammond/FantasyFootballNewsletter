@@ -34,9 +34,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -51,7 +51,12 @@ from providers import (  # noqa: E402
 )
 
 from . import emailer, slugs  # noqa: E402
-from .generate import generate_and_store, paper_name_for, render_and_store  # noqa: E402
+from .generate import (  # noqa: E402
+    generate_and_store,
+    paper_name_for,
+    render_and_store,
+    render_editable,
+)
 
 # DEMO_MODE=1 swaps Supabase for an in-memory store, so the whole app can be
 # clicked through — including real generation from real league data — before
@@ -616,6 +621,140 @@ async def save_edits(request: Request, token: str, week: int):
     return RedirectResponse(f"/l/{token}/published/{week}", status_code=303)
 
 
+def _apply_inline_edits(ai: dict, edits: dict, images: dict) -> dict:
+    """Fold inline edits back into an ai_cache-shaped dict.
+
+    Keys mirror the data-edit-key attributes the renderer emits. Anything
+    unrecognised is ignored rather than trusted — the payload comes from a
+    browser, and only the fields the paper actually renders should be writable.
+    """
+    edited = dict(ai)
+
+    for key in ("headline", "lead_story", "fraud_watch"):
+        if key in edits:
+            edited[key] = str(edits[key]).strip()
+
+    matchups = [dict(m) for m in (ai.get("matchup_content") or [])]
+    awards = [dict(a) for a in (ai.get("awards") or [])]
+    rankings = dict(ai.get("power_rankings_comments") or {})
+
+    for key, value in edits.items():
+        value = str(value).strip()
+
+        if key.startswith("matchup_headline_") or key.startswith("matchup_body_"):
+            field, _, idx = key.rpartition("_")
+            if not idx.isdigit():
+                continue
+            i = int(idx)
+            if 0 <= i < len(matchups):
+                matchups[i]["headline" if field.endswith("headline") else "body"] = value
+
+        elif key.startswith("award_title_") or key.startswith("award_body_"):
+            field, _, idx = key.rpartition("_")
+            if not idx.isdigit():
+                continue
+            i = int(idx)
+            if 0 <= i < len(awards):
+                awards[i]["title" if field.endswith("title") else "body"] = value
+
+        elif key.startswith("ranking:"):
+            team = key.split(":", 1)[1]
+            # Only teams that already have a comment — no inventing entries.
+            if team in rankings:
+                rankings[team] = value
+
+    if matchups:
+        edited["matchup_content"] = matchups
+    if awards:
+        edited["awards"] = awards
+    if rankings:
+        edited["power_rankings_comments"] = rankings
+
+    if images:
+        merged = dict(ai.get("images") or {})
+        for slot, url in images.items():
+            if isinstance(url, str) and url.strip():
+                merged[str(slot)[:40]] = url.strip()
+        edited["images"] = merged
+
+    return edited
+
+
+@app.get("/l/{token}/live-edit/{week}", response_class=HTMLResponse)
+async def live_edit(request: Request, token: str, week: int):
+    """The paper itself, editable in place.
+
+    Rendered on demand and never stored — the copy in the bucket is always
+    built with editable=False, so readers can't get an editable page even if
+    they somehow found this URL's output.
+    """
+    league = _require_league(token)
+    paper = db.get_paper(league["id"], league["season"], week)
+    if not paper or not paper.get("ai_cache"):
+        return RedirectResponse(f"/l/{token}?error=Nothing+to+edit+for+that+week.",
+                                status_code=303)
+
+    try:
+        html = await run_in_threadpool(render_editable, db, league, week,
+                                       paper["ai_cache"])
+    except ProviderError as exc:
+        return RedirectResponse(f"/l/{token}?error={exc}", status_code=303)
+
+    config = (
+        f'<div id="ce-config" style="display:none"'
+        f' data-save-url="/l/{token}/edit/{week}/inline"'
+        f' data-upload-url="/l/{token}/upload-image"'
+        f' data-back-url="/l/{token}/published/{week}"></div>'
+        f'<link rel="stylesheet" href="/static/liveedit.css" />'
+        f'<script src="/static/liveedit.js" defer></script>'
+    )
+    html = html.replace("</body>", config + "</body>")
+
+    return HTMLResponse(content=html,
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/l/{token}/edit/{week}/inline")
+async def save_inline_edits(request: Request, token: str, week: int):
+    league = _require_league(token)
+    paper = db.get_paper(league["id"], league["season"], week)
+    if not paper or not paper.get("ai_cache"):
+        return JSONResponse({"error": "nothing to edit"}, status_code=404)
+
+    payload = await request.json()
+    edited = _apply_inline_edits(
+        paper["ai_cache"],
+        payload.get("edits") or {},
+        payload.get("images") or {},
+    )
+
+    try:
+        await run_in_threadpool(render_and_store, db, league, week, edited, is_edit=True)
+    except ProviderError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+    return JSONResponse({"ok": True, "redirect": f"/l/{token}/published/{week}"})
+
+
+@app.post("/l/{token}/upload-image")
+async def upload_image(token: str, photo: UploadFile = File(...)):
+    """Accept a photo for the paper. Returns the URL to point a slot at."""
+    league = _require_league(token)
+
+    content_type = (photo.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        return JSONResponse({"error": "that isn't an image"}, status_code=400)
+
+    data = await photo.read()
+    if len(data) > 8 * 1024 * 1024:
+        return JSONResponse({"error": "over 8MB"}, status_code=413)
+
+    url = await run_in_threadpool(
+        db.upload_image, league["public_slug"],
+        photo.filename or "photo.jpg", data, content_type)
+    return JSONResponse({"url": url})
+
+
 @app.post("/l/{token}/edit/{week}/revert")
 async def revert_edits(token: str, week: int):
     """Put Claude's original words back."""
@@ -797,6 +936,22 @@ def run_weekly(request: Request, week: int = Form(...)):
 
     from .tasks import send_weekly
     return send_weekly(db, week)
+
+
+@app.get("/demo-image/{name}")
+def demo_image(name: str):
+    """Serve photos uploaded in demo mode, where there's no storage bucket."""
+    # Guard on the active backend rather than the env flag: this route exists
+    # only because the in-memory store has nowhere else to put bytes. With
+    # Supabase behind it, photos are served from the bucket's own CDN.
+    store = getattr(db, "_IMAGES", None)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    entry = store.get(name)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Not found.")
+    data, content_type = entry
+    return Response(content=data, media_type=content_type)
 
 
 @app.get("/healthz")

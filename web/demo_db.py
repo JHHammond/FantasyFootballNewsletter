@@ -129,6 +129,19 @@ def upload_paper(public_slug: str, season: int, week: int, html: str) -> tuple[s
     return path, f"/p/{public_slug}/{season}/week-{week}"
 
 
+#: Demo-mode image store. Served back by the app at /demo-image/<name>.
+_IMAGES: dict[str, tuple[bytes, str]] = {}
+
+
+def upload_image(public_slug: str, filename: str, data: bytes,
+                 content_type: str = "image/jpeg") -> str:
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "jpg").lower()[:5]
+    name = f"{public_slug}-{secrets.token_urlsafe(8)}.{ext}"
+    with _lock:
+        _IMAGES[name] = (data, content_type)
+    return f"/demo-image/{name}"
+
+
 def download_paper(path: str) -> Optional[str]:
     return _STORAGE.get(path)
 

@@ -158,6 +158,25 @@ def upload_paper(public_slug: str, season: int, week: int, html: str) -> tuple[s
     return path, storage.get_public_url(path)
 
 
+def upload_image(public_slug: str, filename: str, data: bytes,
+                 content_type: str = "image/jpeg") -> str:
+    """Put a commissioner's photo in the bucket and return its public URL.
+
+    Same bucket as the papers, under an images/ prefix, so a league's photos
+    are removed along with its papers if it's ever deleted.
+    """
+    import secrets
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "jpg").lower()[:5]
+    path = f"{public_slug}/images/{secrets.token_urlsafe(12)}.{ext}"
+    storage = client().storage.from_(BUCKET)
+    options = {"content-type": content_type, "upsert": "true"}
+    try:
+        storage.upload(path, data, options)
+    except Exception:
+        storage.update(path, data, options)
+    return storage.get_public_url(path)
+
+
 def download_paper(path: str) -> Optional[str]:
     try:
         return client().storage.from_(BUCKET).download(path).decode("utf-8")

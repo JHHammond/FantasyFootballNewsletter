@@ -1,0 +1,58 @@
+/* Toolbar for editing a paper in place. Only ever loaded on the
+   commissioner's edit view — never on a published paper. */
+
+body.ce-active { padding-bottom: 76px; }
+
+.ce-bar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 20px;
+    background: #111;
+    color: #f2ede3;
+    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.28);
+    font-family: "Barlow Condensed", "Helvetica Neue", sans-serif;
+}
+
+.ce-bar-label {
+    font-size: 13px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: rgba(242, 237, 227, 0.65);
+}
+
+.ce-bar-status {
+    flex: 1;
+    font-size: 13px;
+    letter-spacing: 0.6px;
+    color: #c8a200;
+}
+
+.ce-btn {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    padding: 9px 20px;
+    border: 1.5px solid rgba(242, 237, 227, 0.5);
+    background: transparent;
+    color: #f2ede3;
+    cursor: pointer;
+}
+.ce-btn:hover { background: rgba(242, 237, 227, 0.12); }
+
+.ce-btn-primary {
+    background: #2d5016;
+    border-color: #2d5016;
+}
+.ce-btn-primary:hover { background: #3d6b1e; border-color: #3d6b1e; }
+.ce-btn:disabled { opacity: 0.5; cursor: default; }
+
+@media (max-width: 640px) {
+    .ce-bar { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+    .ce-bar-label { display: none; }
+}

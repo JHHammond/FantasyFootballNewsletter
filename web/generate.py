@@ -121,6 +121,28 @@ def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
     }
 
 
+def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> str:
+    """The paper with contenteditable hooks, for the commissioner only.
+
+    Deliberately NOT stored. The copy in the bucket is always rendered with
+    editable=False, so a published paper can never carry edit attributes.
+    """
+    season = league["season"]
+    paper_name = paper_name_for(league)
+
+    week_data = load_week(league["provider"], league["platform_league_id"], season, week)
+    games = week_to_legacy_games(week_data)
+    summary = get_weekly_storylines(games)
+    power_rankings = build_power_rankings_from_matchups(games)
+
+    edition = build_edition(
+        paper_name, week, summary, games, power_rankings, ai_content,
+        subscribe_slug=league["public_slug"], editable=True,
+    )
+    edition["paper_name"] = paper_name
+    return render_html(edition)
+
+
 def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
     """Fetch, write with Claude, render, upload, record.
 
