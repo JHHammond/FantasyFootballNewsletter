@@ -35,23 +35,17 @@
             <input type="text" name="league_id" required
                    placeholder="1252396303246176256" autocomplete="off" />
             <span class="field-help">
-                It's in Sleeper under League &rarr; Settings &rarr; League Info.
-                Or just grab the long number out of your league's web URL.
+                The long number in your league's web URL:
+                sleeper.com/leagues/<strong>1234567890123456789</strong>/team.
+                We'll figure out the season ourselves.
             </span>
         </label>
 
-        <div class="field-row">
-            <label class="field">
-                <span class="field-label">Your username <span class="opt">optional</span></span>
-                <input type="text" name="commissioner" placeholder="yourusername" autocomplete="off" />
-                <span class="field-help">The paper will treat you like a legend. Your call.</span>
-            </label>
-
-            <label class="field field-narrow">
-                <span class="field-label">Season</span>
-                <input type="number" name="season" value="{{ season }}" min="2020" max="2030" />
-            </label>
-        </div>
+        <label class="field">
+            <span class="field-label">Your username <span class="opt">optional</span></span>
+            <input type="text" name="commissioner" placeholder="yourusername" autocomplete="off" />
+            <span class="field-help">The paper will treat you like a legend. Your call.</span>
+        </label>
 
         <label class="field">
             <span class="field-label">Paper name <span class="opt">optional</span></span>

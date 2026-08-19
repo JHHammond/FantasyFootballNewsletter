@@ -71,9 +71,25 @@ def sent_emails(monkeypatch):
     return captured
 
 
-def _verify_ok(name="Kevlarville"):
-    return lambda provider, **kw: type(
-        "P", (), {"verify_league": lambda self, i, s: name})()
+def _verify_ok(name="Kevlarville", season=2025, weeks=(1, 2, 3)):
+    """Stub provider matching the real interface: describe_league + available_weeks."""
+    from providers.models import League
+
+    league = None if name is None else League(
+        provider="sleeper", league_id="999", name=name, season=season,
+        roster_slots=["QB", "RB", "BN"], team_count=10, status="in_season")
+
+    class P:
+        def describe_league(self, lid, s=None):
+            return league
+
+        def verify_league(self, lid, s=None):
+            return league.name if league else None
+
+        def available_weeks(self, lid, s):
+            return list(weeks)
+
+    return lambda provider, **kw: P()
 
 
 # ---------------------------------------------------------------------------
@@ -117,13 +133,14 @@ def test_create_league_redirects_to_manage(client, monkeypatch):
 
 def test_create_league_rejects_unknown_id(client, monkeypatch):
     monkeypatch.setattr(webapp, "get_provider", _verify_ok(name=None))
-    r = client.post("/leagues", data={"league_id": "bogus", "season": 2025})
+    r = client.post("/leagues", data={"league_id": "bogus"})
     assert "Couldn&#39;t find that league" in r.text or "Couldn't find that league" in r.text
 
 
-def test_duplicate_league_does_not_leak_admin_token(client, league):
+def test_duplicate_league_does_not_leak_admin_token(client, league, monkeypatch):
     """Anyone can read a league ID off a URL. It can't be proof of ownership."""
-    r = client.post("/leagues", data={"league_id": "123", "season": 2025})
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(season=2025))
+    r = client.post("/leagues", data={"league_id": "123"})
     assert "already has a paper" in r.text
     assert "secret-admin-token" not in r.text
     assert "/recover" in r.text
@@ -634,3 +651,120 @@ def test_settings_page_can_edit_setup_answers(client, league):
     assert saved["format"] == "dynasty"
     assert saved["tone"] == "friendly"
     assert saved["punishment"] == "Wears a dress to the draft"
+
+
+# ---------------------------------------------------------------------------
+# Season comes from the platform, not from the user
+# ---------------------------------------------------------------------------
+
+def _describe(name="Kevlarville", season=2025, status="in_season"):
+    from providers.models import League
+    league = League(provider="sleeper", league_id="999", name=name, season=season,
+                    roster_slots=["QB", "RB", "BN"], team_count=10, status=status)
+
+    class P:
+        def describe_league(self, lid, s=None):
+            return league
+
+        def available_weeks(self, lid, s):
+            return [1, 2, 3]
+
+    return lambda provider, **kw: P()
+
+
+def test_landing_no_longer_asks_for_a_season(client):
+    """The league knows its own season. Asking invites a wrong answer, and the
+    symptom is a confusing 'no data for that week' three screens later."""
+    text = client.get("/").text
+    assert 'name="season"' not in text
+    assert 'name="league_id"' in text
+
+
+def test_season_is_taken_from_the_platform(client, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _describe(season=2024))
+    client.post("/leagues", data={"league_id": "999"})
+    saved = next(iter(demo_db._LEAGUES.values()))
+    assert saved["season"] == 2024
+
+
+def test_unknown_league_gets_a_useful_message(client, monkeypatch):
+    class P:
+        def describe_league(self, lid, s=None):
+            return None
+
+    monkeypatch.setattr(webapp, "get_provider", lambda provider, **kw: P())
+    r = client.post("/leagues", data={"league_id": "nope"})
+    assert "long number" in r.text
+
+
+# ---------------------------------------------------------------------------
+# Week picker only offers weeks that exist
+# ---------------------------------------------------------------------------
+
+def test_manage_offers_only_weeks_with_results(client, league, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _describe())
+    r = client.get("/l/secret-admin-token")
+    assert "<select name=\"week\">" in r.text
+    assert "Week 3" in r.text
+    assert "Week 9" not in r.text
+
+
+def test_manage_explains_when_no_week_can_be_generated(client, league, monkeypatch):
+    class P:
+        def available_weeks(self, lid, s):
+            return []
+
+    monkeypatch.setattr(webapp, "get_provider", lambda provider, **kw: P())
+    r = client.get("/l/secret-admin-token")
+    assert "Nothing to write about yet" in r.text
+    assert "haven&#39;t drafted" in r.text or "haven't drafted" in r.text
+
+
+def test_manage_survives_a_provider_outage(client, league, monkeypatch):
+    """A dead API shouldn't take down the whole manage page."""
+    class P:
+        def available_weeks(self, lid, s):
+            raise RuntimeError("sleeper is down")
+
+    monkeypatch.setattr(webapp, "get_provider", lambda provider, **kw: P())
+    assert client.get("/l/secret-admin-token").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# The error message actually diagnoses
+# ---------------------------------------------------------------------------
+
+def test_predraft_league_says_so(monkeypatch, tmp_path):
+    from providers import SleeperProvider, TTLCache
+    from providers.models import League
+
+    p = SleeperProvider(cache=TTLCache(cache_dir=tmp_path, namespace="t"))
+    league = League(provider="sleeper", league_id="1", name="Brand New League",
+                    season=2026, status="pre_draft")
+    msg = p._explain_missing_week(league, 1)
+    assert "hasn't drafted" in msg
+    assert "Brand New League" in msg
+
+
+def test_played_league_lists_the_weeks_that_work(monkeypatch, tmp_path):
+    from providers import SleeperProvider, TTLCache
+    from providers.models import League
+
+    p = SleeperProvider(cache=TTLCache(cache_dir=tmp_path, namespace="t"))
+    monkeypatch.setattr(p, "available_weeks", lambda lid, s: [1, 2, 3])
+    league = League(provider="sleeper", league_id="1", name="Kevlarville",
+                    season=2025, status="in_season")
+    msg = p._explain_missing_week(league, 9)
+    assert "Week 9" in msg
+    assert "1, 2, 3" in msg
+
+
+def test_drafted_but_unplayed_league_says_so(monkeypatch, tmp_path):
+    from providers import SleeperProvider, TTLCache
+    from providers.models import League
+
+    p = SleeperProvider(cache=TTLCache(cache_dir=tmp_path, namespace="t"))
+    monkeypatch.setattr(p, "available_weeks", lambda lid, s: [])
+    league = League(provider="sleeper", league_id="1", name="Kevlarville",
+                    season=2025, status="in_season")
+    assert "no week has been scored" in p._explain_missing_week(league, 1).lower()

@@ -258,7 +258,61 @@ class SleeperProvider(FantasyProvider):
 
     # -- public API --------------------------------------------------------
 
-    def get_league(self, league_id: str, season: int) -> League:
+    def _explain_missing_week(self, league: League, week: int) -> str:
+        """Say what's actually wrong, not "maybe it hasn't started".
+
+        Sleeper returns an empty array for a week with no data, and that one
+        response covers three completely different situations. Guessing between
+        them sends people off to re-type the season, which was never the problem.
+        """
+        if league.status in ("pre_draft", "drafting"):
+            return (
+                f"{league.name} hasn't drafted yet, so Sleeper has no matchups "
+                f"for it at all. Come back once the draft is done and a week "
+                f"has been played."
+            )
+
+        weeks = self.available_weeks(league.league_id, league.season)
+        if not weeks:
+            return (
+                f"{league.name} has drafted, but no week has been scored yet. "
+                f"There's nothing to write about until games are played."
+            )
+
+        listed = ", ".join(str(w) for w in weeks)
+        return (
+            f"Week {week} of {league.name} hasn't been played. "
+            f"Weeks with results: {listed}."
+        )
+
+    def available_weeks(self, league_id: str, season: int) -> list[int]:
+        """Every week that has at least one team with points on the board.
+
+        Cached, and stops at the first two consecutive empty weeks so a
+        mid-season league doesn't cost 18 requests to check.
+        """
+
+        def scan():
+            found = []
+            empty_streak = 0
+            for week in range(1, 19):
+                rows = self._matchups_raw(league_id, week, is_past=True) or []
+                if any(_to_float(r.get("points")) > 0 for r in rows):
+                    found.append(week)
+                    empty_streak = 0
+                else:
+                    empty_streak += 1
+                    if empty_streak >= 2 and found:
+                        break
+                    if empty_streak >= 3 and not found:
+                        break
+            return found
+
+        return self.cache.get_or_fetch(
+            f"weeks:{league_id}:{season}", TTL_LIVE_SCORES * 15, scan
+        ) or []
+
+    def get_league(self, league_id: str, season: int | None = None) -> League:
         data = self.cache.get_or_fetch(
             f"league:{league_id}",
             TTL_LEAGUE_META,
@@ -281,13 +335,16 @@ class SleeperProvider(FantasyProvider):
             provider=self.name,
             league_id=str(league_id),
             name=data.get("name") or "Fantasy League",
-            season=int(data.get("season") or season),
+            # Sleeper's own value wins. The season belongs to the league,
+            # not to whatever the user typed into a form.
+            season=int(data.get("season") or season or 0),
             roster_slots=slots,
             team_count=int(data.get("total_rosters") or 0),
             scoring_type=scoring_type,
             avatar_url=f"{AVATAR_URL}/{avatar}" if avatar else None,
             previous_league_id=data.get("previous_league_id"),
             commissioner_ids=commissioners,
+            status=data.get("status"),
         )
 
     def get_week(self, league_id: str, season: int, week: int) -> WeekData:
@@ -298,10 +355,7 @@ class SleeperProvider(FantasyProvider):
         matchup_rows = self._matchups_raw(league_id, week, is_past=False)
 
         if not matchup_rows:
-            raise WeekNotAvailable(
-                f"Sleeper has no matchup data for league {league_id} week {week}. "
-                "The week may not have started yet."
-            )
+            raise WeekNotAvailable(self._explain_missing_week(league, week))
 
         players_index = self._player_index()
         projections = self._projections(season, week) if self.supports_projections else {}

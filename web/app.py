@@ -134,8 +134,7 @@ def _implemented_providers():
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return _render(request, "index.html",
-                   providers=_implemented_providers(), season=CURRENT_SEASON)
+    return _render(request, "index.html", providers=_implemented_providers())
 
 
 @app.post("/leagues")
@@ -145,52 +144,57 @@ def create_league(
     league_id: str = Form(...),
     commissioner: str = Form(""),
     paper_name: str = Form(""),
-    season: int = Form(CURRENT_SEASON),
 ):
-    ip = _client_ip(request)
-    if _rate_limited(f"create:{ip}", LEAGUE_CREATES_PER_HOUR):
+    """Create a league from its ID alone.
+
+    Deliberately does NOT ask for the season. Every platform stores the season
+    on the league itself, so asking is just an invitation to type the wrong one
+    and then get told the week has no data — which is a confusing way to learn
+    you answered a question that shouldn't have been asked.
+    """
+    def fail(message: str):
         return _render(request, "index.html",
-                       providers=_implemented_providers(), season=season,
-                       error="You've made a few of these already. Give it an hour.")
+                       providers=_implemented_providers(), error=message)
+
+    if _rate_limited(f"create:{_client_ip(request)}", LEAGUE_CREATES_PER_HOUR):
+        return fail("You've made a few of these already. Give it an hour.")
 
     league_id = league_id.strip()
 
-    # Already set up? Point at the paper, but never hand over the admin token.
-    # Anyone can read a Sleeper league ID off a URL; that can't be enough to
-    # take control of someone else's paper.
-    existing = db.find_existing_league(provider, league_id, season)
-    if existing:
-        return _render(
-            request, "index.html",
-            providers=_implemented_providers(), season=season,
-            error=(
-                f"This league already has a paper — "
-                f"<a href='/p/{existing['public_slug']}'>read it here</a>. "
-                f"If it's yours and you lost the link, "
-                f"<a href='/recover'>get it back</a>."
-            ),
-        )
-
     try:
         adapter = get_provider(provider)
-        name = adapter.verify_league(league_id, season)
-        detail = "Double-check the ID."
+        info = adapter.describe_league(league_id)
     except (ProviderError, ValueError) as exc:
-        name, detail = None, str(exc)
+        return fail(f"Couldn't reach {provider.title()}. {exc}")
 
-    if not name:
-        return _render(request, "index.html",
-                       providers=_implemented_providers(), season=season,
-                       error=f"Couldn't find that league. {detail}")
+    if not info:
+        return fail(
+            "Couldn't find that league. It should be the long number from your "
+            "league's web URL — for example "
+            "<code>sleeper.com/leagues/<strong>1234567890123456789</strong>/team</code>."
+        )
+
+    season = info.season
+
+    # Already set up? Point at the paper, but never hand over the admin token.
+    # Anyone can read a league ID off a URL; that can't be proof of ownership.
+    existing = db.find_existing_league(provider, league_id, season)
+    if existing:
+        return fail(
+            f"This league already has a paper — "
+            f"<a href='/p/{existing['public_slug']}'>read it here</a>. "
+            f"If it's yours and you lost the link, "
+            f"<a href='/recover'>get it back</a>."
+        )
 
     league = db.create_league(
         provider=provider,
         platform_league_id=league_id,
-        league_name=name,
-        paper_name=(paper_name.strip() or f"The {name} Times"),
+        league_name=info.name,
+        paper_name=(paper_name.strip() or f"The {info.name} Times"),
         commissioner_name=commissioner.strip(),
         season=season,
-        public_slug=slugs.public_slug(name),
+        public_slug=slugs.public_slug(info.name),
         admin_token=slugs.admin_token(),
     )
     return RedirectResponse(f"/l/{league['admin_token']}/setup", status_code=303)
@@ -206,10 +210,21 @@ def manage(
     new: int = 0, generated: int = 0, error: str = "", notice: str = "",
 ):
     league = _require_league(token)
+
+    # Only offer weeks the platform actually has results for. Letting someone
+    # pick week 1 of a league that hasn't drafted is how you get a confusing
+    # error instead of a paper.
+    try:
+        weeks = get_provider(league["provider"]).available_weeks(
+            league["platform_league_id"], league["season"])
+    except Exception:
+        weeks = []
+
     return _render(
         request, "league.html",
         league=league,
         paper_name=paper_name_for(league),
+        weeks=weeks,
         lore=db.get_lore(league["id"]),
         papers=db.list_papers(league["id"]),
         subscriber_count=db.subscriber_count(league["id"]),

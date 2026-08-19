@@ -55,8 +55,12 @@ class FantasyProvider(ABC):
     # -- required ----------------------------------------------------------
 
     @abstractmethod
-    def get_league(self, league_id: str, season: int) -> League:
+    def get_league(self, league_id: str, season: Optional[int] = None) -> League:
         """Fetch league configuration: name, roster slots, scoring, team count.
+
+        `season` is a fallback only. Every platform stores the season on the
+        league itself, so the returned League.season is authoritative — asking
+        a user to type it in is a way to generate wrong answers.
 
         Raises LeagueNotFound or AuthRequired.
         """
@@ -74,17 +78,25 @@ class FantasyProvider(ABC):
 
     # -- optional ----------------------------------------------------------
 
-    def verify_league(self, league_id: str, season: int) -> Optional[str]:
-        """Return the league's name if it exists and we can read it, else None.
+    def verify_league(self, league_id: str, season: Optional[int] = None) -> Optional[str]:
+        """Return the league's name if it exists and we can read it, else None."""
+        league = self.describe_league(league_id, season)
+        return league.name if league else None
 
-        Used by the "Add League" form to validate input before saving. The
-        default implementation just tries get_league; override if a platform
-        offers something cheaper.
-        """
+    def describe_league(self, league_id: str, season: Optional[int] = None):
+        """The full League, or None if it can't be read. Never raises."""
         try:
-            return self.get_league(league_id, season).name
+            return self.get_league(league_id, season)
         except ProviderError:
             return None
+
+    def available_weeks(self, league_id: str, season: int) -> list[int]:
+        """Weeks that actually have scored results. Empty if none do.
+
+        The UI uses this so nobody can pick a week that cannot possibly work.
+        Default implementation returns nothing; override where it's cheap.
+        """
+        return []
 
     def namespaced_id(self, raw_id: str | int) -> str:
         """Prefix a platform's player ID so IDs can never collide across platforms."""

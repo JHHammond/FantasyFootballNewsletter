@@ -297,6 +297,11 @@ class League:
     avatar_url: Optional[str] = None
     previous_league_id: Optional[str] = None
     commissioner_ids: list[str] = field(default_factory=list)
+    #: Platform lifecycle: "pre_draft" | "drafting" | "in_season" | "complete".
+    #: Decides whether asking for a week is even meaningful — a league that
+    #: hasn't drafted has no matchups at all, which is a very different problem
+    #: from "that week hasn't been played."
+    status: Optional[str] = None
 
     @property
     def starting_slots(self) -> list[str]:
@@ -305,6 +310,11 @@ class League:
     @property
     def is_superflex(self) -> bool:
         return "SUPER_FLEX" in self.roster_slots
+
+    @property
+    def has_drafted(self) -> bool:
+        """False until the draft is done. No matchups exist before that."""
+        return self.status not in ("pre_draft", "drafting")
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
