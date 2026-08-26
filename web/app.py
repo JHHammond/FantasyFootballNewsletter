@@ -654,7 +654,8 @@ async def save_edits(request: Request, token: str, week: int):
 
 
 def _apply_inline_edits(ai: dict, edits: dict, images: dict,
-                        widths: dict | None = None) -> dict:
+                        widths: dict | None = None,
+                        removed: list | None = None) -> dict:
     """Fold inline edits back into an ai_cache-shaped dict.
 
     Keys mirror the data-edit-key attributes the renderer emits. Anything
@@ -724,6 +725,11 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
             entry["url"] = safe_url
             merged[key] = entry
 
+    # An explicit removal drops the uploaded photo, which lets the slot fall
+    # back to the automatic one rather than staying empty forever.
+    for slot in (removed or []):
+        merged.pop(str(slot)[:40], None)
+
     for slot, width in (widths or {}).items():
         key = str(slot)[:40]
         if key not in merged:
@@ -736,8 +742,12 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
         # destroy the layout for every reader.
         merged[key]["width"] = max(10.0, min(100.0, value))
 
+    # Always write back, including when empty. Only assigning a non-empty dict
+    # meant removing the last photo silently left the original one in place.
     if merged:
         edited["images"] = merged
+    else:
+        edited.pop("images", None)
 
     return edited
 
@@ -789,6 +799,7 @@ async def save_inline_edits(request: Request, token: str, week: int):
         payload.get("edits") or {},
         payload.get("images") or {},
         payload.get("widths") or {},
+        payload.get("removed") or [],
     )
 
     try:

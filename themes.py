@@ -47,32 +47,57 @@ BROADSHEET_FONTS = (
 )
 
 BROADSHEET_CSS = """
-/* ===== BROADSHEET ===== */
-body { background: #f7f5f0; }
-.page { background: #fffefb; }
+/* ===== BROADSHEET =====
+   The base stylesheet is a tabloid: red masthead bar, 72px white type with a
+   hard black shadow, heavy rules. Every one of those has to be actively
+   switched off here, not just re-fonted — otherwise blackletter ends up
+   sitting on a red banner, which is what happened the first time. */
 
-.masthead { border-bottom: 1px solid #111; padding-bottom: 10px; }
+body { background: #f4f2ed !important; }
+.page { background: #fffefb !important; }
+
+/* --- masthead ------------------------------------------------------- */
+.masthead {
+    background: #fffefb !important;
+    border-bottom: 3px double #111 !important;
+    padding: 30px 36px 12px !important;
+}
 .paper-name {
     font-family: "UnifrakturMaguntia", "Playfair Display", serif !important;
+    font-size: 58px !important;
     font-weight: 400 !important;
     letter-spacing: 0 !important;
-    color: #111 !important;
     text-transform: none !important;
+    color: #111 !important;
+    text-shadow: none !important;
+    line-height: 1.15 !important;
 }
 .edition-line {
     font-family: "Libre Franklin", sans-serif !important;
-    letter-spacing: 1.6px !important;
-    text-transform: uppercase;
-    color: #5a5a5a !important;
+    font-size: 10px !important;
+    letter-spacing: 2.4px !important;
+    font-weight: 600 !important;
+    color: #55504a !important;
+    border-top: 1px solid #d6d2c8 !important;
+    margin-top: 12px !important;
+    padding-top: 9px !important;
 }
 
+/* --- headline -------------------------------------------------------- */
+/* A broadsheet lead is set far smaller than a tabloid scream. The all-caps
+   is undone in Python (CSS can't lowercase words it wasn't given). */
 .headline {
     font-family: "Libre Baskerville", Georgia, serif !important;
+    font-size: 38px !important;
     font-weight: 700 !important;
     letter-spacing: -0.4px !important;
-    line-height: 1.14 !important;
+    line-height: 1.16 !important;
     text-transform: none !important;
     color: #111 !important;
+    border-bottom: 1px solid #111 !important;
+    padding-bottom: 14px !important;
+    margin: 22px auto 6px !important;
+    max-width: 88% !important;
 }
 
 .dateline-bar {
@@ -80,14 +105,17 @@ body { background: #f7f5f0; }
     border-bottom: 1px solid #111 !important;
     background: transparent !important;
     font-family: "Libre Franklin", sans-serif !important;
-    color: #444 !important;
+    font-size: 11px !important;
+    color: #55504a !important;
 }
 
+/* --- body ------------------------------------------------------------ */
 .lead-story, .story-body, .col-story-body, .award-body, .fraud-callout-body {
     font-family: "Libre Baskerville", Georgia, serif !important;
-    line-height: 1.72 !important;
+    line-height: 1.75 !important;
+    color: #1a1a1a !important;
 }
-.lead-story { font-size: 15px !important; }
+.lead-story { font-size: 14.5px !important; }
 
 .story-headline, .col-story-headline {
     font-family: "Libre Baskerville", Georgia, serif !important;
@@ -96,17 +124,26 @@ body { background: #f7f5f0; }
     letter-spacing: -0.2px !important;
     color: #111 !important;
 }
+.story-headline-lead { font-size: 27px !important; }
+.story-headline-feature { font-size: 22px !important; }
+
 .story-label, .col-section-label, .section-title, .section-title-full {
     font-family: "Libre Franklin", sans-serif !important;
     font-weight: 600 !important;
-    letter-spacing: 2.4px !important;
-    color: #6a6a6a !important;
+    font-size: 10px !important;
+    letter-spacing: 2.6px !important;
+    color: #6a6560 !important;
     background: transparent !important;
     border-bottom: 1px solid #111 !important;
 }
 
-/* The tabloid's red is doing the shouting. A broadsheet doesn't shout. */
-.section-title-full, .story-label { color: #6a6a6a !important; }
+.story-subhead, .col-story-teaser {
+    font-family: "Libre Franklin", sans-serif !important;
+    color: #55504a !important;
+    font-style: normal !important;
+}
+
+/* The tabloid's red is doing all the shouting. A broadsheet doesn't shout. */
 .ranking-card-rank { color: #111 !important; }
 
 .fraud-callout {
@@ -116,18 +153,19 @@ body { background: #f7f5f0; }
 }
 .fraud-callout-label {
     font-family: "Libre Franklin", sans-serif !important;
-    color: #8a1c1c !important;
-    letter-spacing: 2.4px !important;
+    color: #7d1b1b !important;
+    letter-spacing: 2.6px !important;
 }
-.fraud-callout-body { color: #222 !important; }
+.fraud-callout-body { color: #1a1a1a !important; }
 
-.award-card, .ranking-card, .story-card {
-    border: 1px solid #d6d2c8 !important;
+.award-card, .ranking-card, .story-card, .player-card {
+    border: 1px solid #ddd9d0 !important;
     background: #fffefb !important;
 }
 .award-title, .ranking-card-name {
     font-family: "Libre Franklin", sans-serif !important;
-    letter-spacing: 1.4px !important;
+    font-weight: 700 !important;
+    letter-spacing: 1.2px !important;
     color: #111 !important;
 }
 
@@ -140,11 +178,23 @@ body { background: #f7f5f0; }
     color: #333 !important;
 }
 
-.week-ticker { background: #f2efe8 !important; color: #111 !important;
-               border-top: 1px solid #111; border-bottom: 1px solid #111; }
+.week-ticker {
+    background: #f2efe8 !important;
+    border-top: 1px solid #111 !important;
+    border-bottom: 1px solid #111 !important;
+}
 .week-ticker * { color: #111 !important; }
 
-.image-wrap img, .hero-image-wrap img { border: 1px solid #c9c4b8 !important; }
+.image-wrap img, .hero-image-wrap img { border: 1px solid #cfcabd !important; }
+.photo-caption {
+    font-family: "Libre Franklin", sans-serif !important;
+    color: #6a6560 !important;
+}
+
+@media (max-width: 600px) {
+    .paper-name { font-size: 34px !important; }
+    .headline { font-size: 25px !important; max-width: 100% !important; }
+}
 """
 
 
@@ -365,6 +415,48 @@ THEMES: dict[str, dict] = {
 }
 
 DEFAULT_THEME = "tabloid"
+
+#: Themes that want sentence-ish headlines rather than the writer's ALL CAPS.
+#: CSS can only uppercase, never the reverse — it has no idea which letters
+#: were capitals to begin with — so this happens in Python at render time.
+TITLE_CASE_THEMES = frozenset({"broadsheet"})
+
+#: Words a headline leaves lowercase unless they lead.
+_MINOR_WORDS = frozenset({
+    "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into",
+    "nor", "of", "on", "onto", "or", "over", "the", "to", "up", "vs", "with",
+})
+
+
+def smart_title(text: str) -> str:
+    """ALL CAPS -> Title Case, leaving anything already mixed-case alone.
+
+    A headline that arrives as "MIKEVIDAN3 COMMITS WAR CRIMES" becomes
+    "Mikevidan3 Commits War Crimes". Text that isn't shouting is returned
+    untouched, so a deliberately-cased edit survives.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+    letters = [c for c in raw if c.isalpha()]
+    if not letters or not all(c.isupper() for c in letters):
+        return raw  # not shouting; leave it as the author wrote it
+
+    words = raw.split()
+    out = []
+    for i, word in enumerate(words):
+        lowered = word.lower()
+        core = lowered.strip(".,!?;:'\"")
+        if i > 0 and core in _MINOR_WORDS and i != len(words) - 1:
+            out.append(lowered)
+        else:
+            out.append(lowered[:1].upper() + lowered[1:])
+    return " ".join(out)
+
+
+def headline_for(theme: str | None, text: str) -> str:
+    """The headline as this theme wants it set."""
+    return smart_title(text) if resolve(theme) in TITLE_CASE_THEMES else text
 
 
 def resolve(name: str | None) -> str:

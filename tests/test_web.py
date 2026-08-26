@@ -1295,10 +1295,12 @@ def test_published_paper_has_no_empty_photo_placeholders(client):
     assert "image-wrap-editing" not in body
 
 
-def test_edit_view_shows_photo_placeholders(client):
+def test_edit_view_makes_photo_slots_editable(client):
+    """Slots are clickable and resizable while editing. They mostly hold an
+    automatic photo now rather than an empty placeholder."""
     body = _render_paper(dict(SAMPLE_AI), editable=True)
-    assert "image-slot-empty" in body
     assert "image-wrap-editing" in body
+    assert "data-image-slot" in body
 
 
 def test_uploaded_hero_replaces_the_stock_one(client):
@@ -1545,3 +1547,149 @@ def test_share_link_uses_the_configured_base_url(client, league, monkeypatch):
     monkeypatch.setenv("BASE_URL", "https://commish.app")
     r = client.get("/l/secret-admin-token")
     assert f"https://commish.app/p/{league['public_slug']}" in r.text
+
+
+# ---------------------------------------------------------------------------
+# Automatic photos
+#
+# Most commissioners have no relevant photo to hand, and a paper with empty
+# slots looks unfinished. Every player already carries a headshot through the
+# provider layer, so the standout of each game becomes the story art for free.
+# ---------------------------------------------------------------------------
+
+def test_stories_get_a_photo_with_no_upload():
+    body = _render_paper(dict(SAMPLE_AI))
+    assert "sleepercdn.com/content/nfl/players" in body
+    assert "photo-caption" in body
+
+
+def test_auto_photo_captions_name_the_player_and_the_number():
+    import re
+    body = _render_paper(dict(SAMPLE_AI))
+    captions = re.findall(r'<span class="photo-caption">([^<]*)</span>', body)
+    assert captions
+    assert any("pts" in c for c in captions)
+    assert any(c[0].isalpha() for c in captions)
+
+
+def test_an_uploaded_photo_beats_the_automatic_one():
+    body = _render_paper({**SAMPLE_AI,
+                          "images": {"hero": {"url": "https://cdn/mine.jpg"}}})
+    assert "https://cdn/mine.jpg" in body
+    # The automatic hero must not also render — that was the two-heroes bug.
+    assert 'data-image-slot="hero"' in body
+    hero_slot = body.split('data-image-slot="hero"')[1].split("</span>")[0]
+    assert "https://cdn/mine.jpg" in hero_slot
+    assert "sleepercdn" not in hero_slot
+
+
+def test_best_performer_prefers_the_biggest_beat_not_the_top_score():
+    from newspaper import best_performer
+    team = {"all_starters": [
+        {"name": "Big Score", "actual": 30.0, "beat_projection_by": 1.0,
+         "headshot_url": "a.jpg"},
+        {"name": "Big Beat", "actual": 22.0, "beat_projection_by": 14.0,
+         "headshot_url": "b.jpg"},
+    ]}
+    assert best_performer(team)["name"] == "Big Beat"
+
+
+def test_players_without_a_headshot_are_skipped():
+    from newspaper import best_performer
+    team = {"all_starters": [
+        {"name": "No Photo", "actual": 40.0, "beat_projection_by": 20.0},
+        {"name": "Has Photo", "actual": 10.0, "beat_projection_by": 1.0,
+         "headshot_url": "b.jpg"},
+    ]}
+    assert best_performer(team)["name"] == "Has Photo"
+
+
+def test_no_crash_when_nobody_has_a_headshot():
+    from newspaper import auto_photo_for_game, best_performer
+    assert best_performer({"all_starters": []}) is None
+    assert best_performer(None) is None
+    assert auto_photo_for_game(None) is None
+
+
+def test_removing_a_photo_falls_back_to_automatic(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {"hero": "https://cdn/mine.jpg"}})
+    assert no_rerender[0]["ai"]["images"]["hero"]["url"] == "https://cdn/mine.jpg"
+
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {}, "removed": ["hero"]})
+    assert "hero" not in (no_rerender[-1]["ai"].get("images") or {})
+
+
+# ---------------------------------------------------------------------------
+# Broadsheet — the theme that was rendering blackletter on a red tabloid bar
+# ---------------------------------------------------------------------------
+
+def test_broadsheet_switches_off_the_tabloid_masthead():
+    css = _full_paper(dict(SAMPLE_AI), theme="broadsheet")
+    broadsheet_block = css.split("===== BROADSHEET =====")[1]
+    # The base sets a red bar, 72px white type and a hard black shadow. Each
+    # has to be actively cancelled, not merely re-fonted.
+    assert "background: #fffefb !important" in broadsheet_block
+    assert "text-shadow: none !important" in broadsheet_block
+    assert "color: #111 !important" in broadsheet_block
+
+
+def test_broadsheet_sets_headlines_in_title_case():
+    """CSS can only uppercase, so the writer's ALL CAPS has to be undone here."""
+    html = _full_paper({**SAMPLE_AI, "headline": "SATAN FALLS IN KEVLARVILLE"},
+                       theme="broadsheet")
+    assert "Satan Falls in Kevlarville" in html
+
+
+def test_tabloid_keeps_the_shouting():
+    html = _full_paper({**SAMPLE_AI, "headline": "SATAN FALLS IN KEVLARVILLE"},
+                       theme="tabloid")
+    assert "SATAN FALLS IN KEVLARVILLE" in html
+
+
+def test_deliberately_cased_headlines_are_left_alone():
+    import themes
+    assert themes.smart_title("A Carefully Chosen Headline") == \
+        "A Carefully Chosen Headline"
+    assert themes.smart_title("mixed Case stays") == "mixed Case stays"
+
+
+def test_title_case_keeps_small_words_down():
+    import themes
+    assert themes.smart_title("THE DEVIL AND THE DEEP BLUE SEA") == \
+        "The Devil and the Deep Blue Sea"
+
+
+# ---------------------------------------------------------------------------
+# Writing quality guardrails
+#
+# These assert the prompt, not the output — but the prompt is the only lever,
+# and the tells below are exactly what made the prose read as generated.
+# ---------------------------------------------------------------------------
+
+def test_prompt_bans_the_specific_ai_tells():
+    import writer
+    prompt = writer.KEVLARVILLE_SYSTEM_PROMPT
+    assert "kind of number that" in prompt      # the mad-lib consequence clause
+    assert "PATRICK MAHOMES" in prompt          # name-repeated-in-caps
+    assert "every decision you've ever made" in prompt
+
+
+def test_prompt_no_longer_ships_canned_insults():
+    """A list of pre-written lines teaches pastiche, which is what produced
+    the formulaic output in the first place."""
+    import writer
+    assert "INSULT TOOLKIT" not in writer.KEVLARVILLE_SYSTEM_PROMPT
+
+
+def test_prompt_demands_specificity():
+    import writer
+    assert "Could this sentence be moved" in writer.KEVLARVILLE_SYSTEM_PROMPT
+
+
+def test_tone_overrides_still_apply():
+    from writer import system_prompt
+    assert "NO MERCY" in system_prompt("brutal")
+    assert "KEEP IT LIGHT" in system_prompt("friendly")
+    assert "Could this sentence be moved" in system_prompt("friendly")

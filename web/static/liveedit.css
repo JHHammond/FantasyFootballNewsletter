@@ -56,3 +56,30 @@ body.ce-active { padding-bottom: 76px; }
     .ce-bar { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
     .ce-bar-label { display: none; }
 }
+
+/* Photo slot affordances while editing. */
+
+.ce-remove {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    line-height: 1;
+    font-size: 15px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(17, 17, 17, 0.75);
+    color: #fff;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 5;
+}
+.image-wrap-editing:hover .ce-remove { opacity: 1; }
+.ce-remove:hover { background: #a11313; }
+
+.ce-drop-target {
+    outline: 3px dashed #2d5016 !important;
+    outline-offset: 2px;
+}

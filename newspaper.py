@@ -63,7 +63,65 @@ def image_entry(images, key):
     return {"url": url, "width": width}
 
 
-def render_image_slot(entry, key, editable, wrap_style, default_width):
+def best_performer(team):
+    """The player worth photographing: biggest beat over projection, else top score."""
+    starters = [p for p in (team or {}).get("all_starters") or [] if p.get("headshot_url")]
+    if not starters:
+        return None
+    with_proj = [p for p in starters if p.get("beat_projection_by") is not None]
+    if with_proj:
+        return max(with_proj, key=lambda p: p["beat_projection_by"])
+    return max(starters, key=lambda p: p.get("actual") or 0)
+
+
+def auto_photo_for_game(game):
+    """A photo and caption for a game story, with no work from anyone.
+
+    Most commissioners have no relevant photo to hand, and a paper with empty
+    slots looks unfinished. Every player already carries a headshot URL through
+    the provider layer, so the standout of the game becomes the story art by
+    default. An uploaded photo always wins over this.
+    """
+    if not game:
+        return None
+
+    winner_name = game.get("winner")
+    t1, t2 = game.get("team_1", {}), game.get("team_2", {})
+    winner = t1 if winner_name == get_team_name(t1) else t2
+
+    player = best_performer(winner) or best_performer(t2 if winner is t1 else t1)
+    if not player:
+        return None
+
+    beat = player.get("beat_projection_by")
+    caption = f"{player['name']} — {player.get('actual', 0):.1f} pts"
+    if beat is not None and beat > 0:
+        caption += f", {beat:.1f} over projection"
+    elif beat is not None and beat < 0:
+        caption += f", {abs(beat):.1f} under"
+
+    return {"url": player["headshot_url"], "caption": caption}
+
+
+def auto_hero_photo(matchups):
+    """Whoever had the biggest day in the league, for the top of the page."""
+    best = None
+    for game in matchups or []:
+        for key in ("team_1", "team_2"):
+            candidate = best_performer(game.get(key))
+            if not candidate:
+                continue
+            if best is None or (candidate.get("actual") or 0) > (best.get("actual") or 0):
+                best = candidate
+    if not best:
+        return None
+    return {
+        "url": best["headshot_url"],
+        "caption": f"{best['name']} led the league with {best.get('actual', 0):.1f} points",
+    }
+
+
+def render_image_slot(entry, key, editable, wrap_style, default_width, auto=None):
     """A photo in the paper, or an invitation to add one while editing.
 
     The photo lives inside a wrapper that carries the float and margins, so the
@@ -75,9 +133,19 @@ def render_image_slot(entry, key, editable, wrap_style, default_width):
     # would have typed.
     sizing = f"width:{width:g}%;" if width else ""
 
+    caption = ""
     if entry and entry.get("url"):
         inner = (f'<img src="{entry["url"]}" alt="" '
                  f'style="width:100%;height:auto;display:block;" />')
+    elif auto and auto.get("url"):
+        # Nobody uploaded anything, so use the week's own art. An uploaded
+        # photo always beats this.
+        inner = (f'<img src="{auto["url"]}" alt="" loading="lazy" '
+                 f'onerror="this.closest(\'.image-wrap\').style.display=\'none\'" '
+                 f'style="width:100%;aspect-ratio:1/1;object-fit:cover;'
+                 f'object-position:top center;display:block;background:#e8e0d0;" />')
+        if auto.get("caption"):
+            caption = f'<span class="photo-caption">{auto["caption"]}</span>'
     elif editable:
         inner = ('<div class="image-slot-empty">Click to add a photo</div>')
     else:
@@ -87,7 +155,7 @@ def render_image_slot(entry, key, editable, wrap_style, default_width):
 
     editing_class = " image-wrap-editing" if editable else ""
     return (f'<span class="image-wrap{editing_class}" data-image-slot="{key}" '
-            f'style="{wrap_style}{sizing}">{inner}</span>')
+            f'style="{wrap_style}{sizing}">{inner}{caption}</span>')
 
 
 def load_memes():
@@ -721,7 +789,8 @@ def render_scorebar(story, compact=False):
     </div>'''
 
 
-def render_matchup_stories_html(stories, memes=None, editable=False, images=None):
+def render_matchup_stories_html(stories, memes=None, editable=False, images=None,
+                                auto_photos=None):
     """
     Render game stories in a varied newspaper layout:
     - Story 0: LEAD — full width, large headline, photo floated right, pull quote
@@ -732,6 +801,7 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
     if memes is None:
         memes = load_memes()
     images = images or {}
+    auto_photos = auto_photos or {}
 
     html_parts = []
 
@@ -744,14 +814,8 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
             wrap_style = "float:right;margin:0 0 14px 20px;border:1px solid #ccc;"
             entry = image_entry(images, f"matchup_{i}")
             meme_html = render_image_slot(entry, f"matchup_{i}", editable,
-                                          wrap_style, 44)
-            # Only fall back to a meme when no real photo has been uploaded.
-            if not entry:
-                meme = select_meme(memes, get_story_tags(story))
-                if meme and meme_url(meme):
-                    meme_html = (f'<span class="image-wrap" style="{wrap_style}width:44%;">'
-                                 f'<img src="{meme_url(meme)}" alt="" '
-                                 f'style="width:100%;height:auto;display:block;" /></span>')
+                                          wrap_style, 44,
+                                          auto=auto_photos.get(i))
 
             pull_quote = build_pull_quote(body)
             pull_html = f'<div class="pull-quote">&ldquo;{pull_quote}&rdquo;</div>' if pull_quote else ""
@@ -773,13 +837,8 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
             wrap_style = "float:left;margin:0 18px 12px 0;border:1px solid #ccc;"
             entry = image_entry(images, f"matchup_{i}")
             meme_html = render_image_slot(entry, f"matchup_{i}", editable,
-                                          wrap_style, 40)
-            if not entry:
-                meme = select_meme(memes, get_story_tags(story))
-                if meme and meme_url(meme):
-                    meme_html = (f'<span class="image-wrap" style="{wrap_style}width:40%;">'
-                                 f'<img src="{meme_url(meme)}" alt="" '
-                                 f'style="width:100%;height:auto;display:block;" /></span>')
+                                          wrap_style, 40,
+                                          auto=auto_photos.get(i))
 
             html_parts.append(f'''
             <article class="story-card story-feature">
@@ -1047,6 +1106,15 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     # so it travels with the prose and survives a re-render.
     images = (ai_content or {}).get("images") or {}
 
+    # Photos with no work from anyone: the standout player of each game, and
+    # the week's biggest scorer up top. Uploaded photos always win over these.
+    auto_photos = {}
+    for idx, game in enumerate(matchups or []):
+        shot = auto_photo_for_game(game)
+        if shot:
+            auto_photos[idx] = shot
+    auto_hero = auto_hero_photo(matchups)
+
     # --- Headline ---
     if ai_content and ai_content.get("headline"):
         headline = ai_content["headline"]
@@ -1127,11 +1195,13 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
                 "margin": ai_game["margin"],
             })
         matchup_stories_html = render_matchup_stories_html(
-            stories, memes, editable=editable, images=images)
+            stories, memes, editable=editable, images=images,
+            auto_photos=auto_photos)
     else:
         stories = build_matchup_stories(matchups)
         matchup_stories_html = render_matchup_stories_html(
-            stories, memes, editable=editable, images=images)
+            stories, memes, editable=editable, images=images,
+            auto_photos=auto_photos)
 
     # --- Hero image: pick a random reaction/losing meme for front page ---
     hero_meme = select_meme(memes, ["reaction", "losing"])
@@ -1148,7 +1218,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     # An uploaded hero photo replaces the meme rather than stacking on top of
     # it. Two hero images is never what anyone wanted.
     hero_entry = image_entry(images, "hero")
-    if hero_entry or not meme_url(hero_meme):
+    if hero_entry or auto_hero or not meme_url(hero_meme):
         hero_html = ""
 
     # --- Front left col: AI teaser hooks per game ---
@@ -1243,7 +1313,8 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         "ed_fraud": ed("fraud_watch", editable),
         "hero_image_html": render_image_slot(
             hero_entry, "hero", editable,
-            "display:block;margin:0 auto 14px;border:1px solid #ccc;", 100),
+            "display:block;margin:0 auto 14px;border:1px solid #ccc;", 100,
+            auto=None if hero_entry else auto_hero),
         "classifieds_html": render_classifieds(ads),
         # The reader just finished two thousand words of this. Best moment
         # we will ever get to ask for an email.
@@ -1260,6 +1331,9 @@ def render_html(edition, theme=None):
     """
     theme_fonts = themes.fonts_for(theme)
     theme_css = themes.css_for(theme)
+    # Some themes want the writer's ALL CAPS set as title case. CSS can
+    # only uppercase, so the transform has to happen here.
+    display_headline = themes.headline_for(theme, edition['headline'])
     return f"""
 <!DOCTYPE html>
 <html lang="en">
@@ -1311,6 +1385,18 @@ def render_html(edition, theme=None):
             width: 14px; height: 14px;
             background: linear-gradient(135deg, transparent 50%, #2d5016 50%);
             pointer-events: none;
+        }}
+        .photo-caption {{
+            display: block;
+            font-family: "Barlow Condensed", sans-serif;
+            font-size: 11px;
+            line-height: 1.35;
+            letter-spacing: 0.4px;
+            color: #6b6050;
+            padding: 5px 2px 0;
+            border-top: 1px solid #cfc8b8;
+            margin-top: 5px;
+            text-transform: uppercase;
         }}
         .image-slot-empty {{
             display: flex; align-items: center; justify-content: center;
@@ -2079,7 +2165,7 @@ def render_html(edition, theme=None):
 
         <!-- HEADLINE -->
         <div class="above-fold">
-            <div class="headline"{edition['ed_headline']}>{edition['headline']}</div>
+            <div class="headline"{edition['ed_headline']}>{display_headline}</div>
             <div class="dateline-bar">
                 <span>{edition['dateline_left']}</span>
                 <span style="text-align:center;flex:1;padding:0 12px;">

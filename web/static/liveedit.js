@@ -26,7 +26,7 @@
   var bar = document.createElement("div");
   bar.className = "ce-bar";
   bar.innerHTML =
-    '<span class="ce-bar-label">Editing &mdash; click any text to change it</span>' +
+    '<span class="ce-bar-label">Click any text to edit &middot; click, drop or paste a photo</span>' +
     '<span class="ce-bar-status" id="ce-status"></span>' +
     '<button type="button" class="ce-btn" id="ce-cancel">Done</button>' +
     '<button type="button" class="ce-btn ce-btn-primary" id="ce-save">Save changes</button>';
@@ -71,7 +71,9 @@
   document.body.appendChild(picker);
 
   var pendingSlot = null;
+  var hoverSlot = null;
   var widths = {};
+  var removed = {};
 
   function slotWidthPercent(el) {
     var parent = el.parentElement;
@@ -80,51 +82,56 @@
     return Math.max(10, Math.min(100, Math.round(pct)));
   }
 
-  Array.prototype.forEach.call(
-    document.querySelectorAll("[data-image-slot]"),
-    function (el) {
-      // Click anywhere in the slot to pick a photo — but not when the click
-      // was the tail end of dragging the resize handle.
-      el.addEventListener("click", function (e) {
-        if (el.dataset.justResized === "1") {
-          el.dataset.justResized = "";
-          return;
-        }
-        pendingSlot = el.dataset.imageSlot;
-        picker.value = "";
-        picker.click();
-      });
+  function slotEl(slot) {
+    return document.querySelector('[data-image-slot="' + slot + '"]');
+  }
 
-      // Native CSS resize fires no event, so watch the box instead.
-      if (typeof ResizeObserver === "function") {
-        var initial = el.offsetWidth;
-        var observer = new ResizeObserver(function () {
-          if (Math.abs(el.offsetWidth - initial) < 2) return;
-          initial = el.offsetWidth;
-          var pct = slotWidthPercent(el);
-          if (pct === null) return;
-          widths[el.dataset.imageSlot] = pct;
-          el.dataset.justResized = "1";
-          markDirty();
-          setStatus("Photo resized — save to keep it");
-        });
-        observer.observe(el);
-      }
-    }
-  );
+  function showPhoto(slot, url) {
+    var el = slotEl(slot);
+    if (!el) return;
+    el.innerHTML =
+      '<img src="' + url + '" alt="" style="width:100%;height:auto;display:block;" />';
+    addRemoveButton(el, slot);
+  }
 
-  picker.addEventListener("change", function () {
-    var file = picker.files && picker.files[0];
-    if (!file || !pendingSlot) return;
+  function showEmpty(slot) {
+    var el = slotEl(slot);
+    if (!el) return;
+    el.innerHTML = '<div class="image-slot-empty">Click, drop or paste a photo</div>';
+  }
 
+  // Every slot gets a small remove control while editing. Without it there is
+  // no way back to the automatic photo once you've uploaded one.
+  function addRemoveButton(el, slot) {
+    if (el.querySelector(".ce-remove")) return;
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ce-remove";
+    btn.title = "Remove this photo";
+    btn.textContent = "\u00d7";
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      delete images[slot];
+      removed[slot] = true;
+      showEmpty(slot);
+      markDirty();
+      setStatus("Photo removed — save to apply");
+    });
+    el.appendChild(btn);
+  }
+
+  function uploadFile(file, slot) {
+    if (!file || !slot) return;
     if (file.size > 8 * 1024 * 1024) {
       setStatus("That photo is over 8MB — try a smaller one");
       return;
     }
+    if (file.type && file.type.indexOf("image/") !== 0) {
+      setStatus("That isn't an image");
+      return;
+    }
 
-    var slot = pendingSlot;
-    setStatus("Uploading photo…");
-
+    setStatus("Uploading photo\u2026");
     var body = new FormData();
     body.append("photo", file);
 
@@ -135,20 +142,94 @@
       })
       .then(function (data) {
         images[slot] = data.url;
+        delete removed[slot];
         markDirty();
         setStatus("Photo added — save to publish it");
-        // Fill the slot straight away so the layout reflows immediately,
-        // exactly as it will once saved.
-        var el = document.querySelector('[data-image-slot="' + slot + '"]');
-        if (el) {
-          el.innerHTML =
-            '<img src="' + data.url +
-            '" alt="" style="width:100%;height:auto;display:block;" />';
-        }
+        // Fill the slot immediately so the layout reflows exactly as it will
+        // once saved.
+        showPhoto(slot, data.url);
       })
       .catch(function () {
         setStatus("Couldn't upload that photo");
       });
+  }
+
+  Array.prototype.forEach.call(
+    document.querySelectorAll("[data-image-slot]"),
+    function (el) {
+      var slot = el.dataset.imageSlot;
+
+      if (el.querySelector("img")) addRemoveButton(el, slot);
+
+      el.addEventListener("mouseenter", function () { hoverSlot = slot; });
+      el.addEventListener("mouseleave", function () {
+        if (hoverSlot === slot) hoverSlot = null;
+      });
+
+      // Click to pick — unless the click was the tail end of a resize drag.
+      el.addEventListener("click", function () {
+        if (el.dataset.justResized === "1") {
+          el.dataset.justResized = "";
+          return;
+        }
+        pendingSlot = slot;
+        picker.value = "";
+        picker.click();
+      });
+
+      // Drag a photo straight onto the slot.
+      ["dragenter", "dragover"].forEach(function (evt) {
+        el.addEventListener(evt, function (e) {
+          e.preventDefault();
+          el.classList.add("ce-drop-target");
+        });
+      });
+      ["dragleave", "drop"].forEach(function (evt) {
+        el.addEventListener(evt, function () {
+          el.classList.remove("ce-drop-target");
+        });
+      });
+      el.addEventListener("drop", function (e) {
+        e.preventDefault();
+        var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (file) uploadFile(file, slot);
+      });
+
+      // Native CSS resize fires no event, so watch the box instead.
+      if (typeof ResizeObserver === "function") {
+        var initial = el.offsetWidth;
+        var observer = new ResizeObserver(function () {
+          if (Math.abs(el.offsetWidth - initial) < 2) return;
+          initial = el.offsetWidth;
+          var pct = slotWidthPercent(el);
+          if (pct === null) return;
+          widths[slot] = pct;
+          el.dataset.justResized = "1";
+          markDirty();
+          setStatus("Photo resized — save to keep it");
+        });
+        observer.observe(el);
+      }
+    }
+  );
+
+  // Paste a screenshot straight into whichever slot you're pointing at. This
+  // is how most photos in this product will actually arrive — someone
+  // screenshots a group chat or a stat line and pastes it.
+  document.addEventListener("paste", function (e) {
+    if (!hoverSlot) return;
+    var items = (e.clipboardData && e.clipboardData.items) || [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type && items[i].type.indexOf("image/") === 0) {
+        e.preventDefault();
+        uploadFile(items[i].getAsFile(), hoverSlot);
+        return;
+      }
+    }
+  });
+
+  picker.addEventListener("change", function () {
+    uploadFile(picker.files && picker.files[0], pendingSlot);
   });
 
   // --- save ---------------------------------------------------------------
@@ -161,7 +242,12 @@
     fetch(saveUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ edits: dirty, images: images, widths: widths }),
+      body: JSON.stringify({
+        edits: dirty,
+        images: images,
+        widths: widths,
+        removed: Object.keys(removed),
+      }),
     })
       .then(function (r) {
         if (!r.ok) throw new Error("save failed");
