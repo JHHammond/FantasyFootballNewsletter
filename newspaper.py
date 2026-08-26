@@ -5,6 +5,7 @@ import random
 import markdown
 
 from ads import CLASSIFIEDS_CSS, SUBSCRIBE_CSS, render_classifieds, render_subscribe_block
+import themes
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -969,7 +970,7 @@ def build_honor_roll_and_detention(matchups, n=5):
         honor_cards.append(player_card(p, "#c8a200", stat, label))
 
     honor_html = f'''
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;">
+    <div class="player-grid">
         {"".join(honor_cards)}
     </div>'''
 
@@ -981,7 +982,7 @@ def build_honor_roll_and_detention(matchups, n=5):
         detention_cards.append(player_card(p, "#c40000", diff, label))
 
     detention_html = f'''
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;">
+    <div class="player-grid">
         {"".join(detention_cards)}
     </div>'''
 
@@ -1036,7 +1037,7 @@ def build_week_ticker(summary):
 
 def build_edition(league_name, week, summary, matchups, power_rankings,
                   ai_content=None, ads=None, subscribe_slug=None,
-                  editable=False):
+                  editable=False, canonical_url=None, canonical_base=None):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
 
@@ -1176,7 +1177,41 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         </div>''')
     front_left_html = "\n".join(front_left_parts)
 
+    # --- Link preview -----------------------------------------------------
+    def _plain(text, limit):
+        """Tag-free, quote-safe, single-line: what a meta tag needs."""
+        import re as _re
+        stripped = _re.sub(r"<[^>]+>", " ", str(text or ""))
+        stripped = _re.sub(r"&[a-z]+;", " ", stripped)
+        stripped = " ".join(stripped.split())
+        # Removing an inline tag leaves "everywhere ." — close that gap up.
+        stripped = _re.sub(r"\s+([.,!?;:'\u2019])", r"\1", stripped)
+        if len(stripped) > limit:
+            stripped = stripped[:limit].rsplit(" ", 1)[0] + "\u2026"
+        return stripped.replace('"', "&quot;")
+
+    og_title = _plain(headline, 90) or f"Week {week}"
+    og_description = _plain(lead_story, 190) or build_subheadline(summary)
+    og_image = images.get("hero", {}).get("url") if isinstance(
+        images.get("hero"), dict) else images.get("hero")
+    # Only absolute URLs are usable in a preview; a relative path means nothing
+    # to the crawler fetching it from somewhere else entirely.
+    if og_image and not str(og_image).startswith("http"):
+        og_image = f"{canonical_base}{og_image}" if canonical_base else None
+
+    og_url_tag = (f'<meta property="og:url" content="{canonical_url}" />'
+                  if canonical_url else "")
+    og_image_tag = (f'<meta property="og:image" content="{og_image}" />\n'
+                    f'    <meta name="twitter:image" content="{og_image}" />'
+                    if og_image else "")
+
     return {
+        "page_title": f"{_plain(headline, 70)} — Week {week}",
+        "og_title": og_title,
+        "og_description": og_description,
+        "og_url_tag": og_url_tag,
+        "og_image_tag": og_image_tag,
+        "twitter_card": "summary_large_image" if og_image else "summary",
         "paper_name": "KEVLARVILLE TIMES",
         "edition_line": f"Week {week} Edition  •  {league_name}  •  {datetime.now().strftime('%B %d, %Y')}",
         "dateline_left": f"Week {week}",
@@ -1216,14 +1251,36 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     }
 
 
-def render_html(edition):
+def render_html(edition, theme=None):
+    """Render a paper.
+
+    The base stylesheet below is the tabloid look. A theme layers overrides
+    on top of it, so the default is untouched by construction and a new
+    theme can never break an existing one.
+    """
+    theme_fonts = themes.fonts_for(theme)
+    theme_css = themes.css_for(theme)
     return f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{edition['paper_name']}</title>
+    <title>{edition['page_title']}</title>
+    <meta name="description" content="{edition['og_description']}" />
+
+    <!-- Link preview. The product is shared by pasting a URL into a group
+         chat; without these it arrives as bare text and nobody clicks it. -->
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="{edition['paper_name']}" />
+    <meta property="og:title" content="{edition['og_title']}" />
+    <meta property="og:description" content="{edition['og_description']}" />
+    {edition['og_url_tag']}
+    {edition['og_image_tag']}
+    <meta name="twitter:card" content="{edition['twitter_card']}" />
+    <meta name="twitter:title" content="{edition['og_title']}" />
+    <meta name="twitter:description" content="{edition['og_description']}" />
+    {theme_fonts}
     <style>
         [contenteditable="true"] {{
             outline: 1px dashed rgba(45,80,22,0.35);
@@ -1955,7 +2012,14 @@ def render_html(edition):
             flex-shrink: 0;
         }}
 
+        .player-grid {{
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+        }}
+
         @media (max-width: 900px) {{
+            .player-grid {{ grid-template-columns: repeat(3, 1fr); }}
             .front-page {{ grid-template-columns: 1fr; }}
             .front-col {{ border: none !important; padding: 0 !important; margin-bottom: 16px; }}
             .awards-grid-full {{ grid-template-columns: 1fr; }}
@@ -1968,6 +2032,40 @@ def render_html(edition):
             .fraud-callout {{ padding: 16px; }}
             .rankings-section {{ padding: 16px; }}
         }}
+
+        /* Phones. Most readers arrive here from a link in a group chat, so
+           this is the layout that matters most, not the desktop one. */
+        @media (max-width: 600px) {{
+            .page {{ padding: 0; }}
+            .paper-name {{ font-size: 30px; letter-spacing: -0.5px; }}
+            .edition-line {{ font-size: 10px; }}
+            .headline {{ font-size: 25px; line-height: 1.08; }}
+            .dateline-bar {{
+                grid-template-columns: 1fr;
+                gap: 4px;
+                text-align: center;
+                font-size: 11px;
+            }}
+            .player-grid {{ grid-template-columns: repeat(2, 1fr); gap: 10px; }}
+            .rankings-grid {{ grid-template-columns: 1fr; }}
+            .story-headline-lead {{ font-size: 26px; }}
+            .story-headline-feature {{ font-size: 22px; }}
+            .story-body {{ font-size: 15px; }}
+            /* Floated photos at phone width leave a two-word column beside
+               them. Full width and out of the text's way. */
+            .image-wrap {{
+                float: none !important;
+                width: 100% !important;
+                margin: 0 0 14px !important;
+            }}
+            .full-section {{ padding: 0 12px; }}
+            .classifieds-grid {{ grid-template-columns: 1fr; }}
+            .subscribe-block {{ padding: 18px 14px; }}
+            .subscribe-head {{ font-size: 21px; }}
+        }}
+
+        /* Theme overrides. Empty for the default. */
+        {theme_css}
     </style>
 </head>
 <body>
@@ -2089,9 +2187,9 @@ def render_html(edition):
 """
 
 
-def save_newspaper_html(league_name, week, summary, matchups, power_rankings, ai_content=None, output_dir="output", ads=None, subscribe_slug=None):
+def save_newspaper_html(league_name, week, summary, matchups, power_rankings, ai_content=None, output_dir="output", ads=None, subscribe_slug=None, theme=None):
     edition = build_edition(league_name, week, summary, matchups, power_rankings, ai_content, ads=ads, subscribe_slug=subscribe_slug)
-    html = render_html(edition)
+    html = render_html(edition, theme=theme)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)

@@ -50,10 +50,14 @@ from providers import (  # noqa: E402
     get_provider,
 )
 
+import themes  # noqa: E402
+
 from . import emailer, slugs  # noqa: E402
+from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
     generate_and_store,
     paper_name_for,
+    public_base_url,
     render_and_store,
     render_editable,
 )
@@ -83,6 +87,10 @@ if _MEMES_DIR.is_dir():
     app.mount("/memes", StaticFiles(directory=_MEMES_DIR), name="memes")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["demo_mode"] = DEMO_MODE
+# Templates build share links from this rather than request.base_url,
+# which behind a proxy reports http:// and the internal hostname.
+templates.env.globals["public_base"] = public_base_url
+templates.env.globals["theme_choices"] = themes.choices
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +289,7 @@ def update_settings(
     auto_send: str = Form(""),
     format: str = Form("redraft"),
     tone: str = Form("standard"),
+    theme: str = Form("tabloid"),
     stakes: str = Form(""),
     punishment: str = Form(""),
 ):
@@ -291,6 +300,7 @@ def update_settings(
         "auto_send": auto_send == "on",
         "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
         "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
+        "theme": themes.resolve(theme),
         "stakes": stakes.strip()[:300] or None,
         "punishment": punishment.strip()[:300] or None,
     })
@@ -402,6 +412,7 @@ def save_setup(
     token: str,
     format: str = Form("redraft"),
     tone: str = Form("standard"),
+    theme: str = Form("tabloid"),
     founded_year: str = Form(""),
     stakes: str = Form(""),
     punishment: str = Form(""),
@@ -418,6 +429,7 @@ def save_setup(
     db.update_league(league["id"], {
         "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
         "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
+        "theme": themes.resolve(theme),
         "founded_year": year,
         "stakes": stakes.strip()[:300] or None,
         "punishment": punishment.strip()[:300] or None,
@@ -561,26 +573,31 @@ def _apply_edits(ai: dict, form) -> dict:
     """Fold submitted values back into an ai_cache-shaped dict."""
     edited = dict(ai)
 
-    for key in ("headline", "lead_story", "fraud_watch"):
+    # Everything here ends up rendered into a page served from our own domain
+    # to every reader, so nothing goes in unsanitized. See web/sanitize.py.
+    if "headline" in form:
+        edited["headline"] = clean_text(form["headline"], 200)
+    for key in ("lead_story", "fraud_watch"):
         if key in form:
-            edited[key] = form[key].strip()
+            edited[key] = clean_html(form[key])
 
     matchups = [dict(m) for m in (ai.get("matchup_content") or [])]
     for i, m in enumerate(matchups):
-        for suffix, field in (("headline", "headline"), ("body", "body"),
-                              ("teaser", "teaser")):
-            name = f"matchup_{suffix}_{i}"
-            if name in form:
-                m[field] = form[name].strip()
+        if f"matchup_headline_{i}" in form:
+            m["headline"] = clean_text(form[f"matchup_headline_{i}"], 200)
+        if f"matchup_teaser_{i}" in form:
+            m["teaser"] = clean_text(form[f"matchup_teaser_{i}"], 200)
+        if f"matchup_body_{i}" in form:
+            m["body"] = clean_html(form[f"matchup_body_{i}"])
     if matchups:
         edited["matchup_content"] = matchups
 
     awards = [dict(a) for a in (ai.get("awards") or [])]
     for i, a in enumerate(awards):
         if f"award_title_{i}" in form:
-            a["title"] = form[f"award_title_{i}"].strip()
+            a["title"] = clean_text(form[f"award_title_{i}"], 120)
         if f"award_body_{i}" in form:
-            a["body"] = form[f"award_body_{i}"].strip()
+            a["body"] = clean_html(form[f"award_body_{i}"])
     if awards:
         edited["awards"] = awards
 
@@ -588,7 +605,7 @@ def _apply_edits(ai: dict, form) -> dict:
     for i, team in enumerate(list(rankings)):
         name = f"ranking_value_{i}"
         if name in form:
-            rankings[team] = form[name].strip()
+            rankings[team] = clean_text(form[name], 200)
     if rankings:
         edited["power_rankings_comments"] = rankings
 
@@ -646,24 +663,28 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
     """
     edited = dict(ai)
 
-    for key in ("headline", "lead_story", "fraud_watch"):
+    # The payload is innerHTML straight out of a browser. Sanitize hard.
+    if "headline" in edits:
+        edited["headline"] = clean_text(edits["headline"], 200)
+    for key in ("lead_story", "fraud_watch"):
         if key in edits:
-            edited[key] = str(edits[key]).strip()
+            edited[key] = clean_html(edits[key])
 
     matchups = [dict(m) for m in (ai.get("matchup_content") or [])]
     awards = [dict(a) for a in (ai.get("awards") or [])]
     rankings = dict(ai.get("power_rankings_comments") or {})
 
-    for key, value in edits.items():
-        value = str(value).strip()
-
+    for key, raw in edits.items():
         if key.startswith("matchup_headline_") or key.startswith("matchup_body_"):
             field, _, idx = key.rpartition("_")
             if not idx.isdigit():
                 continue
             i = int(idx)
             if 0 <= i < len(matchups):
-                matchups[i]["headline" if field.endswith("headline") else "body"] = value
+                if field.endswith("headline"):
+                    matchups[i]["headline"] = clean_text(raw, 200)
+                else:
+                    matchups[i]["body"] = clean_html(raw)
 
         elif key.startswith("award_title_") or key.startswith("award_body_"):
             field, _, idx = key.rpartition("_")
@@ -671,13 +692,16 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
                 continue
             i = int(idx)
             if 0 <= i < len(awards):
-                awards[i]["title" if field.endswith("title") else "body"] = value
+                if field.endswith("title"):
+                    awards[i]["title"] = clean_text(raw, 120)
+                else:
+                    awards[i]["body"] = clean_html(raw)
 
         elif key.startswith("ranking:"):
             team = key.split(":", 1)[1]
             # Only teams that already have a comment — no inventing entries.
             if team in rankings:
-                rankings[team] = value
+                rankings[team] = clean_text(raw, 200)
 
     if matchups:
         edited["matchup_content"] = matchups
@@ -693,10 +717,11 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
         merged[slot] = {"url": raw, "width": None} if isinstance(raw, str) else dict(raw)
 
     for slot, url in (images or {}).items():
-        if isinstance(url, str) and url.strip():
+        safe_url = clean_image_url(url) if isinstance(url, str) else None
+        if safe_url:
             key = str(slot)[:40]
             entry = merged.get(key) or {}
-            entry["url"] = url.strip()
+            entry["url"] = safe_url
             merged[key] = entry
 
     for slot, width in (widths or {}).items():

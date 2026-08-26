@@ -59,6 +59,29 @@
     </section>
 
     <section class="card">
+        <h2 class="card-title">How should it look</h2>
+        <p class="card-sub">
+            Same writing either way &mdash; this is just the paper it gets set in.
+        </p>
+        <div class="theme-row">
+            {% for t in theme_choices() %}
+            <label class="theme-card theme-{{ t.key }}">
+                <input type="radio" name="theme" value="{{ t.key }}"
+                       {% if loop.first %}checked{% endif %} />
+                <span class="theme-sample theme-sample-{{ t.key }}">
+                    <span class="theme-sample-masthead">The Times</span>
+                    <span class="theme-sample-head">SATAN OPENS 0-1</span>
+                    <span class="theme-sample-body"></span>
+                    <span class="theme-sample-body short"></span>
+                </span>
+                <span class="theme-name">{{ t.label }}</span>
+                <span class="theme-blurb">{{ t.blurb }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="card">
         <h2 class="card-title">The stakes</h2>
         <div class="stack">
             <label class="field">

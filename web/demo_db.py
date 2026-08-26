@@ -51,7 +51,8 @@ def create_league(**kw) -> dict[str, Any]:
             "owner_email": None, "auto_send": False,
             # Mirrors the column defaults in 005_setup.sql. If these drift,
             # demo mode stops being a truthful preview.
-            "format": "redraft", "tone": "standard", "founded_year": None,
+            "format": "redraft", "tone": "standard", "theme": "tabloid",
+            "founded_year": None,
             "stakes": None, "punishment": None, "setup_complete": False,
             **kw,
         }

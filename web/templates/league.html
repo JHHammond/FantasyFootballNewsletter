@@ -40,7 +40,7 @@
     </p>
     <div class="copy-row">
         <input type="text" readonly id="share-link"
-               value="{{ request.base_url }}p/{{ league.public_slug }}"
+               value="{{ public_base() }}/p/{{ league.public_slug }}"
                onclick="this.select()" class="copy-input" />
         <button type="button" class="btn btn-primary" id="share-copy">Copy</button>
     </div>
@@ -195,6 +195,15 @@
                     <option value="redraft" {% if league.format == 'redraft' %}selected{% endif %}>Redraft</option>
                     <option value="keeper"  {% if league.format == 'keeper'  %}selected{% endif %}>Keeper</option>
                     <option value="dynasty" {% if league.format == 'dynasty' %}selected{% endif %}>Dynasty</option>
+                </select>
+            </label>
+            <label class="field">
+                <span class="field-label">Look</span>
+                <select name="theme">
+                    {% for t in theme_choices() %}
+                    <option value="{{ t.key }}"
+                            {% if league.theme == t.key %}selected{% endif %}>{{ t.label }}</option>
+                    {% endfor %}
                 </select>
             </label>
             <label class="field">

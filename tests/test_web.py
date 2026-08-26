@@ -1309,3 +1309,239 @@ def test_uploaded_hero_replaces_the_stock_one(client):
     assert body.count("https://x/h.jpg") == 1
     assert 'alt="Hero image"' not in body
     assert "width:70%" in body
+
+
+# ---------------------------------------------------------------------------
+# Sanitization — the stored XSS the editors would otherwise allow
+# ---------------------------------------------------------------------------
+
+def test_script_tags_never_survive_an_edit(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {
+            "headline": "<script>alert(1)</script>HEADLINE",
+            "lead_story": "<p>Fine</p><script>steal()</script>",
+        },
+        "images": {},
+    })
+    ai = no_rerender[0]["ai"]
+    assert "<script" not in ai["headline"]
+    assert "<script" not in ai["lead_story"]
+    assert "HEADLINE" in ai["headline"]
+    assert "Fine" in ai["lead_story"]
+
+
+def test_event_handlers_are_stripped(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {"lead_story": '<p onclick="steal()" onmouseover="x()">Text</p>'},
+        "images": {},
+    })
+    body = no_rerender[0]["ai"]["lead_story"]
+    assert "onclick" not in body
+    assert "onmouseover" not in body
+    assert "Text" in body
+
+
+def test_javascript_urls_are_dropped(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {"lead_story": '<a href="javascript:alert(1)">click</a>'},
+        "images": {},
+    })
+    assert "javascript:" not in no_rerender[0]["ai"]["lead_story"]
+
+
+def test_style_attributes_are_dropped(client, paper, no_rerender):
+    """style carries url() and expression() tricks."""
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {"lead_story": '<p style="background:url(javascript:1)">Hi</p>'},
+        "images": {},
+    })
+    assert "style=" not in no_rerender[0]["ai"]["lead_story"]
+
+
+def test_headlines_come_back_as_plain_text(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {"headline": "<h1>BIG</h1> <b>NEWS</b>"}, "images": {}})
+    assert no_rerender[0]["ai"]["headline"] == "BIG NEWS"
+
+
+def test_ordinary_formatting_survives(client, paper, no_rerender):
+    """Sanitizing must not mean throwing away a legitimate edit."""
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {"lead_story":
+                  '<p>He was <strong>terrible</strong> and <em>knew it</em>.</p>'},
+        "images": {},
+    })
+    body = no_rerender[0]["ai"]["lead_story"]
+    assert "<strong>terrible</strong>" in body
+    assert "<em>knew it</em>" in body
+
+
+def test_the_form_editor_sanitizes_too(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1", data={
+        "headline": "<script>x</script>CLEAN",
+        "lead_story": '<p onclick="x()">Body</p>',
+    })
+    ai = no_rerender[0]["ai"]
+    assert "<script" not in ai["headline"]
+    assert "onclick" not in ai["lead_story"]
+
+
+def test_photo_urls_must_be_http_or_same_origin(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {"hero": "javascript:alert(1)"}})
+    assert not (no_rerender[0]["ai"].get("images") or {}).get("hero")
+
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {"hero": "data:text/html,<script>x</script>"}})
+    assert not (no_rerender[-1]["ai"].get("images") or {}).get("hero")
+
+
+# ---------------------------------------------------------------------------
+# Link previews
+# ---------------------------------------------------------------------------
+
+def test_paper_carries_open_graph_tags():
+    body = _render_paper(dict(SAMPLE_AI))
+    head = body if "og:title" in body else _full_paper(dict(SAMPLE_AI))
+    assert 'property="og:title"' in head
+    assert 'property="og:description"' in head
+    assert 'name="twitter:card"' in head
+
+
+def _full_paper(ai, **kw):
+    import tempfile
+    from providers import (SleeperProvider, TTLCache, apply_lineup_gaps,
+                           week_to_legacy_games)
+    from storylines import get_weekly_storylines
+    from newspaper import (build_edition, build_power_rankings_from_matchups,
+                           render_html)
+    from tests import fixtures
+
+    p = SleeperProvider(cache=TTLCache(cache_dir=tempfile.mkdtemp(), namespace="t"))
+    p._get = lambda u, params=None: fixtures.fake_get(u, params)
+    games = week_to_legacy_games(apply_lineup_gaps(p.get_week("TESTLEAGUE", 2025, 3)))
+    summary = get_weekly_storylines(games)
+    rankings = build_power_rankings_from_matchups(games)
+    theme = kw.pop("theme", None)
+    edition = build_edition("X", 1, summary, games, rankings, ai,
+                            subscribe_slug="sl", **kw)
+    return render_html(edition, theme=theme)
+
+
+def test_preview_title_is_the_headline():
+    html = _full_paper(dict(SAMPLE_AI))
+    assert "SATAN FALLS IN KEVLARVILLE" in html
+    assert 'og:title" content="SATAN FALLS IN KEVLARVILLE"' in html
+
+
+def test_preview_description_is_plain_text():
+    html = _full_paper({**SAMPLE_AI, "lead_story": "<p>Chaos <b>everywhere</b>.</p>"})
+    import re
+    desc = re.search(r'og:description" content="([^"]*)"', html).group(1)
+    assert "<" not in desc
+    assert "Chaos everywhere." in desc
+
+
+def test_preview_image_uses_the_hero_photo():
+    html = _full_paper({**SAMPLE_AI,
+                        "images": {"hero": {"url": "https://cdn/x.jpg", "width": 80}}})
+    assert 'og:image" content="https://cdn/x.jpg"' in html
+    assert 'twitter:card" content="summary_large_image"' in html
+
+
+def test_relative_photo_becomes_absolute_for_crawlers():
+    """A crawler fetching from elsewhere can't resolve /demo-image/x.jpg."""
+    html = _full_paper({**SAMPLE_AI, "images": {"hero": "/uploads/x.jpg"}},
+                       canonical_base="https://commish.app")
+    assert 'og:image" content="https://commish.app/uploads/x.jpg"' in html
+
+
+def test_no_preview_image_when_there_is_no_photo():
+    html = _full_paper(dict(SAMPLE_AI))
+    assert 'og:image"' not in html
+    assert 'twitter:card" content="summary"' in html
+
+
+# ---------------------------------------------------------------------------
+# Themes
+# ---------------------------------------------------------------------------
+
+def test_default_theme_is_unchanged_by_the_theme_system():
+    """Tabloid is the base stylesheet, so it must render identically whether
+    the theme is unset, 'tabloid', or nonsense."""
+    a = _full_paper(dict(SAMPLE_AI))
+    b = _full_paper(dict(SAMPLE_AI), theme="tabloid")
+    c = _full_paper(dict(SAMPLE_AI), theme="not-a-real-theme")
+    assert a == b == c
+
+
+def test_each_theme_renders_differently():
+    tab = _full_paper(dict(SAMPLE_AI), theme="tabloid")
+    broad = _full_paper(dict(SAMPLE_AI), theme="broadsheet")
+    game = _full_paper(dict(SAMPLE_AI), theme="gameday")
+    assert len({tab, broad, game}) == 3
+    assert "BROADSHEET" in broad
+    assert "GAMEDAY" in game
+
+
+def test_themes_load_their_own_fonts():
+    assert "UnifrakturMaguntia" in _full_paper(dict(SAMPLE_AI), theme="broadsheet")
+    assert "Anton" in _full_paper(dict(SAMPLE_AI), theme="gameday")
+
+
+def test_theme_resolution_is_forgiving():
+    import themes
+    assert themes.resolve(None) == "tabloid"
+    assert themes.resolve("") == "tabloid"
+    assert themes.resolve("GAMEDAY") == "gameday"
+    assert themes.resolve("nonsense") == "tabloid"
+
+
+def test_setup_saves_a_theme(client, league):
+    client.post("/l/secret-admin-token/setup", data={"theme": "gameday"})
+    assert demo_db._LEAGUES[league["id"]]["theme"] == "gameday"
+
+
+def test_setup_rejects_an_unknown_theme(client, league):
+    client.post("/l/secret-admin-token/setup", data={"theme": "'; drop table"})
+    assert demo_db._LEAGUES[league["id"]]["theme"] == "tabloid"
+
+
+def test_settings_can_change_the_theme(client, league):
+    client.post("/l/secret-admin-token/settings",
+                data={"theme": "broadsheet", "paper_name": "x", "commissioner": "y"})
+    assert demo_db._LEAGUES[league["id"]]["theme"] == "broadsheet"
+
+
+def test_setup_page_shows_all_three_themes(client, league):
+    text = client.get("/l/secret-admin-token/setup").text
+    assert "Tabloid" in text and "Broadsheet" in text and "Gameday" in text
+
+
+# ---------------------------------------------------------------------------
+# Mobile
+# ---------------------------------------------------------------------------
+
+def test_player_grids_are_not_inline_styled():
+    """Inline grid-template-columns beat media queries on specificity, which
+    left five 60px headshots jammed into a 340px phone."""
+    html = _full_paper(dict(SAMPLE_AI))
+    assert "grid-template-columns:repeat(5,1fr)" not in html
+    assert 'class="player-grid"' in html
+
+
+def test_paper_has_a_phone_breakpoint():
+    html = _full_paper(dict(SAMPLE_AI))
+    assert "@media (max-width: 600px)" in html
+
+
+# ---------------------------------------------------------------------------
+# Absolute URLs behind a proxy
+# ---------------------------------------------------------------------------
+
+def test_share_link_uses_the_configured_base_url(client, league, monkeypatch):
+    """Behind a proxy request.base_url reports http and the internal host, so
+    every share link handed out would be wrong."""
+    monkeypatch.setenv("BASE_URL", "https://commish.app")
+    r = client.get("/l/secret-admin-token")
+    assert f"https://commish.app/p/{league['public_slug']}" in r.text

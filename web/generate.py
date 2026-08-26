@@ -8,6 +8,7 @@ store and the Supabase store are interchangeable here.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,21 @@ from newspaper import (  # noqa: E402
 from providers import load_week, week_to_legacy_games  # noqa: E402
 from storylines import get_weekly_storylines  # noqa: E402
 from writer import generate_full_newspaper_content  # noqa: E402
+
+
+def public_base_url() -> str:
+    """Where readers actually reach us.
+
+    Behind a proxy, request.base_url reports http:// and the internal host, so
+    every absolute URL built from it — share links, link previews — would be
+    wrong. BASE_URL is authoritative in production.
+    """
+    return os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+
+
+def paper_url_for(league: dict[str, Any], week: int) -> str:
+    return (f"{public_base_url()}/p/{league['public_slug']}"
+            f"/{league['season']}/week-{week}")
 
 
 def paper_name_for(league: dict[str, Any]) -> str:
@@ -103,9 +119,11 @@ def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
         # Threaded through so the paper can carry its own subscribe form —
         # the highest-intent moment we get, since the reader just finished it.
         subscribe_slug=league["public_slug"],
+        canonical_url=paper_url_for(league, week),
+        canonical_base=public_base_url(),
     )
     edition["paper_name"] = paper_name
-    html = render_html(edition)
+    html = render_html(edition, theme=league.get("theme"))
 
     path, public_url = db.upload_paper(league["public_slug"], season, week, html)
     db.save_paper(league["id"], week, season, path, public_url, ai_content,
@@ -138,9 +156,11 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
     edition = build_edition(
         paper_name, week, summary, games, power_rankings, ai_content,
         subscribe_slug=league["public_slug"], editable=True,
+        canonical_url=paper_url_for(league, week),
+        canonical_base=public_base_url(),
     )
     edition["paper_name"] = paper_name
-    return render_html(edition)
+    return render_html(edition, theme=league.get("theme"))
 
 
 def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
