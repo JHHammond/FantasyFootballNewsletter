@@ -1487,7 +1487,7 @@ def test_each_theme_renders_differently():
 
 
 def test_themes_load_their_own_fonts():
-    assert "UnifrakturMaguntia" in _full_paper(dict(SAMPLE_AI), theme="broadsheet")
+    assert "Bodoni+Moda" in _full_paper(dict(SAMPLE_AI), theme="broadsheet")
     assert "Anton" in _full_paper(dict(SAMPLE_AI), theme="gameday")
 
 

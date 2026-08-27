@@ -525,7 +525,9 @@ textarea { resize: vertical; }
 
 .theme-sample-broadsheet { background: #fffefb; }
 .theme-sample-broadsheet .theme-sample-masthead {
-    font-family: "UnifrakturMaguntia", serif; font-size: 15px;
+    font-family: "Bodoni Moda", Didot, Georgia, serif; font-weight: 700;
+    font-variation-settings: "opsz" 96;
+    font-size: 13px; letter-spacing: 1.4px; text-transform: uppercase;
     color: #111; text-align: center;
 }
 .theme-sample-broadsheet .theme-sample-head {

@@ -32,15 +32,21 @@ TABLOID_CSS = ""
 # BROADSHEET — the paper of record.
 #
 # Restraint is the whole point: no red, hairline rules instead of heavy bars,
-# a blackletter masthead, and body text that expects to be read rather than
-# glanced at. The same brutal prose lands differently when it's set like this.
+# and body text that expects to be read rather than glanced at. The same
+# brutal prose lands differently when it's set like this.
+#
+# The masthead is a high-contrast didone in spaced capitals, not blackletter.
+# Blackletter only reads as "newspaper" on the two or three mastheads everyone
+# already knows; on an unfamiliar name it just reads as a heavy metal album,
+# and it's close to illegible at the sizes a phone gives you. Didone caps do
+# the same job -- old, serious, engraved -- while staying readable.
 # ---------------------------------------------------------------------------
 
 BROADSHEET_FONTS = (
     '<link rel="preconnect" href="https://fonts.googleapis.com" />'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />'
     '<link href="https://fonts.googleapis.com/css2?'
-    'family=UnifrakturMaguntia'
+    'family=Bodoni+Moda:opsz,wght@6..96,400;6..96,700;6..96,900'
     '&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400'
     '&family=Libre+Franklin:wght@400;600;700'
     '&display=swap" rel="stylesheet" />'
@@ -62,15 +68,22 @@ body { background: #f4f2ed !important; }
     border-bottom: 3px double #111 !important;
     padding: 30px 36px 12px !important;
 }
+/* Bodoni's thin strokes are the whole effect, so it needs the display optical
+   size (opsz 96) and real air between the letters. clamp() rather than a fixed
+   size because league names run from "The Bee" to eleven syllables of inside
+   joke, and a masthead that wraps looks broken. */
 .paper-name {
-    font-family: "UnifrakturMaguntia", "Playfair Display", serif !important;
-    font-size: 58px !important;
-    font-weight: 400 !important;
-    letter-spacing: 0 !important;
-    text-transform: none !important;
+    font-family: "Bodoni Moda", "Playfair Display", Didot, Georgia, serif !important;
+    font-variation-settings: "opsz" 96 !important;
+    font-size: clamp(30px, 6.4vw, 62px) !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.055em !important;
+    text-indent: 0.055em !important;  /* re-centre: tracking pads the right only */
+    text-transform: uppercase !important;
     color: #111 !important;
     text-shadow: none !important;
-    line-height: 1.15 !important;
+    line-height: 1.05 !important;
+    word-break: break-word !important;
 }
 .edition-line {
     font-family: "Libre Franklin", sans-serif !important;
@@ -191,8 +204,9 @@ body { background: #f4f2ed !important; }
     color: #6a6560 !important;
 }
 
+/* .paper-name is sized with clamp(), so it needs no breakpoint of its own. */
 @media (max-width: 600px) {
-    .paper-name { font-size: 34px !important; }
+    .paper-name { letter-spacing: 0.04em !important; text-indent: 0.04em !important; }
     .headline { font-size: 25px !important; max-width: 100% !important; }
 }
 """
