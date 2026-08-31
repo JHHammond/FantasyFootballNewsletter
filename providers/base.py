@@ -98,6 +98,15 @@ class FantasyProvider(ABC):
         """
         return []
 
+    def current_state(self) -> Optional[dict]:
+        """The platform's own view of what week and season it is.
+
+        Returns something like {"season": 2026, "week": 3} or None if the
+        platform doesn't publish it. Callers must handle None — this is a
+        convenience, and nfl_week.py answers the same question offline.
+        """
+        return None
+
     def season_chain(self, league_id: str, max_hops: int = 10) -> list:
         """This league and its predecessors, newest first.
 

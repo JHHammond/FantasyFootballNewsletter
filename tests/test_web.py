@@ -1150,26 +1150,72 @@ def test_inline_save_requires_the_token(client, paper, no_rerender):
 
 
 # --- photo upload ----------------------------------------------------------
+#
+# Uploads are now judged by their bytes, not by what the caller claims. These
+# payloads carry real magic numbers because that is what the server reads.
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 24
+GIF_BYTES = b"GIF89a" + b"\x00" * 24
+WEBP_BYTES = b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 20
+
 
 def test_uploading_a_photo(client, league):
     r = client.post("/l/secret-admin-token/upload-image",
-                    files={"photo": ("shot.png", b"\x89PNG fake bytes", "image/png")})
+                    files={"photo": ("shot.png", PNG_BYTES, "image/png")})
     assert r.status_code == 200
     assert r.json()["url"].startswith("/demo-image/")
 
 
 def test_uploaded_photo_is_served_back(client, league):
     url = client.post("/l/secret-admin-token/upload-image",
-                      files={"photo": ("shot.png", b"PNGDATA", "image/png")}).json()["url"]
+                      files={"photo": ("shot.png", PNG_BYTES, "image/png")}).json()["url"]
     r = client.get(url)
     assert r.status_code == 200
-    assert r.content == b"PNGDATA"
+    assert r.content == PNG_BYTES
+
+
+def test_every_allowed_format_is_accepted(client, league):
+    for name, payload in [("a.jpg", JPEG_BYTES), ("b.png", PNG_BYTES),
+                          ("c.gif", GIF_BYTES), ("d.webp", WEBP_BYTES)]:
+        r = client.post("/l/secret-admin-token/upload-image",
+                        files={"photo": (name, payload, "image/png")})
+        assert r.status_code == 200, name
 
 
 def test_non_images_are_rejected(client, league):
     r = client.post("/l/secret-admin-token/upload-image",
-                    files={"photo": ("evil.html", b"<script>", "text/html")})
+                    files={"photo": ("evil.html", b"<script>alert(1)</script>xx",
+                                     "text/html")})
     assert r.status_code == 400
+
+
+def test_svg_is_rejected_even_when_declared_an_image(client, league):
+    """The hole this closes: image/svg+xml passes a "starts with image/" test,
+    and SVG can carry script. Declaring it an image must not be enough."""
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    r = client.post("/l/secret-admin-token/upload-image",
+                    files={"photo": ("logo.svg", svg, "image/svg+xml")})
+    assert r.status_code == 400
+    assert "SVG" in r.json()["error"]
+
+
+def test_html_disguised_as_a_png_is_rejected(client, league):
+    """Filename and content-type both lie; the bytes don't."""
+    r = client.post("/l/secret-admin-token/upload-image",
+                    files={"photo": ("innocent.png",
+                                     b"<html><script>alert(1)</script></html>",
+                                     "image/png")})
+    assert r.status_code == 400
+
+
+def test_stored_extension_comes_from_the_bytes_not_the_filename(client, league):
+    """A JPEG named .png is stored as a JPEG."""
+    url = client.post(
+        "/l/secret-admin-token/upload-image",
+        files={"photo": ("mislabelled.png", JPEG_BYTES, "image/png")},
+    ).json()["url"]
+    assert url.endswith(".jpg")
 
 
 def test_oversized_photos_are_rejected(client, league):
@@ -1693,3 +1739,378 @@ def test_tone_overrides_still_apply():
     assert "NO MERCY" in system_prompt("brutal")
     assert "KEEP IT LIGHT" in system_prompt("friendly")
     assert "Could this sentence be moved" in system_prompt("friendly")
+
+
+# ===========================================================================
+# Launch hardening
+#
+# Each test below corresponds to a specific finding from the pre-launch review.
+# They exist because "we fixed that" is a claim, and a claim that isn't tested
+# stops being true the next time someone edits the file.
+# ===========================================================================
+
+# --- the season anchor -----------------------------------------------------
+
+def test_season_opener_is_the_thursday_after_labor_day():
+    """The rule, not a written-down date. 2025's opener really was 4 Sept."""
+    import nfl_week
+    from datetime import date
+    assert nfl_week.season_opener(2025) == date(2025, 9, 4)
+    assert nfl_week.season_opener(2026) == date(2026, 9, 10)
+    assert nfl_week.season_opener(2027) == date(2027, 9, 9)
+
+
+def test_week_numbers_are_right_in_every_season():
+    """The bug this replaces: a fixed 2025 anchor returned week 18 for every
+    week of every later season."""
+    import nfl_week
+    from datetime import date, timedelta
+
+    for year in (2025, 2026, 2027, 2030):
+        opener = nfl_week.season_opener(year)
+        for week in range(1, 19):
+            # Tuesday after that week's games are done.
+            tuesday = opener + timedelta(days=(week - 1) * 7 + 5)
+            assert nfl_week.completed_week(tuesday) == week, (year, week)
+
+
+def test_the_offseason_does_not_report_a_played_week():
+    import nfl_week
+    from datetime import date
+    assert nfl_week.current_week(date(2026, 7, 4)) == 1
+    assert not nfl_week.is_in_season(date(2026, 7, 4))
+    assert nfl_week.is_in_season(date(2026, 10, 1))
+
+
+def test_january_belongs_to_the_previous_season():
+    import nfl_week
+    from datetime import date
+    assert nfl_week.current_season(date(2027, 1, 10)) == 2026
+    assert nfl_week.current_season(date(2026, 9, 20)) == 2026
+
+
+# --- rate limiting ---------------------------------------------------------
+
+def test_client_ip_ignores_a_forged_forwarded_header():
+    """The whole rate limiter rested on this. Proxies append, so the leftmost
+    entry is whatever the caller typed and the rightmost is what the edge saw."""
+    class FakeRequest:
+        def __init__(self, header):
+            self.headers = {"x-forwarded-for": header} if header else {}
+            self.client = type("C", (), {"host": "10.0.0.1"})()
+
+    # One proxy in front, caller forged an entry: take what the proxy appended.
+    assert webapp._client_ip(FakeRequest("1.2.3.4, 203.0.113.9")) == "203.0.113.9"
+    # No forgery: still the real address.
+    assert webapp._client_ip(FakeRequest("203.0.113.9")) == "203.0.113.9"
+    # No header at all: fall back to the socket.
+    assert webapp._client_ip(FakeRequest("")) == "10.0.0.1"
+
+
+def test_a_forged_header_cannot_buy_a_fresh_quota(client, league, monkeypatch):
+    """Simulates what the edge actually delivers: the caller's own header with
+    the address it really saw appended after it."""
+    monkeypatch.setattr(webapp, "UPLOADS_PER_HOUR", 2)
+    ok = 0
+    for i in range(6):
+        r = client.post(
+            "/l/secret-admin-token/upload-image",
+            files={"photo": ("a.png", PNG_BYTES, "image/png")},
+            # A different claimed origin every time; one real one behind it.
+            headers={"X-Forwarded-For": f"9.9.9.{i}, 203.0.113.5"},
+        )
+        if r.status_code == 200:
+            ok += 1
+    assert ok == 2, "rotating the forged header bought extra uploads"
+
+
+def test_a_short_forwarded_header_is_not_believed(monkeypatch):
+    """If there are fewer hops than proxies, the header didn't come through the
+    path we expect and the socket address is all that's left."""
+    monkeypatch.setattr(webapp, "TRUSTED_PROXY_HOPS", 2)
+
+    class FakeRequest:
+        headers = {"x-forwarded-for": "1.2.3.4"}
+        client = type("C", (), {"host": "10.0.0.1"})()
+
+    assert webapp._client_ip(FakeRequest()) == "10.0.0.1"
+
+
+def test_rate_limit_keys_do_not_accumulate_forever():
+    """Reading a key used to create it, and nothing was ever evicted."""
+    webapp._HITS.clear()
+    webapp._rate_limited("probe", 5)
+    assert list(webapp._HITS) == ["probe"]
+    # A key that was only ever checked shouldn't linger as an empty list.
+    assert webapp._HITS["probe"]
+
+
+def test_upload_is_capped_per_league_regardless_of_ip(client, league, monkeypatch):
+    """League ID comes from our own database, so this cap can't be spoofed."""
+    monkeypatch.setattr(webapp, "UPLOADS_PER_HOUR", 10_000)
+    monkeypatch.setattr(webapp, "UPLOADS_PER_LEAGUE_PER_DAY", 3)
+    codes = [
+        client.post("/l/secret-admin-token/upload-image",
+                    files={"photo": ("a.png", PNG_BYTES, "image/png")},
+                    headers={"X-Forwarded-For": f"5.5.5.{i}"}).status_code
+        for i in range(5)
+    ]
+    assert codes.count(200) == 3
+    assert codes.count(429) == 2
+
+
+# --- spend ceilings and concurrency ---------------------------------------
+
+def test_generation_stops_at_the_daily_global_ceiling(client, league, monkeypatch):
+    monkeypatch.setattr(webapp, "MAX_PAPERS_PER_DAY", 0)
+    called = []
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda *a, **k: called.append(1))
+    r = client.post("/l/secret-admin-token/generate", data={"week": 1},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert "today" in r.headers["location"]
+    assert called == [], "spent money past the ceiling"
+
+
+def test_generation_is_capped_per_league_per_day(client, league, monkeypatch):
+    monkeypatch.setattr(webapp, "GENERATIONS_PER_LEAGUE_PER_DAY", 2)
+    monkeypatch.setattr(webapp, "generate_and_store", lambda *a, **k: None)
+    locations = [
+        client.post("/l/secret-admin-token/generate", data={"week": w},
+                    follow_redirects=False).headers["location"]
+        for w in (1, 2, 3)
+    ]
+    assert "daily+limit" in locations[2]
+    assert "daily+limit" not in locations[0]
+
+
+def test_a_busy_press_turns_people_away_instead_of_queueing(client, league,
+                                                            monkeypatch):
+    """Without this the threadpool fills and readers stop being served."""
+    import threading
+    monkeypatch.setattr(webapp, "_GENERATION_SLOTS",
+                        threading.BoundedSemaphore(1))
+    webapp._GENERATION_SLOTS.acquire()          # someone else is generating
+    monkeypatch.setattr(webapp, "generate_and_store", lambda *a, **k: None)
+
+    r = client.post("/l/secret-admin-token/generate", data={"week": 1},
+                    follow_redirects=False)
+    assert "presses+are+busy" in r.headers["location"]
+
+
+def test_the_slot_is_returned_even_when_generation_fails(client, league,
+                                                          monkeypatch):
+    from providers import ProviderError
+
+    def boom(*a, **k):
+        raise ProviderError("nope")
+
+    monkeypatch.setattr(webapp, "generate_and_store", boom)
+    before = webapp._GENERATION_SLOTS._value
+    client.post("/l/secret-admin-token/generate", data={"week": 1},
+                follow_redirects=False)
+    assert webapp._GENERATION_SLOTS._value == before, "leaked a slot on error"
+
+
+# --- image sniffing --------------------------------------------------------
+
+def test_sniffer_recognises_what_it_should_and_nothing_else():
+    from web import images
+
+    assert images.sniff(PNG_BYTES).mime == "image/png"
+    assert images.sniff(JPEG_BYTES).mime == "image/jpeg"
+    assert images.sniff(GIF_BYTES).mime == "image/gif"
+    assert images.sniff(WEBP_BYTES).mime == "image/webp"
+
+    assert images.sniff(b"<svg xmlns='http://www.w3.org/2000/svg'></svg>") is None
+    assert images.sniff(b"%PDF-1.7 something") is None
+    assert images.sniff(b"") is None
+    assert images.sniff(b"short") is None
+    # RIFF that isn't WebP — an AVI, say.
+    assert images.sniff(b"RIFF\x00\x00\x00\x00AVI LIST") is None
+
+
+def test_rejection_messages_name_the_actual_problem():
+    from web import images
+    assert "SVG" in images.describe_rejection(b"<svg xmlns='x'></svg>")
+    assert "PDF" in images.describe_rejection(b"%PDF-1.4")
+
+
+# --- security headers and token rotation ----------------------------------
+
+def test_every_response_suppresses_the_referer(client, league):
+    """Ad scripts run inside the paper. Without this they receive the admin
+    token in the Referer header of every request they make."""
+    for path in ("/", "/l/secret-admin-token", "/privacy"):
+        r = client.get(path)
+        assert r.headers["referrer-policy"] == "no-referrer", path
+        assert r.headers["x-content-type-options"] == "nosniff", path
+
+
+def test_papers_and_manage_pages_are_not_indexable(client, league):
+    r = client.get("/l/secret-admin-token")
+    assert "noindex" in r.headers["x-robots-tag"]
+
+
+def test_rotating_the_token_invalidates_the_old_link(client, league):
+    r = client.post("/l/secret-admin-token/rotate", follow_redirects=False)
+    assert r.status_code == 303
+    new_url = r.headers["location"]
+    assert "/l/secret-admin-token" not in new_url
+
+    assert client.get("/l/secret-admin-token").status_code == 404
+    assert client.get(new_url.split("?")[0]).status_code == 200
+
+
+def test_rotation_emails_the_new_link_when_we_have_an_address(
+        client, league, sent_emails):
+    demo_db.update_league(league["id"], {"owner_email": "john@example.com"})
+    client.post("/l/secret-admin-token/rotate", follow_redirects=False)
+    assert any(m["to"] == "john@example.com" for m in sent_emails)
+
+
+def test_robots_txt_keeps_crawlers_off_the_papers(client):
+    body = client.get("/robots.txt").text
+    assert "Disallow: /p/" in body
+    assert "Disallow: /l/" in body
+
+
+def test_the_paper_itself_carries_a_noindex_tag():
+    """The header covers our own routes; this covers the file in the bucket."""
+    body = _full_paper(dict(SAMPLE_AI))
+    assert 'name="robots"' in body
+    assert "noindex" in body
+    # ...without breaking link unfurls, which is how the product spreads.
+    assert 'property="og:title"' in body
+
+
+# --- view counting ---------------------------------------------------------
+
+def test_reading_a_paper_counts_it(client, league):
+    demo_db.save_paper(league["id"], 1, 2025, "p/1", "http://x/1", {"headline": "H"})
+    demo_db._STORAGE[demo_db.storage_path("kevlarville-7f3a", 2025, 1)] = "<html></html>"
+
+    for _ in range(3):
+        assert client.get("/p/kevlarville-7f3a/2025/week-1").status_code == 200
+
+    assert demo_db.get_paper(league["id"], 2025, 1)["view_count"] == 3
+
+
+def test_regenerating_does_not_reset_the_readership(client, league):
+    demo_db.save_paper(league["id"], 1, 2025, "p/1", "http://x/1", {"headline": "H"})
+    demo_db.record_view(league["id"], 2025, 1)
+    demo_db.save_paper(league["id"], 1, 2025, "p/1", "http://x/1", {"headline": "H2"})
+    assert demo_db.get_paper(league["id"], 2025, 1)["view_count"] == 1
+
+
+def test_read_counts_reach_the_commissioner(client, league):
+    demo_db.save_paper(league["id"], 1, 2025, "p/1", "http://x/1", {"headline": "H"})
+    for _ in range(4):
+        demo_db.record_view(league["id"], 2025, 1)
+    body = client.get("/l/secret-admin-token").text
+    assert "4 reads" in body
+
+
+def test_both_stores_expose_the_same_functions():
+    """demo_db is only a truthful preview if it stays function-for-function
+    identical to the real one."""
+    from web import db as real_db
+    public = {n for n in dir(real_db)
+              if not n.startswith("_") and callable(getattr(real_db, n))}
+    missing = {n for n in public if not hasattr(demo_db, n)}
+    # Not part of the interface app.py uses: `client` is db.py's own Supabase
+    # handle, and the rest are names it imported.
+    missing -= {"create_client", "Client", "client"}
+    assert not missing, f"demo_db is missing: {sorted(missing)}"
+
+
+# --- health, errors, legal -------------------------------------------------
+
+def test_health_check_fails_when_the_database_does(client, monkeypatch):
+    def broken():
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(demo_db, "health_check", broken, raising=False)
+    r = client.get("/healthz")
+    assert r.status_code == 503
+    assert r.json()["ok"] is False
+
+
+def test_health_check_passes_when_it_should(client):
+    assert client.get("/healthz").json()["ok"] is True
+
+
+def test_privacy_and_terms_are_published(client):
+    """Not optional: every ad network requires a privacy policy to approve a
+    site, and this one collects email addresses."""
+    for path in ("/privacy", "/terms"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert len(r.text) > 2000, f"{path} is too thin to be a real policy"
+
+    privacy = client.get("/privacy").text
+    for topic in ("Anthropic", "Resend", "Supabase", "unsubscribe"):
+        assert topic in privacy, f"privacy policy never mentions {topic}"
+
+
+def test_the_footer_links_to_both(client):
+    body = client.get("/").text
+    assert 'href="/privacy"' in body
+    assert 'href="/terms"' in body
+
+
+# --- lore cap --------------------------------------------------------------
+
+def test_lore_is_capped(client, league):
+    for i in range(webapp.MAX_LORE_ENTRIES + 10):
+        client.post("/l/secret-admin-token/lore", data={"entry": f"thing {i}"},
+                    follow_redirects=False)
+    assert len(demo_db.get_lore(league["id"])) == webapp.MAX_LORE_ENTRIES
+
+
+def test_pasting_a_chat_export_into_setup_does_not_create_thousands_of_rows(
+        client, league):
+    client.post("/l/secret-admin-token/setup",
+                data={"lore": "\n".join(f"line {i}" for i in range(5000))},
+                follow_redirects=False)
+    assert len(demo_db.get_lore(league["id"])) <= webapp.MAX_LORE_ENTRIES
+
+
+def test_only_a_bounded_number_of_entries_reach_the_prompt():
+    from web.generate import MAX_LORE_IN_PROMPT, build_league_context
+    entries = [{"entry": f"joke {i}"} for i in range(500)]
+    context = build_league_context({"format": "redraft"}, entries)
+    assert context.count("- joke") == MAX_LORE_IN_PROMPT
+
+
+# --- task key --------------------------------------------------------------
+
+def test_task_endpoint_rejects_a_wrong_key(client, monkeypatch):
+    monkeypatch.setenv("TASK_KEY", "the-real-key")
+    r = client.post("/tasks/weekly", data={"week": 1},
+                    headers={"x-task-key": "the-real-kex"})
+    assert r.status_code == 404
+
+
+def test_task_endpoint_is_invisible_without_a_key_configured(client, monkeypatch):
+    monkeypatch.delenv("TASK_KEY", raising=False)
+    r = client.post("/tasks/weekly", data={"week": 1},
+                    headers={"x-task-key": "anything"})
+    assert r.status_code == 404
+
+
+# --- memes are gone --------------------------------------------------------
+
+def test_no_meme_machinery_survives():
+    """Removed rather than disabled: once a paper carries ads, shipping images
+    somebody else owns is commercial use of them."""
+    import newspaper
+    for gone in ("load_memes", "select_meme", "meme_url", "render_meme_html"):
+        assert not hasattr(newspaper, gone), f"{gone} is still here"
+
+
+def test_a_paper_with_no_photos_has_no_broken_images():
+    body = _full_paper(dict(SAMPLE_AI))
+    assert 'src="../' not in body, "relative path that only resolves on disk"
+    assert "/memes/" not in body

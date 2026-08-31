@@ -9,7 +9,6 @@ import themes
 
 
 BASE_DIR = Path(__file__).resolve().parent
-MEME_INDEX_PATH = BASE_DIR / "memes" / "meme_index.json"
 
 
 def safe(value, fallback=""):
@@ -158,20 +157,6 @@ def render_image_slot(entry, key, editable, wrap_style, default_width, auto=None
             f'style="{wrap_style}{sizing}">{inner}{caption}</span>')
 
 
-def load_memes():
-    print("LOOKING FOR MEME INDEX AT:", MEME_INDEX_PATH)
-
-    if not MEME_INDEX_PATH.exists():
-        print("MEME INDEX NOT FOUND")
-        return []
-
-    with open(MEME_INDEX_PATH, "r", encoding="utf-8") as f:
-        memes = json.load(f)
-
-    print("LOADED MEMES:", len(memes))
-    return memes
-
-
 def get_team_name(team):
     if isinstance(team, dict):
         return team.get("team_name") or team.get("owner_name") or "Unknown Team"
@@ -228,53 +213,6 @@ def get_story_tags(story):
         tags.append("reaction")
 
     return tags
-
-
-def select_meme(memes, tags):
-    matches = [m for m in memes if any(tag in m.get("tags", []) for tag in tags)]
-
-    if matches:
-        return random.choice(matches)
-
-    reaction_memes = [m for m in memes if "reaction" in m.get("tags", [])]
-    if reaction_memes:
-        return random.choice(reaction_memes)
-
-    return None
-
-
-def meme_url(meme):
-    """Servable URL for a bundled meme, or None.
-
-    These used to be emitted as "../memes/x.jpg", which resolved only when the
-    HTML sat next to the memes folder on disk. Papers are served over HTTP now,
-    so that path silently produced a broken image on every story. Absolute, and
-    None when the file isn't actually there.
-    """
-    if not meme:
-        return None
-    rel = safe(meme.get("file"))
-    if not rel:
-        return None
-    rel = rel.lstrip("./")
-    if not (BASE_DIR / rel).exists():
-        return None
-    return "/" + rel
-
-
-def render_meme_html(meme):
-    if not meme:
-        return ""
-
-    file_path = safe(meme.get("file"))
-    if not file_path:
-        return ""
-
-    return f"""
-        <div class="story-meme-wrap">
-            <img src="../{file_path}" alt="Story meme" class="story-meme" />
-        </div>
-    """
 
 
 def build_subheadline(summary):
@@ -789,7 +727,7 @@ def render_scorebar(story, compact=False):
     </div>'''
 
 
-def render_matchup_stories_html(stories, memes=None, editable=False, images=None,
+def render_matchup_stories_html(stories, editable=False, images=None,
                                 auto_photos=None):
     """
     Render game stories in a varied newspaper layout:
@@ -798,8 +736,6 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
     - Stories 2-3: PAIRED — two columns side by side, no photos, smaller type
     - Story 4+: BRIEF — compact single column, no photo, small headline
     """
-    if memes is None:
-        memes = load_memes()
     images = images or {}
     auto_photos = auto_photos or {}
 
@@ -813,7 +749,7 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
             # ── LEAD STORY: full width, big headline, photo right ──
             wrap_style = "float:right;margin:0 0 14px 20px;border:1px solid #ccc;"
             entry = image_entry(images, f"matchup_{i}")
-            meme_html = render_image_slot(entry, f"matchup_{i}", editable,
+            photo_html = render_image_slot(entry, f"matchup_{i}", editable,
                                           wrap_style, 44,
                                           auto=auto_photos.get(i))
 
@@ -826,7 +762,7 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
                 <div class="story-headline story-headline-lead"{ed(f"matchup_headline_{i}", editable)}>{story["headline"]}</div>
                 <div class="story-subhead">{story["subhead"]}</div>
                 {render_scorebar(story)}
-                {meme_html}
+                {photo_html}
                 <div class="story-body"{ed(f"matchup_body_{i}", editable)}>{body}</div>
                 <div style="clear:both;"></div>
                 {pull_html}
@@ -836,7 +772,7 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
             # ── FEATURE: full width, medium headline, photo left ──
             wrap_style = "float:left;margin:0 18px 12px 0;border:1px solid #ccc;"
             entry = image_entry(images, f"matchup_{i}")
-            meme_html = render_image_slot(entry, f"matchup_{i}", editable,
+            photo_html = render_image_slot(entry, f"matchup_{i}", editable,
                                           wrap_style, 40,
                                           auto=auto_photos.get(i))
 
@@ -846,7 +782,7 @@ def render_matchup_stories_html(stories, memes=None, editable=False, images=None
                 <div class="story-headline story-headline-feature"{ed(f"matchup_headline_{i}", editable)}>{story["headline"]}</div>
                 <div class="story-subhead">{story["subhead"]}</div>
                 {render_scorebar(story)}
-                {meme_html}
+                {photo_html}
                 <div class="story-body"{ed(f"matchup_body_{i}", editable)}>{body}</div>
                 <div style="clear:both;"></div>
             </article>''')
@@ -1100,8 +1036,6 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
 
-    memes = load_memes()
-
     # Photos the commissioner uploaded, keyed by slot. Lives inside ai_cache
     # so it travels with the prose and survives a re-render.
     images = (ai_content or {}).get("images") or {}
@@ -1195,31 +1129,22 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
                 "margin": ai_game["margin"],
             })
         matchup_stories_html = render_matchup_stories_html(
-            stories, memes, editable=editable, images=images,
+            stories, editable=editable, images=images,
             auto_photos=auto_photos)
     else:
         stories = build_matchup_stories(matchups)
         matchup_stories_html = render_matchup_stories_html(
-            stories, memes, editable=editable, images=images,
+            stories, editable=editable, images=images,
             auto_photos=auto_photos)
 
-    # --- Hero image: pick a random reaction/losing meme for front page ---
-    hero_meme = select_meme(memes, ["reaction", "losing"])
-    if hero_meme:
-        hero_html = f'''
-        <div class="hero-image-wrap">
-            <img src="{meme_url(hero_meme)}" alt=""
-                 style="width:100%;max-height:280px;object-fit:cover;object-position:center;
-                        display:block;border:2px solid #111;margin-bottom:10px;" />
-        </div>'''
-    else:
-        hero_html = ""
-
-    # An uploaded hero photo replaces the meme rather than stacking on top of
-    # it. Two hero images is never what anyone wanted.
+    # The front page hero used to fall back to a random bundled meme. Those are
+    # gone: once a paper carries advertising, shipping images somebody else owns
+    # is commercial use of them. The slot now takes an uploaded photo, or the
+    # automatic one built from the week's biggest scorer, and is left empty when
+    # there is neither — an empty slot reads as a design choice, a broken image
+    # does not.
     hero_entry = image_entry(images, "hero")
-    if hero_entry or auto_hero or not meme_url(hero_meme):
-        hero_html = ""
+    hero_html = ""
 
     # --- Front left col: AI teaser hooks per game ---
     # Build a lookup from winner name -> teaser for reliable matching
@@ -1342,6 +1267,12 @@ def render_html(edition, theme=None):
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{edition['page_title']}</title>
     <meta name="description" content="{edition['og_description']}" />
+
+    <!-- Shared by link, not found by search. A paper names real people and is
+         deliberately unkind about them; it should not become the top result
+         for somebody's actual name. The link preview tags below still work —
+         noindex stops indexing, not unfurling. -->
+    <meta name="robots" content="noindex, nofollow, max-image-preview:large" />
 
     <!-- Link preview. The product is shared by pasting a URL into a group
          chat; without these it arrives as bare text and nobody clicks it. -->
@@ -1873,21 +1804,7 @@ def render_html(edition, theme=None):
             color: #c40000;
         }}
 
-        .story-meme-wrap {{
-            margin: 10px 0 12px;
-            text-align: center;
-        }}
 
-        .story-meme {{
-            max-width: 380px;
-            width: 100%;
-            height: auto;
-            max-height: 260px;
-            object-fit: contain;
-            display: block;
-            margin: 0 auto;
-            border: 1px solid #ddd;
-        }}
 
         .story-body {{
             font-size: 16px;

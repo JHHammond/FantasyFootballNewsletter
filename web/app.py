@@ -26,8 +26,10 @@ Run locally:
 
 from __future__ import annotations
 
+import hmac
 import os
 import sys
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -52,7 +54,7 @@ from providers import (  # noqa: E402
 
 import themes  # noqa: E402
 
-from . import emailer, slugs  # noqa: E402
+from . import emailer, images, legal, slugs  # noqa: E402
 from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
     generate_and_store,
@@ -73,19 +75,30 @@ else:
     from . import db  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent
-CURRENT_SEASON = int(os.getenv("CURRENT_SEASON", "2025"))
 MAGIC_LINK_TTL_MINUTES = 30
+
+# Error tracking, if it's configured. Optional import so the app runs with no
+# account and no extra dependency — but without something like this, a bug that
+# breaks generation for everyone looks identical to a quiet week.
+if os.getenv("SENTRY_DSN"):
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=os.environ["SENTRY_DSN"],
+            traces_sample_rate=0.0,   # errors, not performance
+            send_default_pii=False,   # admin tokens live in URLs
+        )
+    except ImportError:
+        print("SENTRY_DSN is set but sentry-sdk isn't installed. "
+              "Add it to requirements.txt or unset the variable.")
 
 app = FastAPI(title="The Commissioner's Desk", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
-# Bundled meme images. Papers used to reference these as "../memes/x.jpg",
-# which only resolved when the HTML sat next to the folder on disk — every one
-# of them was a broken image once papers moved to URLs.
-_MEMES_DIR = BASE_DIR.parent / "memes"
-if _MEMES_DIR.is_dir():
-    app.mount("/memes", StaticFiles(directory=_MEMES_DIR), name="memes")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
 templates.env.globals["demo_mode"] = DEMO_MODE
 # Templates build share links from this rather than request.base_url,
 # which behind a proxy reports http:// and the internal hostname.
@@ -94,34 +107,123 @@ templates.env.globals["theme_choices"] = themes.choices
 
 
 # ---------------------------------------------------------------------------
+# Security headers
+#
+# The whole auth model is a secret in a URL, and browsers put the current URL
+# in the Referer header of outbound requests. The paper carries third-party ad
+# scripts, and the commissioner views that paper at /l/<token>/live-edit — so
+# without this header, turning on ads hands the ad network a working admin
+# credential for every league that loads it.
+#
+# no-referrer rather than same-origin: nothing here needs to know where a
+# reader came from, and the failure mode of getting it wrong is losing control
+# of every league in the database.
+# ---------------------------------------------------------------------------
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    # SAMEORIGIN, not DENY: /l/<token>/published frames the paper itself.
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+
+    # Papers name real people and say cutting things about them. They are meant
+    # to be shared by link, not to become the top search result for somebody's
+    # actual name.
+    if request.url.path.startswith("/p/") or request.url.path.startswith("/l/"):
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Rate limiting
 #
 # Removing accounts removed the natural brake on abuse. Generation costs real
 # Claude tokens and email costs deliverability reputation, so both need a cap.
-# In-memory is fine for one process; move to Redis when you run more.
+# In-memory is fine for one process; move to Redis when you run more, and note
+# that until you do, N instances means N times every limit below.
+#
+# Two keys, deliberately. IP is the only handle we have on an anonymous caller,
+# but it is a claim, not a fact — see _client_ip. League ID is a fact: it comes
+# from our own database via the admin token, so a per-league cap holds even
+# against someone who can present any IP they like.
 # ---------------------------------------------------------------------------
 
 _HITS: dict[str, list[float]] = defaultdict(list)
-GENERATIONS_PER_HOUR = 10
+_HITS_LOCK = threading.Lock()
+
+GENERATIONS_PER_HOUR = 10           # per IP
+GENERATIONS_PER_LEAGUE_PER_DAY = 12  # per league — not spoofable
 LEAGUE_CREATES_PER_HOUR = 5
 SUBSCRIBES_PER_HOUR = 20
 RECOVERIES_PER_HOUR = 5
+UPLOADS_PER_HOUR = 30               # per IP
+UPLOADS_PER_LEAGUE_PER_DAY = 60     # per league
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+
+DAY = 86400
+
+#: Total papers this process will generate in a rolling day, across everybody.
+#: The backstop against a bug or an abuser turning into an Anthropic invoice.
+#: Set a hard budget limit on the API key as well — this cap lives in a process
+#: that can be restarted, and that one cannot.
+MAX_PAPERS_PER_DAY = int(os.getenv("MAX_PAPERS_PER_DAY", "300"))
+
+#: How many papers may be written at the same time. Every route in this app is
+#: a sync def, so they share one bounded threadpool; a generation occupies a
+#: slot for ~30 seconds. Without this cap, enough simultaneous generations
+#: starve the pool and readers stop being served — which is a good launch day,
+#: not an attack.
+MAX_CONCURRENT_GENERATIONS = int(os.getenv("MAX_CONCURRENT_GENERATIONS", "4"))
+_GENERATION_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_GENERATIONS)
 
 
 def _rate_limited(key: str, limit: int, window: int = 3600) -> bool:
+    """True if this key has already used its allowance in the window.
+
+    Keys whose history empties are dropped rather than left behind: the old
+    version kept one entry per caller for the life of the process, and reading
+    a key created it.
+    """
     now = time.time()
-    hits = [t for t in _HITS[key] if now - t < window]
-    _HITS[key] = hits
-    if len(hits) >= limit:
-        return True
-    hits.append(now)
+    with _HITS_LOCK:
+        hits = [t for t in _HITS.get(key, ()) if now - t < window]
+        if len(hits) >= limit:
+            _HITS[key] = hits
+            return True
+        hits.append(now)
+        _HITS[key] = hits
+
+        # Opportunistic sweep so a long-running process doesn't accumulate a
+        # row per unique caller forever.
+        if len(_HITS) > 5000:
+            for stale in [k for k, v in _HITS.items() if not v or now - v[-1] > DAY]:
+                _HITS.pop(stale, None)
     return False
+
+
+def _global_budget_exceeded() -> bool:
+    """Has this process written its daily allowance of papers?"""
+    return _rate_limited("global:papers", MAX_PAPERS_PER_DAY, window=DAY)
+
+
+#: X-Forwarded-For is a list the client can start. Proxies append, so the
+#: rightmost entry is the address the edge actually saw and the leftmost is
+#: whatever the caller typed. Counting from the right by the number of proxies
+#: in front of us is the only reading that isn't a suggestion from the caller.
+TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "1"))
 
 
 def _client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        # Fewer entries than there are proxies in front of us means the header
+        # didn't come through the path we expect, so it tells us nothing. The
+        # socket address is the only thing left that nobody chose.
+        if len(hops) >= TRUSTED_PROXY_HOPS >= 1:
+            return hops[len(hops) - TRUSTED_PROXY_HOPS]
     return request.client.host if request.client else "unknown"
 
 
@@ -153,9 +255,18 @@ def _implemented_providers():
 # Landing / league creation
 # ---------------------------------------------------------------------------
 
+#: A published paper to show people before asking them for anything. The
+#: product is the writing, and asking someone to paste a league ID before
+#: they've read a sentence of it is the largest avoidable drop-off on the site.
+#: Generate one good paper, then put its public URL here.
+SAMPLE_PAPER_URL = os.getenv("SAMPLE_PAPER_URL", "").strip()
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return _render(request, "index.html", providers=_implemented_providers())
+    return _render(request, "index.html",
+                   providers=_implemented_providers(),
+                   sample_paper_url=SAMPLE_PAPER_URL)
 
 
 @app.post("/leagues")
@@ -249,6 +360,8 @@ def manage(
     except Exception:
         pass
 
+    papers = db.list_papers(league["id"])
+
     return _render(
         request, "league.html",
         league=league,
@@ -256,7 +369,8 @@ def manage(
         weeks=weeks,
         earlier_season=earlier_season,
         lore=db.get_lore(league["id"]),
-        papers=db.list_papers(league["id"]),
+        papers=papers,
+        total_reads=sum(int(p.get("view_count") or 0) for p in papers),
         subscriber_count=db.subscriber_count(league["id"]),
         is_new=bool(new),
         generated_week=generated or None,
@@ -265,12 +379,23 @@ def manage(
     )
 
 
+#: Lore rides along in the prompt for every generation, forever. Unbounded, a
+#: pasted chat export becomes thousands of rows that cost money and crowd out
+#: the actual week. Forty is more than any league has.
+MAX_LORE_ENTRIES = 40
+
+
 @app.post("/l/{token}/lore")
 def add_lore(token: str, entry: str = Form(...)):
     league = _require_league(token)
     text = entry.strip()
-    if text:
-        db.add_lore(league["id"], text[:500])
+    if not text:
+        return RedirectResponse(f"/l/{token}", status_code=303)
+    if len(db.get_lore(league["id"])) >= MAX_LORE_ENTRIES:
+        return RedirectResponse(
+            f"/l/{token}?error=That's+{MAX_LORE_ENTRIES}+bits+of+lore+-+"
+            f"the+cap.+Remove+one+to+add+another.", status_code=303)
+    db.add_lore(league["id"], text[:500])
     return RedirectResponse(f"/l/{token}", status_code=303)
 
 
@@ -305,6 +430,29 @@ def update_settings(
         "punishment": punishment.strip()[:300] or None,
     })
     return RedirectResponse(f"/l/{token}?notice=Saved.", status_code=303)
+
+
+@app.post("/l/{token}/rotate")
+def rotate_admin_token(token: str):
+    """Mint a new manage link and invalidate this one.
+
+    A bearer token with no rotation path is one forwarded email away from being
+    permanent. This is the "I shared my screen / posted the wrong link" button,
+    and it's also what makes the token model defensible rather than merely
+    convenient.
+    """
+    league = _require_league(token)
+    fresh = slugs.admin_token()
+    db.update_league(league["id"], {"admin_token": fresh})
+
+    # If they've given us an address, send the new link there too — otherwise a
+    # rotation from a phone leaves them with a link only in that browser.
+    if league.get("owner_email"):
+        emailer.send_manage_link(league["owner_email"], paper_name_for(league), fresh)
+
+    return RedirectResponse(
+        f"/l/{fresh}?notice=New+link+created.+The+old+one+no+longer+works+-+"
+        f"bookmark+this+page.", status_code=303)
 
 
 @app.post("/l/{token}/email")
@@ -436,11 +584,17 @@ def save_setup(
         "setup_complete": True,
     })
 
-    # One entry per line, so people can paste a list rather than submit six times.
+    # One entry per line, so people can paste a list rather than submit six
+    # times — capped, because "paste a list" and "paste an entire group chat
+    # export" look identical from here.
+    added = 0
     for line in lore.splitlines():
+        if added >= MAX_LORE_ENTRIES:
+            break
         entry = line.strip().lstrip("-•*").strip()
         if entry:
             db.add_lore(league["id"], entry[:500])
+            added += 1
 
     return RedirectResponse(f"/l/{token}?new=1", status_code=303)
 
@@ -469,6 +623,20 @@ def generate(request: Request, token: str, week: int = Form(...),
             f"/l/{token}?error=That's+a+lot+of+papers+this+hour.+Try+later.",
             status_code=303)
 
+    # The cap that holds even when the caller controls the IP.
+    if _rate_limited(f"gen-league:{league['id']}",
+                     GENERATIONS_PER_LEAGUE_PER_DAY, window=DAY):
+        return RedirectResponse(
+            f"/l/{token}?error=This+league+has+hit+its+daily+limit+of+"
+            f"{GENERATIONS_PER_LEAGUE_PER_DAY}+papers.+Try+tomorrow.",
+            status_code=303)
+
+    if _global_budget_exceeded():
+        return RedirectResponse(
+            f"/l/{token}?error=The+presses+have+hit+today's+limit.+"
+            f"Nothing+is+broken+-+try+again+tomorrow.",
+            status_code=303)
+
     # Regenerating throws away hand-edited prose. Ask first rather than
     # silently deleting someone's work.
     existing = db.get_paper(league["id"], league["season"], week)
@@ -479,10 +647,19 @@ def generate(request: Request, token: str, week: int = Form(...),
             f"Restore+the+original+if+that's+what+you+want.",
             status_code=303)
 
+    # Non-blocking: if every slot is busy, say so immediately rather than
+    # queueing and holding a threadpool slot while we wait for one.
+    if not _GENERATION_SLOTS.acquire(blocking=False):
+        return RedirectResponse(
+            f"/l/{token}?error=The+presses+are+busy+right+now.+"
+            f"Give+it+a+minute+and+hit+generate+again.",
+            status_code=303)
     try:
         generate_and_store(db, league, week)
     except ProviderError as exc:
         return RedirectResponse(f"/l/{token}?error={exc}", status_code=303)
+    finally:
+        _GENERATION_SLOTS.release()
 
     # Show them the paper. Waiting thirty seconds and being handed a URL to
     # click is a bad payoff for the one moment the product actually delivers.
@@ -811,21 +988,38 @@ async def save_inline_edits(request: Request, token: str, week: int):
 
 
 @app.post("/l/{token}/upload-image")
-async def upload_image(token: str, photo: UploadFile = File(...)):
-    """Accept a photo for the paper. Returns the URL to point a slot at."""
+async def upload_image(request: Request, token: str, photo: UploadFile = File(...)):
+    """Accept a photo for the paper. Returns the URL to point a slot at.
+
+    Nothing the caller says about the file is trusted. The type comes from the
+    bytes, and both the stored extension and the stored content-type are
+    derived from that — see web/images.py for why.
+    """
     league = _require_league(token)
 
-    content_type = (photo.content_type or "").lower()
-    if not content_type.startswith("image/"):
-        return JSONResponse({"error": "that isn't an image"}, status_code=400)
+    # This endpoint writes megabytes to a storage bucket, so it needs the same
+    # brakes as generation. It previously had none at all, which made an admin
+    # token — free to mint — into a free anonymous file host.
+    if _rate_limited(f"upload:{_client_ip(request)}", UPLOADS_PER_HOUR):
+        return JSONResponse({"error": "too many photos this hour"}, status_code=429)
+    if _rate_limited(f"upload-league:{league['id']}",
+                     UPLOADS_PER_LEAGUE_PER_DAY, window=DAY):
+        return JSONResponse(
+            {"error": "this league has uploaded a lot of photos today"},
+            status_code=429)
 
     data = await photo.read()
-    if len(data) > 8 * 1024 * 1024:
+    if len(data) > MAX_UPLOAD_BYTES:
         return JSONResponse({"error": "over 8MB"}, status_code=413)
+
+    kind = images.sniff(data)
+    if kind is None:
+        return JSONResponse({"error": images.describe_rejection(data)},
+                            status_code=400)
 
     url = await run_in_threadpool(
         db.upload_image, league["public_slug"],
-        photo.filename or "photo.jpg", data, content_type)
+        f"photo.{kind.extension}", data, kind.mime)
     return JSONResponse({"url": url})
 
 
@@ -877,6 +1071,12 @@ def read_paper(slug: str, season: int, week: int):
     html = db.download_paper(db.storage_path(slug, season, week))
     if not html:
         raise HTTPException(status_code=404, detail="That week isn't out yet.")
+
+    # The number that matters. Counted here rather than in the browser so it
+    # survives ad blockers, and fire-and-forget so a slow write never delays a
+    # reader. Undercounts anything served from a CDN edge, which is the right
+    # trade against blocking the page.
+    db.record_view(league["id"], season, week)
 
     return HTMLResponse(
         content=html,
@@ -1005,7 +1205,10 @@ def run_weekly(request: Request, week: int = Form(...)):
     There's a CLI equivalent in web/tasks.py if your host gives you real cron.
     """
     expected = os.getenv("TASK_KEY")
-    if not expected or request.headers.get("x-task-key") != expected:
+    supplied = request.headers.get("x-task-key") or ""
+    # compare_digest rather than !=, which returns on the first differing byte
+    # and so leaks the key's prefix to anyone willing to time enough requests.
+    if not expected or not hmac.compare_digest(supplied, expected):
         raise HTTPException(status_code=404, detail="Not found.")
 
     from .tasks import send_weekly
@@ -1028,8 +1231,83 @@ def demo_image(name: str):
     return Response(content=data, media_type=content_type)
 
 
+# ---------------------------------------------------------------------------
+# Legal
+#
+# Required by every ad network before they'll approve a site, and required on
+# the merits because this collects email addresses.
+# ---------------------------------------------------------------------------
+
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy(request: Request):
+    return _render(request, "legal.html",
+                   heading="Privacy",
+                   updated=legal.LAST_UPDATED,
+                   sections=legal.PRIVACY_SECTIONS,
+                   contact_email=legal.contact_email(),
+                   mailing_address=legal.mailing_address())
+
+
+@app.get("/terms", response_class=HTMLResponse)
+def terms(request: Request):
+    return _render(request, "legal.html",
+                   heading="Terms",
+                   updated=legal.LAST_UPDATED,
+                   sections=legal.TERMS_SECTIONS,
+                   contact_email=legal.contact_email(),
+                   mailing_address=legal.mailing_address())
+
+
+@app.get("/robots.txt")
+def robots():
+    """Keep crawlers off the papers and the manage pages.
+
+    The paper is meant to travel as a link in a group chat, not to become the
+    search result for a real person's name attached to an AI insult. The
+    landing page is the part worth indexing.
+    """
+    body = (
+        "User-agent: *\n"
+        "Disallow: /p/\n"
+        "Disallow: /l/\n"
+        "Disallow: /recover\n"
+        "Disallow: /subscribe/\n"
+        "Disallow: /unsubscribe/\n"
+        "Allow: /$\n"
+        f"\nSitemap: {public_base_url()}/sitemap.xml\n"
+    )
+    return Response(content=body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+def sitemap():
+    """Only the pages we actually want found."""
+    base = public_base_url()
+    urls = "".join(
+        f"<url><loc>{base}{path}</loc></url>"
+        for path in ("/", "/privacy", "/terms")
+    )
+    return Response(
+        content=('<?xml version="1.0" encoding="UTF-8"?>'
+                 '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                 f'{urls}</urlset>'),
+        media_type="application/xml",
+    )
+
+
 @app.get("/healthz")
 def healthz():
+    """Alive AND able to do the job.
+
+    An unconditional {"ok": true} meant Render kept an instance in rotation
+    while it couldn't reach the database, and a deploy that broke the
+    connection still reported green.
+    """
+    try:
+        db.health_check()
+    except Exception as exc:  # noqa: BLE001 — any failure is a failure
+        return JSONResponse({"ok": False, "detail": str(exc)[:200]},
+                            status_code=503)
     return {"ok": True}
 
 
@@ -1039,4 +1317,15 @@ def not_found(request: Request, exc: HTTPException):
         request, "error.html",
         {"message": getattr(exc, "detail", "Not found.")},
         status_code=404,
+    )
+
+
+@app.exception_handler(500)
+def server_error(request: Request, exc: Exception):
+    """A reader who tapped a link from a group chat should not get raw JSON."""
+    return templates.TemplateResponse(
+        request, "error.html",
+        {"message": "Something broke on our end. It's been logged — "
+                    "try again in a minute."},
+        status_code=500,
     )

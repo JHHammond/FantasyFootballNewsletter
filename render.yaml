@@ -26,8 +26,6 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
-      - key: CURRENT_SEASON
-        value: "2025"
       - key: BASE_URL
         sync: false        # https://yourdomain.com — no trailing slash
       - key: SUPABASE_URL
@@ -42,6 +40,22 @@ services:
         sync: false
       - key: MAILING_ADDRESS
         sync: false        # CAN-SPAM requires this in marketing footers
+      - key: CONTACT_EMAIL
+        sync: false        # shown on /privacy and /terms
+      - key: OPS_EMAIL
+        sync: false        # where the weekly job reports its failures
+      - key: SENTRY_DSN
+        sync: false        # optional; unset means no error tracking
+      - key: SAMPLE_PAPER_URL
+        sync: false        # a published paper to show on the landing page
+      - key: MAX_PAPERS_PER_DAY
+        value: "300"       # process-wide ceiling. The API key's own budget
+                           # limit is the backstop that survives a restart.
+      - key: MAX_CONCURRENT_GENERATIONS
+        value: "4"         # keeps generation from starving readers
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"         # proxies between the client and uvicorn. Getting
+                           # this wrong makes rate limits spoofable.
       - key: TASK_KEY
         generateValue: true
 
@@ -54,7 +68,11 @@ services:
     region: oregon
     schedule: "0 14 * * 2"
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m web.tasks $(python -c "from datetime import date; print(max(1, min(18, (date.today() - date(2025, 9, 2)).days // 7 + 1)))")
+    # No week argument: the job asks Sleeper what week it is and falls back to
+    # nfl_week.py, which derives the opener from Labor Day for any year. This
+    # used to be a shell one-liner anchored to a hardcoded 2025 date, which
+    # would have written up week 18 every week from 2026 onward.
+    startCommand: python -m web.tasks
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
@@ -71,4 +89,8 @@ services:
       - key: EMAIL_FROM
         sync: false
       - key: MAILING_ADDRESS
+        sync: false
+      - key: OPS_EMAIL
+        sync: false        # the job mails its errors here
+      - key: SENTRY_DSN
         sync: false

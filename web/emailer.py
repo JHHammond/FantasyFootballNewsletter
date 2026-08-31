@@ -202,3 +202,43 @@ def send_weekly_edition(
         _shell(body, _marketing_footer(unsubscribe_url)),
         unsubscribe_url=unsubscribe_url,
     )
+
+
+# ---------------------------------------------------------------------------
+# Operational
+# ---------------------------------------------------------------------------
+
+def send_ops_alert(subject: str, report: dict) -> SendResult:
+    """Tell the operator when a background job went wrong.
+
+    A cron whose failures land only in a log nobody reads is a cron you don't
+    have: a week where generation threw for every league looks exactly like a
+    quiet week, and the first you hear of it is a churned user.
+
+    Goes to OPS_EMAIL. Unset means this quietly does nothing, which is the
+    right behaviour for local runs and tests.
+    """
+    to = os.getenv("OPS_EMAIL", "").strip()
+    if not to:
+        return SendResult(ok=True, detail="OPS_EMAIL unset", logged_only=True)
+
+    errors = report.get("errors") or []
+    rows = "".join(
+        f"<li style='margin-bottom:6px;'>{html.escape(str(line))}</li>"
+        for line in errors[:50]
+    )
+    more = ""
+    if len(errors) > 50:
+        more = f"<p>&hellip; and {len(errors) - 50} more.</p>"
+
+    body = f"""
+  <h1 style="font-size:20px;margin:0 0 14px;">{html.escape(subject)}</h1>
+  <p>
+    {report.get('leagues', 0)} leagues &middot;
+    {report.get('generated', 0)} generated &middot;
+    {report.get('emails_sent', 0)} emails sent &middot;
+    <strong>{len(errors)} errors</strong>
+  </p>
+  <ul style="padding-left:18px;">{rows}</ul>
+  {more}"""
+    return _send(to, f"[Commissioner's Desk] {subject}", _shell(body))

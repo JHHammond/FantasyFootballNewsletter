@@ -151,17 +151,40 @@
         </label>
         <button type="submit" class="btn">Email me the link</button>
     </form>
+
+    <div class="card-divider"></div>
+    <p class="card-sub">
+        Shared your screen, or pasted this link somewhere you shouldn't have?
+        Reset it. The old link stops working straight away.
+    </p>
+    <form method="post" action="/l/{{ league.admin_token }}/rotate"
+          onsubmit="return confirm('This link will stop working and you\'ll get a new one. Continue?')">
+        <button type="submit" class="btn btn-quiet">Reset my link</button>
+    </form>
 </section>
 
 <section class="card">
     <h2 class="card-title">Past editions</h2>
     {% if papers %}
+    <p class="card-sub">
+        {% if total_reads %}
+        <strong>{{ total_reads }}</strong> {{ 'read' if total_reads == 1 else 'reads' }}
+        across every edition.
+        {% else %}
+        Read counts appear here once people start opening them.
+        {% endif %}
+    </p>
     <ul class="paper-list">
         {% for p in papers %}
         <li class="paper-row">
             <div>
                 <div class="paper-week">Week {{ p.week }}</div>
-                <div class="paper-meta">{{ p.season }} season</div>
+                <div class="paper-meta">
+                    {{ p.season }} season
+                    {% if p.view_count %}
+                    &middot; {{ p.view_count }} {{ 'read' if p.view_count == 1 else 'reads' }}
+                    {% endif %}
+                </div>
             </div>
             <div class="paper-row-actions">
                 <a class="btn btn-sm"

@@ -44,6 +44,10 @@ def paper_name_for(league: dict[str, Any]) -> str:
     return league.get("paper_name") or f"The {league['league_name']} Times"
 
 
+#: How many lore entries reach the writer. Everything stored is kept and
+#: editable; this is only what rides along in each prompt.
+MAX_LORE_IN_PROMPT = 25
+
 FORMAT_NOTES = {
     "dynasty": (
         "This is a DYNASTY league — rosters carry over every year and there is "
@@ -92,8 +96,13 @@ def build_league_context(league: dict[str, Any], lore_entries: list) -> str:
         )
 
     if lore_entries:
+        # Bounded twice: the app caps how many can be stored, and this caps
+        # what reaches the model. A prompt carrying fifty in-jokes doesn't
+        # produce a funnier paper, it produces a more expensive one that
+        # mentions the week less.
+        selected = lore_entries[:MAX_LORE_IN_PROMPT]
         parts.append("LEAGUE LORE — work these in wherever they fit:")
-        parts.extend(f"- {entry['entry']}" for entry in lore_entries)
+        parts.extend(f"- {entry['entry']}" for entry in selected)
 
     return "\n".join(parts)
 

@@ -229,12 +229,37 @@ def save_paper(
 def list_papers(league_id: str) -> list[dict[str, Any]]:
     res = (
         client().table("newspapers")
-        .select("id, week, season, generated_at, public_url, storage_path")
+        .select("id, week, season, generated_at, public_url, storage_path, "
+                "view_count, last_viewed_at")
         .eq("league_id", league_id)
         .order("season", desc=True).order("week", desc=True)
         .execute()
     )
     return res.data or []
+
+
+def record_view(league_id: str, season: int, week: int) -> None:
+    """Count one read.
+
+    Incremented inside the database rather than read-modify-written here,
+    because the normal case for this product is a link hitting a group chat and
+    eight people opening it in the same second.
+
+    Never raises: a counter is not worth failing a page load over.
+    """
+    try:
+        client().rpc("bump_paper_views", {
+            "p_league_id": league_id,
+            "p_season": int(season),
+            "p_week": int(week),
+        }).execute()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def health_check() -> None:
+    """Cheapest query that proves the database is reachable. Raises if not."""
+    client().table("leagues").select("id").limit(1).execute()
 
 
 def get_paper(league_id: str, season: int, week: int) -> Optional[dict[str, Any]]:

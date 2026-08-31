@@ -108,6 +108,37 @@ class SleeperProvider(FantasyProvider):
         response.raise_for_status()
         return response.json()
 
+    # -- league-independent state ------------------------------------------
+
+    def current_state(self) -> dict | None:
+        """Sleeper's live view of the NFL calendar.
+
+        Authoritative in a way date arithmetic can never be — it knows about
+        schedule changes, and it knows the difference between the regular
+        season and the playoffs. Cached briefly because the weekly job and
+        every manage-page load would otherwise ask on every request.
+
+        Returns None rather than raising: a paper should not fail to generate
+        because a convenience lookup was unreachable.
+        """
+        try:
+            raw = self.cache.get_or_fetch(
+                "state:nfl", TTL_LIVE_SCORES,
+                lambda: self._get(f"{BASE_URL}/state/nfl"),
+            )
+        except (ProviderError, Exception):
+            return None
+        if not isinstance(raw, dict):
+            return None
+        try:
+            return {
+                "season": int(raw.get("season")),
+                "week": int(raw.get("week") or 1),
+                "season_type": str(raw.get("season_type") or ""),
+            }
+        except (TypeError, ValueError):
+            return None
+
     # -- reference data ----------------------------------------------------
 
     def _player_index(self) -> dict:

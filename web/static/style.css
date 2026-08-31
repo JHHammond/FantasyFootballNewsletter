@@ -555,3 +555,93 @@ textarea { resize: vertical; }
     .theme-row { flex-direction: column; }
     .theme-sample { height: 76px; }
 }
+
+/* ---------- footer links, added with the privacy and terms pages ---------- */
+
+.footer-links {
+    margin-top: 8px;
+    display: flex;
+    gap: 18px;
+    justify-content: center;
+}
+
+.footer-links a {
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+}
+
+.footer-links a:hover {
+    color: var(--ink);
+    border-bottom-color: var(--line);
+}
+
+/* ---------- hero secondary action ---------- */
+
+.hero-actions { margin: 22px 0 10px; }
+
+/* ---------- a quieter button, for actions nobody should click by accident */
+
+.btn-quiet {
+    background: transparent;
+    border-color: var(--line);
+    color: var(--muted);
+}
+
+.btn-quiet:hover {
+    background: var(--red);
+    border-color: var(--red);
+    color: #fff;
+}
+
+.card-divider {
+    height: 1px;
+    background: var(--line);
+    margin: 22px 0 18px;
+}
+
+/* ---------- legal pages ----------
+   Long-form reading, so they get a measure and a rhythm rather than the
+   card treatment the rest of the site uses. */
+
+.legal { max-width: 62ch; margin: 0 auto; }
+
+.legal-title {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 40px;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    margin: 12px 0 6px;
+}
+
+.legal-updated {
+    font-family: "Barlow Condensed", sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 2.2px;
+    font-size: 12px;
+    color: var(--muted);
+    margin: 0 0 34px;
+}
+
+.legal-section { margin-bottom: 32px; }
+
+.legal-section h2 {
+    font-family: "Barlow Condensed", sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 1.6px;
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0 0 10px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--line);
+}
+
+.legal-section p { margin: 0 0 12px; line-height: 1.7; }
+.legal-section ul { margin: 0 0 12px; padding-left: 20px; }
+.legal-section li { margin-bottom: 10px; line-height: 1.65; }
+
+.legal-address {
+    font-size: 13px;
+    color: var(--muted);
+    white-space: pre-line;
+}

@@ -167,6 +167,10 @@ def save_paper(league_id, week, season, storage_path_, public_url, ai_cache,
             "generated_at": existing.get("generated_at") or _now(),
             "edited_at": edited_at,
             "emailed_at": existing.get("emailed_at"),
+            # Regenerating replaces the prose, not the readership.
+            "view_count": existing.get("view_count", 0),
+            "first_viewed_at": existing.get("first_viewed_at"),
+            "last_viewed_at": existing.get("last_viewed_at"),
         }
 
 
@@ -179,6 +183,20 @@ def list_papers(league_id: str) -> list[dict[str, Any]]:
 def get_paper(league_id: str, season: int, week: int) -> Optional[dict[str, Any]]:
     found = _PAPERS.get((league_id, season, week))
     return dict(found) if found else None
+
+
+def record_view(league_id: str, season: int, week: int) -> None:
+    with _lock:
+        paper = _PAPERS.get((league_id, season, week))
+        if paper is not None:
+            paper["view_count"] = int(paper.get("view_count") or 0) + 1
+            paper["first_viewed_at"] = paper.get("first_viewed_at") or _now()
+            paper["last_viewed_at"] = _now()
+
+
+def health_check() -> None:
+    """Always healthy — the store is this process's own memory."""
+    return None
 
 
 # ---------------------------------------------------------------------------

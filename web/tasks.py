@@ -100,17 +100,45 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
     return report
 
 
-def main() -> int:
-    if len(sys.argv) < 2:
-        print("usage: python -m web.tasks <week> [--regenerate]")
-        return 1
+def resolve_week() -> int:
+    """Which week the job should write up when nobody says.
 
-    week = int(sys.argv[1])
+    Asks the platform first, because it knows about schedule changes and the
+    difference between the regular season and the playoffs. Falls back to date
+    arithmetic that works in any year — the previous version of this lived in
+    render.yaml as a fixed 2025 date, which meant the job silently wrote up
+    week 18 for the whole of every subsequent season.
+    """
+    import nfl_week
+
+    try:
+        from providers import get_provider
+        state = get_provider("sleeper").current_state()
+    except Exception:  # noqa: BLE001 — a convenience lookup, never fatal
+        state = None
+
+    if state and state.get("season_type") == "regular":
+        # Sleeper's `week` is the week now in progress. On Tuesday the paper
+        # people want is about the weekend that just finished.
+        return max(1, min(nfl_week.REGULAR_SEASON_WEEKS, int(state["week"]) - 1)) \
+            if int(state["week"]) > 1 else 1
+
+    return nfl_week.completed_week()
+
+
+def main() -> int:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
     regenerate = "--regenerate" in sys.argv
 
     if os.getenv("DEMO_MODE") == "1":
         print("Refusing to run the weekly job in DEMO_MODE — there's no real data.")
         return 1
+
+    if args:
+        week = int(args[0])
+    else:
+        week = resolve_week()
+        print(f"No week given; resolved to week {week}.")
 
     from . import db
 
@@ -122,6 +150,11 @@ def main() -> int:
         print(f"  skipped: {line}")
     for line in report["errors"]:
         print(f"  ERROR:   {line}")
+
+    # A cron whose failures go only to a log nobody reads is a cron you don't
+    # have. Mail the operator when anything went wrong.
+    if report["errors"]:
+        emailer.send_ops_alert(f"Weekly job, week {week}", report)
 
     return 1 if report["errors"] else 0
 

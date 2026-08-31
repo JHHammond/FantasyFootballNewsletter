@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}{{ heading }}{% endblock %}
+{% block description %}{{ heading }} for The Commissioner's Desk.{% endblock %}
+
+{% block content %}
+<article class="legal">
+    <h1 class="legal-title">{{ heading }}</h1>
+    <p class="legal-updated">Last updated {{ updated }}</p>
+
+    {% for section in sections %}
+    <section class="legal-section">
+        <h2>{{ section.title }}</h2>
+        {% for para in section.paragraphs %}
+        <p>{{ para|safe }}</p>
+        {% endfor %}
+        {% if section.bullets %}
+        <ul>
+            {% for bullet in section.bullets %}
+            <li>{{ bullet|safe }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </section>
+    {% endfor %}
+
+    <section class="legal-section">
+        <h2>Getting in touch</h2>
+        <p>
+            Questions, corrections, or a request to delete your data:
+            <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.
+        </p>
+        {% if mailing_address %}
+        <p class="legal-address">{{ mailing_address }}</p>
+        {% endif %}
+    </section>
+</article>
+{% endblock %}
