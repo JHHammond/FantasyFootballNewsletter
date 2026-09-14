@@ -10,13 +10,18 @@ pip install -r requirements.txt
 
 ## 2. Supabase
 
-New project → SQL Editor → run these three in order:
+New project → SQL Editor → run every file in `migrations/`, in order:
 
-1. **`migrations/002_accountless.sql`** — tables, storage bucket, RLS posture
-2. **`migrations/003_email.sql`** — subscribers, magic links, auto-send
-3. **`migrations/004_lore.sql`** — renames `inside_jokes` to `lore`
+1. **`002_accountless.sql`** — tables, storage bucket, RLS posture
+2. **`003_email.sql`** — subscribers, magic links, auto-send
+3. **`004_lore.sql`** — renames `inside_jokes` to `lore`
+4. **`005_setup.sql`** — league format, tone, stakes, punishment
+5. **`006_edits.sql`** — keeps the original prose alongside your edits
+6. **`007_themes.sql`** — which theme a paper is set in
+7. **`008_views_and_ops.sql`** — read counts
 
-Skip `000` and `001`; they're the account-based schema and are superseded.
+All verified against a real Postgres: the chain runs three times consecutively
+without error, and re-running one over live data leaves the data intact.
 
 Then Project Settings → API, and put these in `.env`:
 
@@ -110,15 +115,9 @@ asset pipeline.
 ## Tests
 
 ```bash
-python -m pytest tests/ -v      # 65 tests, no network, no database
+python -m pytest tests/ -q      # no network, no database
 python verify_provider.py       # live Sleeper fetch
 ```
-
-## What happened to the Streamlit app
-
-`legacy_streamlit_app.py` is the old front end, kept for reference. It's not
-wired to anything anymore — it still expects accounts and the pre-accountless
-schema. Delete it whenever.
 
 ## Email
 

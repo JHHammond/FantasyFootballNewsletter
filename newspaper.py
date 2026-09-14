@@ -839,7 +839,8 @@ def render_matchup_stories_html(stories, editable=False, images=None,
 def build_top_scorers(matchups, players_data=None, n=5):
     """
     Build a top N individual player performers table for the week.
-    Pulls from all_starters data enriched by fetch_data.
+    Reads the starters the provider layer already normalized, so it never
+    touches a platform-specific field.
     """
     all_performers = []
 

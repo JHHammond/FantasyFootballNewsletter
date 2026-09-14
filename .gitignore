@@ -8,3 +8,6 @@ cache_week_*.json
 .cache/
 output/
 _to_delete/
+
+# Files delivered into this folder by the Claude desktop app.
+Claude outputs/

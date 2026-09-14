@@ -37,9 +37,10 @@ migrations/004_lore.sql
 migrations/005_setup.sql
 migrations/006_edits.sql
 migrations/007_themes.sql
+migrations/008_views_and_ops.sql
 ```
 
-All verified against a real Postgres and safe to re-run. Skip `000` and `001`.
+All verified against a real Postgres and safe to re-run.
 
 Then Project Settings → API and keep the Project URL and the **service_role**
 key handy. Not the anon key — see SETUP.md for why that's inverted here.

@@ -45,8 +45,8 @@ generates and emails the week for every league with auto-send on. See
 [DEPLOY.md](DEPLOY.md) for the full walkthrough and [SETUP.md](SETUP.md) for the
 database.
 
-Run the migrations in `migrations/` in order, starting at **002**. Files 000 and
-001 are the pre-refactor schema and are kept only for history.
+Run everything in `migrations/` in order. They are idempotent — safe to re-run,
+and safe against a database that already has them.
 
 ## Adding a fantasy platform
 
@@ -63,7 +63,7 @@ has leaked into the normalized model and belongs back in the adapter.
     writer.py      the prompts
     themes.py      tabloid / broadsheet / gameday
     storylines.py  what's interesting about a week, before any AI sees it
-    migrations/    run 002 onward, in order
+    migrations/    run in order; all idempotent
 
 ## Not affiliated
 

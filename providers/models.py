@@ -2,8 +2,9 @@
 Provider-agnostic data model for The Commissioner's Desk.
 
 Every platform adapter (Sleeper, ESPN, Yahoo, ...) normalizes its raw API
-response into these types. Nothing downstream -- storylines, lineup_optimizer,
-writer, newspaper -- should ever see a platform-specific field again.
+response into these types. Nothing downstream -- storylines, the lineup
+optimizer, writer, newspaper -- should ever see a platform-specific field
+again.
 
 Design rules:
   * Player IDs are namespaced ("sleeper:4046") so IDs from different platforms
