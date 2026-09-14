@@ -21,13 +21,18 @@
         </label>
         <label class="field">
             <span class="field-label">Password</span>
-            <input type="password" name="password" required minlength="10"
+            <input type="password" name="password" required minlength="8"
                    autocomplete="new-password" />
             <span class="field-help">
-                At least 10 characters. A few ordinary words in a row is both
+                At least 8 characters. A few ordinary words in a row is both
                 easier to remember and harder to guess than one short word with
                 a symbol stuck on the end.
             </span>
+        </label>
+        <label class="field">
+            <span class="field-label">Confirm password</span>
+            <input type="password" name="confirm" required minlength="8"
+                   autocomplete="new-password" />
         </label>
         <div>
             <button type="submit" class="btn btn-primary btn-lg">Create account</button>

@@ -659,14 +659,22 @@ textarea { resize: vertical; }
     letter-spacing: 1px;
 }
 
-.masthead-nav a {
+/* :not(.btn) so this never matches a button.
+   The bug it fixes: `.masthead-nav a` is a class plus an element (0,1,1) and
+   `.btn-primary` is a bare class (0,1,0), so the nav's dark grey text won on
+   specificity regardless of source order — dark grey lettering on a dark green
+   button, effectively invisible. Excluding buttons from the rule is the fix;
+   piling on more specificity would just be the next round of the same fight. */
+.masthead-nav a:not(.btn) {
     color: var(--ink-2);
     text-decoration: none;
     border-bottom: 1px solid transparent;
 }
 
-.masthead-nav a:hover { color: var(--ink); border-bottom-color: var(--line); }
-.masthead-nav a.btn:hover { border-bottom-color: var(--green-d); }
+.masthead-nav a:not(.btn):hover {
+    color: var(--ink);
+    border-bottom-color: var(--line);
+}
 
 .nav-form { display: inline; }
 
@@ -741,3 +749,241 @@ textarea { resize: vertical; }
 }
 
 .paper-row-actions { display: flex; gap: 8px; align-items: center; }
+
+/* ---------- flow button ----------
+   The interaction from the component you sent, in CSS.
+
+   That component was React + Tailwind + TypeScript, and this app is FastAPI
+   rendering Jinja templates with hand-written CSS — no npm, no build step, no
+   node_modules. Adopting it as written would mean a Next.js rewrite of the
+   whole front end to gain one button.
+
+   Nothing in it needs React though. It is four things moving on a timer:
+   an arrow entering from the left, the label sliding right, a circle growing
+   from the centre to swallow the background, and a second arrow leaving to the
+   right — plus the corner radius easing from a pill to a soft rectangle. All
+   of that is transitions and transforms, so here it is with no dependencies. */
+
+.flow-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    overflow: hidden;
+    padding: 15px 34px;
+    border: 1.5px solid rgba(17, 17, 17, 0.4);
+    border-radius: 100px;
+    background: transparent;
+    color: var(--ink);
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    text-decoration: none;
+    cursor: pointer;
+    /* The long, heavily-eased timings are most of the character. Shorten them
+       and it stops reading as deliberate and starts reading as laggy. */
+    transition: border-color 600ms cubic-bezier(0.23, 1, 0.32, 1),
+                border-radius 600ms cubic-bezier(0.23, 1, 0.32, 1),
+                color 600ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.flow-btn:hover,
+.flow-btn:focus-visible {
+    border-color: transparent;
+    border-radius: 12px;
+    color: #fff;
+}
+
+.flow-btn:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+.flow-btn:active { transform: scale(0.96); }
+
+/* The circle. Sits behind everything and grows past the button's corners. */
+.flow-btn-fill {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 18px;
+    height: 18px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: var(--green-d);
+    opacity: 0;
+    z-index: 0;
+    transition: width 800ms cubic-bezier(0.19, 1, 0.22, 1),
+                height 800ms cubic-bezier(0.19, 1, 0.22, 1),
+                opacity 800ms cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.flow-btn:hover .flow-btn-fill,
+.flow-btn:focus-visible .flow-btn-fill {
+    width: 320px;
+    height: 320px;
+    opacity: 1;
+}
+
+.flow-btn-label {
+    position: relative;
+    z-index: 2;
+    transform: translateX(-10px);
+    transition: transform 800ms ease-out;
+}
+
+.flow-btn:hover .flow-btn-label,
+.flow-btn:focus-visible .flow-btn-label { transform: translateX(10px); }
+
+.flow-btn-arrow {
+    position: absolute;
+    width: 17px;
+    height: 17px;
+    z-index: 2;
+    stroke: var(--ink);
+    fill: none;
+    transition: left 800ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                right 800ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                stroke 600ms ease;
+}
+
+/* One waiting off-screen left, one resting at the right. On hover they trade
+   places, so the eye follows a single arrow crossing the button. */
+.flow-btn-arrow-in  { left: -25%; }
+.flow-btn-arrow-out { right: 18px; }
+
+.flow-btn:hover .flow-btn-arrow-in,
+.flow-btn:focus-visible .flow-btn-arrow-in { left: 18px; stroke: #fff; }
+
+.flow-btn:hover .flow-btn-arrow-out,
+.flow-btn:focus-visible .flow-btn-arrow-out { right: -25%; stroke: #fff; }
+
+/* Someone who asked their operating system for less movement gets the colour
+   change and none of the travel. */
+@media (prefers-reduced-motion: reduce) {
+    .flow-btn, .flow-btn * { transition-duration: 1ms !important; }
+    .flow-btn-label { transform: none; }
+    .flow-btn:hover .flow-btn-label { transform: none; }
+}
+
+/* ---------- hero, second pass ----------
+   The first version opened with a headline and three sentences of explanation,
+   which is what every SaaS landing page opens with. The paper itself is the
+   most convincing thing here, so it appears above the fold instead of being
+   described. */
+
+.hero { text-align: center; margin-bottom: 40px; padding-top: 12px; }
+
+.hero-kicker {
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--muted);
+    margin-bottom: 18px;
+}
+
+.hero-sub {
+    font-size: 19px;
+    color: var(--ink-2);
+    max-width: 440px;
+    margin: 0 auto 26px;
+}
+
+.hero-actions { margin: 0 0 14px; }
+
+.hero-note {
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 12.5px;
+    font-style: normal;
+    text-transform: uppercase;
+    letter-spacing: 1.6px;
+    color: var(--muted);
+}
+
+/* ---------- the specimen ----------
+   A scrap of an actual edition. Sells the product better than a paragraph
+   about the product, and sets the typographic register at the same time. */
+
+.specimen {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-top: 4px double var(--ink);
+    padding: 26px 28px 22px;
+    margin-bottom: 14px;
+    position: relative;
+}
+
+.specimen-masthead {
+    text-align: center;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+}
+
+.specimen-name {
+    display: block;
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 27px;
+    font-weight: 900;
+    letter-spacing: -0.4px;
+}
+
+.specimen-rule {
+    display: block;
+    margin-top: 5px;
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2.4px;
+    color: var(--muted);
+}
+
+.specimen-headline {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 27px;
+    font-weight: 900;
+    line-height: 1.12;
+    text-align: center;
+    margin-bottom: 12px;
+}
+
+.specimen-body {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    column-count: 2;
+    column-gap: 26px;
+    text-align: justify;
+    hyphens: auto;
+}
+
+.specimen-caption {
+    margin-top: 16px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 1.8px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.cta-line {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 20px;
+    font-style: italic;
+    color: var(--ink-2);
+    margin-bottom: 20px;
+}
+
+@media (max-width: 640px) {
+    /* Two columns at phone width is four words per line. */
+    .specimen-body { column-count: 1; text-align: left; hyphens: none; }
+    .specimen { padding: 20px 18px 18px; }
+    .specimen-name { font-size: 22px; }
+    .specimen-headline { font-size: 22px; }
+}

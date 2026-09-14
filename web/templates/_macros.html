@@ -1,0 +1,35 @@
+{#
+   Reusable bits of markup.
+
+   flow_button renders the button whose interaction lives in style.css. It is a
+   link or a submit button depending on whether you pass an href, because a CTA
+   that navigates should be an <a> and one that submits a form should be a
+   <button> — swapping those breaks middle-click, keyboard behaviour and screen
+   readers in ways that are invisible until someone complains.
+#}
+{% macro flow_button(text, href=None, name=None, value=None) %}
+{% if href %}
+<a class="flow-btn" href="{{ href }}">
+{% else %}
+<button class="flow-btn" type="submit"
+        {% if name %}name="{{ name }}" value="{{ value or '' }}"{% endif %}>
+{% endif %}
+    <span class="flow-btn-fill" aria-hidden="true"></span>
+    {#
+       width/height/fill live on the element, not only in CSS. Without them a
+       stylesheet that fails to load leaves two 24-unit paths at their default
+       fill — which renders as a pair of enormous black triangles across the
+       page rather than a button with no styling. Presentation degrades; shape
+       should not.
+    #}
+    <svg class="flow-btn-arrow flow-btn-arrow-in" viewBox="0 0 24 24"
+         width="17" height="17" fill="none" stroke="currentColor"
+         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
+         aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    <span class="flow-btn-label">{{ text }}</span>
+    <svg class="flow-btn-arrow flow-btn-arrow-out" viewBox="0 0 24 24"
+         width="17" height="17" fill="none" stroke="currentColor"
+         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
+         aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+{% if href %}</a>{% else %}</button>{% endif %}
+{% endmacro %}

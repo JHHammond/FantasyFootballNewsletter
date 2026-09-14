@@ -444,11 +444,26 @@ def connect_sleeper_add(request: Request, league_id: str = Form(...),
 
     existing = db.find_existing_league("sleeper", league_id.strip(), info.season)
     if existing:
-        # Theirs already? Send them to it. Somebody else's is still refused.
+        # Already theirs: just open it.
         if existing.get("user_id") == user["id"]:
             return RedirectResponse(f"/l/{existing['admin_token']}", status_code=303)
+
+        # Nobody owns it: adopt it. A league with no account attached is either
+        # something this person made before signing up, or an abandoned attempt
+        # — and refusing was a dead end, because the only way back in was an
+        # admin token they no longer had. There is nothing here to protect:
+        # anyone who can read the league ID off a URL could have created this
+        # row themselves had it not existed.
+        if not existing.get("user_id"):
+            db.claim_league(existing["id"], user["id"])
+            return RedirectResponse(
+                f"/l/{existing['admin_token']}?notice=Picked+up+where+you+left+off.",
+                status_code=303)
+
+        # Someone else's. That one stays refused, and says what to do.
         return RedirectResponse(
-            "/connect/sleeper?error=Someone+has+already+made+a+paper+for+that+league.",
+            "/connect/sleeper?error=Another+account+already+has+a+paper+for+that+"
+            "league.+If+that+is+you,+sign+in+with+that+email.",
             status_code=303)
 
     league = db.create_league(
@@ -515,7 +530,8 @@ def signup_form(request: Request, error: str = "", email: str = ""):
 
 
 @app.post("/signup")
-def signup(request: Request, email: str = Form(...), password: str = Form(...)):
+def signup(request: Request, email: str = Form(...), password: str = Form(...),
+           confirm: str = Form("")):
     def fail(message: str):
         return _render(request, "signup.html", error=message,
                        email=(email or "").strip())
@@ -530,6 +546,8 @@ def signup(request: Request, email: str = Form(...), password: str = Form(...)):
     problem = auth.password_problem(password, address)
     if problem:
         return fail(problem)
+    if password != confirm:
+        return fail("Those two passwords don't match.")
 
     user = db.create_user(address, auth.hash_password(password))
     if not user:
@@ -651,7 +669,8 @@ def reset_form(request: Request, token: str, error: str = ""):
 
 
 @app.post("/reset/{token}")
-def reset(request: Request, token: str, password: str = Form(...)):
+def reset(request: Request, token: str, password: str = Form(...),
+          confirm: str = Form("")):
     # Checked before the token is burned, so a rejected password doesn't cost
     # the user their one-shot link.
     address = db.peek_magic_link(token, purpose="reset")
@@ -664,6 +683,9 @@ def reset(request: Request, token: str, password: str = Form(...)):
     problem = auth.password_problem(password, address)
     if problem:
         return _render(request, "reset.html", token=token, error=problem)
+    if password != confirm:
+        return _render(request, "reset.html", token=token,
+                       error="Those two passwords don't match.")
 
     if not db.consume_magic_link(token, purpose="reset"):
         return _render(request, "message.html",
@@ -683,9 +705,12 @@ def reset(request: Request, token: str, password: str = Form(...)):
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, error: str = ""):
+    import nfl_week
     return _render(request, "index.html",
                    providers=_implemented_providers(),
                    sample_paper_url=SAMPLE_PAPER_URL,
+                   current_week=nfl_week.completed_week(),
+                   current_season=nfl_week.current_season(),
                    error=error)
 
 

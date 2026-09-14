@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Connect ESPN{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="eyebrow"><a href="/connect">Platforms</a> &rsaquo; ESPN</div>
+    <h1 class="page-title">Connect your ESPN league</h1>
+</div>
+
+{% if error %}<div class="alert alert-error">{{ error|safe }}</div>{% endif %}
+
+<section class="card">
+    <form method="post" action="/connect/espn" class="stack">
+        <label class="field">
+            <span class="field-label">League ID</span>
+            <input type="text" name="league_id" required autofocus inputmode="numeric"
+                   value="{{ league_id or '' }}" placeholder="123456" />
+            <span class="field-help">
+                The number in your league&rsquo;s web address:
+                <code>fantasy.espn.com/football/league?leagueId=<strong>123456</strong></code>
+            </span>
+        </label>
+        <div>
+            <button type="submit" class="btn btn-primary btn-lg">Find my league</button>
+        </div>
+    </form>
+</section>
+
+<section class="card">
+    <h2 class="card-title">Your league has to be viewable to the public</h2>
+    <p class="card-sub">
+        ESPN doesn&rsquo;t offer a way for apps to sign in on your behalf, so the
+        only way we can read your scores is if your league is set to be
+        viewable. Sleeper needs none of this &mdash; it&rsquo;s an ESPN thing.
+    </p>
+
+    <div class="alert alert-success" style="margin-bottom:18px;">
+        <strong>This does not let anyone join your league.</strong> ESPN&rsquo;s own
+        wording: it lets non-members <em>view</em> league pages when given a
+        direct link. League Manager leagues stay private to join, and nobody
+        can see your team management, transactions or messages.
+    </div>
+
+    <ol class="steps">
+        <li>Go to the <strong>League</strong> tab on ESPN Fantasy.</li>
+        <li>Click <strong>Settings</strong>.</li>
+        <li>Select <strong>Basic Settings</strong>.</li>
+        <li>Click <strong>Edit Basic Settings</strong>.</li>
+        <li>Change the <strong>public viewability</strong> option to <strong>Yes</strong>.</li>
+        <li>Click <strong>Save Changes</strong>.</li>
+    </ol>
+
+    <p class="card-sub" style="margin-top:18px;">
+        <strong>Only the League Manager can change this.</strong> If that
+        isn&rsquo;t you, send them these six steps &mdash; it takes about twenty
+        seconds, and you can turn it back off whenever you like.
+    </p>
+</section>
+
+<section class="card">
+    <h2 class="card-title">Rather not make it public?</h2>
+    <p class="card-sub">
+        Reasonable. There is another route &mdash; ESPN private leagues can be read
+        with two values copied out of your browser&rsquo;s developer tools &mdash; but
+        those are credentials for your whole ESPN account, not just one league,
+        and they expire every few weeks. We haven&rsquo;t built it, and we&rsquo;d rather
+        not ask you for that unless enough people want it.
+    </p>
+    <form method="post" action="/connect/espn/notify">
+        <button type="submit" class="btn">I&rsquo;d want private league support</button>
+    </form>
+</section>
+{% endblock %}

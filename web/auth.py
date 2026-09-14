@@ -65,11 +65,13 @@ SCRYPT_P = 1
 SCRYPT_DKLEN = 64
 SALT_BYTES = 16
 
-#: Long enough to matter, short enough that nobody is fighting the form.
-#: Length beats character-class rules: a long ordinary phrase is stronger than
-#: a short one with a punctuation mark bolted on, and mandatory symbols mostly
-#: produce Password1! across an entire user base.
-MIN_PASSWORD_LENGTH = 10
+#: NIST's floor, and the shortest length worth allowing. Length beats
+#: character-class rules: a long ordinary phrase is stronger than a short one
+#: with a punctuation mark bolted on, and mandatory symbols mostly produce
+#: Password1! across an entire user base. The signup form asks for a phrase
+#: rather than enforcing one, because a rule people resent is a rule they
+#: satisfy in the laziest possible way.
+MIN_PASSWORD_LENGTH = 8
 
 #: Rejected outright regardless of length. Not a substitute for a real
 #: breached-password check, but it catches the handful that turn up first in

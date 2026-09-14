@@ -2417,9 +2417,14 @@ def test_health_check_still_fails_when_the_database_is_unreachable(client, monke
 GOOD_PASSWORD = "kevlarville forever 2018"
 
 
-def _signup(client, email="john@example.com", password=GOOD_PASSWORD):
-    return client.post("/signup", data={"email": email, "password": password},
-                       follow_redirects=False)
+def _signup(client, email="john@example.com", password=GOOD_PASSWORD,
+            confirm=None):
+    """Signing up now needs the password typed twice, like the real form."""
+    return client.post(
+        "/signup",
+        data={"email": email, "password": password,
+              "confirm": password if confirm is None else confirm},
+        follow_redirects=False)
 
 
 # --- hashing ---------------------------------------------------------------
@@ -2448,9 +2453,10 @@ def test_a_tampered_hash_does_not_verify():
 
 
 def test_weak_passwords_are_refused_with_a_reason(client):
-    r = client.post("/signup", data={"email": "a@b.com", "password": "short"},
+    r = client.post("/signup", data={"email": "a@b.com", "password": "short",
+                                     "confirm": "short"},
                     follow_redirects=False)
-    assert "at least 10" in r.text
+    assert "at least 8" in r.text
     assert demo_db.user_by_email("a@b.com") is None
 
 
@@ -2518,7 +2524,8 @@ def test_login_says_the_same_thing_whether_or_not_the_account_exists(client):
 def test_signing_up_twice_does_not_reveal_the_address_is_taken(client, sent_emails):
     _signup(client, email="taken@example.com")
     r = client.post("/signup",
-                    data={"email": "taken@example.com", "password": GOOD_PASSWORD},
+                    data={"email": "taken@example.com", "password": GOOD_PASSWORD,
+                          "confirm": GOOD_PASSWORD},
                     follow_redirects=False)
     assert "already" not in r.text.lower() or "Check your inbox" in r.text
     # The answer goes to the inbox that owns the address instead.
@@ -2577,11 +2584,13 @@ def test_reset_link_works_once(client, sent_emails):
     token = next(t for t in demo_db._MAGIC_LINKS)
     new_password = "a brand new passphrase"
 
-    r = client.post(f"/reset/{token}", data={"password": new_password},
+    r = client.post(f"/reset/{token}",
+                    data={"password": new_password, "confirm": new_password},
                     follow_redirects=False)
     assert r.status_code == 303
 
-    again = client.post(f"/reset/{token}", data={"password": "yet another one"})
+    again = client.post(f"/reset/{token}", data={"password": "yet another one",
+                                                 "confirm": "yet another one"})
     assert "expired" in again.text
 
     client.post("/logout")
@@ -2601,7 +2610,8 @@ def test_a_recovery_link_cannot_be_redeemed_as_a_password_reset(client):
     demo_db.create_magic_link("mixed@example.com", token, expires.isoformat(),
                               purpose="recover")
 
-    r = client.post(f"/reset/{token}", data={"password": "trying to take over"})
+    r = client.post(f"/reset/{token}", data={"password": "trying to take over",
+                                             "confirm": "trying to take over"})
     assert "expired" in r.text
     assert demo_db.consume_magic_link(token, purpose="recover") == "mixed@example.com", \
         "the recovery link itself should be untouched"
@@ -2612,8 +2622,10 @@ def test_a_rejected_password_does_not_burn_the_reset_link(client):
     client.post("/forgot", data={"email": "careful@example.com"})
     token = next(t for t in demo_db._MAGIC_LINKS)
 
-    client.post(f"/reset/{token}", data={"password": "short"})
-    r = client.post(f"/reset/{token}", data={"password": "a perfectly fine one"},
+    client.post(f"/reset/{token}", data={"password": "short", "confirm": "short"})
+    r = client.post(f"/reset/{token}",
+                    data={"password": "a perfectly fine one",
+                          "confirm": "a perfectly fine one"},
                     follow_redirects=False)
     assert r.status_code == 303, "a typo shouldn't cost them their one-shot link"
 
@@ -2798,7 +2810,8 @@ def test_you_cannot_take_over_someone_elses_league(client, fake_sleeper):
 
     second = TestClient(webapp.app)
     second.post("/signup", data={"email": "second@example.com",
-                                 "password": GOOD_PASSWORD})
+                                 "password": GOOD_PASSWORD,
+                                 "confirm": GOOD_PASSWORD})
     r = second.post("/connect/sleeper/add", data={"league_id": "111"},
                     follow_redirects=False)
     assert "already" in r.headers["location"].lower()
@@ -2838,3 +2851,71 @@ def test_espn_and_yahoo_do_not_pretend_to_find_users():
     from providers import get_provider
     assert get_provider("espn").find_user("anyone") is None
     assert get_provider("espn").user_leagues("x", 2026) == []
+
+
+
+def test_mistyped_confirmation_is_caught(client):
+    """The commonest signup mistake, and the one whose consequence is worst:
+    an account whose password nobody knows."""
+    r = client.post("/signup", data={"email": "typo@example.com",
+                                     "password": GOOD_PASSWORD,
+                                     "confirm": GOOD_PASSWORD + "x"},
+                    follow_redirects=False)
+    assert r.status_code == 200
+    assert "match" in r.text
+    assert demo_db.user_by_email("typo@example.com") is None
+
+
+def test_the_reset_form_confirms_too(client):
+    _signup(client, email="r@example.com")
+    client.post("/forgot", data={"email": "r@example.com"})
+    token = next(t for t in demo_db._MAGIC_LINKS)
+    r = client.post(f"/reset/{token}", data={"password": "a new passphrase",
+                                             "confirm": "a different one"})
+    assert "match" in r.text
+    # And the link survives, so the typo costs nothing.
+    assert demo_db.peek_magic_link(token, purpose="reset") == "r@example.com"
+
+
+def test_eight_characters_is_enough(client):
+    r = client.post("/signup", data={"email": "eight@example.com",
+                                     "password": "brownfox",
+                                     "confirm": "brownfox"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert demo_db.user_by_email("eight@example.com") is not None
+
+
+def test_an_unclaimed_league_is_adopted_rather_than_refused(client, fake_sleeper):
+    """The wall this removes: a league made before signing up could never be
+    reached again, because the only way in was an admin token you no longer
+    had and recovery needed an email you had never given."""
+    orphan = demo_db.create_league(
+        provider="sleeper", platform_league_id="111", league_name="Kevlarville",
+        paper_name="The Kevlarville Times", commissioner_name="", season=2026,
+        public_slug="kev-1", admin_token="orphan-token")
+    assert orphan.get("user_id") is None
+
+    _signup(client)
+    user = demo_db.user_by_email("john@example.com")
+
+    r = client.post("/connect/sleeper/add", data={"league_id": "111"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert "/l/orphan-token" in r.headers["location"]
+    assert demo_db._LEAGUES[orphan["id"]]["user_id"] == user["id"]
+
+
+def test_the_create_account_button_is_readable(client):
+    """`.masthead-nav a` is a class plus an element and beat `.btn-primary`
+    on specificity, so the nav's dark grey text won over the button's white —
+    dark grey lettering on dark green. Excluding buttons from the rule is the
+    fix; more specificity would just be the next round of the same fight."""
+    css = io_open_style()
+    assert ".masthead-nav a:not(.btn)" in css
+    assert "\n.masthead-nav a {" not in css
+
+
+def io_open_style():
+    import pathlib
+    return pathlib.Path("web/static/style.css").read_text(encoding="utf-8")

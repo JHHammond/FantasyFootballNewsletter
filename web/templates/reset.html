@@ -12,9 +12,14 @@
     <form method="post" action="/reset/{{ token }}" class="stack">
         <label class="field">
             <span class="field-label">New password</span>
-            <input type="password" name="password" required minlength="10"
+            <input type="password" name="password" required minlength="8"
                    autocomplete="new-password" autofocus />
-            <span class="field-help">At least 10 characters.</span>
+            <span class="field-help">At least 8 characters.</span>
+        </label>
+        <label class="field">
+            <span class="field-label">Confirm new password</span>
+            <input type="password" name="confirm" required minlength="8"
+                   autocomplete="new-password" />
         </label>
         <div>
             <button type="submit" class="btn btn-primary btn-lg">Save and sign in</button>

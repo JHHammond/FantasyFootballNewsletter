@@ -1,31 +1,19 @@
 {% extends "base.html" %}
+{% from "_macros.html" import flow_button %}
 
 {% block content %}
 <section class="hero">
+    <p class="hero-kicker">Week {{ current_week }} &middot; {{ current_season }} season</p>
     <h1 class="hero-title">Your league deserves<br />a <em>newspaper</em>.</h1>
     <p class="hero-sub">
-        Every week, a real paper about your fantasy league: recaps, power
-        rankings, awards, and all your league&rsquo;s dumb history baked in.
-        Send it to the group chat and let it start fights.
+        Not a recap bot. A front page, with your worst manager on it.
     </p>
 
     {% if user %}
-    <p class="hero-actions">
-        <a class="btn btn-primary btn-lg" href="/account">Your papers</a>
-        <a class="btn btn-lg" href="/connect">Add a league</a>
-    </p>
+    <p class="hero-actions">{{ flow_button("Your papers", href="/account") }}</p>
     {% else %}
-    <p class="hero-actions">
-        <a class="btn btn-primary btn-lg" href="/signup">Get started &mdash; free</a>
-        {% if sample_paper_url %}
-        <a class="btn btn-ghost btn-lg" href="{{ sample_paper_url }}">
-            Read a real edition first
-        </a>
-        {% endif %}
-    </p>
-    <p class="hero-note">
-        Free. Takes about a minute. Your league never signs up for anything.
-    </p>
+    <p class="hero-actions">{{ flow_button("Start your paper", href="/signup") }}</p>
+    <p class="hero-note">Free &middot; about a minute &middot; your league never signs up for anything</p>
     {% endif %}
 </section>
 
@@ -33,26 +21,42 @@
 <div class="alert alert-error">{{ error|safe }}</div>
 {% endif %}
 
+<section class="specimen">
+    <div class="specimen-masthead">
+        <span class="specimen-name">The Kevlarville Times</span>
+        <span class="specimen-rule">Week 3 Edition &middot; Twelve teams, one winner</span>
+    </div>
+    <p class="specimen-headline">Satan Falls In Kevlarville</p>
+    <p class="specimen-body">
+        Josh Allen put up 28.5 against a 23-point projection, which would be a
+        fine week anywhere else and is merely Tuesday here. champayyy started a
+        kicker on bye. Again. The Sommelier rides at dawn.
+    </p>
+    <p class="specimen-caption">A real paper, from real scores, in your league&rsquo;s own voice.</p>
+</section>
+
 <section class="how">
-    <h2 class="section-title">How it works</h2>
+    <h2 class="section-title">Four steps, once</h2>
     <ol class="steps">
-        <li><strong>Make an account.</strong> Email and a password, so your
-            papers are all in one place.</li>
+        <li><strong>Make an account.</strong> Email and a password. Every paper
+            you make lives in one place.</li>
         <li><strong>Connect your league.</strong> On Sleeper, type your username
-            and pick it from the list. ESPN and Yahoo are on the way.</li>
+            and pick it from the list &mdash; no IDs to hunt for. ESPN and Yahoo
+            are on the way.</li>
         <li><strong>Tell us the lore.</strong> The running jokes, the punishment,
-            who has never won. This is what makes it yours rather than generic.</li>
-        <li><strong>Send it round.</strong> Every edition is a link anyone can
-            open &mdash; no app, no sign-in, nothing to install.</li>
+            who has never won. This is the difference between your paper and a
+            box score.</li>
+        <li><strong>Send it round.</strong> Every edition is a link anyone opens
+            &mdash; no app, no sign-in, nothing to install.</li>
     </ol>
 </section>
 
 <section class="cta">
-    <p>The first edition takes about thirty seconds to write.</p>
+    <p class="cta-line">The first edition takes about thirty seconds to write.</p>
     {% if user %}
-    <a class="btn btn-primary btn-lg" href="/connect">Add a league</a>
+    {{ flow_button("Add a league", href="/connect") }}
     {% else %}
-    <a class="btn btn-primary btn-lg" href="/signup">Get started</a>
+    {{ flow_button("Start your paper", href="/signup") }}
     {% endif %}
 </section>
 {% endblock %}
