@@ -15,6 +15,7 @@
                 data-link="{{ public_base() }}/p/{{ league.public_slug }}">
             Copy share link
         </button>
+        <button type="button" class="btn" id="pdf-btn">Save as PDF</button>
         <a class="btn btn-primary" href="/l/{{ league.admin_token }}/live-edit/{{ week }}">Edit on the page</a>
         <a class="btn" href="/l/{{ league.admin_token }}/edit/{{ week }}">Form editor</a>
         <a class="btn" href="{{ paper_url }}" target="_blank" rel="noopener">Full screen</a>
@@ -52,6 +53,26 @@ document.getElementById('copy-btn').addEventListener('click', async function () 
     }
     this.textContent = 'Copied';
     setTimeout(() => { this.textContent = original; }, 1800);
+});
+
+// Print the paper, not the page around it. The iframe is same-origin, so we
+// can reach into it — printing from here instead would produce a PDF of this
+// toolbar with a scaled-down newspaper somewhere inside it.
+document.getElementById('pdf-btn').addEventListener('click', function () {
+    const frame = document.querySelector('.paper-frame iframe');
+    if (!frame || !frame.contentWindow) {
+        window.open('{{ paper_url }}', '_blank', 'noopener');
+        return;
+    }
+    try {
+        // Safari won't open the dialog for a frame that isn't focused.
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+    } catch (err) {
+        // Shouldn't happen at same origin, but a new tab still gets them
+        // a paper they can print with Cmd-P.
+        window.open('{{ paper_url }}', '_blank', 'noopener');
+    }
 });
 </script>
 {% endblock %}

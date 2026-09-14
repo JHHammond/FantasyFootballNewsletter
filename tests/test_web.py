@@ -2114,3 +2114,137 @@ def test_a_paper_with_no_photos_has_no_broken_images():
     body = _full_paper(dict(SAMPLE_AI))
     assert 'src="../' not in body, "relative path that only resolves on disk"
     assert "/memes/" not in body
+
+
+# ===========================================================================
+# PDF export
+#
+# There is no PDF library here — the browser's own print engine makes the file.
+# What can be tested is the second layout it prints against: that the screen
+# furniture is gone, that the dark theme is not a black rectangle, and that the
+# rules which have to beat a theme actually beat it.
+# ===========================================================================
+
+def _print_block(html):
+    """Just the print stylesheet, so assertions can't match screen CSS."""
+    style = html.split("</style>")[0]
+    marker = "@media print"
+    assert marker in style, "no print stylesheet at all"
+    return style[style.index("@page"):]
+
+
+def test_every_theme_ships_a_print_stylesheet():
+    for theme in ("tabloid", "broadsheet", "gameday"):
+        html = _full_paper(dict(SAMPLE_AI), theme=theme)
+        assert "@media print" in html, theme
+        assert "@page" in html, theme
+
+
+def test_page_size_is_left_to_the_readers_dialog():
+    """Forcing Letter gives A4 users a stripe of blank down one side."""
+    block = _print_block(_full_paper(dict(SAMPLE_AI)))
+    page_rule = block[:block.index("}")]
+    assert "margin" in page_rule
+    assert "size:" not in page_rule
+
+
+def test_interactive_furniture_is_hidden_on_paper():
+    block = _print_block(_full_paper(dict(SAMPLE_AI)))
+    for selector in (".print-button", ".ce-bar", ".subscribe-form", "input"):
+        assert selector in block, f"{selector} still prints"
+
+
+def test_stories_and_cards_do_not_split_across_pages():
+    block = _print_block(_full_paper(dict(SAMPLE_AI)))
+    assert "break-inside: avoid" in block
+    assert "page-break-inside: avoid" in block   # older engines
+    assert "orphans" in block and "widows" in block
+
+
+def test_headings_do_not_strand_at_the_foot_of_a_page():
+    block = _print_block(_full_paper(dict(SAMPLE_AI)))
+    assert "break-after: avoid" in block
+
+
+def test_photos_get_a_height_ceiling_in_print():
+    """On screen a tall photo just makes the page longer. On a fixed sheet it
+    claims two thirds of the page and pushes its own story overleaf."""
+    block = _print_block(_full_paper(dict(SAMPLE_AI)))
+    assert "max-height" in block
+    assert "mm" in block
+
+
+# --- the dark theme ---------------------------------------------------------
+
+def test_gameday_prints_light_not_as_a_black_rectangle():
+    block = _print_block(_full_paper(dict(SAMPLE_AI), theme="gameday"))
+    assert "background: #fff !important" in block
+    # The screen ground must not survive into the print block.
+    assert "#0b0d10" not in block
+    assert "#14171c" not in block
+
+
+def test_gameday_keeps_its_accent_but_in_an_ink_that_exists():
+    """#16f04e is a screen green — on white paper it disappears."""
+    block = _print_block(_full_paper(dict(SAMPLE_AI), theme="gameday"))
+    assert "#0a7d2c" in block, "no print-weight green"
+
+
+def test_gameday_card_text_beats_the_theme_on_specificity():
+    """The rule being overridden is `.player-card div` — a class plus an
+    element. A bare class loses to it no matter how late it appears, and the
+    honor roll prints as empty bordered boxes."""
+    block = _print_block(_full_paper(dict(SAMPLE_AI), theme="gameday"))
+    assert ".player-card .player-card-name" in block
+    assert ".player-card .player-card-stat" in block
+
+
+def test_player_cards_expose_their_parts():
+    html = _full_paper(dict(SAMPLE_AI))
+    for part in ("player-card-name", "player-card-meta",
+                 "player-card-stat", "player-card-proj"):
+        assert part in html, part
+
+
+# --- the button and the footer ---------------------------------------------
+
+def test_the_paper_carries_a_save_as_pdf_button():
+    html = _full_paper(dict(SAMPLE_AI))
+    assert "window.print()" in html
+    assert "Save as PDF" in html
+
+
+def test_the_editor_does_not_get_a_second_floating_button():
+    """The edit view already has a save bar pinned to the bottom."""
+    html = _full_paper(dict(SAMPLE_AI), editable=True)
+    assert "Save as PDF" not in html
+
+
+def test_the_printed_page_says_where_it_came_from():
+    """A PDF outlives the tab it was printed from."""
+    url = "https://commish.example/p/kevlarville/2026/week-3"
+    html = _full_paper(dict(SAMPLE_AI), canonical_url=url)
+    assert "print-footer" in html
+    assert url in html
+
+
+def test_the_footer_is_invisible_on_screen():
+    html = _full_paper(dict(SAMPLE_AI))
+    screen_css = html.split("@page")[0]
+    assert ".print-footer { display: none; }" in screen_css
+
+
+def test_saved_pdf_is_named_for_the_paper_not_the_headline():
+    """Browsers name a saved PDF after <title>. In a folder of saved editions
+    the paper name sorts; a headline doesn't."""
+    html = _full_paper(dict(SAMPLE_AI))
+    assert "<title>X — Week 1</title>" in html
+    # The headline still drives the link preview, which is what it's for.
+    assert 'og:title" content="SATAN FALLS IN KEVLARVILLE"' in html
+
+
+def test_published_view_prints_the_paper_not_the_toolbar(client, league):
+    demo_db.save_paper(league["id"], 1, 2025, "p/1", "http://x/1", {"headline": "H"})
+    body = client.get("/l/secret-admin-token/published/1").text
+    assert "pdf-btn" in body
+    assert "contentWindow.print()" in body

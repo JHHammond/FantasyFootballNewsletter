@@ -5,6 +5,7 @@ import random
 import markdown
 
 from ads import CLASSIFIEDS_CSS, SUBSCRIBE_CSS, render_classifieds, render_subscribe_block
+import printing
 import themes
 
 
@@ -944,17 +945,26 @@ def build_honor_roll_and_detention(matchups, n=5):
     def player_card(p, highlight_color, show_stat, stat_label):
         headshot = get_player_headshot_url(p["player_id"])
         proj_str = f"{p['projected']:.1f}" if p.get("projected") is not None else "—"
+        # Each line carries a class as well as its inline style. Themes need to
+        # recolour these — gameday is white-on-black, print is black-on-white —
+        # and a theme that can only reach them as `.player-card div` has to
+        # repaint all four lines the same colour, which flattens the score into
+        # the caption. Named parts let a theme change one line.
         return f'''
         <div class="player-card">
-            <img src="{headshot}"
+            <img class="player-card-shot" src="{headshot}"
                  onerror="this.style.display='none'"
                  style="width:60px;height:60px;object-fit:cover;object-position:top;
                         border-radius:50%;border:3px solid {highlight_color};
                         display:block;margin:0 auto 6px;" />
-            <div style="font-weight:700;font-size:13px;text-align:center;">{p["name"]}</div>
-            <div style="font-size:11px;color:#666;text-align:center;">{p["position"]} &bull; {p["team_name"]}</div>
-            <div style="font-size:20px;font-weight:900;text-align:center;color:{highlight_color};margin-top:4px;">{show_stat}</div>
-            <div style="font-size:10px;color:#888;text-align:center;">{stat_label}: {proj_str}</div>
+            <div class="player-card-name"
+                 style="font-weight:700;font-size:13px;text-align:center;">{p["name"]}</div>
+            <div class="player-card-meta"
+                 style="font-size:11px;color:#666;text-align:center;">{p["position"]} &bull; {p["team_name"]}</div>
+            <div class="player-card-stat"
+                 style="font-size:20px;font-weight:900;text-align:center;color:{highlight_color};margin-top:4px;">{show_stat}</div>
+            <div class="player-card-proj"
+                 style="font-size:10px;color:#888;text-align:center;">{stat_label}: {proj_str}</div>
         </div>'''
 
     # Build honor roll HTML
@@ -1201,12 +1211,19 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
                     if og_image else "")
 
     return {
-        "page_title": f"{_plain(headline, 70)} — Week {week}",
+        # Browsers name a saved PDF after the <title>, so this is also the
+        # filename in somebody's Downloads folder. The paper name sorts; the
+        # headline doesn't. og_title below keeps the headline for link previews.
+        "page_title": f"{league_name} — Week {week}",
         "og_title": og_title,
         "og_description": og_description,
         "og_url_tag": og_url_tag,
         "og_image_tag": og_image_tag,
         "twitter_card": "summary_large_image" if og_image else "summary",
+        "canonical_url": canonical_url,
+        # A paper open in the editor already has a save bar; a second floating
+        # button on top of it is just clutter.
+        "editable": editable,
         "paper_name": "KEVLARVILLE TIMES",
         "edition_line": f"Week {week} Edition  •  {league_name}  •  {datetime.now().strftime('%B %d, %Y')}",
         "dateline_left": f"Week {week}",
@@ -1256,6 +1273,13 @@ def render_html(edition, theme=None):
     """
     theme_fonts = themes.fonts_for(theme)
     theme_css = themes.css_for(theme)
+    # A second layout, for paper. See printing.py.
+    print_css = printing.css_for(theme)
+    print_button_css = printing.PRINT_BUTTON_CSS
+    print_button = ("" if edition.get("editable")
+                    else printing.PRINT_BUTTON_HTML)
+    print_footer = printing.footer_html(edition.get("canonical_url"),
+                                        edition.get("paper_name", ""))
     # Some themes want the writer's ALL CAPS set as title case. CSS can
     # only uppercase, so the transform has to happen here.
     display_headline = themes.headline_for(theme, edition['headline'])
@@ -2069,6 +2093,12 @@ def render_html(edition, theme=None):
 
         /* Theme overrides. Empty for the default. */
         {theme_css}
+
+        /* The Save-as-PDF control, and the footer only paper sees. */
+        {print_button_css}
+
+        /* Print layout. Last, so it wins over both of the above. */
+        {print_css}
     </style>
 </head>
 <body>
@@ -2184,7 +2214,11 @@ def render_html(edition, theme=None):
         <!-- CLASSIFIEDS — ad inventory, see ads.py -->
         {edition.get('classifieds_html', '')}
 
+        <!-- Only ever visible on paper. -->
+        {print_footer}
+
     </div>
+    {print_button}
 </body>
 </html>
 """
