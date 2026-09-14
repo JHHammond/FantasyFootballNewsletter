@@ -262,6 +262,48 @@ def health_check() -> None:
     client().table("leagues").select("id").limit(1).execute()
 
 
+# ---------------------------------------------------------------------------
+# Rate limiting
+#
+# Shared state, so that the daily spend ceiling is a property of the product
+# rather than of however many processes happen to be running. See migration
+# 009 for why the counting happens inside one statement.
+# ---------------------------------------------------------------------------
+
+def claim_rate_slot(bucket: str, limit: int, window_seconds: int) -> bool:
+    """Consume one unit of an allowance. True if the caller may proceed.
+
+    Fails CLOSED. A caller that can't reach the database is about to fail
+    anyway — every endpoint behind one of these limits writes to the database
+    moments later — so refusing costs nothing, while failing open would mean a
+    database blip switches off the cost ceiling precisely when nobody is
+    watching.
+    """
+    try:
+        res = client().rpc("claim_rate_slot", {
+            "p_bucket": bucket[:200],
+            "p_limit": int(limit),
+            "p_window": f"{int(window_seconds)} seconds",
+        }).execute()
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(res.data)
+
+
+def sweep_rate_events(older_than_seconds: int = 2 * 86400) -> int:
+    """Drop rate-limit rows for buckets nobody has visited since.
+
+    Returns how many went. Never raises: housekeeping must not fail a job.
+    """
+    try:
+        res = client().rpc("sweep_rate_events", {
+            "p_older_than": f"{int(older_than_seconds)} seconds",
+        }).execute()
+        return int(res.data or 0)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def get_paper(league_id: str, season: int, week: int) -> Optional[dict[str, Any]]:
     res = (
         client().table("newspapers").select("*")

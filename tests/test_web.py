@@ -33,9 +33,9 @@ from web import demo_db, emailer, slugs  # noqa: E402
 @pytest.fixture(autouse=True)
 def clean_state(monkeypatch):
     for store in (demo_db._LEAGUES, demo_db._LORE, demo_db._PAPERS,
-                  demo_db._STORAGE, demo_db._SUBSCRIBERS, demo_db._MAGIC_LINKS):
+                  demo_db._STORAGE, demo_db._SUBSCRIBERS, demo_db._MAGIC_LINKS,
+                  demo_db._RATE_EVENTS):
         store.clear()
-    webapp._HITS.clear()
     monkeypatch.setattr(webapp, "db", demo_db)
     yield
 
@@ -1836,13 +1836,68 @@ def test_a_short_forwarded_header_is_not_believed(monkeypatch):
     assert webapp._client_ip(FakeRequest()) == "10.0.0.1"
 
 
-def test_rate_limit_keys_do_not_accumulate_forever():
-    """Reading a key used to create it, and nothing was ever evicted."""
-    webapp._HITS.clear()
+def test_rate_limit_buckets_do_not_accumulate_forever():
+    """Buckets nobody revisits used to sit in memory for the life of the
+    process. They now live in the database, and the weekly job sweeps them."""
+    demo_db._RATE_EVENTS.clear()
     webapp._rate_limited("probe", 5)
-    assert list(webapp._HITS) == ["probe"]
-    # A key that was only ever checked shouldn't linger as an empty list.
-    assert webapp._HITS["probe"]
+    assert "probe" in demo_db._RATE_EVENTS
+
+    # Nothing stale yet, so a sweep leaves it alone.
+    assert demo_db.sweep_rate_events(older_than_seconds=3600) == 0
+    assert "probe" in demo_db._RATE_EVENTS
+
+    # Old enough, and it goes.
+    assert demo_db.sweep_rate_events(older_than_seconds=0) == 1
+    assert "probe" not in demo_db._RATE_EVENTS
+
+
+def test_the_ceiling_survives_a_restart():
+    """The whole point of moving this out of process memory. Restarting used
+    to hand everybody a fresh allowance, including the daily spend ceiling."""
+    for _ in range(3):
+        assert webapp._rate_limited("global:papers", 3) is False
+    assert webapp._rate_limited("global:papers", 3) is True
+
+    # A new process would have had an empty dict. The store is the database.
+    import importlib
+    importlib.reload(webapp)
+    webapp.db = demo_db
+    assert webapp._rate_limited("global:papers", 3) is True
+
+
+def test_a_slot_is_claimed_atomically_not_checked_then_taken():
+    """Check-then-insert lets two simultaneous callers both pass a ceiling
+    with one slot left. Twenty threads, one slot: exactly one gets through."""
+    import threading
+    demo_db._RATE_EVENTS.clear()
+    results, lock = [], threading.Lock()
+
+    def go():
+        allowed = demo_db.claim_rate_slot("contended", 1, 3600)
+        with lock:
+            results.append(allowed)
+
+    threads = [threading.Thread(target=go) for _ in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert results.count(True) == 1, f"ceiling leaked: {results.count(True)} got through"
+
+
+def test_limits_fail_closed_when_the_database_is_unreachable(monkeypatch):
+    """Failing open would mean a database blip switches off the spend ceiling
+    exactly when nobody is watching. Every endpoint behind one of these writes
+    to the database moments later anyway, so refusing costs nothing."""
+    from web import db as real_db
+
+    def broken(*a, **k):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(real_db, "client", broken)
+    assert real_db.claim_rate_slot("anything", 10, 3600) is False
 
 
 def test_upload_is_capped_per_league_regardless_of_ip(client, league, monkeypatch):

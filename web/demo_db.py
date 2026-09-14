@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import secrets
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
@@ -197,6 +198,43 @@ def record_view(league_id: str, season: int, week: int) -> None:
 def health_check() -> None:
     """Always healthy — the store is this process's own memory."""
     return None
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting — same contract as db.claim_rate_slot, in a dict.
+# ---------------------------------------------------------------------------
+
+_RATE_EVENTS: dict[str, list[float]] = {}
+
+
+def claim_rate_slot(bucket: str, limit: int, window_seconds: int) -> bool:
+    """Consume one unit of an allowance. True if the caller may proceed.
+
+    A sliding window, matching the SQL function it stands in for: expired
+    entries are dropped before counting, so an allowance can't be spent twice
+    either side of a boundary.
+    """
+    if limit <= 0:
+        return False
+    now = time.time()
+    with _lock:
+        kept = [t for t in _RATE_EVENTS.get(bucket, ()) if now - t < window_seconds]
+        if len(kept) >= limit:
+            _RATE_EVENTS[bucket] = kept
+            return False
+        kept.append(now)
+        _RATE_EVENTS[bucket] = kept
+        return True
+
+
+def sweep_rate_events(older_than_seconds: int = 2 * 86400) -> int:
+    now = time.time()
+    with _lock:
+        stale = [b for b, times in _RATE_EVENTS.items()
+                 if not times or now - times[-1] > older_than_seconds]
+        for bucket in stale:
+            _RATE_EVENTS.pop(bucket, None)
+    return len(stale)
 
 
 # ---------------------------------------------------------------------------

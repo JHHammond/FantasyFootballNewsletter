@@ -38,6 +38,7 @@ migrations/005_setup.sql
 migrations/006_edits.sql
 migrations/007_themes.sql
 migrations/008_views_and_ops.sql
+migrations/009_rate_limits.sql
 ```
 
 All verified against a real Postgres and safe to re-run.

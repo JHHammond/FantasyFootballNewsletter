@@ -30,8 +30,6 @@ import hmac
 import os
 import sys
 import threading
-import time
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -141,17 +139,18 @@ async def security_headers(request: Request, call_next):
 #
 # Removing accounts removed the natural brake on abuse. Generation costs real
 # Claude tokens and email costs deliverability reputation, so both need a cap.
-# In-memory is fine for one process; move to Redis when you run more, and note
-# that until you do, N instances means N times every limit below.
+#
+# The counting lives in Postgres (migration 009), not in this process. It used
+# to be a dict here, which was honest on one instance and said so — but it made
+# every limit a property of the deployment rather than of the product. A second
+# instance doubled them all; a restart reset them to zero. The one limit that
+# exists to stop an Anthropic invoice should not be the one that forgets.
 #
 # Two keys, deliberately. IP is the only handle we have on an anonymous caller,
 # but it is a claim, not a fact — see _client_ip. League ID is a fact: it comes
 # from our own database via the admin token, so a per-league cap holds even
 # against someone who can present any IP they like.
 # ---------------------------------------------------------------------------
-
-_HITS: dict[str, list[float]] = defaultdict(list)
-_HITS_LOCK = threading.Lock()
 
 GENERATIONS_PER_HOUR = 10           # per IP
 GENERATIONS_PER_LEAGUE_PER_DAY = 12  # per league — not spoofable
@@ -164,17 +163,18 @@ MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
 DAY = 86400
 
-#: Total papers this process will generate in a rolling day, across everybody.
-#: The backstop against a bug or an abuser turning into an Anthropic invoice.
-#: Set a hard budget limit on the API key as well — this cap lives in a process
-#: that can be restarted, and that one cannot.
+#: Total papers generated in a rolling day, across everybody and every
+#: instance. The backstop against a bug or an abuser turning into an Anthropic
+#: invoice. Set a hard budget limit on the API key as well: this one lives in a
+#: database you could in principle empty, and that one cannot.
 MAX_PAPERS_PER_DAY = int(os.getenv("MAX_PAPERS_PER_DAY", "300"))
 
-#: How many papers may be written at the same time. Every route in this app is
-#: a sync def, so they share one bounded threadpool; a generation occupies a
-#: slot for ~30 seconds. Without this cap, enough simultaneous generations
-#: starve the pool and readers stop being served — which is a good launch day,
-#: not an attack.
+#: How many papers may be written at the same time. Unlike the limits above
+#: this one is deliberately per-process, because what it protects is per
+#: process: every route here is a sync def, so they share one bounded
+#: threadpool, and a generation occupies a slot for ~30 seconds. Enough
+#: simultaneous generations starve the pool and readers stop being served —
+#: which is a good launch day, not an attack.
 MAX_CONCURRENT_GENERATIONS = int(os.getenv("MAX_CONCURRENT_GENERATIONS", "4"))
 _GENERATION_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_GENERATIONS)
 
@@ -182,25 +182,12 @@ _GENERATION_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_GENERATIONS)
 def _rate_limited(key: str, limit: int, window: int = 3600) -> bool:
     """True if this key has already used its allowance in the window.
 
-    Keys whose history empties are dropped rather than left behind: the old
-    version kept one entry per caller for the life of the process, and reading
-    a key created it.
+    Thin wrapper so every call site reads the same as before. The claim is
+    atomic inside the database — a check followed by a separate insert from
+    here would let two simultaneous callers both pass a ceiling that had one
+    slot left, which is exactly the moment a spend ceiling is for.
     """
-    now = time.time()
-    with _HITS_LOCK:
-        hits = [t for t in _HITS.get(key, ()) if now - t < window]
-        if len(hits) >= limit:
-            _HITS[key] = hits
-            return True
-        hits.append(now)
-        _HITS[key] = hits
-
-        # Opportunistic sweep so a long-running process doesn't accumulate a
-        # row per unique caller forever.
-        if len(_HITS) > 5000:
-            for stale in [k for k, v in _HITS.items() if not v or now - v[-1] > DAY]:
-                _HITS.pop(stale, None)
-    return False
+    return not db.claim_rate_slot(key, limit, window)
 
 
 def _global_budget_exceeded() -> bool:

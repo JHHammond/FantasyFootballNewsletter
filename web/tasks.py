@@ -97,6 +97,11 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
         report["emails_sent"] += sent
         db.mark_emailed(league["id"], season, week)
 
+    # Housekeeping, while we're already awake once a week. claim_rate_slot only
+    # prunes the bucket it was called for, so an address that appeared once and
+    # never returned would otherwise leave its row behind indefinitely.
+    report["rate_rows_swept"] = db.sweep_rate_events()
+
     return report
 
 
