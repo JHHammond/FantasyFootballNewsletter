@@ -139,6 +139,72 @@ class SleeperProvider(FantasyProvider):
         except (TypeError, ValueError):
             return None
 
+    # -- finding a league without knowing its id ---------------------------
+
+    def find_user(self, username: str) -> dict | None:
+        """Sleeper username -> account. None if there is no such user.
+
+        Sleeper's own docs warn that usernames change over time and to hold
+        onto the user_id, which is why this returns the id rather than letting
+        callers key anything on the name they typed.
+        """
+        name = (username or "").strip().lstrip("@")
+        if not name or len(name) > 64:
+            return None
+        try:
+            data = self.cache.get_or_fetch(
+                f"user:{name.lower()}", TTL_LEAGUE_META,
+                lambda: self._get(f"{BASE_URL}/user/{name}"),
+            )
+        except LeagueNotFound:
+            return None          # Sleeper 404s for an unknown username
+        except ProviderError:
+            raise
+        if not isinstance(data, dict) or not data.get("user_id"):
+            return None
+        return {
+            "user_id": str(data["user_id"]),
+            "username": data.get("username") or name,
+            "display_name": data.get("display_name") or data.get("username") or name,
+        }
+
+    def user_leagues(self, user_id: str, season: int) -> list[League]:
+        """Every NFL league this account is in for a season.
+
+        One request. The listing endpoint returns complete league objects, so
+        rebuilding each one through get_league would be a dozen redundant round
+        trips to render a picker.
+        """
+        if not user_id:
+            return []
+        raw = self.cache.get_or_fetch(
+            f"user-leagues:{user_id}:{season}", TTL_LEAGUE_META,
+            lambda: self._get(f"{BASE_URL}/user/{user_id}/leagues/nfl/{season}"),
+        )
+        if not isinstance(raw, list):
+            return []
+
+        leagues = []
+        for data in raw:
+            if not isinstance(data, dict) or not data.get("league_id"):
+                continue
+            scoring = data.get("scoring_settings") or {}
+            rec = _to_float(scoring.get("rec"), 0.0)
+            avatar = data.get("avatar")
+            leagues.append(League(
+                provider=self.name,
+                league_id=str(data["league_id"]),
+                name=data.get("name") or "Untitled league",
+                season=int(data.get("season") or season),
+                roster_slots=[SLOT_MAP.get(s, s) for s in (data.get("roster_positions") or [])],
+                team_count=int(data.get("total_rosters") or 0),
+                scoring_type="ppr" if rec >= 1.0 else "half_ppr" if rec >= 0.5 else "std",
+                avatar_url=f"{AVATAR_URL}/{avatar}" if avatar else None,
+                previous_league_id=data.get("previous_league_id"),
+                status=data.get("status"),
+            ))
+        return leagues
+
     # -- reference data ----------------------------------------------------
 
     def _player_index(self) -> dict:

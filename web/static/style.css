@@ -689,3 +689,55 @@ textarea { resize: vertical; }
 @media (max-width: 640px) {
     .masthead-nav { gap: 11px; font-size: 12px; }
 }
+
+/* ---------- platform picker ---------- */
+
+.platform-grid {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 26px;
+}
+
+@media (min-width: 620px) {
+    .platform-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+.platform {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 22px 20px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    text-decoration: none;
+    color: var(--ink);
+    transition: border-color 0.12s, transform 0.12s;
+}
+
+.platform:hover { border-color: var(--ink); transform: translateY(-1px); }
+
+.platform-name {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 21px;
+    font-weight: 700;
+}
+
+.platform-how { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+/* Still clickable — it leads to a waiting list, not a dead end. Dimmed
+   enough to set expectations before the click rather than after it. */
+.platform-soon { opacity: 0.72; }
+
+.platform-tag {
+    align-self: flex-start;
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    padding: 1px 7px;
+}
+
+.paper-row-actions { display: flex; gap: 8px; align-items: center; }

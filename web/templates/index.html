@@ -4,84 +4,55 @@
 <section class="hero">
     <h1 class="hero-title">Your league deserves<br />a <em>newspaper</em>.</h1>
     <p class="hero-sub">
-        Paste your league ID. Every week you get a real paper: recaps, power
-        rankings, awards, and all your league's dumb history baked in.
+        Every week, a real paper about your fantasy league: recaps, power
+        rankings, awards, and all your league&rsquo;s dumb history baked in.
         Send it to the group chat and let it start fights.
     </p>
-    {% if sample_paper_url %}
+
+    {% if user %}
     <p class="hero-actions">
+        <a class="btn btn-primary btn-lg" href="/account">Your papers</a>
+        <a class="btn btn-lg" href="/connect">Add a league</a>
+    </p>
+    {% else %}
+    <p class="hero-actions">
+        <a class="btn btn-primary btn-lg" href="/signup">Get started &mdash; free</a>
+        {% if sample_paper_url %}
         <a class="btn btn-ghost btn-lg" href="{{ sample_paper_url }}">
             Read a real edition first
         </a>
+        {% endif %}
+    </p>
+    <p class="hero-note">
+        Free. Takes about a minute. Your league never signs up for anything.
     </p>
     {% endif %}
-    <p class="hero-note">No account. No password. Nothing to cancel.</p>
 </section>
 
 {% if error %}
 <div class="alert alert-error">{{ error|safe }}</div>
 {% endif %}
 
-<section class="card">
-    <form method="post" action="/leagues" class="stack">
-        {% if providers|length > 1 %}
-        <label class="field">
-            <span class="field-label">Platform</span>
-            <select name="provider">
-                {% for p in providers %}
-                <option value="{{ p.name }}">{{ p.display_name }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        {% else %}
-        <input type="hidden" name="provider" value="{{ providers[0].name }}" />
-        {% endif %}
-
-        <label class="field">
-            <span class="field-label">{{ providers[0].display_name }} league ID</span>
-            <input type="text" name="league_id" required
-                   placeholder="1252396303246176256" autocomplete="off" />
-            <span class="field-help">
-                The long number in your league's web URL:
-                sleeper.com/leagues/<strong>1234567890123456789</strong>/team.
-                We'll figure out the season ourselves.
-            </span>
-        </label>
-
-        <label class="field">
-            <span class="field-label">Your username <span class="opt">optional</span></span>
-            <input type="text" name="commissioner" placeholder="yourusername" autocomplete="off" />
-            <span class="field-help">The paper will treat you like a legend. Your call.</span>
-        </label>
-
-        <label class="field">
-            <span class="field-label">Paper name <span class="opt">optional</span></span>
-            <input type="text" name="paper_name" placeholder="The Kevlarville Times" autocomplete="off" />
-        </label>
-
-        <button type="submit" class="btn btn-primary btn-lg">Make my paper</button>
-    </form>
-</section>
-
 <section class="how">
     <h2 class="section-title">How it works</h2>
     <ol class="steps">
-        <li>
-            <strong>Hook up your league.</strong>
-            Paste the ID. We pull your rosters, scores and matchups. Ten seconds.
-        </li>
-        <li>
-            <strong>Tell us the lore.</strong>
-            Who chokes every year, who's still mad about a trade from 2022, who
-            drafted a kicker in the 8th. This is the part that makes it yours.
-        </li>
-        <li>
-            <strong>Hit generate after Sunday.</strong>
-            Thirty seconds later you've got a paper and a link to send everyone.
-        </li>
+        <li><strong>Make an account.</strong> Email and a password, so your
+            papers are all in one place.</li>
+        <li><strong>Connect your league.</strong> On Sleeper, type your username
+            and pick it from the list. ESPN and Yahoo are on the way.</li>
+        <li><strong>Tell us the lore.</strong> The running jokes, the punishment,
+            who has never won. This is what makes it yours rather than generic.</li>
+        <li><strong>Send it round.</strong> Every edition is a link anyone can
+            open &mdash; no app, no sign-in, nothing to install.</li>
     </ol>
-    <p class="how-note">
-        Already made one and lost the link? <a href="/recover">Get it back.</a>
-    </p>
+</section>
+
+<section class="cta">
+    <p>The first edition takes about thirty seconds to write.</p>
+    {% if user %}
+    <a class="btn btn-primary btn-lg" href="/connect">Add a league</a>
+    {% else %}
+    <a class="btn btn-primary btn-lg" href="/signup">Get started</a>
+    {% endif %}
 </section>
 {% endblock %}

@@ -99,12 +99,18 @@ def _verify_ok(name="Kevlarville", season=2025, weeks=(1, 2, 3)):
 def test_landing_renders(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "league_id" in r.text
+    # The landing page now sells and points at signup. Connecting a league
+    # happens after an account exists, where a username can replace the league
+    # ID entirely.
+    assert "/signup" in r.text
 
 
-def test_landing_mentions_no_account(client):
-    """The pitch. If this goes, the reason for the whole redesign went."""
-    assert "No account" in client.get("/").text
+def test_landing_promises_readers_never_sign_up(client):
+    """Commissioners have accounts now; readers still do not, and that is the
+    load-bearing half of the pitch. If this line goes, check it went on
+    purpose."""
+    text = client.get("/").text.lower()
+    assert "never sign" in text or "no sign-in" in text
 
 
 def test_landing_says_lore_not_inside_jokes(client):
@@ -677,7 +683,6 @@ def test_landing_no_longer_asks_for_a_season(client):
     symptom is a confusing 'no data for that week' three screens later."""
     text = client.get("/").text
     assert 'name="season"' not in text
-    assert 'name="league_id"' in text
 
 
 def test_season_is_taken_from_the_platform(client, monkeypatch):
@@ -2454,7 +2459,8 @@ def test_weak_passwords_are_refused_with_a_reason(client):
 def test_signing_up_signs_you_in(client):
     r = _signup(client)
     assert r.status_code == 303
-    assert r.headers["location"].startswith("/account")
+    # Straight to connecting a league. Signing up was never the goal.
+    assert r.headers["location"] == "/connect"
     assert client.get("/account").status_code == 200
 
 
@@ -2676,3 +2682,159 @@ def test_login_cannot_be_used_as_an_open_redirect(client):
                                     "next": "//evil.example.com/steal"},
                     follow_redirects=False)
     assert r.headers["location"] == "/account"
+
+
+# ===========================================================================
+# Connecting a platform
+#
+# "Paste the long number out of your league's URL" was the first thing this
+# product ever asked anyone to do, and the worst step in it. Sleeper can
+# resolve a username to an account and list its leagues, so that step becomes
+# a list to click.
+# ===========================================================================
+
+#: Distinct from None, which is a meaningful answer here — "no such user".
+_DEFAULT = object()
+
+
+class _FakeSleeper:
+    """Stands in for the adapter so these never touch the network."""
+
+    def __init__(self, leagues=None, user=_DEFAULT):
+        # `user=None` has to mean "no such account", so the "you didn't say"
+        # case needs its own sentinel. Overloading None made an unknown-user
+        # test silently exercise the happy path.
+        self._user = {"user_id": "u-1", "username": "johnhh",
+                      "display_name": "John"} if user is _DEFAULT else user
+        self._leagues = leagues if leagues is not None else [
+            _fake_league("111", "Kevlarville", "in_season"),
+            _fake_league("222", "The Other One", "in_season"),
+        ]
+
+    def find_user(self, username):
+        return self._user
+
+    def user_leagues(self, user_id, season):
+        return self._leagues
+
+    def describe_league(self, league_id, season=None):
+        return next((l for l in self._leagues if l.league_id == league_id), None)
+
+
+def _fake_league(league_id, name, status="in_season", season=2026):
+    from providers.models import League
+    return League(provider="sleeper", league_id=league_id, name=name,
+                  season=season, team_count=12, status=status)
+
+
+@pytest.fixture
+def fake_sleeper(monkeypatch):
+    adapter = _FakeSleeper()
+    monkeypatch.setattr(webapp, "get_provider", lambda name="sleeper": adapter)
+    return adapter
+
+
+def test_connecting_requires_an_account(client):
+    assert client.get("/connect").status_code == 401
+    assert client.get("/connect/sleeper").status_code == 401
+
+
+def test_a_username_returns_your_leagues(client, fake_sleeper):
+    _signup(client)
+    r = client.post("/connect/sleeper", data={"username": "johnhh"})
+    assert "Kevlarville" in r.text
+    assert "The Other One" in r.text
+    assert "league_id" in r.text, "each league needs to be selectable"
+
+
+def test_an_unknown_username_says_so_usefully(client, monkeypatch):
+    _signup(client)
+    monkeypatch.setattr(webapp, "get_provider",
+                        lambda name="sleeper": _FakeSleeper(user=None))
+    r = client.post("/connect/sleeper", data={"username": "nobody"})
+    assert "No Sleeper account" in r.text
+    # The commonest mistake, named rather than left to guess at.
+    assert "team name" in r.text
+
+
+def test_picking_a_league_creates_a_paper_you_own(client, fake_sleeper):
+    _signup(client)
+    user = demo_db.user_by_email("john@example.com")
+
+    r = client.post("/connect/sleeper/add", data={"league_id": "111"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert "/setup" in r.headers["location"]
+
+    mine = demo_db.leagues_for_user(user["id"])
+    assert [l["league_name"] for l in mine] == ["Kevlarville"]
+
+
+def test_a_league_you_already_added_is_marked_not_offered_twice(client, fake_sleeper):
+    _signup(client)
+    client.post("/connect/sleeper/add", data={"league_id": "111"},
+                follow_redirects=False)
+    r = client.post("/connect/sleeper", data={"username": "johnhh"})
+    assert "Already added" in r.text
+
+
+def test_adding_your_own_league_twice_just_opens_it(client, fake_sleeper):
+    """Not an error. They clicked the thing they already have."""
+    _signup(client)
+    client.post("/connect/sleeper/add", data={"league_id": "111"},
+                follow_redirects=False)
+    r = client.post("/connect/sleeper/add", data={"league_id": "111"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert "/l/" in r.headers["location"]
+    assert "error" not in r.headers["location"]
+
+
+def test_you_cannot_take_over_someone_elses_league(client, fake_sleeper):
+    _signup(client, email="first@example.com")
+    client.post("/connect/sleeper/add", data={"league_id": "111"},
+                follow_redirects=False)
+    client.post("/logout")
+
+    second = TestClient(webapp.app)
+    second.post("/signup", data={"email": "second@example.com",
+                                 "password": GOOD_PASSWORD})
+    r = second.post("/connect/sleeper/add", data={"league_id": "111"},
+                    follow_redirects=False)
+    assert "already" in r.headers["location"].lower()
+
+
+def test_a_league_that_has_not_drafted_is_shown_but_not_offered(client, monkeypatch):
+    """The confusing failure this replaces: pick it, wait, get told there is no
+    data for week 1 with no explanation of why."""
+    _signup(client)
+    monkeypatch.setattr(webapp, "get_provider", lambda name="sleeper":
+                        _FakeSleeper(leagues=[_fake_league("999", "Not Drafted",
+                                                           "pre_draft")]))
+    r = client.post("/connect/sleeper", data={"username": "johnhh"})
+    assert "Not Drafted" in r.text
+    assert "hasn" in r.text and "drafted" in r.text
+    assert "No games yet" in r.text
+
+
+def test_platforms_that_are_not_ready_say_so_rather_than_failing(client):
+    _signup(client)
+    for platform in ("espn", "yahoo"):
+        r = client.get(f"/connect/{platform}")
+        assert r.status_code == 200
+        assert "isn" in r.text and "ready" in r.text
+        assert "Tell me when" in r.text
+
+
+def test_platform_interest_is_recorded(client, capsys):
+    _signup(client)
+    client.post("/connect/espn/notify", follow_redirects=False)
+    assert "PLATFORM INTEREST espn john@example.com" in capsys.readouterr().out
+
+
+def test_espn_and_yahoo_do_not_pretend_to_find_users():
+    """The contract returns None rather than a plausible-looking empty result,
+    so a caller can tell 'not supported' from 'no leagues'."""
+    from providers import get_provider
+    assert get_provider("espn").find_user("anyone") is None
+    assert get_provider("espn").user_leagues("x", 2026) == []

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Where do you play?{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1 class="hero-title">Where do you play?</h1>
+    <p class="hero-sub">
+        We read your league&rsquo;s results straight from the platform. Nothing is
+        ever written back &mdash; we only ever look.
+    </p>
+</section>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<div class="platform-grid">
+    {% for p in platforms %}
+    <a class="platform {% if not p.ready %}platform-soon{% endif %}"
+       href="/connect/{{ p.key }}">
+        <span class="platform-name">{{ p.name }}</span>
+        {% if not p.ready %}<span class="platform-tag">Coming soon</span>{% endif %}
+        <span class="platform-how">{{ p.how }}</span>
+    </a>
+    {% endfor %}
+</div>
+
+<p class="empty">
+    Not ready yet? <a href="/account">Back to your papers</a>.
+</p>
+{% endblock %}

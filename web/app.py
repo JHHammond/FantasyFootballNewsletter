@@ -176,6 +176,7 @@ LOGINS_PER_IP_PER_HOUR = 20
 LOGINS_PER_ACCOUNT_PER_HOUR = 8
 SIGNUPS_PER_HOUR = 5
 RESETS_PER_ACCOUNT_PER_DAY = 5
+LOOKUPS_PER_HOUR = 30               # username -> leagues, per IP
 
 DAY = 86400
 
@@ -331,6 +332,165 @@ SAMPLE_PAPER_URL = os.getenv("SAMPLE_PAPER_URL", "").strip()
 
 
 # ---------------------------------------------------------------------------
+# Connecting a platform
+#
+# "Paste the long number out of your league's URL" was the first thing the
+# product ever asked anyone to do, and it is the worst step in it. Sleeper will
+# resolve a username to an account and then list every league that account is
+# in, so for the platform most people here actually use, the question becomes
+# "what's your username" and the answer is a list to click.
+#
+# ESPN and Yahoo cannot do this. ESPN has no public directory; Yahoo answers
+# nothing at all without OAuth. Rather than ship a button that fails, they
+# collect an address and say so.
+# ---------------------------------------------------------------------------
+
+#: Platforms in the picker, and what each can currently do. `ready` is the
+#: honest bit: false means the button leads to a waiting list, not a dead end.
+PLATFORMS = [
+    {"key": "sleeper", "name": "Sleeper", "ready": True,
+     "how": "Type your username and pick from your leagues."},
+    {"key": "espn", "name": "ESPN", "ready": False,
+     "how": "Being built. ESPN has no way to look you up by name, so it will "
+            "ask for a league ID."},
+    {"key": "yahoo", "name": "Yahoo", "ready": False,
+     "how": "Being built. Yahoo requires signing in with them first."},
+]
+
+
+@app.get("/connect", response_class=HTMLResponse)
+def connect(request: Request, error: str = ""):
+    _require_user(request)
+    return _render(request, "connect.html", platforms=PLATFORMS, error=error)
+
+
+@app.get("/connect/sleeper", response_class=HTMLResponse)
+def connect_sleeper(request: Request, username: str = "", error: str = ""):
+    _require_user(request)
+    return _render(request, "connect_sleeper.html",
+                   username=username, error=error, leagues=None)
+
+
+@app.post("/connect/sleeper")
+def connect_sleeper_lookup(request: Request, username: str = Form(...)):
+    """Username -> the leagues that account is in this season."""
+    user = _require_user(request)
+
+    def fail(message: str, leagues=None):
+        return _render(request, "connect_sleeper.html",
+                       username=username.strip(), error=message, leagues=leagues)
+
+    if _rate_limited(f"lookup:{_client_ip(request)}", LOOKUPS_PER_HOUR):
+        return fail("That's a lot of lookups. Give it a few minutes.")
+
+    adapter = get_provider("sleeper")
+    try:
+        account = adapter.find_user(username)
+    except ProviderError as exc:
+        return fail(f"Couldn't reach Sleeper. {exc}")
+
+    if not account:
+        return fail("No Sleeper account with that username. It's the one you "
+                    "sign in with, not your team name.")
+
+    import nfl_week
+    season = nfl_week.current_season()
+    try:
+        leagues = adapter.user_leagues(account["user_id"], season)
+    except ProviderError as exc:
+        return fail(f"Found you, but couldn't list your leagues. {exc}")
+
+    if not leagues:
+        return fail(f"That account isn't in any {season} leagues on Sleeper. "
+                    f"If your league is from a previous year, you can still "
+                    f"add it by league ID below.")
+
+    # Leagues this account already made are shown as already added rather than
+    # silently failing when they click.
+    mine = {l.get("platform_league_id") for l in db.leagues_for_user(user["id"])}
+    return _render(request, "connect_sleeper.html",
+                   username=account["username"], error="",
+                   leagues=[{
+                       "league_id": l.league_id,
+                       "name": l.name,
+                       "season": l.season,
+                       "team_count": l.team_count,
+                       "status": l.status,
+                       "avatar_url": l.avatar_url,
+                       "already": l.league_id in mine,
+                   } for l in leagues])
+
+
+@app.post("/connect/sleeper/add")
+def connect_sleeper_add(request: Request, league_id: str = Form(...),
+                        paper_name: str = Form("")):
+    """Turn a chosen league into a paper, owned by the signed-in account."""
+    user = _require_user(request)
+
+    if _rate_limited(f"create:{_client_ip(request)}", LEAGUE_CREATES_PER_HOUR):
+        return RedirectResponse(
+            "/connect/sleeper?error=That's+a+few+already.+Try+again+in+an+hour.",
+            status_code=303)
+
+    adapter = get_provider("sleeper")
+    try:
+        info = adapter.describe_league(league_id.strip())
+    except (ProviderError, ValueError):
+        info = None
+    if not info:
+        return RedirectResponse(
+            "/connect/sleeper?error=Couldn't+read+that+league+from+Sleeper.",
+            status_code=303)
+
+    existing = db.find_existing_league("sleeper", league_id.strip(), info.season)
+    if existing:
+        # Theirs already? Send them to it. Somebody else's is still refused.
+        if existing.get("user_id") == user["id"]:
+            return RedirectResponse(f"/l/{existing['admin_token']}", status_code=303)
+        return RedirectResponse(
+            "/connect/sleeper?error=Someone+has+already+made+a+paper+for+that+league.",
+            status_code=303)
+
+    league = db.create_league(
+        provider="sleeper",
+        platform_league_id=league_id.strip(),
+        league_name=info.name,
+        paper_name=(paper_name.strip() or f"The {info.name} Times"),
+        commissioner_name="",
+        season=info.season,
+        public_slug=slugs.public_slug(info.name),
+        admin_token=slugs.admin_token(),
+    )
+    db.claim_league(league["id"], user["id"])
+    return RedirectResponse(f"/l/{league['admin_token']}/setup", status_code=303)
+
+
+@app.get("/connect/{platform}", response_class=HTMLResponse)
+def connect_waitlist(request: Request, platform: str, sent: int = 0):
+    _require_user(request)
+    known = next((p for p in PLATFORMS if p["key"] == platform), None)
+    if not known:
+        raise HTTPException(status_code=404, detail="No such platform.")
+    if known["ready"]:
+        return RedirectResponse(f"/connect/{platform}", status_code=303)
+    return _render(request, "connect_waitlist.html",
+                   platform=known, sent=bool(sent))
+
+
+@app.post("/connect/{platform}/notify")
+def connect_notify(request: Request, platform: str):
+    """Register interest. Which platform people ask for is the cheapest
+    possible answer to what to build next."""
+    user = _require_user(request)
+    known = next((p for p in PLATFORMS if p["key"] == platform), None)
+    if not known or known["ready"]:
+        raise HTTPException(status_code=404, detail="No such platform.")
+
+    print(f"PLATFORM INTEREST {platform} {user['email']}", flush=True)
+    return RedirectResponse(f"/connect/{platform}?sent=1", status_code=303)
+
+
+# ---------------------------------------------------------------------------
 # Accounts
 #
 # Readers are untouched by everything in this section. /p/ has no session, no
@@ -385,7 +545,9 @@ def signup(request: Request, email: str = Form(...), password: str = Form(...)):
                             "already had an account, we've sent a reminder.",
                        link_url="/login", link_label="Sign in")
 
-    response = RedirectResponse("/account?welcome=1", status_code=303)
+    # Straight on to the next thing rather than an empty shelf. Signing up is
+    # not the goal; having a paper is.
+    response = RedirectResponse("/connect", status_code=303)
     return _set_session(response, user["id"])
 
 
@@ -520,10 +682,11 @@ def reset(request: Request, token: str, password: str = Form(...)):
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request):
+def index(request: Request, error: str = ""):
     return _render(request, "index.html",
                    providers=_implemented_providers(),
-                   sample_paper_url=SAMPLE_PAPER_URL)
+                   sample_paper_url=SAMPLE_PAPER_URL,
+                   error=error)
 
 
 @app.post("/leagues")

@@ -107,6 +107,29 @@ class FantasyProvider(ABC):
         """
         return None
 
+    def find_user(self, username: str) -> Optional[dict]:
+        """Resolve a display name to a stable account id, or None.
+
+        Platforms that let a stranger look somebody up by name can implement
+        this; it is what turns "paste the long number out of your league URL"
+        into "type your username". Returns at least {"user_id", "username"}.
+
+        Not every platform allows it. Yahoo needs OAuth before it will say
+        anything at all, and ESPN has no public directory, so both leave this
+        returning None rather than pretending.
+        """
+        return None
+
+    def user_leagues(self, user_id: str, season: int) -> list:
+        """Every league that account is in this season. Newest first.
+
+        Returns League objects so the caller does not have to learn a second
+        shape. Implementations should build these from whatever the listing
+        endpoint already returns rather than fetching each league again — the
+        point is one request, not one per league.
+        """
+        return []
+
     def season_chain(self, league_id: str, max_hops: int = 10) -> list:
         """This league and its predecessors, newest first.
 

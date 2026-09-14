@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ platform.name }} support{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="eyebrow"><a href="/connect">Platforms</a> &rsaquo; {{ platform.name }}</div>
+    <h1 class="page-title">{{ platform.name }} isn&rsquo;t ready yet</h1>
+</div>
+
+{% if sent %}
+<div class="alert alert-success">
+    Noted. We&rsquo;ll email you the day {{ platform.name }} works.
+</div>
+{% endif %}
+
+<section class="card">
+    <p class="card-sub">{{ platform.how }}</p>
+    {% if not sent %}
+    <form method="post" action="/connect/{{ platform.key }}/notify">
+        <button type="submit" class="btn btn-primary">
+            Tell me when {{ platform.name }} works
+        </button>
+    </form>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2 class="card-title">In the meantime</h2>
+    <p class="card-sub">
+        Sleeper works today, and it takes about ten seconds &mdash; type your
+        username and pick a league.
+    </p>
+    <a class="btn" href="/connect/sleeper">Connect Sleeper</a>
+</section>
+{% endblock %}

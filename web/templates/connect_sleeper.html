@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Connect Sleeper{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="eyebrow"><a href="/connect">Platforms</a> &rsaquo; Sleeper</div>
+    <h1 class="page-title">
+        {% if leagues %}Pick a league{% else %}What&rsquo;s your Sleeper username?{% endif %}
+    </h1>
+</div>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+{% if leagues %}
+<section class="card">
+    <p class="card-sub">
+        Everything <strong>{{ username }}</strong> is in this season. Pick the one
+        you want a paper for &mdash; you can add the others later.
+    </p>
+    <ul class="paper-list">
+        {% for league in leagues %}
+        <li class="paper-row">
+            <div>
+                <div class="paper-week">{{ league.name }}</div>
+                <div class="paper-meta">
+                    {{ league.team_count }} teams &middot; {{ league.season }}
+                    {% if league.status == 'pre_draft' %}
+                    &middot; <em>hasn&rsquo;t drafted yet</em>
+                    {% elif league.status == 'complete' %}
+                    &middot; season finished
+                    {% endif %}
+                </div>
+            </div>
+            <div class="paper-row-actions">
+                {% if league.already %}
+                <span class="paper-meta">Already added</span>
+                {% elif league.status == 'pre_draft' %}
+                <span class="paper-meta">No games yet</span>
+                {% else %}
+                <form method="post" action="/connect/sleeper/add">
+                    <input type="hidden" name="league_id" value="{{ league.league_id }}" />
+                    <button type="submit" class="btn btn-sm btn-primary">Make a paper</button>
+                </form>
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+
+<section class="card">
+    <h2 class="card-title">Not the right account?</h2>
+    <form method="post" action="/connect/sleeper" class="inline-form">
+        <label class="field">
+            <span class="field-label">Try another username</span>
+            <input type="text" name="username" required placeholder="username" />
+        </label>
+        <button type="submit" class="btn">Look up</button>
+    </form>
+</section>
+
+{% else %}
+<section class="card">
+    <form method="post" action="/connect/sleeper" class="stack">
+        <label class="field">
+            <span class="field-label">Sleeper username</span>
+            <input type="text" name="username" required autofocus
+                   value="{{ username or '' }}" placeholder="yourusername" />
+            <span class="field-help">
+                The username you sign in to Sleeper with &mdash; not your team
+                name. We&rsquo;ll show you every league you&rsquo;re in.
+            </span>
+        </label>
+        <div>
+            <button type="submit" class="btn btn-primary btn-lg">Find my leagues</button>
+        </div>
+    </form>
+</section>
+{% endif %}
+{% endblock %}
