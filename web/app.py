@@ -1293,8 +1293,23 @@ def healthz():
     try:
         db.health_check()
     except Exception as exc:  # noqa: BLE001 — any failure is a failure
-        return JSONResponse({"ok": False, "detail": str(exc)[:200]},
+        return JSONResponse({"ok": False, "detail": str(exc)[:300]},
                             status_code=503)
+
+    # Reported, not raised. A half-migrated database still serves every paper
+    # that already exists, so pulling the service out of rotation over it would
+    # take working pages down. But it is the single most likely reason for a
+    # 500 on a fresh deploy, and it should be one request away from obvious
+    # rather than buried in a stack trace.
+    missing = db.schema_report()
+    if missing:
+        return JSONResponse({
+            "ok": True,
+            "warning": "unapplied migrations",
+            "missing": missing,
+            "fix": "run these in the Supabase SQL editor in order, then: "
+                   "notify pgrst, 'reload schema';",
+        })
     return {"ok": True}
 
 
@@ -1309,10 +1324,20 @@ def not_found(request: Request, exc: HTTPException):
 
 @app.exception_handler(500)
 def server_error(request: Request, exc: Exception):
-    """A reader who tapped a link from a group chat should not get raw JSON."""
+    """A reader who tapped a link from a group chat should not get raw JSON.
+
+    The traceback goes to stdout, which is where the host captures it. Saying
+    "it's been logged" and meaning it matters: that line is the only thing
+    pointing whoever hits this at somewhere useful.
+    """
+    import traceback
+    print("UNHANDLED ERROR on", request.url.path, flush=True)
+    traceback.print_exc()
+
     return templates.TemplateResponse(
         request, "error.html",
-        {"message": "Something broke on our end. It's been logged — "
-                    "try again in a minute."},
+        {"heading": "That didn't work.",
+         "message": "Something broke on our end, not on yours. It's been "
+                    "logged — try again in a minute."},
         status_code=500,
     )

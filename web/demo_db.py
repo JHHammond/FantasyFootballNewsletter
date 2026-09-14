@@ -200,6 +200,11 @@ def health_check() -> None:
     return None
 
 
+def schema_report() -> list[str]:
+    """Nothing to migrate when the schema is a handful of dicts."""
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Rate limiting — same contract as db.claim_rate_slot, in a dict.
 # ---------------------------------------------------------------------------

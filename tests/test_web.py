@@ -2074,9 +2074,10 @@ def test_both_stores_expose_the_same_functions():
     public = {n for n in dir(real_db)
               if not n.startswith("_") and callable(getattr(real_db, n))}
     missing = {n for n in public if not hasattr(demo_db, n)}
-    # Not part of the interface app.py uses: `client` is db.py's own Supabase
-    # handle, and the rest are names it imported.
-    missing -= {"create_client", "Client", "client"}
+    # Not part of the storage interface app.py uses: `client` is db.py's own
+    # Supabase handle, `describe_key` inspects the key's format before one is
+    # built, and the rest are names it imported.
+    missing -= {"create_client", "Client", "client", "describe_key"}
     assert not missing, f"demo_db is missing: {sorted(missing)}"
 
 
@@ -2303,3 +2304,96 @@ def test_published_view_prints_the_paper_not_the_toolbar(client, league):
     body = client.get("/l/secret-admin-token/published/1").text
     assert "pdf-btn" in body
     assert "contentWindow.print()" in body
+
+
+# --- key validation ---------------------------------------------------------
+#
+# The publishable key doesn't get rejected by Supabase, it gets an empty
+# result. Reads return nothing, writes fail deep inside a request, and a health
+# check that only ran a select passed the whole time. These make the shape of
+# the key a startup error instead.
+
+def test_publishable_keys_are_recognised_as_wrong():
+    from web.db import describe_key
+
+    ok, what = describe_key("sb_publishable_abc123")
+    assert ok is False
+    assert "publishable" in what
+
+
+def test_secret_keys_are_accepted():
+    from web.db import describe_key
+    assert describe_key("sb_secret_abc123")[0] is True
+
+
+def test_legacy_jwts_are_read_by_their_role_claim():
+    import base64, json
+    from web.db import describe_key
+
+    def jwt(role):
+        payload = base64.urlsafe_b64encode(
+            json.dumps({"role": role}).encode()).decode().rstrip("=")
+        return f"header.{payload}.signature"
+
+    assert describe_key(jwt("service_role"))[0] is True
+    anon_ok, anon_what = describe_key(jwt("anon"))
+    assert anon_ok is False
+    assert "anon" in anon_what
+
+
+def test_an_unknown_key_format_is_allowed_through():
+    """A future key format must not take the site down."""
+    from web.db import describe_key
+    assert describe_key("something-new-entirely")[0] is True
+
+
+def test_the_wrong_key_stops_the_app_at_startup(monkeypatch):
+    from web import db as real_db
+
+    monkeypatch.setattr(real_db, "_client", None)
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "sb_publishable_oops")
+
+    with pytest.raises(RuntimeError) as err:
+        real_db.client()
+    assert "publishable" in str(err.value)
+    assert "sb_secret_" in str(err.value), "error should say what to do instead"
+    monkeypatch.setattr(real_db, "_client", None)
+
+
+def test_the_500_page_does_not_claim_the_page_is_missing(client):
+    """It reused the 404 template, so a server error was headed 'Nothing
+    here.' above a body saying something broke."""
+    @webapp.app.get("/_boom_test")
+    def boom():
+        raise RuntimeError("deliberate")
+
+    c = TestClient(webapp.app, raise_server_exceptions=False)
+    r = c.get("/_boom_test")
+    assert r.status_code == 500
+    assert "Nothing here" not in r.text
+    # Jinja escapes the apostrophe, so match on a stretch without one.
+    assert "broke on our end" in r.text
+    assert "not on yours" in r.text
+
+
+def test_health_check_reports_missing_migrations_without_failing(client, monkeypatch):
+    """A half-migrated database still serves every paper that already exists.
+    Failing the health check over it would pull working pages out of rotation —
+    but it IS the likeliest cause of a 500 on a fresh deploy, so it should be
+    one request away from obvious."""
+    monkeypatch.setattr(demo_db, "schema_report", lambda: ["007_themes"],
+                        raising=False)
+    r = client.get("/healthz")
+    assert r.status_code == 200, "a missing migration must not 503 the site"
+    body = r.json()
+    assert body["ok"] is True
+    assert body["missing"] == ["007_themes"]
+    assert "reload schema" in body["fix"], "should name the stale-cache fix too"
+
+
+def test_health_check_still_fails_when_the_database_is_unreachable(client, monkeypatch):
+    def broken():
+        raise RuntimeError("connection refused")
+    monkeypatch.setattr(demo_db, "health_check", broken, raising=False)
+    assert client.get("/healthz").status_code == 503

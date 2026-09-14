@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}Not found{% endblock %}
+{% block title %}{{ heading or "Not found" }}{% endblock %}
 
 {% block content %}
 <section class="hero">
-    <h1 class="hero-title">Nothing here.</h1>
+    {# The 500 handler reuses this template. It used to hardcode "Nothing
+       here.", so a server error greeted people with a heading saying the page
+       didn't exist and a body saying something broke — two different stories
+       on one screen. #}
+    <h1 class="hero-title">{{ heading or "Nothing here." }}</h1>
     <p class="hero-sub">{{ message }}</p>
     <a class="btn btn-primary" href="/">Back to the front page</a>
 </section>

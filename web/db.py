@@ -28,6 +28,48 @@ BUCKET = "newspapers"
 _client: Optional[Client] = None
 
 
+def describe_key(key: str) -> tuple[bool, str]:
+    """Can this key bypass RLS? Returns (yes_it_can, what_it_actually_is).
+
+    Worth checking, because the failure mode of getting this wrong is silent
+    rather than loud. Every table has RLS on with no policies, so a publishable
+    key doesn't get rejected — it gets an empty result. Reads return nothing,
+    writes fail deep inside a request, and the health check passes throughout
+    because "no rows" is a perfectly successful query.
+
+    Recognising the key by shape costs one string comparison and turns that
+    into an error at startup with the reason attached.
+    """
+    key = (key or "").strip()
+
+    # Current formats are prefixed and unambiguous.
+    if key.startswith("sb_secret_"):
+        return True, "secret key"
+    if key.startswith("sb_publishable_"):
+        return False, "publishable key (the browser-safe one)"
+
+    # Legacy JWTs carry the role in their payload.
+    parts = key.split(".")
+    if len(parts) == 3:
+        import base64
+        import json as _json
+        try:
+            padded = parts[1] + "=" * (-len(parts[1]) % 4)
+            claims = _json.loads(base64.urlsafe_b64decode(padded))
+            role = str(claims.get("role", "")).lower()
+        except Exception:  # noqa: BLE001 — an unreadable JWT is just unknown
+            return True, "unrecognised JWT"
+        if role == "service_role":
+            return True, "service_role key"
+        if role:
+            return False, f"{role} key"
+        return True, "JWT with no role claim"
+
+    # Anything else is a format we don't know. Don't block on it — a future
+    # key format shouldn't take the site down — but don't claim it's fine.
+    return True, "unrecognised format"
+
+
 def client() -> Client:
     """The one Supabase client. Created lazily so imports don't need env vars."""
     global _client
@@ -40,6 +82,17 @@ def client() -> Client:
                 "SUPABASE_URL and SUPABASE_SERVICE_KEY must be set. "
                 "See SETUP.md."
             )
+
+        privileged, what = describe_key(key)
+        if not privileged:
+            raise RuntimeError(
+                f"SUPABASE_SERVICE_KEY is a {what}. This app needs the key "
+                f"that bypasses Row Level Security, or every query returns "
+                f"nothing and every write is refused. Supabase dashboard -> "
+                f"Settings -> API Keys -> copy the SECRET key (sb_secret_...), "
+                f"not the publishable one."
+            )
+
         _client = create_client(url, key)
     return _client
 
@@ -258,8 +311,55 @@ def record_view(league_id: str, season: int, week: int) -> None:
 
 
 def health_check() -> None:
-    """Cheapest query that proves the database is reachable. Raises if not."""
+    """Is the database reachable, with a key that can actually use it?
+
+    Raises only for the two things that make the whole app useless. The first
+    version ran a bare select, which was worse than useless: with RLS on and no
+    policies a publishable key returns an empty result rather than an error, so
+    the check passed with a key that could do nothing.
+
+    Deliberately does NOT check the schema. A missing migration is a real
+    problem, but published papers still serve without it, and failing the
+    health check would pull a partly-working site out of rotation entirely.
+    That's schema_report's job, and it reports rather than raises.
+    """
+    client()  # raises on a key that cannot bypass RLS
     client().table("leagues").select("id").limit(1).execute()
+
+
+#: What each migration leaves behind, so a half-migrated database can say so
+#: rather than failing later with "could not find the column".
+_EXPECTED_SCHEMA = [
+    ("005_setup", "column", "leagues", "stakes"),
+    ("006_edits", "column", "newspapers", "ai_cache_original"),
+    ("007_themes", "column", "leagues", "theme"),
+    ("008_views", "column", "newspapers", "view_count"),
+    ("009_limits", "function", "claim_rate_slot", None),
+]
+
+
+def schema_report() -> list[str]:
+    """Migrations that look unapplied. Empty list means everything is present.
+
+    Written because the symptom of a missing migration is a 500 in the middle
+    of a user's first attempt, with the real cause — "run 007" — visible only
+    in a server log. One request to /healthz should be able to say it instead.
+    """
+    missing: list[str] = []
+    for name, kind, target, column in _EXPECTED_SCHEMA:
+        try:
+            if kind == "column":
+                client().table(target).select(column).limit(1).execute()
+            else:
+                # A zero limit always refuses and never writes a row.
+                client().rpc(target, {
+                    "p_bucket": "schema-probe",
+                    "p_limit": 0,
+                    "p_window": "1 seconds",
+                }).execute()
+        except Exception:  # noqa: BLE001 — absence is the signal
+            missing.append(name)
+    return missing
 
 
 # ---------------------------------------------------------------------------
