@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1 class="hero-title">Sign in</h1>
+</section>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<section class="card">
+    <form method="post" action="/login" class="stack">
+        <input type="hidden" name="next" value="{{ next or '' }}" />
+        <label class="field">
+            <span class="field-label">Email</span>
+            <input type="email" name="email" required autocomplete="email" autofocus />
+        </label>
+        <label class="field">
+            <span class="field-label">Password</span>
+            <input type="password" name="password" required
+                   autocomplete="current-password" />
+        </label>
+        <div>
+            <button type="submit" class="btn btn-primary btn-lg">Sign in</button>
+        </div>
+    </form>
+</section>
+
+<p class="empty">
+    <a href="/forgot">Forgotten your password?</a>
+    &nbsp;&middot;&nbsp;
+    No account? <a href="/signup">Create one</a>.
+</p>
+{% endblock %}

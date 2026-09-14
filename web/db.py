@@ -509,21 +509,59 @@ def leagues_for_email(email: str) -> list[dict[str, Any]]:
     return res.data or []
 
 
-def create_magic_link(email: str, token: str, expires_at: str) -> None:
+def create_magic_link(email: str, token: str, expires_at: str,
+                      purpose: str = "recover") -> None:
+    """A single-use, expiring link.
+
+    `purpose` keeps the two uses apart: a link mailed to recover a manage URL
+    must not be redeemable as a password reset, or anyone who ever received
+    one holds a permanent key to the account.
+    """
     client().table("magic_links").insert({
         "email": email.strip().lower(),
         "token": token,
         "expires_at": expires_at,
+        "purpose": purpose,
     }).execute()
 
 
-def consume_magic_link(token: str) -> Optional[str]:
-    """Return the email if the token is valid and unused, then burn it."""
+def peek_magic_link(token: str, purpose: str = "recover") -> Optional[str]:
+    """The email a token is for, WITHOUT burning it.
+
+    Exists so a rejected password doesn't cost somebody their one-shot reset
+    link. Validate first, consume only once the new password is acceptable.
+    """
+    res = client().table("magic_links").select("*").eq("token", token).limit(1).execute()
+    if not res.data:
+        return None
+    row = res.data[0]
+    if row.get("used_at") or (row.get("purpose") or "recover") != purpose:
+        return None
+
+    from datetime import datetime, timezone
+    try:
+        expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    if datetime.now(timezone.utc) > expires:
+        return None
+    return row["email"]
+
+
+def consume_magic_link(token: str, purpose: str = "recover") -> Optional[str]:
+    """Return the email if the token is valid, unused and for this purpose.
+
+    Burns it either way it succeeds. `purpose` must match what the link was
+    minted for: a recovery link redeemed as a password reset would turn every
+    manage-link email ever sent into a permanent key to the account.
+    """
     res = client().table("magic_links").select("*").eq("token", token).limit(1).execute()
     if not res.data:
         return None
     row = res.data[0]
     if row.get("used_at"):
+        return None
+    if (row.get("purpose") or "recover") != purpose:
         return None
 
     from datetime import datetime, timezone
@@ -557,3 +595,58 @@ def mark_emailed(league_id: str, season: int, week: int) -> None:
 def _token() -> str:
     import secrets
     return secrets.token_urlsafe(24)
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+#
+# Readers never touch any of this. It exists because the admin token was the
+# only credential a commissioner had, and losing the URL it lived in was
+# unrecoverable. See migration 010.
+# ---------------------------------------------------------------------------
+
+def create_user(email: str, password_hash: str) -> Optional[dict[str, Any]]:
+    """Register an account. None if the address is already taken.
+
+    Uniqueness is enforced by a unique index on lower(email), so a race between
+    two simultaneous signups is settled by the database rather than by a
+    check-then-insert here that both requests would pass.
+    """
+    try:
+        res = client().table("users").insert({
+            "email": email.strip().lower(),
+            "password_hash": password_hash,
+        }).execute()
+    except Exception:  # noqa: BLE001 — unique violation is the expected case
+        return None
+    return res.data[0] if res.data else None
+
+
+def user_by_email(email: str) -> Optional[dict[str, Any]]:
+    res = (client().table("users").select("*")
+           .ilike("email", (email or "").strip().lower())
+           .limit(1).execute())
+    return res.data[0] if res.data else None
+
+
+def user_by_id(user_id: str) -> Optional[dict[str, Any]]:
+    if not user_id:
+        return None
+    res = client().table("users").select("*").eq("id", user_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def update_user(user_id: str, fields: dict[str, Any]) -> None:
+    client().table("users").update(fields).eq("id", user_id).execute()
+
+
+def leagues_for_user(user_id: str) -> list[dict[str, Any]]:
+    res = (client().table("leagues").select("*")
+           .eq("user_id", user_id)
+           .order("created_at", desc=True).execute())
+    return res.data or []
+
+
+def claim_league(league_id: str, user_id: str) -> None:
+    """Attach a league to an account."""
+    client().table("leagues").update({"user_id": user_id}).eq("id", league_id).execute()

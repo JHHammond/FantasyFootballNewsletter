@@ -31,6 +31,7 @@ _PAPERS: dict[tuple[str, int, int], dict[str, Any]] = {}
 _STORAGE: dict[str, str] = {}
 _SUBSCRIBERS: dict[str, dict[str, Any]] = {}
 _MAGIC_LINKS: dict[str, dict[str, Any]] = {}
+_USERS: dict[str, dict[str, Any]] = {}
 
 
 def _now() -> str:
@@ -317,19 +318,38 @@ def leagues_for_email(email: str) -> list[dict[str, Any]]:
             if (l.get("owner_email") or "").lower() == email]
 
 
-def create_magic_link(email: str, token: str, expires_at: str) -> None:
+def create_magic_link(email: str, token: str, expires_at: str,
+                      purpose: str = "recover") -> None:
     with _lock:
         _MAGIC_LINKS[token] = {
             "id": str(uuid4()), "email": email.strip().lower(),
-            "token": token, "expires_at": expires_at,
+            "token": token, "expires_at": expires_at, "purpose": purpose,
             "used_at": None, "created_at": _now(),
         }
 
 
-def consume_magic_link(token: str) -> Optional[str]:
+def peek_magic_link(token: str, purpose: str = "recover") -> Optional[str]:
+    """Validate without burning — see db.peek_magic_link."""
+    row = _MAGIC_LINKS.get(token)
+    if not row or row.get("used_at"):
+        return None
+    if (row.get("purpose") or "recover") != purpose:
+        return None
+    try:
+        expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    if datetime.now(timezone.utc) > expires:
+        return None
+    return row["email"]
+
+
+def consume_magic_link(token: str, purpose: str = "recover") -> Optional[str]:
     with _lock:
         row = _MAGIC_LINKS.get(token)
         if not row or row.get("used_at"):
+            return None
+        if (row.get("purpose") or "recover") != purpose:
             return None
         try:
             expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
@@ -354,3 +374,48 @@ def mark_emailed(league_id: str, season: int, week: int) -> None:
         paper = _PAPERS.get((league_id, season, week))
         if paper:
             paper["emailed_at"] = _now()
+
+
+# ---------------------------------------------------------------------------
+# Accounts — same contract as db.py, in dicts.
+# ---------------------------------------------------------------------------
+
+def create_user(email: str, password_hash: str) -> Optional[dict[str, Any]]:
+    email = (email or "").strip().lower()
+    with _lock:
+        if any(u["email"] == email for u in _USERS.values()):
+            return None   # the unique index, in miniature
+        uid = str(uuid4())
+        _USERS[uid] = {
+            "id": uid, "email": email, "password_hash": password_hash,
+            "created_at": _now(), "last_login_at": None, "verified_at": None,
+        }
+        return dict(_USERS[uid])
+
+
+def user_by_email(email: str) -> Optional[dict[str, Any]]:
+    email = (email or "").strip().lower()
+    return next((dict(u) for u in _USERS.values() if u["email"] == email), None)
+
+
+def user_by_id(user_id: str) -> Optional[dict[str, Any]]:
+    found = _USERS.get(user_id)
+    return dict(found) if found else None
+
+
+def update_user(user_id: str, fields: dict[str, Any]) -> None:
+    with _lock:
+        if user_id in _USERS:
+            _USERS[user_id].update(fields)
+
+
+def leagues_for_user(user_id: str) -> list[dict[str, Any]]:
+    leagues = [dict(l) for l in _LEAGUES.values() if l.get("user_id") == user_id]
+    leagues.sort(key=lambda l: l.get("created_at") or "", reverse=True)
+    return leagues
+
+
+def claim_league(league_id: str, user_id: str) -> None:
+    with _lock:
+        if league_id in _LEAGUES:
+            _LEAGUES[league_id]["user_id"] = user_id

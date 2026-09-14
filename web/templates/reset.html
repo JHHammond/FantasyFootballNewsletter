@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Choose a new password{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1 class="hero-title">Choose a new password</h1>
+</section>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<section class="card">
+    <form method="post" action="/reset/{{ token }}" class="stack">
+        <label class="field">
+            <span class="field-label">New password</span>
+            <input type="password" name="password" required minlength="10"
+                   autocomplete="new-password" autofocus />
+            <span class="field-help">At least 10 characters.</span>
+        </label>
+        <div>
+            <button type="submit" class="btn btn-primary btn-lg">Save and sign in</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

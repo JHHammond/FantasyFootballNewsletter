@@ -18,7 +18,18 @@
     {% endif %}
     <header class="masthead">
         <a class="masthead-logo" href="/">The Commissioner&rsquo;s Desk</a>
-        {% block nav %}{% endblock %}
+        <nav class="masthead-nav">
+            {% block nav %}{% endblock %}
+            {% if user %}
+            <a href="/account">Your papers</a>
+            <form method="post" action="/logout" class="nav-form">
+                <button type="submit" class="nav-link">Sign out</button>
+            </form>
+            {% else %}
+            <a href="/login">Sign in</a>
+            <a class="btn btn-sm btn-primary" href="/signup">Create account</a>
+            {% endif %}
+        </nav>
     </header>
 
     <main class="wrap {% block wrapclass %}{% endblock %}">
@@ -26,7 +37,7 @@
     </main>
 
     <footer class="site-footer">
-        <span>Generated from real league data. Free, forever, no account.</span>
+        <span>Generated from real league data. Free, and readers never sign in.</span>
         <nav class="footer-links">
             <a href="/privacy">Privacy</a>
             <a href="/terms">Terms</a>

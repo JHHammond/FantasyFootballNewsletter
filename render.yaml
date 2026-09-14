@@ -56,6 +56,11 @@ services:
       - key: TRUSTED_PROXY_HOPS
         value: "1"         # proxies between the client and uvicorn. Getting
                            # this wrong makes rate limits spoofable.
+      - key: SESSION_SECRET
+        generateValue: true   # signs session cookies. Changing it signs
+                              # everybody out; leaving it unset regenerates
+                              # one per restart, which does the same thing
+                              # every deploy.
       - key: TASK_KEY
         generateValue: true
 

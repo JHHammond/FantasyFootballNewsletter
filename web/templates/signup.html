@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Create an account{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1 class="hero-title">Create an account</h1>
+    <p class="hero-sub">
+        So your papers are all in one place, and losing a link is never
+        a problem.
+    </p>
+</section>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<section class="card">
+    <form method="post" action="/signup" class="stack">
+        <label class="field">
+            <span class="field-label">Email</span>
+            <input type="email" name="email" required autocomplete="email"
+                   autofocus value="{{ email or '' }}" placeholder="you@email.com" />
+        </label>
+        <label class="field">
+            <span class="field-label">Password</span>
+            <input type="password" name="password" required minlength="10"
+                   autocomplete="new-password" />
+            <span class="field-help">
+                At least 10 characters. A few ordinary words in a row is both
+                easier to remember and harder to guess than one short word with
+                a symbol stuck on the end.
+            </span>
+        </label>
+        <div>
+            <button type="submit" class="btn btn-primary btn-lg">Create account</button>
+        </div>
+    </form>
+</section>
+
+<p class="empty">
+    Already have one? <a href="/login">Sign in</a>.
+</p>
+{% endblock %}

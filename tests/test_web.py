@@ -34,7 +34,7 @@ from web import demo_db, emailer, slugs  # noqa: E402
 def clean_state(monkeypatch):
     for store in (demo_db._LEAGUES, demo_db._LORE, demo_db._PAPERS,
                   demo_db._STORAGE, demo_db._SUBSCRIBERS, demo_db._MAGIC_LINKS,
-                  demo_db._RATE_EVENTS):
+                  demo_db._RATE_EVENTS, demo_db._USERS):
         store.clear()
     monkeypatch.setattr(webapp, "db", demo_db)
     yield
@@ -2397,3 +2397,282 @@ def test_health_check_still_fails_when_the_database_is_unreachable(client, monke
         raise RuntimeError("connection refused")
     monkeypatch.setattr(demo_db, "health_check", broken, raising=False)
     assert client.get("/healthz").status_code == 503
+
+
+# ===========================================================================
+# Accounts
+#
+# Added after the accountless model produced a dead end: a lost admin token
+# was unrecoverable, and the signup path walked people straight into it.
+#
+# The rule that did NOT change is the one these tests exist to protect —
+# readers still need nothing.
+# ===========================================================================
+
+GOOD_PASSWORD = "kevlarville forever 2018"
+
+
+def _signup(client, email="john@example.com", password=GOOD_PASSWORD):
+    return client.post("/signup", data={"email": email, "password": password},
+                       follow_redirects=False)
+
+
+# --- hashing ---------------------------------------------------------------
+
+def test_passwords_are_never_stored_in_the_clear(client):
+    _signup(client)
+    stored = demo_db.user_by_email("john@example.com")["password_hash"]
+    assert GOOD_PASSWORD not in stored
+    assert stored.startswith("scrypt$")
+
+
+def test_the_same_password_hashes_differently_every_time():
+    """Per-user salt. Without it, one rainbow table cracks every account that
+    picked the same password, and equal hashes reveal equal passwords."""
+    from web import auth
+    assert auth.hash_password("same input") != auth.hash_password("same input")
+
+
+def test_a_tampered_hash_does_not_verify():
+    from web import auth
+    good = auth.hash_password(GOOD_PASSWORD)
+    assert auth.verify_password(GOOD_PASSWORD, good)
+    assert not auth.verify_password(GOOD_PASSWORD, good[:-4] + "AAAA")
+    assert not auth.verify_password(GOOD_PASSWORD, "")
+    assert not auth.verify_password(GOOD_PASSWORD, "sha256$deadbeef")
+
+
+def test_weak_passwords_are_refused_with_a_reason(client):
+    r = client.post("/signup", data={"email": "a@b.com", "password": "short"},
+                    follow_redirects=False)
+    assert "at least 10" in r.text
+    assert demo_db.user_by_email("a@b.com") is None
+
+
+# --- sessions --------------------------------------------------------------
+
+def test_signing_up_signs_you_in(client):
+    r = _signup(client)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith("/account")
+    assert client.get("/account").status_code == 200
+
+
+def test_a_forged_session_cookie_is_refused(client):
+    import time
+    from web import auth
+    _signup(client)
+    victim = demo_db.user_by_email("john@example.com")["id"]
+
+    attacker = TestClient(webapp.app)
+    # The id is right; the signature is not.
+    attacker.cookies.set(auth.SESSION_COOKIE, f"{victim}.{int(time.time())}.forged")
+    assert attacker.get("/account").status_code == 401
+
+
+def test_sessions_expire(monkeypatch):
+    from web import auth
+    cookie = auth.make_session("someone")
+    assert auth.read_session(cookie) == "someone"
+    monkeypatch.setattr(auth, "SESSION_MAX_AGE", -1)
+    assert auth.read_session(cookie) is None
+
+
+def test_the_session_cookie_is_not_readable_by_script(client):
+    from web import auth
+    r = _signup(client)
+    header = r.headers["set-cookie"].lower()
+    assert "httponly" in header, "an XSS bug could otherwise lift the session"
+    assert "samesite=lax" in header, \
+        "samesite is what makes CSRF on these forms impractical"
+
+
+def test_signing_out_clears_the_session(client):
+    _signup(client)
+    client.post("/logout", follow_redirects=False)
+    assert client.get("/account").status_code == 401
+
+
+# --- enumeration -----------------------------------------------------------
+
+def test_login_says_the_same_thing_whether_or_not_the_account_exists(client):
+    _signup(client, email="real@example.com")
+
+    wrong_password = client.post(
+        "/login", data={"email": "real@example.com", "password": "wrong-one-here"})
+    no_account = client.post(
+        "/login", data={"email": "nobody@example.com", "password": "wrong-one-here"})
+
+    # Jinja escapes the apostrophe, so compare on a stretch without one.
+    assert "and password" in wrong_password.text
+    assert wrong_password.text == no_account.text, (
+        "any difference here hands an attacker a list of real addresses")
+
+
+def test_signing_up_twice_does_not_reveal_the_address_is_taken(client, sent_emails):
+    _signup(client, email="taken@example.com")
+    r = client.post("/signup",
+                    data={"email": "taken@example.com", "password": GOOD_PASSWORD},
+                    follow_redirects=False)
+    assert "already" not in r.text.lower() or "Check your inbox" in r.text
+    # The answer goes to the inbox that owns the address instead.
+    assert any(m["to"] == "taken@example.com" for m in sent_emails)
+
+
+def test_forgot_password_answers_identically_for_unknown_addresses(client):
+    a = client.post("/forgot", data={"email": "nobody@example.com"},
+                    follow_redirects=False)
+    b = client.post("/forgot", data={"email": "also-nobody@example.com"},
+                    follow_redirects=False)
+    assert a.headers["location"] == b.headers["location"] == "/forgot?sent=1"
+
+
+# --- brute force -----------------------------------------------------------
+
+def test_login_attempts_are_capped_per_account(client, monkeypatch):
+    """Credential stuffing comes from thousands of addresses at once, so an
+    IP limit alone protects nobody."""
+    monkeypatch.setattr(webapp, "LOGINS_PER_ACCOUNT_PER_HOUR", 3)
+    monkeypatch.setattr(webapp, "LOGINS_PER_IP_PER_HOUR", 10_000)
+    _signup(client, email="target@example.com")
+    client.post("/logout")
+
+    for i in range(6):
+        client.post("/login",
+                    data={"email": "target@example.com", "password": f"guess{i}"},
+                    headers={"X-Forwarded-For": f"7.7.7.{i}, 203.0.113.5"})
+
+    # Even the correct password is refused once the account's allowance is gone.
+    r = client.post("/login",
+                    data={"email": "target@example.com", "password": GOOD_PASSWORD},
+                    headers={"X-Forwarded-For": "7.7.7.99, 203.0.113.5"},
+                    follow_redirects=False)
+    assert r.status_code == 200, "should not have logged in"
+
+
+def test_login_attempts_are_capped_per_address(client, monkeypatch):
+    monkeypatch.setattr(webapp, "LOGINS_PER_IP_PER_HOUR", 3)
+    codes = []
+    for i in range(6):
+        r = client.post("/login",
+                        data={"email": f"user{i}@example.com", "password": "nope-nope"},
+                        headers={"X-Forwarded-For": "8.8.8.8, 203.0.113.5"})
+        codes.append("Too many" in r.text)
+    assert any(codes), "one address should not be able to grind a user list"
+
+
+# --- password reset --------------------------------------------------------
+
+def test_reset_link_works_once(client, sent_emails):
+    _signup(client, email="forgot@example.com")
+    client.post("/logout")
+    client.post("/forgot", data={"email": "forgot@example.com"})
+
+    token = next(t for t in demo_db._MAGIC_LINKS)
+    new_password = "a brand new passphrase"
+
+    r = client.post(f"/reset/{token}", data={"password": new_password},
+                    follow_redirects=False)
+    assert r.status_code == 303
+
+    again = client.post(f"/reset/{token}", data={"password": "yet another one"})
+    assert "expired" in again.text
+
+    client.post("/logout")
+    ok = client.post("/login",
+                     data={"email": "forgot@example.com", "password": new_password},
+                     follow_redirects=False)
+    assert ok.status_code == 303, "the new password should work"
+
+
+def test_a_recovery_link_cannot_be_redeemed_as_a_password_reset(client):
+    """Otherwise every manage-link email ever sent is a permanent key to the
+    account it was sent to."""
+    _signup(client, email="mixed@example.com")
+    from datetime import datetime, timedelta, timezone
+    token = "recovery-token-not-a-reset"
+    expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+    demo_db.create_magic_link("mixed@example.com", token, expires.isoformat(),
+                              purpose="recover")
+
+    r = client.post(f"/reset/{token}", data={"password": "trying to take over"})
+    assert "expired" in r.text
+    assert demo_db.consume_magic_link(token, purpose="recover") == "mixed@example.com", \
+        "the recovery link itself should be untouched"
+
+
+def test_a_rejected_password_does_not_burn_the_reset_link(client):
+    _signup(client, email="careful@example.com")
+    client.post("/forgot", data={"email": "careful@example.com"})
+    token = next(t for t in demo_db._MAGIC_LINKS)
+
+    client.post(f"/reset/{token}", data={"password": "short"})
+    r = client.post(f"/reset/{token}", data={"password": "a perfectly fine one"},
+                    follow_redirects=False)
+    assert r.status_code == 303, "a typo shouldn't cost them their one-shot link"
+
+
+# --- leagues and ownership -------------------------------------------------
+
+def test_a_league_made_while_signed_in_belongs_to_you(client, monkeypatch):
+    _signup(client)
+    user = demo_db.user_by_email("john@example.com")
+
+    league = demo_db.create_league(
+        provider="sleeper", platform_league_id="55", league_name="X",
+        paper_name="The X Times", commissioner_name="j", season=2026,
+        public_slug="x-1", admin_token="tok-x")
+    demo_db.claim_league(league["id"], user["id"])
+
+    body = client.get("/account").text
+    assert "The X Times" in body
+
+
+def test_opening_an_orphan_league_while_signed_in_adopts_it(client, league):
+    """How a league made before signing up joins an account: open the link you
+    already have."""
+    assert league.get("user_id") is None
+    _signup(client)
+    user = demo_db.user_by_email("john@example.com")
+
+    client.get("/l/secret-admin-token")
+    assert demo_db._LEAGUES[league["id"]]["user_id"] == user["id"]
+
+
+def test_an_owned_league_is_not_silently_stolen(client, league):
+    """A shared manage link must not transfer ownership away from its owner."""
+    demo_db.update_league(league["id"], {"user_id": "the-real-owner"})
+    _signup(client, email="someone-else@example.com")
+
+    client.get("/l/secret-admin-token")
+    assert demo_db._LEAGUES[league["id"]]["user_id"] == "the-real-owner"
+
+
+def test_the_admin_token_still_works_with_no_account_at_all(client, league):
+    """Every league that existed before accounts, and every bookmark."""
+    assert client.get("/l/secret-admin-token").status_code == 200
+
+
+# --- the thing that must never change --------------------------------------
+
+def test_readers_still_need_nothing(client, league):
+    """The entire monetization rests on this. No session, no cookie, no wall."""
+    demo_db.save_paper(league["id"], 1, 2025, "p/1", "http://x/1", {"headline": "H"})
+    demo_db._STORAGE[demo_db.storage_path("kevlarville-7f3a", 2025, 1)] = "<html></html>"
+
+    anonymous = TestClient(webapp.app)
+    assert anonymous.get("/p/kevlarville-7f3a/2025/week-1").status_code == 200
+    assert anonymous.get("/p/kevlarville-7f3a").status_code == 200
+    assert not anonymous.cookies, "readers should not be given a cookie"
+
+
+def test_login_cannot_be_used_as_an_open_redirect(client):
+    """`next` on a login form is a classic phishing launchpad: land on a real
+    sign-in page, get bounced somewhere else entirely."""
+    _signup(client, email="redir@example.com")
+    client.post("/logout")
+    r = client.post("/login", data={"email": "redir@example.com",
+                                    "password": GOOD_PASSWORD,
+                                    "next": "//evil.example.com/steal"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/account"

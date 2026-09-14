@@ -1,23 +1,31 @@
 """
 The Commissioner's Desk — web app.
 
-No accounts, by design. Monetization is ads inside the paper, so the number
-that matters is how many people open one, and a signup wall stands in front of
-the single person who has to create it while doing nothing for the ten who
-read it.
+READERS NEVER SIGN IN. That is the load-bearing decision and it has not
+changed: monetization is ad impressions from readers, so a wall in front of
+them is the one change that would actually cost money. /p/ takes no session, no
+cookie and no account, forever.
 
-Email does the two jobs an account would have done, but asks only after the
-product has proven itself:
+Commissioners do have accounts, added after the accountless version showed its
+cost. The admin token was the only credential, it lived in a single URL, and
+losing that URL was unrecoverable — re-submitting the league ID hit "this
+league already has a paper", and recovery only worked for people who had
+already saved an email, which happened on a page reached *after* the moment
+things went wrong. A dead end sitting in the signup path.
 
-    recovery      — commissioner gives us an address, gets their manage link
-                    re-sent. Magic links replace passwords entirely.
-    distribution  — readers subscribe from inside the paper, so reach stops
-                    depending on one person pasting a link every Monday.
+So there are now two ways to manage a league, and both stay:
 
-Two URLs per league:
+    the admin token   — still the credential. Every league made before accounts
+                        works this way, and a bookmarked link opens with no
+                        session. Opening one while signed in claims it.
+    an account        — email and password, so losing the link is survivable
+                        and several leagues live in one place.
+
+Three URLs per league:
 
     /l/<admin_token>            manage. Secret. Bookmark it.
-    /p/<public_slug>            read. Share freely.
+    /p/<public_slug>            read. Share freely. No sign-in, ever.
+    /account                    every league you own.
 
 Run locally:
 
@@ -52,7 +60,7 @@ from providers import (  # noqa: E402
 
 import themes  # noqa: E402
 
-from . import emailer, images, legal, slugs  # noqa: E402
+from . import auth, emailer, images, legal, slugs  # noqa: E402
 from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
     generate_and_store,
@@ -161,6 +169,14 @@ UPLOADS_PER_HOUR = 30               # per IP
 UPLOADS_PER_LEAGUE_PER_DAY = 60     # per league
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
+# Credential stuffing is the attack accounts invite, and it is run from many
+# addresses against many accounts at once. Limiting only by IP stops nobody;
+# limiting only by email lets one address grind through a user list. Both.
+LOGINS_PER_IP_PER_HOUR = 20
+LOGINS_PER_ACCOUNT_PER_HOUR = 8
+SIGNUPS_PER_HOUR = 5
+RESETS_PER_ACCOUNT_PER_DAY = 5
+
 DAY = 86400
 
 #: Total papers generated in a rolling day, across everybody and every
@@ -223,6 +239,10 @@ def _require_league(token: str) -> dict:
 
     404 rather than 403: a wrong guess should be indistinguishable from a
     league that doesn't exist.
+
+    The token remains the credential. Accounts are an addition, not a
+    replacement — every league made before they existed has no owner, and a
+    bookmarked manage link has to keep working with no session at all.
     """
     league = db.league_by_admin_token(token)
     if not league:
@@ -230,8 +250,69 @@ def _require_league(token: str) -> dict:
     return league
 
 
+def _adopt_if_unowned(request: Request, league: dict) -> dict:
+    """Signed-in visitor opening an ownerless league takes ownership of it.
+
+    How a league made before signing up joins an account: open the link you
+    already have while signed in, and it's yours. No migration, no import step.
+
+    Only ever claims a league with NO owner. Holding the token of somebody
+    else's league already grants full control, so this transfers nothing that
+    wasn't already available — but silently reassigning an owned league would
+    let a shared link quietly steal it.
+    """
+    if league.get("user_id"):
+        return league
+    user = current_user(request)
+    if not user:
+        return league
+    try:
+        db.claim_league(league["id"], user["id"])
+    except Exception:  # noqa: BLE001 — convenience, never worth failing a page
+        return league
+    league = dict(league)
+    league["user_id"] = user["id"]
+    return league
+
+
+def current_user(request: Request) -> dict | None:
+    """The signed-in user, or None. Never raises — most pages work either way."""
+    user_id = auth.read_session(request.cookies.get(auth.SESSION_COOKIE, ""))
+    if not user_id:
+        return None
+    try:
+        return db.user_by_id(user_id)
+    except Exception:  # noqa: BLE001 — a database blip shouldn't 500 a page
+        return None                     # that renders perfectly well logged out
+
+
 def _render(request: Request, template: str, **context) -> HTMLResponse:
+    # Every template can ask who's looking, so the header renders correctly
+    # without each route having to remember to pass it.
+    context.setdefault("user", current_user(request))
     return templates.TemplateResponse(request, template, context)
+
+
+def _require_user(request: Request) -> dict:
+    """For pages that only make sense signed in."""
+    user = current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Sign in to see that.")
+    return user
+
+
+def _may_manage(request: Request, league: dict) -> bool:
+    """Does the person making this request control this league?
+
+    Two ways in, deliberately. The admin token is still the credential — it is
+    how every league created before accounts works, and how a bookmarked manage
+    link keeps working with no session. Ownership is the second way, so losing
+    the link stops being fatal.
+    """
+    if not league:
+        return False
+    user = current_user(request)
+    return bool(user and league.get("user_id") == user["id"])
 
 
 def _implemented_providers():
@@ -247,6 +328,195 @@ def _implemented_providers():
 #: they've read a sentence of it is the largest avoidable drop-off on the site.
 #: Generate one good paper, then put its public URL here.
 SAMPLE_PAPER_URL = os.getenv("SAMPLE_PAPER_URL", "").strip()
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+#
+# Readers are untouched by everything in this section. /p/ has no session, no
+# cookie and no sign-in, because ad impressions come from readers and a wall in
+# front of them would be the one change that actually costs money.
+#
+# This exists for the commissioner, whose only credential used to be a token in
+# a URL that could be lost permanently.
+# ---------------------------------------------------------------------------
+
+def _set_session(response, user_id: str):
+    response.set_cookie(auth.SESSION_COOKIE, auth.make_session(user_id),
+                        **auth.cookie_kwargs())
+    return response
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_form(request: Request, error: str = "", email: str = ""):
+    if current_user(request):
+        return RedirectResponse("/account", status_code=303)
+    return _render(request, "signup.html", error=error, email=email)
+
+
+@app.post("/signup")
+def signup(request: Request, email: str = Form(...), password: str = Form(...)):
+    def fail(message: str):
+        return _render(request, "signup.html", error=message,
+                       email=(email or "").strip())
+
+    if _rate_limited(f"signup:{_client_ip(request)}", SIGNUPS_PER_HOUR):
+        return fail("That's a few accounts already. Try again in an hour.")
+
+    address = auth.clean_email(email)
+    if not address:
+        return fail("That doesn't look like an email address.")
+
+    problem = auth.password_problem(password, address)
+    if problem:
+        return fail(problem)
+
+    user = db.create_user(address, auth.hash_password(password))
+    if not user:
+        # The address is taken. Saying so out loud turns this form into a
+        # checker for "does this person have an account here", so it doesn't —
+        # it says what a real signup says and mails the existing owner instead.
+        existing = db.user_by_email(address)
+        if existing:
+            emailer.send_account_exists(address)
+        return _render(request, "message.html",
+                       heading="Check your inbox",
+                       body="If that address is new, you're signed up. If it "
+                            "already had an account, we've sent a reminder.",
+                       link_url="/login", link_label="Sign in")
+
+    response = RedirectResponse("/account?welcome=1", status_code=303)
+    return _set_session(response, user["id"])
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, error: str = "", next: str = ""):
+    if current_user(request):
+        return RedirectResponse("/account", status_code=303)
+    return _render(request, "login.html", error=error, next=next)
+
+
+@app.post("/login")
+def login(request: Request, email: str = Form(...), password: str = Form(...),
+          next: str = Form("")):
+    # One message for every failure. Distinguishing "no such account" from
+    # "wrong password" hands an attacker a free list of which addresses are
+    # worth attacking.
+    wrong = "That email and password don't match."
+
+    def fail():
+        return _render(request, "login.html", error=wrong, next=next)
+
+    address = auth.clean_email(email) or ""
+
+    if _rate_limited(f"login-ip:{_client_ip(request)}", LOGINS_PER_IP_PER_HOUR):
+        return _render(request, "login.html",
+                       error="Too many attempts from here. Try again later.",
+                       next=next)
+    # Keyed on the account too: credential stuffing arrives from thousands of
+    # addresses, so an IP limit alone protects nobody.
+    if address and _rate_limited(f"login-acct:{address}",
+                                 LOGINS_PER_ACCOUNT_PER_HOUR):
+        return fail()
+
+    user = db.user_by_email(address) if address else None
+    if not user:
+        # Spend the same time as a real verify would, so the response time
+        # doesn't reveal whether the account exists.
+        auth.verify_password(password, auth.hash_password("decoy"))
+        return fail()
+
+    if not auth.verify_password(password, user["password_hash"]):
+        return fail()
+
+    updates = {"last_login_at": "now()"}
+    # Cost parameters may have been raised since this hash was made. This is
+    # the only moment the plaintext is available to upgrade it.
+    if auth.needs_rehash(user["password_hash"]):
+        updates["password_hash"] = auth.hash_password(password)
+    db.update_user(user["id"], updates)
+
+    # Only ever redirect within this site: an open redirect turns the login
+    # page into a convincing launchpad for somebody else's phishing.
+    destination = next if next.startswith("/") and not next.startswith("//") else "/account"
+    return _set_session(RedirectResponse(destination, status_code=303), user["id"])
+
+
+@app.post("/logout")
+def logout():
+    response = RedirectResponse("/", status_code=303)
+    response.delete_cookie(auth.SESSION_COOKIE, path="/")
+    return response
+
+
+@app.get("/account", response_class=HTMLResponse)
+def account(request: Request, welcome: int = 0, notice: str = ""):
+    user = _require_user(request)
+    return _render(request, "account.html",
+                   leagues=db.leagues_for_user(user["id"]),
+                   welcome=bool(welcome), notice=notice)
+
+
+# --- password reset, on the magic-link machinery that already exists --------
+
+@app.get("/forgot", response_class=HTMLResponse)
+def forgot_form(request: Request, sent: int = 0):
+    return _render(request, "forgot.html", sent=bool(sent))
+
+
+@app.post("/forgot")
+def forgot(request: Request, email: str = Form(...)):
+    address = auth.clean_email(email)
+    if address and not _rate_limited(f"reset:{address}",
+                                     RESETS_PER_ACCOUNT_PER_DAY, window=DAY):
+        user = db.user_by_email(address)
+        if user:
+            token = slugs.admin_token()
+            expires = datetime.now(timezone.utc) + timedelta(
+                minutes=MAGIC_LINK_TTL_MINUTES)
+            db.create_magic_link(address, token, expires.isoformat(),
+                                 purpose="reset")
+            emailer.send_password_reset(address, token)
+
+    # Always the same answer, sent or not. Otherwise this page reports whether
+    # an address has an account here.
+    return RedirectResponse("/forgot?sent=1", status_code=303)
+
+
+@app.get("/reset/{token}", response_class=HTMLResponse)
+def reset_form(request: Request, token: str, error: str = ""):
+    return _render(request, "reset.html", token=token, error=error)
+
+
+@app.post("/reset/{token}")
+def reset(request: Request, token: str, password: str = Form(...)):
+    # Checked before the token is burned, so a rejected password doesn't cost
+    # the user their one-shot link.
+    address = db.peek_magic_link(token, purpose="reset")
+    if not address:
+        return _render(request, "message.html",
+                       heading="That link has expired",
+                       body="Reset links work once and last 30 minutes.",
+                       link_url="/forgot", link_label="Send a new one")
+
+    problem = auth.password_problem(password, address)
+    if problem:
+        return _render(request, "reset.html", token=token, error=problem)
+
+    if not db.consume_magic_link(token, purpose="reset"):
+        return _render(request, "message.html",
+                       heading="That link has expired",
+                       body="Reset links work once and last 30 minutes.",
+                       link_url="/forgot", link_label="Send a new one")
+
+    user = db.user_by_email(address)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    db.update_user(user["id"], {"password_hash": auth.hash_password(password)})
+    return _set_session(
+        RedirectResponse("/account?notice=Password+changed.", status_code=303),
+        user["id"])
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -316,6 +586,12 @@ def create_league(
         public_slug=slugs.public_slug(info.name),
         admin_token=slugs.admin_token(),
     )
+
+    # Signed in? It's theirs, and losing the link stops mattering.
+    user = current_user(request)
+    if user:
+        db.claim_league(league["id"], user["id"])
+
     return RedirectResponse(f"/l/{league['admin_token']}/setup", status_code=303)
 
 
@@ -328,7 +604,7 @@ def manage(
     request: Request, token: str,
     new: int = 0, generated: int = 0, error: str = "", notice: str = "",
 ):
-    league = _require_league(token)
+    league = _adopt_if_unowned(request, _require_league(token))
 
     # Only offer weeks the platform actually has results for. Letting someone
     # pick week 1 of a league that hasn't drafted is how you get a confusing

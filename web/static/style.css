@@ -645,3 +645,47 @@ textarea { resize: vertical; }
     color: var(--muted);
     white-space: pre-line;
 }
+
+/* ---------- account navigation ---------- */
+
+.masthead-nav {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.masthead-nav a {
+    color: var(--ink-2);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+}
+
+.masthead-nav a:hover { color: var(--ink); border-bottom-color: var(--line); }
+.masthead-nav a.btn:hover { border-bottom-color: var(--green-d); }
+
+.nav-form { display: inline; }
+
+/* A button that reads as a link. Sign out has to be a POST — a plain link
+   means any page that can embed an image can sign the user out. */
+.nav-link {
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--ink-2);
+    cursor: pointer;
+    border-bottom: 1px solid transparent;
+}
+
+.nav-link:hover { color: var(--ink); border-bottom-color: var(--line); }
+
+@media (max-width: 640px) {
+    .masthead-nav { gap: 11px; font-size: 12px; }
+}

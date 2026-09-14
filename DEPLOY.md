@@ -39,7 +39,12 @@ migrations/006_edits.sql
 migrations/007_themes.sql
 migrations/008_views_and_ops.sql
 migrations/009_rate_limits.sql
+migrations/010_accounts.sql
 ```
+
+Finish with `notify pgrst, 'reload schema';` — Supabase caches the table
+schema, and a column added after that cache was built reports as "could not
+find the column" even though it is right there.
 
 All verified against a real Postgres and safe to re-run.
 

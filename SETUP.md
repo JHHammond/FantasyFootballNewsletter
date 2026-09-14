@@ -20,6 +20,7 @@ New project → SQL Editor → run every file in `migrations/`, in order:
 6. **`007_themes.sql`** — which theme a paper is set in
 7. **`008_views_and_ops.sql`** — read counts
 8. **`009_rate_limits.sql`** — durable rate limits and the daily spend ceiling
+9. **`010_accounts.sql`** — commissioner accounts; readers are unaffected
 
 All verified against a real Postgres: the chain runs three times consecutively
 without error, and re-running one over live data leaves the data intact.

@@ -242,3 +242,42 @@ def send_ops_alert(subject: str, report: dict) -> SendResult:
   <ul style="padding-left:18px;">{rows}</ul>
   {more}"""
     return _send(to, f"[Commissioner's Desk] {subject}", _shell(body))
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------
+
+def send_password_reset(to: str, token: str) -> SendResult:
+    """Transactional: they just asked for it. Exempt from the unsubscribe rule
+    and must carry no marketing, or it loses that exemption."""
+    _, _, base, _ = _config()
+    body = f"""
+  <h1 style="font-size:22px;margin:0 0 14px;">Set a new password</h1>
+  <p>Someone asked to reset the password for this address. If that wasn&rsquo;t
+     you, ignore this — nothing has changed.</p>
+  <p style="margin:24px 0;">
+    <a href="{base}/reset/{token}" style="{_BUTTON}">Choose a new password</a>
+  </p>
+  <p style="font-size:13px;color:#6b6050;">
+     This link works once and expires in 30 minutes.</p>"""
+    return _send(to, "Reset your password", _shell(body))
+
+
+def send_account_exists(to: str) -> SendResult:
+    """Sent when somebody tries to sign up with an address that already has an
+    account. The signup page can't say so without becoming a way to test which
+    addresses are registered here, so the answer goes to the inbox that owns
+    the address instead."""
+    _, _, base, _ = _config()
+    body = f"""
+  <h1 style="font-size:22px;margin:0 0 14px;">You already have an account</h1>
+  <p>Someone just tried to sign up with this address. If that was you, you
+     already have an account — sign in instead.</p>
+  <p style="margin:24px 0;">
+    <a href="{base}/login" style="{_BUTTON}">Sign in</a>
+  </p>
+  <p style="font-size:13px;color:#6b6050;">
+     Forgotten your password? <a href="{base}/forgot">Reset it here</a>.
+     If this wasn&rsquo;t you, nothing has changed and you can ignore this.</p>"""
+    return _send(to, "You already have an account", _shell(body))

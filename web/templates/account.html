@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Your papers{% endblock %}
+
+{% block content %}
+{% if welcome %}
+<div class="alert alert-success">
+    You&rsquo;re all set. Any league you make from here on lives in this list.
+</div>
+{% endif %}
+{% if notice %}<div class="alert alert-success">{{ notice }}</div>{% endif %}
+
+<div class="page-head">
+    <div class="eyebrow">Signed in as {{ user.email }}</div>
+    <h1 class="page-title">Your papers</h1>
+</div>
+
+<section class="card">
+    {% if leagues %}
+    <ul class="paper-list">
+        {% for league in leagues %}
+        <li class="paper-row">
+            <div>
+                <div class="paper-week">{{ league.paper_name or league.league_name }}</div>
+                <div class="paper-meta">{{ league.league_name }} &middot; {{ league.season }} season</div>
+            </div>
+            <div class="paper-row-actions">
+                <a class="btn btn-sm" href="/l/{{ league.admin_token }}">Manage</a>
+                <a class="btn btn-sm" href="/p/{{ league.public_slug }}">Read</a>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No papers yet.</p>
+    {% endif %}
+    <a class="btn btn-primary" href="/">Start a new paper</a>
+</section>
+
+<section class="card">
+    <h2 class="card-title">Already made a paper before signing up?</h2>
+    <p class="card-sub">
+        Open its manage link while signed in and it joins this list
+        automatically. If you&rsquo;ve lost that link,
+        <a href="/recover">have it emailed to you</a>.
+    </p>
+</section>
+{% endblock %}
