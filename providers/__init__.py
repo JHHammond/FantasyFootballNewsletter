@@ -76,7 +76,7 @@ def available_providers() -> list[dict]:
             "display_name": cls.display_name,
             "supports_public_leagues": cls.supports_public_leagues,
             "supports_projections": cls.supports_projections,
-            "implemented": cls is not ESPNProvider,
+            "implemented": cls.implemented,
         }
         for cls in PROVIDERS.values()
     ]

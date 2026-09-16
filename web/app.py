@@ -39,6 +39,7 @@ import os
 import sys
 import threading
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -54,6 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 load_dotenv()
 
 from providers import (  # noqa: E402
+    AuthRequired,
     ProviderError,
     available_providers,
     get_provider,
@@ -420,17 +422,28 @@ SAMPLE_PAPER_URL = os.getenv("SAMPLE_PAPER_URL", "").strip()
 # collect an address and say so.
 # ---------------------------------------------------------------------------
 
-#: Platforms in the picker, and what each can currently do. `ready` is the
-#: honest bit: false means the button leads to a waiting list, not a dead end.
-PLATFORMS = [
-    {"key": "sleeper", "name": "Sleeper", "ready": True,
-     "how": "Type your username and pick from your leagues."},
-    {"key": "espn", "name": "ESPN", "ready": False,
-     "how": "Being built. ESPN has no way to look you up by name, so it will "
-            "ask for a league ID."},
-    {"key": "yahoo", "name": "Yahoo", "ready": False,
-     "how": "Being built. Yahoo requires signing in with them first."},
+#: Platforms in the picker. `ready` is DERIVED from the provider registry
+#: rather than restated here, because it was restated here and the two then
+#: had to be kept in step by hand — the kind of duplication that shows up as a
+#: platform that works but is still behind a waiting list.
+_PLATFORM_COPY = [
+    ("sleeper", "Sleeper",
+     "Type your username and pick from your leagues."),
+    ("espn", "ESPN",
+     "Paste your league ID. ESPN has no way to look you up by name, and your "
+     "league has to be viewable to the public \u2014 we show you how."),
+    ("yahoo", "Yahoo",
+     "Being built. Yahoo requires signing in with them first."),
 ]
+
+
+def _platforms() -> list[dict]:
+    ready = {p["name"] for p in available_providers() if p["implemented"]}
+    return [{"key": key, "name": name, "ready": key in ready, "how": how}
+            for key, name, how in _PLATFORM_COPY]
+
+
+PLATFORMS = _platforms()
 
 
 @app.get("/connect", response_class=HTMLResponse)
@@ -555,6 +568,83 @@ def connect_sleeper_add(request: Request, league_id: str = Form(...),
     return RedirectResponse(f"/l/{league['admin_token']}/setup", status_code=303)
 
 
+@app.get("/connect/espn", response_class=HTMLResponse)
+def connect_espn(request: Request, league_id: str = "", error: str = ""):
+    _require_user(request)
+    return _render(request, "connect_espn.html",
+                   league_id=league_id, error=error)
+
+
+@app.post("/connect/espn")
+def connect_espn_add(request: Request, league_id: str = Form(...),
+                     paper_name: str = Form("")):
+    """Turn an ESPN league ID into a paper.
+
+    No username lookup: ESPN publishes no directory, so the league ID out of
+    the URL is the only handle anybody has. That makes the error messages the
+    whole user experience of this page — a wrong ID and a private league are
+    the two things that will happen, and they need different sentences.
+    """
+    user = _require_user(request)
+    league_id = league_id.strip()
+
+    if _rate_limited(f"create:{_client_ip(request)}", LEAGUE_CREATES_PER_HOUR):
+        return RedirectResponse(
+            "/connect/espn?error=That's+a+few+already.+Try+again+in+an+hour.",
+            status_code=303)
+
+    if not league_id.isdigit():
+        return RedirectResponse(
+            f"/connect/espn?league_id={quote(league_id[:40])}"
+            f"&error=An+ESPN+league+ID+is+all+digits+-+it's+the+number+after+"
+            f"leagueId=+in+your+league's+web+address.",
+            status_code=303)
+
+    adapter = get_provider("espn")
+    try:
+        info = adapter.get_league(league_id)
+    except AuthRequired as exc:
+        # The likeliest failure by far, and the one with a fix the person can
+        # actually carry out. The page they land back on lists the six steps.
+        return RedirectResponse(
+            f"/connect/espn?league_id={quote(league_id)}&error={quote(str(exc))}",
+            status_code=303)
+    except (ProviderError, ValueError):
+        return RedirectResponse(
+            f"/connect/espn?league_id={quote(league_id)}"
+            f"&error=Couldn't+find+that+league+on+ESPN.+Check+the+number+"
+            f"against+your+league's+web+address.",
+            status_code=303)
+
+    existing = db.find_existing_league("espn", league_id, info.season)
+    if existing:
+        if existing.get("user_id") == user["id"]:
+            return RedirectResponse(f"/l/{existing['admin_token']}",
+                                    status_code=303)
+        if not existing.get("user_id"):
+            db.claim_league(existing["id"], user["id"])
+            return RedirectResponse(
+                f"/l/{existing['admin_token']}?notice=Picked+up+where+you+left+off.",
+                status_code=303)
+        return RedirectResponse(
+            "/connect/espn?error=Another+account+already+has+a+paper+for+that+"
+            "league.+If+that+is+you,+sign+in+with+that+email.",
+            status_code=303)
+
+    league = db.create_league(
+        provider="espn",
+        platform_league_id=league_id,
+        league_name=info.name,
+        paper_name=(paper_name.strip() or f"The {info.name} Times"),
+        commissioner_name="",
+        season=info.season,
+        public_slug=slugs.public_slug(info.name),
+        admin_token=slugs.admin_token(),
+    )
+    db.claim_league(league["id"], user["id"])
+    return RedirectResponse(f"/l/{league['admin_token']}/setup", status_code=303)
+
+
 @app.get("/connect/{platform}", response_class=HTMLResponse)
 def connect_waitlist(request: Request, platform: str, sent: int = 0):
     _require_user(request)
@@ -562,7 +652,10 @@ def connect_waitlist(request: Request, platform: str, sent: int = 0):
     if not known:
         raise HTTPException(status_code=404, detail="No such platform.")
     if known["ready"]:
-        return RedirectResponse(f"/connect/{platform}", status_code=303)
+        # A ready platform has its own route declared above this one, so
+        # reaching here means the picker and the registry disagree. Send them
+        # somewhere real rather than redirecting to this same path forever.
+        return RedirectResponse("/connect", status_code=303)
     return _render(request, "connect_waitlist.html",
                    platform=known, sent=bool(sent))
 
@@ -570,10 +663,17 @@ def connect_waitlist(request: Request, platform: str, sent: int = 0):
 @app.post("/connect/{platform}/notify")
 def connect_notify(request: Request, platform: str):
     """Register interest. Which platform people ask for is the cheapest
-    possible answer to what to build next."""
+    possible answer to what to build next.
+
+    Accepts READY platforms too, which it did not used to. ESPN is why: it
+    works for public leagues and does not work for private ones, and the
+    button asking for private-league support sits on a page for a platform
+    that is otherwise finished. "Ready" and "nothing left to ask for" turned
+    out to be different things.
+    """
     user = _require_user(request)
     known = next((p for p in PLATFORMS if p["key"] == platform), None)
-    if not known or known["ready"]:
+    if not known:
         raise HTTPException(status_code=404, detail="No such platform.")
 
     print(f"PLATFORM INTEREST {platform} {user['email']}", flush=True)

@@ -48,6 +48,18 @@ class FantasyProvider(ABC):
     #: has to skip every "beat/missed projection" storyline.
     supports_projections: bool = True
 
+    #: Whether this adapter is finished AND has been checked against a real
+    #: league on that platform. The UI hides unimplemented platforms behind a
+    #: waitlist rather than letting somebody connect one and discover it does
+    #: not work.
+    #:
+    #: Deliberately not "the code exists". An adapter written against a
+    #: remembered API shape is code that exists and a platform that does not
+    #: work, and the difference is invisible from in here. This flips to True
+    #: when a real response from that platform has been parsed successfully,
+    #: and not before.
+    implemented: bool = True
+
     def __init__(self, cache: Optional[TTLCache] = None, **credentials):
         self.cache = cache or TTLCache(namespace=self.name)
         self.credentials = credentials

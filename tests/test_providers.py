@@ -14,6 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from providers import (  # noqa: E402
+    ESPNProvider,
     SleeperProvider,
     TTLCache,
     apply_lineup_gaps,
@@ -415,14 +416,19 @@ def test_unknown_provider_raises_a_useful_error():
         get_provider("draftkings")
 
 
-def test_espn_is_registered_but_not_implemented():
+def test_espn_is_offered_now_that_it_has_seen_a_real_league():
     listed = {p["name"]: p for p in available_providers()}
-    assert listed["espn"]["implemented"] is False
+    assert listed["espn"]["implemented"] is True
     assert listed["sleeper"]["implemented"] is True
 
-    espn = get_provider("espn")
-    with pytest.raises(NotImplementedError):
-        espn.get_league("x", 2025)
+
+def test_the_implemented_flag_is_read_from_the_provider_not_hardcoded():
+    """It used to be `cls is not ESPNProvider`, which meant the day ESPN
+    started working somebody had to remember to edit a different file."""
+    from providers.base import FantasyProvider
+
+    assert FantasyProvider.implemented is True
+    assert ESPNProvider.implemented is True
 
 
 def test_namespaced_id():
@@ -708,3 +714,225 @@ def test_a_faab_league_still_shows_the_bid(tmp_path):
     html = newspaper._transactions_block([tx.to_dict()])
 
     assert "$14" in html
+
+
+# ---------------------------------------------------------------------------
+# ESPN
+#
+# The fixture these run against was corrected on 16 Sep 2026 against a real
+# public league. Where a test names a specific ESPN quirk, that quirk was
+# observed in that response — it is not a guess about how ESPN might behave.
+# ---------------------------------------------------------------------------
+
+from tests import fixtures_espn  # noqa: E402
+
+
+@pytest.fixture
+def espn(tmp_path, monkeypatch):
+    p = ESPNProvider(cache=TTLCache(cache_dir=tmp_path, namespace="espn"))
+    monkeypatch.setattr(
+        p, "_get",
+        lambda lid, season, views, params=None:
+            fixtures_espn.fake_get(lid, season, views, params))
+    return p
+
+
+@pytest.fixture
+def espn_week(espn):
+    return apply_lineup_gaps(espn.get_week(fixtures_espn.LEAGUE_ID,
+                                           fixtures_espn.SEASON, 2))
+
+
+def test_espn_league_basics(espn):
+    league = espn.get_league(fixtures_espn.LEAGUE_ID, fixtures_espn.SEASON)
+    assert league.provider == "espn"
+    assert league.name == "Kevlarville"
+    assert league.scoring_type == "ppr"     # statId 53 worth 1.0
+    assert league.status == "in_season"
+
+
+def test_espn_roster_slots_skip_the_zero_counts(espn):
+    """lineupSlotCounts lists every slot ESPN knows about, and sets most of
+    them to zero. A naive read gives a league with a defensive line."""
+    league = espn.get_league(fixtures_espn.LEAGUE_ID, fixtures_espn.SEASON)
+    assert league.roster_slots.count("QB") == 1
+    assert league.roster_slots.count("RB") == 2
+    assert league.roster_slots.count("BN") == 6
+    assert "DL" not in league.roster_slots
+    assert "LB" not in league.roster_slots
+
+
+def test_espn_starters_and_bench_are_split_on_slot_id(espn_week):
+    """20 is bench and 21 is IR; everything else is on the field. Getting this
+    wrong is invisible until the scores do not add up."""
+    team = espn_week.team_by_id("1")
+    assert len(team.lineup) == 9
+    assert {p.slot for p in team.bench} == {"BN", "IR"}
+    assert "Jahmyr Gibbs" in {p.name for p in team.bench}
+
+
+def test_espn_starters_sum_to_the_teams_reported_total(espn_week):
+    """THE check. Nothing else validates the slot map, the bench rule and the
+    points field simultaneously — and against the real league, all ten teams
+    reconciled to the cent."""
+    for team in espn_week.teams:
+        total = round(sum(p.points for p in team.lineup), 2)
+        assert total == pytest.approx(team.points, abs=0.05), (
+            f"{team.team_name}: starters sum {total}, ESPN says {team.points}")
+
+
+def test_espn_healthy_players_carry_no_injury_note(espn_week):
+    """OBSERVED: injuryStatus is "ACTIVE" for a healthy player, not absent.
+    Fourteen of sixteen players in the real league carried it. Passed through
+    naively, the writer prints "[Active]" beside almost every name."""
+    team = espn_week.team_by_id("1")
+    healthy = [p for p in team.lineup if p.name != "Garrett Wilson"]
+    assert all(p.injury_status is None for p in healthy), (
+        [(p.name, p.injury_status) for p in healthy if p.injury_status])
+
+
+def test_espn_real_injuries_survive_and_are_readable(espn_week):
+    team = espn_week.team_by_id("1")
+    wilson = next(p for p in team.lineup if p.name == "Garrett Wilson")
+    assert wilson.injury_status == "Questionable"
+    ir = next(p for p in team.bench if p.slot == "IR")
+    assert ir.injury_status == "Out"
+
+
+def test_espn_projections_are_the_week_not_the_season(espn_week):
+    """The stats array holds weekly and season-to-date rows, actual and
+    projected, in one list distinguished only by three numeric fields."""
+    team = espn_week.team_by_id("1")
+    mahomes = next(p for p in team.lineup if p.name == "Patrick Mahomes")
+    assert mahomes.points == pytest.approx(24.6)
+    assert mahomes.projected == pytest.approx(21.2)
+    # The season-to-date row is nine times the weekly one in the fixture.
+    assert mahomes.points != pytest.approx(24.6 * 9)
+
+
+def test_espn_a_player_with_no_projection_is_not_invented(espn_week):
+    team = espn_week.team_by_id("2")
+    rookie = next(p for p in team.lineup if p.name == "Undrafted Rookie")
+    assert rookie.projected is None
+    assert rookie.vs_projection is None
+
+
+def test_espn_records_exclude_the_week_being_reported(espn_week):
+    """team.record.overall includes it — confirmed against the real league,
+    where a team that had lost its only game showed 0-1 while we were
+    reporting that very game."""
+    assert espn_week.team_by_id("1").record == "1-0"
+    assert espn_week.team_by_id("2").record == "0-1"
+
+
+def test_espn_an_unplayed_week_does_not_count_toward_records(espn_week):
+    """The fixture carries a week 3 marked UNDECIDED. Counting it either way
+    would be inventing a result."""
+    for team in espn_week.teams:
+        assert team.games_played == 1
+
+
+def test_espn_team_name_falls_back_to_location_and_nickname(espn_week):
+    """ESPN has used both shapes. The failure mode is printing "None None"
+    across the top of somebody's paper."""
+    assert espn_week.team_by_id("2").team_name == "Satan's Sommeliers"
+
+
+def test_espn_manager_name_falls_back_when_there_is_no_display_name(espn_week):
+    assert espn_week.team_by_id("2").manager.display_name == "Champ Hammond"
+
+
+def test_espn_player_ids_are_namespaced(espn_week):
+    for team in espn_week.teams:
+        for player in team.all_players:
+            assert player.player_id.startswith("espn:")
+
+
+def test_espn_defenses_get_no_headshot(espn_week):
+    team = espn_week.team_by_id("1")
+    defense = next(p for p in team.lineup if p.position == "DEF")
+    assert defense.headshot_url is None
+    assert defense.nfl_team == "SEA"
+
+
+def test_espn_lineup_gap_finds_the_benched_stud(espn_week):
+    """Gibbs scored 33.6 on the bench while Hubbard started at FLEX for 6.5."""
+    team = espn_week.team_by_id("1")
+    assert team.lineup_gap > 20
+
+
+def test_espn_available_weeks_excludes_the_week_in_progress(espn):
+    """latestScoringPeriod counts the week being played right now, which has
+    partial scores. A paper about a Sunday that is still happening is worse
+    than no paper."""
+    assert espn.available_weeks(fixtures_espn.LEAGUE_ID,
+                                fixtures_espn.SEASON) == [1, 2]
+
+
+def test_espn_a_private_league_says_how_to_fix_it(tmp_path, monkeypatch):
+    """The product tells people to make their league public. Some will not.
+    401 is therefore the most likely failure this adapter will ever see, and
+    it deserves the instruction rather than a status code."""
+    import requests
+    from providers.base import AuthRequired
+
+    class Resp:
+        status_code = 401
+
+        def json(self):
+            return {}
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: Resp())
+    p = ESPNProvider(cache=TTLCache(cache_dir=tmp_path, namespace="e2"))
+
+    with pytest.raises(AuthRequired) as caught:
+        p.get_league("123", 2026)
+    assert "public" in str(caught.value).lower()
+
+
+def test_espn_an_unknown_league_is_not_found_rather_than_a_crash(tmp_path,
+                                                                 monkeypatch):
+    """ESPN answers an unknown league with an HTML error page, not JSON."""
+    import requests
+    from providers.base import LeagueNotFound
+
+    class Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("not json")
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: Resp())
+    p = ESPNProvider(cache=TTLCache(cache_dir=tmp_path, namespace="e3"))
+
+    with pytest.raises(LeagueNotFound):
+        p.get_league("nope", 2026)
+
+
+def test_espn_feeds_the_writer_the_same_shape_sleeper_does(espn_week):
+    """The whole point of the provider layer. Nothing downstream should be
+    able to tell which platform a paper came from."""
+    games = week_to_legacy_games(espn_week)
+    assert games
+    for game in games:
+        for side in ("team_1", "team_2"):
+            team = game[side]
+            assert team["all_starters"], "the writer would have no players"
+            assert team["record_after"]
+            for player in team["all_starters"]:
+                assert player["name"]
+                assert player["actual"] is not None
+
+
+def test_espn_the_wrong_week_is_never_read_as_this_week(espn_week):
+    """Every player in the fixture carries a week 1 row worth 99.9 and a
+    season-to-date row worth nine times the week. Both sit BEFORE the correct
+    row in the stats array, so anything that stops filtering properly picks up
+    a wrong number rather than failing loudly."""
+    for team in espn_week.teams:
+        for player in team.all_players:
+            assert player.points != pytest.approx(99.9)
+            assert player.projected != pytest.approx(88.8)

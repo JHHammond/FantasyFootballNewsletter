@@ -2831,12 +2831,35 @@ def test_a_league_that_has_not_drafted_is_shown_but_not_offered(client, monkeypa
 
 
 def test_platforms_that_are_not_ready_say_so_rather_than_failing(client):
+    """A platform with no adapter leads to a waiting list, not a dead end."""
     _signup(client)
-    for platform in ("espn", "yahoo"):
-        r = client.get(f"/connect/{platform}")
-        assert r.status_code == 200
-        assert "isn" in r.text and "ready" in r.text
-        assert "Tell me when" in r.text
+    r = client.get("/connect/yahoo")
+    assert r.status_code == 200
+    assert "isn" in r.text and "ready" in r.text
+    assert "Tell me when" in r.text
+
+
+def test_espn_now_leads_to_a_real_page_not_the_waiting_list(client):
+    """ESPN went from waitlist to working. The picker reads `ready` off the
+    provider registry, so this follows from ESPNProvider.implemented rather
+    than from a second list somebody has to remember to edit."""
+    _signup(client)
+    r = client.get("/connect/espn")
+
+    assert r.status_code == 200
+    assert "Tell me when" not in r.text
+    assert "League ID" in r.text
+    # The six steps for making a league public are the actual product here:
+    # it is the thing most people will have to go and do.
+    assert "viewable" in r.text.lower()
+
+
+def test_the_picker_derives_readiness_from_the_providers(client):
+    _signup(client)
+    ready = {p["key"]: p["ready"] for p in webapp._platforms()}
+    assert ready["sleeper"] is True
+    assert ready["espn"] is True
+    assert ready["yahoo"] is False
 
 
 def test_platform_interest_is_recorded(client, capsys):
@@ -3240,3 +3263,115 @@ def test_a_paper_that_was_never_regenerated_says_nothing_about_it(client, league
 
     body = client.get("/l/secret-admin-token").text
     assert "regenerated" not in body
+
+
+# ---------------------------------------------------------------------------
+# Connecting an ESPN league
+#
+# There is no username lookup — ESPN publishes no directory — so a league ID
+# pasted out of a URL is the only handle anyone has. That makes the error
+# messages the entire experience of this page.
+# ---------------------------------------------------------------------------
+
+def _espn_provider(monkeypatch, *, raises=None, name="Ba1Lers", season=2026):
+    from providers.models import League
+
+    class P:
+        def get_league(self, league_id, season_=None):
+            if raises:
+                raise raises
+            return League(provider="espn", league_id=league_id, name=name,
+                          season=season, roster_slots=["QB", "RB", "BN"],
+                          team_count=10, status="in_season")
+
+    monkeypatch.setattr(webapp, "get_provider", lambda *a, **k: P())
+
+
+def test_connecting_an_espn_league_creates_a_paper(client, monkeypatch):
+    _signup(client)
+    _espn_provider(monkeypatch)
+
+    r = client.post("/connect/espn", data={"league_id": "1909054258"},
+                    follow_redirects=False)
+
+    assert r.status_code == 303
+    assert "/setup" in r.headers["location"]
+
+
+def test_a_private_espn_league_is_told_how_to_become_public(client, monkeypatch):
+    """The likeliest failure this page will ever see, and the only one with a
+    fix the person can actually carry out. They land back on the page that
+    lists the six steps."""
+    from providers.base import AuthRequired
+
+    _signup(client)
+    _espn_provider(monkeypatch, raises=AuthRequired(
+        "That ESPN league is private. Open it on ESPN, go to League "
+        "Settings, and set “Make League Viewable to Public” to Yes."))
+
+    r = client.post("/connect/espn", data={"league_id": "1909054258"},
+                    follow_redirects=False)
+
+    location = r.headers["location"]
+    assert location.startswith("/connect/espn?")
+    assert "private" in location.lower()
+    assert "public" in location.lower()
+    # The ID is handed back so they don't retype it after fixing the setting.
+    assert "1909054258" in location
+
+
+def test_a_non_numeric_league_id_is_caught_before_calling_espn(client,
+                                                               monkeypatch):
+    """People paste the whole URL. Asking ESPN about "https://fantasy..." gets
+    a generic not-found, which sends them hunting for the wrong problem."""
+    called = {"n": 0}
+
+    def counter(*a, **k):
+        called["n"] += 1
+        raise AssertionError("should not have reached the provider")
+
+    monkeypatch.setattr(webapp, "get_provider", counter)
+    _signup(client)
+
+    r = client.post(
+        "/connect/espn",
+        data={"league_id": "https://fantasy.espn.com/football/league?leagueId=123"},
+        follow_redirects=False)
+
+    assert called["n"] == 0
+    assert "digits" in r.headers["location"].lower()
+
+
+def test_an_unknown_espn_league_says_to_check_the_number(client, monkeypatch):
+    from providers.base import LeagueNotFound
+
+    _signup(client)
+    _espn_provider(monkeypatch, raises=LeagueNotFound("nope"))
+
+    r = client.post("/connect/espn", data={"league_id": "999"},
+                    follow_redirects=False)
+    assert "find+that+league" in r.headers["location"].lower()
+
+
+def test_connecting_an_espn_league_twice_reopens_it(client, monkeypatch):
+    _signup(client)
+    _espn_provider(monkeypatch)
+
+    first = client.post("/connect/espn", data={"league_id": "1909054258"},
+                        follow_redirects=False)
+    token = first.headers["location"].split("/l/")[1].split("/")[0]
+
+    again = client.post("/connect/espn", data={"league_id": "1909054258"},
+                        follow_redirects=False)
+    assert again.headers["location"] == f"/l/{token}"
+
+
+def test_espn_still_takes_interest_in_private_league_support(client, capsys):
+    """ESPN is ready for public leagues and not for private ones. The notify
+    route used to refuse ready platforms outright, which silently broke the
+    button asking for exactly that."""
+    _signup(client)
+    r = client.post("/connect/espn/notify", follow_redirects=False)
+
+    assert r.status_code == 303
+    assert "PLATFORM INTEREST espn" in capsys.readouterr().out
