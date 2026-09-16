@@ -2,9 +2,11 @@ from pathlib import Path
 from datetime import datetime
 import json
 import random
+import re
 import markdown
 
-from ads import CLASSIFIEDS_CSS, SUBSCRIBE_CSS, render_classifieds, render_subscribe_block
+from ads import (CLASSIFIEDS_CSS, SUBSCRIBE_CSS, ads_from_content,
+                 render_classifieds, render_subscribe_block)
 import printing
 import themes
 
@@ -171,8 +173,15 @@ def get_team_points(team):
 
 
 def get_team_record(team):
+    """The record as the paper should print it: including this week.
+
+    `record_after` is supplied by the provider layer; `record` is the record
+    entering the week and is the fallback for callers that predate it. Printing
+    the entering record is how the Week 1 paper showed ten teams at 0-0
+    underneath the results that had just changed them.
+    """
     if isinstance(team, dict):
-        return team.get("record", "")
+        return team.get("record_after") or team.get("record", "")
     return ""
 
 
@@ -687,17 +696,43 @@ def get_story_genre(story):
     return "GAME RECAP"
 
 
-def build_pull_quote(body_html):
-    """Extract a pull quote from the body — grab the second sentence."""
-    import re
-    # Strip HTML tags for extraction
-    plain = re.sub(r'<[^>]+>', ' ', body_html)
-    sentences = [s.strip() for s in plain.split('.') if len(s.strip()) > 40]
-    if len(sentences) >= 2:
-        return sentences[1][:120] + "..."
-    elif sentences:
-        return sentences[0][:120] + "..."
-    return ""
+def build_pull_quote(body_html, chosen=None):
+    """The line blown up beside the lead story.
+
+    `chosen` is the writer's own pick and wins when present. The fallback below
+    only runs when generation didn't supply one.
+
+    THE FALLBACK USED TO BE THE ONLY PATH, and it split the body on "." and
+    took fragment number two, truncated at 120 characters with an ellipsis
+    bolted on. That is how the Week 1 paper printed:
+
+        "Justin Jefferson (best receiver in football) put up 31..."
+
+    — a sentence cut in half mid-number, presented as the pulled-out line the
+    reader's eye lands on first. It now takes a whole sentence or nothing.
+    """
+    if chosen:
+        quote = re.sub(r"<[^>]+>", " ", str(chosen))
+        quote = re.sub(r"\s+", " ", quote).strip().strip('"“”')
+        if 20 <= len(quote) <= 200:
+            return quote
+
+    plain = re.sub(r"<[^>]+>", " ", body_html or "")
+    plain = re.sub(r"\s+", " ", plain).strip()
+
+    # Split only where a sentence terminator is followed by whitespace and a
+    # new sentence's opening character. Splitting on "." alone cuts "5.5
+    # points" in half, which is exactly the bug this function is here to fix —
+    # a paper about numbers has decimal points in almost every sentence.
+    sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z\"'“])", plain)
+
+    candidates = [s.strip() for s in sentences if 40 <= len(s.strip()) <= 180]
+    if not candidates:
+        return ""
+
+    # Skip the opener: it usually restates the score, which is printed two
+    # inches away in the scorebar.
+    return candidates[1] if len(candidates) > 1 else candidates[0]
 
 
 def render_scorebar(story, compact=False):
@@ -729,7 +764,7 @@ def render_scorebar(story, compact=False):
 
 
 def render_matchup_stories_html(stories, editable=False, images=None,
-                                auto_photos=None):
+                                auto_photos=None, pull_quote=None):
     """
     Render game stories in a varied newspaper layout:
     - Story 0: LEAD — full width, large headline, photo floated right, pull quote
@@ -754,8 +789,11 @@ def render_matchup_stories_html(stories, editable=False, images=None,
                                           wrap_style, 44,
                                           auto=auto_photos.get(i))
 
-            pull_quote = build_pull_quote(body)
-            pull_html = f'<div class="pull-quote">&ldquo;{pull_quote}&rdquo;</div>' if pull_quote else ""
+            quote = build_pull_quote(body, pull_quote)
+            pull_html = (
+                f'<div class="pull-quote"{ed("pull_quote", editable)}>'
+                f'&ldquo;{quote}&rdquo;</div>'
+            ) if quote else ""
 
             html_parts.append(f'''
             <article class="story-card story-lead">
@@ -903,6 +941,96 @@ def get_player_headshot_url(player_id):
     return f"https://sleepercdn.com/content/nfl/players/{player_id}.jpg"
 
 
+def render_transactions_html(transactions, editable=False):
+    """The transactions wire: what moved this week, in the order it moved.
+
+    Written as a real paper's transactions column — terse, factual, one line
+    per move. The jokes belong in the recaps; this section earns its place by
+    being the thing nobody in the league has bothered to check.
+
+    Failed claims get printed. A manager who bid and lost is more interesting
+    than one who bid and won, and the platform tells us both.
+    """
+    if not transactions:
+        return ""
+
+    def name(player):
+        bits = player.get("name") or "a player"
+        where = "/".join(x for x in (player.get("position"),
+                                     player.get("nfl_team")) if x)
+        return f'{safe(bits)} <span class="wire-pos">{safe(where)}</span>' if where else safe(bits)
+
+    rows = []
+    for i, t in enumerate(transactions):
+        kind = t.get("kind")
+        failed = t.get("status") != "complete"
+        adds = t.get("adds") or []
+        drops = t.get("drops") or []
+
+        if kind == "trade":
+            label = "Trade"
+            # A trade is one record covering both directions, so describe it
+            # from each side rather than inventing a "sender".
+            parts = []
+            for team, player in adds:
+                parts.append(f"<strong>{safe(team)}</strong> gets {name(player)}")
+            body = "; ".join(parts) or "Terms not disclosed."
+
+        else:
+            label = "Waiver" if kind == "waiver" else "Free agent"
+            team = (adds or drops or [("", {})])[0][0]
+            got = ", ".join(name(p) for _, p in adds)
+            lost = ", ".join(name(p) for _, p in drops)
+
+            if failed:
+                label = "Claim denied"
+                body = f"<strong>{safe(team)}</strong> missed on {got}" if got \
+                       else f"<strong>{safe(team)}</strong> had a claim denied"
+            elif got and lost:
+                body = f"<strong>{safe(team)}</strong> adds {got}, drops {lost}"
+            elif got:
+                body = f"<strong>{safe(team)}</strong> adds {got}"
+            else:
+                body = f"<strong>{safe(team)}</strong> drops {lost}"
+
+        bid = t.get("bid")
+        # Only ever shown when there is a real bid behind it. Plenty of leagues
+        # run waiver PRIORITY rather than FAAB, and there is no money in them
+        # at all — some send no settings, some send waiver_bid: 0. Without the
+        # `> 0` this prints "$0" against every single claim in those leagues,
+        # which is not a rounding error but a statement about the league's
+        # rules that happens to be false.
+        if isinstance(bid, int) and bid > 0:
+            body += f' <span class="wire-bid">${bid}</span>'
+
+        rows.append(
+            f'<div class="wire-row{" wire-failed" if failed else ""}">'
+            f'<span class="wire-kind">{label}</span>'
+            f'<span class="wire-body"{ed(f"transaction_{i}", editable)}>{body}</span>'
+            f'</div>'
+        )
+
+    return "".join(rows)
+
+
+def _transactions_block(transactions, editable=False):
+    """The whole section, heading included — or nothing.
+
+    Returning "" rather than an empty section is the point: a league on a
+    platform with no transactions feed should see no trace of the feature, not
+    a heading over a blank space explaining what it would have contained.
+    """
+    rows = render_transactions_html(transactions, editable)
+    if not rows:
+        return ""
+    return (
+        '<div class="full-section wire-section">'
+        '<div class="section-title-full">Transactions</div>'
+        f'<div class="wire">{rows}</div>'
+        '</div>'
+    )
+
+
 def build_honor_roll_and_detention(matchups, n=5):
     """
     Build Honor Roll (top scorers) and Detention (biggest projection misses).
@@ -1043,6 +1171,7 @@ def build_week_ticker(summary):
 
 def build_edition(league_name, week, summary, matchups, power_rankings,
                   ai_content=None, ads=None, subscribe_slug=None,
+                  transactions=None,
                   editable=False, canonical_url=None, canonical_base=None):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
@@ -1141,12 +1270,14 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             })
         matchup_stories_html = render_matchup_stories_html(
             stories, editable=editable, images=images,
-            auto_photos=auto_photos)
+            auto_photos=auto_photos,
+            pull_quote=(ai_content or {}).get("pull_quote"))
     else:
         stories = build_matchup_stories(matchups)
         matchup_stories_html = render_matchup_stories_html(
             stories, editable=editable, images=images,
-            auto_photos=auto_photos)
+            auto_photos=auto_photos,
+            pull_quote=(ai_content or {}).get("pull_quote"))
 
     # The front page hero used to fall back to a random bundled meme. Those are
     # gone: once a paper carries advertising, shipping images somebody else owns
@@ -1258,7 +1389,11 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             hero_entry, "hero", editable,
             "display:block;margin:0 auto 14px;border:1px solid #ccc;", 100,
             auto=None if hero_entry else auto_hero),
-        "classifieds_html": render_classifieds(ads),
+        "transactions_block": _transactions_block(transactions, editable),
+        "classifieds_html": render_classifieds(
+            ads if ads is not None
+            else ads_from_content((ai_content or {}).get("classifieds")),
+            editable=editable),
         # The reader just finished two thousand words of this. Best moment
         # we will ever get to ask for an email.
         "subscribe_html": render_subscribe_block(subscribe_slug, league_name),
@@ -1623,8 +1758,52 @@ def render_html(edition, theme=None):
             margin: 20px 0 0;
         }}
 
-        .section-title {{
+        /* --- TRANSACTIONS WIRE ------------------------------------------
+           Set like a real paper's transactions column: monospaced-feeling,
+           dense, one line per move. The point is that it looks *checked*
+           rather than written. */
+        .wire-section {{ margin-top: 22px; }}
+        .wire {{
+            border-top: 2px solid #111;
+            border-bottom: 2px solid #111;
+            padding: 6px 0;
+        }}
+        .wire-row {{
+            display: grid;
+            grid-template-columns: 110px 1fr;
+            gap: 10px;
+            align-items: baseline;
+            padding: 7px 4px;
+            border-bottom: 1px dotted #cfc8b8;
+            font-family: Georgia, "Times New Roman", serif;
             font-size: 13px;
+            line-height: 1.45;
+        }}
+        .wire-row:last-child {{ border-bottom: none; }}
+        .wire-kind {{
+            font-family: "Barlow Condensed", "Helvetica Neue", Arial, sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.4px;
+            text-transform: uppercase;
+            color: #6b6050;
+            white-space: nowrap;
+        }}
+        .wire-pos {{
+            font-size: 11px;
+            color: #777;
+            letter-spacing: 0.3px;
+        }}
+        .wire-bid {{
+            font-weight: 700;
+            color: #0a7d2c;
+            white-space: nowrap;
+        }}
+        /* A denied claim is still news, but it is not the same news. */
+        .wire-failed {{ color: #8a8378; }}
+        .wire-failed .wire-kind {{ color: #b03030; }}
+
+        .section-title {{            font-size: 13px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 2px;
@@ -1640,6 +1819,20 @@ def render_html(edition, theme=None):
         .full-section {{
             padding: 0 36px;
             margin: 24px 0 0;
+        }}
+
+        /* One line under a section heading, for the sections whose name is a
+           joke rather than a description. Somebody opening their first paper
+           has no idea what "Detention" is, and the answer is four words long —
+           cheap to print, and the alternative is a reader who skims past a
+           section because they never worked out what it was. */
+        .section-note {{
+            font-family: Georgia, "Times New Roman", serif;
+            font-style: italic;
+            font-size: 12px;
+            color: #6b6050;
+            text-align: center;
+            margin: -12px 0 6px;
         }}
 
         .section-title-full {{
@@ -2090,6 +2283,66 @@ def render_html(edition, theme=None):
             .classifieds-grid {{ grid-template-columns: 1fr; }}
             .subscribe-block {{ padding: 18px 14px; }}
             .subscribe-head {{ font-size: 21px; }}
+
+            /* --- the three things that made this feel broken -------------- */
+
+            /* 1. THE LEAD STORY WAS BURIED.
+               The front page is [This Week | lead | Standings], and at this
+               width the grid collapses to one column — which stacks them in
+               DOM order, so the reader got a list of five scores before the
+               story the paper is about. Measured at 390px: the lead began
+               580px below the teasers.
+
+               Most people open this from a link in a group chat, on a phone.
+               This is the reading order that matters, so the lead goes first
+               and the sidebars follow it. (Same fault, and the same shape of
+               fix, as the PDF front page.) */
+            .front-page {{
+                display: flex;
+                flex-direction: column;
+            }}
+            .front-col-center {{ order: 1; }}
+            .front-page > .front-col:first-child {{ order: 2; }}
+            .front-page > .front-col:last-child {{ order: 3; }}
+
+            /* 2. THE DATELINE RULE HAD NEVER DONE ANYTHING.
+               .dateline-bar is display:flex, and the mobile override set
+               grid-template-columns — a grid property on a flex container,
+               which is silently ignored. So the dateline stayed three squeezed
+               columns with the summary wrapping over six lines. */
+            .dateline-bar {{
+                flex-direction: column;
+                gap: 4px;
+            }}
+
+            /* 3. THE PAGE SCROLLED SIDEWAYS.
+               Five ticker tiles across 390px leaves ~55px each, and labels
+               like BIGGEST BLOWOUT at 1.5px letter-spacing do not fit in 55px.
+               The document measured 404px wide inside a 390px viewport, and
+               horizontal scroll is most of what "janky" actually feels like on
+               a phone. */
+            .wire-row {{
+                grid-template-columns: 1fr;
+                gap: 2px;
+            }}
+            .week-ticker {{
+                grid-template-columns: repeat(2, 1fr);
+                padding: 0 12px;
+                gap: 8px;
+            }}
+            .ticker-label {{ letter-spacing: 0.5px; word-break: break-word; }}
+            .ticker-value {{ font-size: 19px; }}
+        }}
+
+        /* Nothing may push the document wider than the screen. A single
+           over-wide element turns every page into a sideways-scrolling one,
+           and it is never obvious which element did it — so this is a floor,
+           not a fix for any one thing. Tables and code keep their own
+           scrollers. */
+        @media (max-width: 600px) {{
+            html, body {{ overflow-x: hidden; }}
+            .page {{ max-width: 100%; overflow-x: hidden; }}
+            img {{ max-width: 100%; height: auto; }}
         }}
 
         /* Theme overrides. Empty for the default. */
@@ -2167,14 +2420,16 @@ def render_html(edition, theme=None):
         <!-- HONOR ROLL + DETENTION -->
         <div class="full-section">
             <div class="section-title-full">Honor Roll</div>
-            <div style="padding:16px 0 8px;">
+            <div class="section-note">The week&rsquo;s highest scorers, whoever started them</div>
+            <div style="padding:8px 0;">
                 {edition['honor_roll_html']}
             </div>
         </div>
 
         <div class="full-section" style="margin-top:16px;">
             <div class="section-title-full">Detention</div>
-            <div style="padding:16px 0 8px;">
+            <div class="section-note">Started, and missed their projection by the most</div>
+            <div style="padding:8px 0;">
                 {edition['detention_html']}
             </div>
         </div>
@@ -2208,6 +2463,10 @@ def render_html(edition, theme=None):
                 {edition['power_rankings_html']}
             </div>
         </div>
+
+        <!-- TRANSACTIONS — renders nothing at all on platforms that have no
+             feed, rather than printing an empty heading. -->
+        {edition.get('transactions_block', '')}
 
         <!-- SUBSCRIBE — see ads.py -->
         {edition.get('subscribe_html', '')}

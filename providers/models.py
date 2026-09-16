@@ -324,6 +324,71 @@ class League:
 
 
 @dataclass
+class TransactionPlayer:
+    """One player moving, named rather than identified.
+
+    The platform speaks in player ids. A newspaper cannot print an id.
+    """
+
+    player_id: str
+    name: str
+    position: Optional[str] = None
+    nfl_team: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Transaction:
+    """One roster move: a trade, a waiver claim, or a free agent pickup.
+
+    Deliberately flat and platform-neutral. Sleeper models a trade as one
+    record with two roster ids and a merged adds/drops map; other platforms
+    will not. What the paper needs is the same in every case — who did what to
+    whom, and did it work.
+
+    `status` matters more than it looks. A FAILED waiver claim is often the
+    better story: somebody bid and lost, publicly, and everyone can see what
+    they wanted.
+    """
+
+    kind: str                       # "trade" | "waiver" | "free_agent"
+    status: str                     # "complete" | "failed"
+    week: int
+    #: Team names involved, in the platform's own order.
+    teams: list[str] = field(default_factory=list)
+    #: (team_name, player) — who gained whom.
+    adds: list[tuple[str, TransactionPlayer]] = field(default_factory=list)
+    #: (team_name, player) — who lost whom.
+    drops: list[tuple[str, TransactionPlayer]] = field(default_factory=list)
+    #: FAAB spent, where the league uses a budget. None for waiver-priority
+    #: leagues and for free agent adds.
+    bid: Optional[int] = None
+    created: Optional[int] = None   # epoch ms, as the platform reports it
+
+    @property
+    def is_trade(self) -> bool:
+        return self.kind == "trade"
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status == "complete"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "status": self.status,
+            "week": self.week,
+            "teams": list(self.teams),
+            "adds": [(t, p.to_dict()) for t, p in self.adds],
+            "drops": [(t, p.to_dict()) for t, p in self.drops],
+            "bid": self.bid,
+            "created": self.created,
+        }
+
+
+@dataclass
 class WeekData:
     """Everything that happened in one league in one week."""
 

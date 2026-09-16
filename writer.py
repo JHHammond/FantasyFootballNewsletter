@@ -48,32 +48,67 @@ TELLS — these give away that a machine wrote it. Never use them.
 6. Starting consecutive sentences with the same construction, or opening more
    than one paragraph in the paper with "Meanwhile".
 
-HOW TO ACTUALLY BE FUNNY
+WHAT YOU ARE ACTUALLY DOING
+You are covering a game, not performing at it. The reader wants to know what
+happened to their team and why. Get that right and the jokes have something to
+sit on; get it wrong and no amount of style rescues the paragraph.
+
+So: report first. Walk the lineup. Name who won them the week and who cost
+them, say what the projection was and what actually arrived, and say what it
+means for this team going forward. The humor rides on top of that reporting —
+it is the voice you report *in*, not a separate thing you stop and do.
+
+A paragraph with a great line and no football in it has failed. A paragraph
+with real football and no joke in it is fine.
+
+COVERAGE — THE HARD REQUIREMENT
+You are given every player who started, with their actual points and their
+projection. Use them.
+
+- Name at least five players per matchup, drawn from both teams.
+- Prefer the ones the numbers make interesting: the biggest beats, the biggest
+  misses, anyone who scored zero, anyone benched who outscored a starter.
+- Every player you name gets their number attached. "Bijan went off" is not
+  reporting. "Bijan put up 28.4 against a 19 projection" is.
+- Do not name a player who is not in the data below, and never invent a stat,
+  an injury, a snap count or a play. You have the box score, not the tape —
+  what the numbers say is yours to interpret, what happened on the field is
+  not yours to make up.
+- End with where both teams now stand.
+
+HOW TO BE FUNNY WHILE DOING THAT
 - Specific nouns beat big adjectives. Not "a catastrophic performance" but
-  "two catches for eleven yards, both on screens".
+  "two catches for eleven yards".
 - Vary the rhythm. Every paragraph needs at least one sentence under six words.
   Short sentences are where jokes land. Long ones are where you build.
 - Understatement sometimes. Constant escalation goes numb by the third
   paragraph.
-- The funniest detail is usually the true one. A kicker who scored four points
-  is funnier than any metaphor you could attach to him.
-- Name the actual failure: wrong route, blown block, three targets, a fumble on
-  the goal line, benched for the fourth quarter.
+- The funniest detail is usually the true one. A kicker who outscored someone's
+  first-round pick is funnier than any metaphor you could attach to him.
+- The joke should come out of the number. If you could keep the joke and swap
+  the player, it isn't the right joke.
+- If nothing is funny about a matchup, write it straight. A dry, accurate
+  paragraph reads as confidence. A forced punchline reads as a machine trying.
 - If you reference the league's own history or running jokes, do it like someone
   who was there — glancingly, without explaining it.
 
-WHAT THIS LEAGUE CARES ABOUT
-- Close wins (under 3 points) are theft. Blowouts (over 20) are unnecessary.
-- Under 100 points is embarrassing. Over 150 is frightening.
+WHAT MATTERS IN A FANTASY WEEK
+- Close wins are theft. Blowouts are unnecessary.
 - Players who miss their projection badly get buried. Players who smash it get
   real credit — genuine football excitement, not sarcasm.
 - Points left on the bench are the great sin. Name the player who should have
-  started.
-- The Chug Counter: a manager drinks when one of their players scores zero.
-  Mention it when it happens, don't force it.
-- Teams on losing streaks are on "ASS Watch".
+  started and what he scored.
+- A starter who scored zero is always worth a sentence.
 - The Commissioner gets shamelessly flattering coverage. Play it completely
   straight, as though it were ordinary reporting.
+
+THIS LEAGUE'S OWN RULES
+Anything the league has told you about itself — running jokes, punishments,
+nicknames, standing bits, who has never won — arrives with the game data. Those
+are the league's, not yours: use them where they fit and leave them alone where
+they don't. Never invent one, and never explain one. Reference them the way
+somebody who was in the group chat would: glancingly, in passing, as though
+everyone already knows.
 
 FRAUD WATCH
 Stays on the field. Coaching malpractice, scheme failure, roster mismanagement,
@@ -123,9 +158,52 @@ actual football failure — cruelty without evidence is just noise.
 }
 
 
-def system_prompt(tone: str = "standard") -> str:
+def scoring_scale(games) -> str:
+    """What counts as a big or a bad score *in this league*.
+
+    The prompt used to assert "under 100 is embarrassing, over 150 is
+    frightening". Those are reasonable numbers for 12-team PPR and wrong
+    everywhere else: a superflex league clears 150 routinely, and half-point
+    scoring makes 100 a fine afternoon. Asserting them at a league they don't
+    fit produces a paper that is confidently wrong about its own stakes —
+    calling a good week embarrassing is the fastest way to sound like it wasn't
+    watching.
+
+    So measure instead. The league's own spread this week is the only scale
+    that means anything.
+    """
+    scores = []
+    for game in games or []:
+        for side in ("team_1", "team_2"):
+            points = (game.get(side) or {}).get("points")
+            if isinstance(points, (int, float)):
+                scores.append(float(points))
+
+    if len(scores) < 4:
+        # Too few to describe a distribution honestly. Say nothing rather than
+        # invent a threshold — the model does better with no scale than with a
+        # wrong one.
+        return ""
+
+    scores.sort()
+    low = scores[len(scores) // 5]           # ~20th percentile
+    high = scores[(len(scores) * 4) // 5]    # ~80th percentile
+    median = scores[len(scores) // 2]
+
+    return f"""
+
+THIS WEEK'S SCALE, MEASURED FROM THIS LEAGUE
+Typical score this week: {median:.0f}. A bad week here is around {low:.0f} or
+below; a big one is around {high:.0f} or above. Judge every score against those
+numbers and not against any general idea of what a fantasy score should be.
+"""
+
+
+def system_prompt(tone: str = "standard", games=None) -> str:
     """The house voice, adjusted for how hard this league wants to be hit."""
-    return KEVLARVILLE_SYSTEM_PROMPT + TONE_GUIDANCE.get(tone or "standard", "")
+    return (KEVLARVILLE_SYSTEM_PROMPT
+            + TONE_GUIDANCE.get(tone or "standard", "")
+            + scoring_scale(games))
 
 
 def format_performer(performer):
@@ -150,6 +228,77 @@ def format_performer(performer):
     return result
 
 
+def _player_line(p, bench=False):
+    """One player as a line of prose-ready fact.
+
+    A line, not a JSON object, because twenty nested dicts of five keys each is
+    mostly punctuation. The model reads this the way a human reads a box score.
+    """
+    if not p or not p.get("name"):
+        return None
+
+    bits = [p["name"]]
+
+    where = "/".join(x for x in (p.get("position"), p.get("nfl_team")) if x)
+    if where:
+        bits.append(f"({where})")
+
+    actual = p.get("actual")
+    bits.append(f"{actual:.1f}" if isinstance(actual, (int, float)) else "—")
+
+    projected = p.get("projected")
+    if isinstance(projected, (int, float)):
+        bits.append(f"proj {projected:.1f}")
+        gap = p.get("beat_projection_by")
+        if isinstance(gap, (int, float)):
+            bits.append(f"({gap:+.1f})")
+
+    if p.get("injury_status"):
+        bits.append(f"[{p['injury_status']}]")
+    if bench:
+        bits.append("[BENCHED]")
+
+    return " ".join(bits)
+
+
+#: How many bench players to show. Enough to support "you should have started
+#: him", not so many that the bench outweighs the lineup that actually played.
+BENCH_SHOWN = 4
+
+
+def format_lineup(team_side):
+    """Every starter this team played, plus the best of the bench.
+
+    THIS IS THE FIX FOR THE FLAT WRITING.
+
+    The prompt has always said "call out players by name" and "attack their
+    snap counts" — while being handed exactly two players per team: the top
+    scorer and the biggest bust. Four names for a whole matchup article. The
+    model wasn't refusing to be specific, it had nothing to be specific *about*,
+    so it padded with the only material it had: the final score, restated in
+    increasingly strained ways.
+
+    A human writing this names six to nine players, because that is what a
+    fantasy team is. Hand over the same thing.
+    """
+    starters = [
+        line for line in (
+            _player_line(p) for p in (team_side.get("all_starters") or [])
+        ) if line
+    ]
+
+    bench_players = [p for p in (team_side.get("all_bench") or [])
+                     if isinstance(p.get("actual"), (int, float))]
+    bench_players.sort(key=lambda p: p["actual"], reverse=True)
+    bench = [
+        line for line in (
+            _player_line(p, bench=True) for p in bench_players[:BENCH_SHOWN]
+        ) if line
+    ]
+
+    return starters + bench
+
+
 def build_game_context(game):
     """Convert a game dict into a clean text summary for the prompt."""
     t1 = game["team_1"]
@@ -166,17 +315,19 @@ def build_game_context(game):
         "winner": winner_team.get("team_name"),
         "winner_owner": winner_team.get("owner_name"),
         "winner_score": winner_team.get("points"),
-        "winner_record": winner_team.get("record"),
+        "winner_record": winner_team.get("record_after") or winner_team.get("record"),
         "winner_lineup_gap": winner_team.get("lineup_gap", 0),
         "winner_top_performer": format_performer(winner_team.get("top_performer")),
         "winner_bottom_performer": format_performer(winner_team.get("bottom_performer")),
+        "winner_lineup": format_lineup(winner_team),
         "loser": loser_team.get("team_name"),
         "loser_owner": loser_team.get("owner_name"),
         "loser_score": loser_team.get("points"),
-        "loser_record": loser_team.get("record"),
+        "loser_record": loser_team.get("record_after") or loser_team.get("record"),
         "loser_lineup_gap": loser_team.get("lineup_gap", 0),
         "loser_top_performer": format_performer(loser_team.get("top_performer")),
         "loser_bottom_performer": format_performer(loser_team.get("bottom_performer")),
+        "loser_lineup": format_lineup(loser_team),
         "margin": margin,
     }
 
@@ -339,29 +490,68 @@ Inside jokes: {inside_jokes}
 
 
 def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", system=None):
-    prompt = f"""
-Write the MATCHUP RECAP body paragraph for this game in the Kevlarville Times.
-4-6 sentences. Be specific, funny, and savage. Call out players by name.
+    """The recap for one game.
 
-Rules:
-- If margin is under 3, describe it as theft or robbery
-- If margin is over 20, describe it as a public execution or blowout
-- If loser_score is under 100, put the loser on ASS Watch
-- If winner_score is over 150, describe it as historic or terrifying
-- If loser_lineup_gap is over 15, mock the manager for leaving points on the bench
-- If the winner is the commissioner ({commissioner_name}), be self-aggrandizing about them
-- Reference the owner names, not just team names, for personality
-- CALL OUT PLAYERS BY NAME using the performer data below
-- If a player crushed their projection (beat_projection_by > 8), celebrate or mock accordingly
-- If a player massively underperformed their projection (beat_projection_by < -8), roast them
-- If a player had 0 points, mention the chug counter
-- Do not use any markdown formatting. No #, ##, ** characters. Plain prose only.
-- Do not use bullet points. Just flowing prose.
+    REWRITTEN. The previous prompt was a list of if-then triggers — "if margin
+    is under 3, describe it as theft", "if winner_score is over 150, describe
+    it as historic". That is a template engine written in English: the same
+    condition produced the same sentence every week, which is exactly the
+    sameness the league noticed. It also asked for "4-6 sentences" while
+    demanding coverage of a whole roster, so the model dropped the coverage.
 
-Game data: {json.dumps(game_context, indent=2)}
-Inside jokes to work in if relevant: {inside_jokes}
-"""
-    return call_claude(prompt, max_tokens=450, system=system)
+    What replaces it is the assignment a person would be given: here are two
+    lineups, tell me what happened.
+    """
+    ctx = game_context
+    winner_lineup = "\n".join(f"  {line}" for line in ctx.get("winner_lineup") or [])
+    loser_lineup = "\n".join(f"  {line}" for line in ctx.get("loser_lineup") or [])
+
+    commissioner_note = ""
+    if commissioner_name and commissioner_name in (ctx.get("winner"), ctx.get("loser")):
+        commissioner_note = (
+            f"\n{commissioner_name} is the commissioner of this league. "
+            f"Cover them glowingly and completely straight.\n")
+
+    bench_note = ""
+    for who, gap in (("winner", ctx.get("winner_lineup_gap")),
+                     ("loser", ctx.get("loser_lineup_gap"))):
+        if isinstance(gap, (int, float)) and gap > 10:
+            bench_note += (
+                f"\n{ctx.get(who)} left {gap:.1f} points on the bench. The "
+                f"players marked [BENCHED] are where they went — name the one "
+                f"that hurts most.\n")
+
+    return call_claude(f"""
+Write the recap of this game for the paper.
+
+{ctx.get('winner')} ({ctx.get('winner_owner')}) beat {ctx.get('loser')} \
+({ctx.get('loser_owner')}), {ctx.get('winner_score')} to {ctx.get('loser_score')}, \
+by {ctx.get('margin')}.
+
+{ctx.get('winner')} — what they started:
+{winner_lineup or "  (lineup unavailable)"}
+
+{ctx.get('loser')} — what they started:
+{loser_lineup or "  (lineup unavailable)"}
+
+Format of each line: Player (position/NFL team) points scored, projection, and
+the difference in brackets. [BENCHED] means they did not start.
+{commissioner_note}{bench_note}
+Two paragraphs. One for how the winner won, one for how the loser lost — though
+if the more interesting story is the loser's, lead with that instead.
+
+Name at least five players across the two teams and give every one of them
+their number. Go for the performances the projections make interesting: the
+blowups, the collapses, the zeroes, the bench player who beat a starter. Say
+what it suggests about each team from here.
+
+Finish with a short line giving both new records.
+
+Write only what the numbers support. No invented injuries, plays, snap counts
+or quotes. Plain prose — no markdown, no bullets, no headers.
+
+{f"Things this league would want referenced if they fit: {inside_jokes}" if inside_jokes else ""}
+""", max_tokens=900, system=system)
 
 
 def generate_awards(summary, commissioner_name="", inside_jokes="", system=None):
@@ -455,6 +645,119 @@ Data: {json.dumps(context, indent=2)}
         ]
 
 
+def generate_pull_quote(game_contexts, commissioner_name="", system=None):
+    """The one line blown up in large type beside the lead story.
+
+    Previously this was not written at all: newspaper.py sliced the lead
+    recap on "." and printed fragment two with an ellipsis, which is how the
+    Week 1 paper ran "Justin Jefferson (best receiver in football) put up 31..."
+    as its featured line. Half a sentence, cut mid-number.
+
+    A pull quote is the second thing anybody reads. It should be chosen.
+    """
+    if not game_contexts:
+        return ""
+
+    ctx = game_contexts[0]
+    facts = [
+        f"{ctx['winner']} beat {ctx['loser']} "
+        f"{ctx['winner_score']:.0f}-{ctx['loser_score']:.0f}"
+    ]
+    for side in ("winner", "loser"):
+        for role in ("top_performer", "bottom_performer"):
+            p = ctx.get(f"{side}_{role}") or {}
+            if p.get("name"):
+                facts.append(f"{ctx[side]}: {p['name']} {p.get('actual') or 0:.1f}"
+                             f" (proj {p.get('projected') or 0:.1f})")
+
+    quote = call_claude(f"""
+Write ONE sentence to print in large type beside the lead story.
+
+{chr(10).join(facts)}
+
+It has to stand alone — someone reading only this sentence should get the
+week. Name a player or a manager and carry a number. Between 8 and 22 words.
+No quotation marks, no markdown, no trailing ellipsis. Just the sentence.
+""", max_tokens=120, system=system)
+
+    return (quote or "").strip().strip('"“”')
+
+
+def generate_classifieds(summary, game_contexts, commissioner_name="",
+                         inside_jokes="", system=None, count=3):
+    """Small ads written about this week, for the back page.
+
+    These used to be four fixed strings in ads.py — "WANTED: ONE COMPETENT
+    MANAGER", "LOST: ONE SEASON'S DIGNITY" — printed unchanged in every paper
+    of every league forever. They read as filler because they were filler.
+
+    The slot structure stays (ads.py still sells these positions); what changes
+    is that the house fill is now about the week it sits in.
+    """
+    lines = []
+    for ctx in game_contexts[:6]:
+        lines.append(
+            f"{ctx['winner']} beat {ctx['loser']}, "
+            f"{ctx['winner_score']:.0f}-{ctx['loser_score']:.0f}"
+        )
+        worst = ctx.get("loser_bottom_performer") or {}
+        if worst.get("name"):
+            lines.append(f"  {ctx['loser']}'s worst: {worst['name']} "
+                         f"{worst.get('actual') or 0:.1f}")
+        gap = ctx.get("loser_lineup_gap") or 0
+        if gap > 10:
+            lines.append(f"  {ctx['loser']} left {gap:.0f} on the bench")
+
+    low = summary.get("lowest_score", {})
+    high = summary.get("highest_score", {})
+
+    raw = call_claude(f"""
+Write {count} newspaper classified ads for the back page of this week's paper.
+
+They are period-style small ads — WANTED, FOR SALE, LOST, SERVICES OFFERED,
+PERSONALS — written as if placed by someone in the league. The joke is that
+they are about this week and everyone reading knows exactly who they mean.
+
+This week:
+{chr(10).join(lines)}
+Highest score: {high.get('team_name', '?')} {high.get('points', 0):.0f}
+Lowest score: {low.get('team_name', '?')} {low.get('points', 0):.0f}
+
+Each one needs a real detail from above — a manager, a player, a number. A
+classified that could run in any league's paper is the thing we are replacing,
+so if it would still make sense next week, it is wrong.
+
+Keep the heading under 8 words and the body under 30. The contact line is a
+short sign-off like "Inquire within" or "No reasonable offer refused".
+
+{f"League lore worth drawing on: {inside_jokes}" if inside_jokes else ""}
+
+Return ONLY a JSON array, no markdown:
+[{{"heading": "...", "body": "...", "contact": "..."}}]
+""", max_tokens=700, system=system)
+
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+    try:
+        parsed = json.loads(cleaned)
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+
+    ads = []
+    for item in parsed[:count]:
+        if isinstance(item, dict) and item.get("heading") and item.get("body"):
+            ads.append({
+                "heading": str(item["heading"])[:80],
+                "body": str(item["body"])[:220],
+                "contact": str(item.get("contact") or "")[:60],
+            })
+    return ads
+
+
 def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=None):
     fraud = summary.get("fraud")
     lowest = summary.get("lowest_score", {})
@@ -491,24 +794,48 @@ def generate_power_rankings_comments(teams, commissioner_name="", system=None):
     teams: list of dicts with keys: team, record, score, rank
     Returns: dict of {team_name: comment}
     """
-    teams_text = "\n".join(
-        f"#{t['rank']}. {t['team']} | Record: {t['record']} | Score: {t['score']:.1f}"
-        for t in teams
-    )
+    teams_text = []
+    for t in teams:
+        # `or 0` throughout, not a .get default: a team that did not play, or a
+        # provider that returned a null, puts None in these fields and a
+        # default only fires on a missing key. Formatting None raises, and one
+        # raise here loses the whole rankings block.
+        score = t.get("score") or 0
+        parts = [f"#{t['rank']}. {t['team']} | {t['record']} | {score:.1f} pts"]
+        if t.get("beat"):
+            parts.append(f"beat {t['beat']}")
+        if t.get("lost_to"):
+            parts.append(f"lost to {t['lost_to']}")
+        best, worst = t.get("best") or {}, t.get("worst") or {}
+        if best.get("name"):
+            parts.append(f"best: {best['name']} {best.get('actual') or 0:.1f}")
+        if worst.get("name"):
+            gap = worst.get("beat_projection_by")
+            miss = f" ({gap:+.1f} vs proj)" if isinstance(gap, (int, float)) else ""
+            parts.append(f"worst: {worst['name']} {worst.get('actual') or 0:.1f}{miss}")
+        gap = t.get("bench_gap") or 0
+        if gap > 10:
+            parts.append(f"left {gap:.0f} on the bench")
+        teams_text.append(" | ".join(parts))
+    teams_text = "\n".join(teams_text)
 
     prompt = f"""
-Write a ONE-SENTENCE power rankings comment (max 12 words) for each team below.
-Be opinionated, funny, and savage. Use the Kevlarville Times voice.
-If the team is the commissioner ({commissioner_name}), be self-aggrandizing.
-If a team has a losing record, be brutal. If they're on top, be cocky about it.
-Never be neutral or generic.
+Write a one-line power rankings note for each team below. One sentence, up to
+about 18 words.
 
-Teams:
+Each note has to contain something that only applies to THIS team THIS week —
+a player, a number, who they played. A line that could be pasted under any
+other team is a failed line. Restating the score they already scored is the
+most common way to fail; the score is printed directly above the note.
+
+{f"If the team is {commissioner_name}, the commissioner, be flattering and completely straight about it." if commissioner_name else ""}
+
+Teams, best to worst:
 {teams_text}
 
-Return ONLY a JSON object mapping team name to comment, like this:
+Return ONLY a JSON object mapping team name to the note, like this:
 {{
-  "TeamName": "One punchy sentence here.",
+  "TeamName": "One sentence here.",
   "OtherTeam": "Another sentence here."
 }}
 No markdown. No extra text. Just the JSON object.
@@ -580,7 +907,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import time
 
-    sys_prompt = system_prompt(tone)
+    sys_prompt = system_prompt(tone, games)
     print(f"[writer] Generating AI content for Week {week} (parallel mode, tone={tone})...")
     start = time.time()
 
@@ -604,16 +931,29 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     tasks["lead_story"] = lambda: generate_lead_story(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt)
     tasks["awards"] = lambda: generate_awards(summary, commissioner_name, inside_jokes, sys_prompt)
     tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, inside_jokes, sys_prompt)
-    # Build full team list for power rankings (all teams, not just winners)
+    tasks["classifieds"] = lambda: generate_classifieds(
+        summary, [gc["ctx"] for gc in game_contexts], commissioner_name,
+        inside_jokes, sys_prompt)
+    tasks["pull_quote"] = lambda: generate_pull_quote(
+        [gc["ctx"] for gc in game_contexts], commissioner_name, sys_prompt)
+    # Build full team list for power rankings (all teams, not just winners).
+    # Each team carries its best and worst performance, because a ranking
+    # comment with only a score behind it can only ever restate the score —
+    # which is how "Fine. Perfectly, aggressively fine." got printed.
     all_teams_for_rankings = []
     for gc in game_contexts:
         ctx = gc["ctx"]
-        all_teams_for_rankings.append({
-            "team": ctx["winner"], "record": ctx["winner_record"], "score": ctx["winner_score"]
-        })
-        all_teams_for_rankings.append({
-            "team": ctx["loser"], "record": ctx["loser_record"], "score": ctx["loser_score"]
-        })
+        for side in ("winner", "loser"):
+            all_teams_for_rankings.append({
+                "team": ctx[side],
+                "record": ctx[f"{side}_record"],
+                "score": ctx[f"{side}_score"],
+                "best": ctx.get(f"{side}_top_performer"),
+                "worst": ctx.get(f"{side}_bottom_performer"),
+                "bench_gap": ctx.get(f"{side}_lineup_gap") or 0,
+                "beat": ctx["loser"] if side == "winner" else None,
+                "lost_to": ctx["winner"] if side == "loser" else None,
+            })
     # Sort by score descending and assign ranks
     all_teams_for_rankings.sort(key=lambda t: t["score"], reverse=True)
     for i, t in enumerate(all_teams_for_rankings):
@@ -726,6 +1066,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         "awards": results.get("awards") or [],
         "fraud_watch": results.get("fraud_watch") or "No fraud detected.",
         "power_rankings_comments": results.get("power_rankings_comments") or {},
+        "classifieds": results.get("classifieds") or [],
+        "pull_quote": results.get("pull_quote") or "",
     }
 
 

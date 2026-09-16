@@ -63,20 +63,24 @@
 <section class="card">
     <h2 class="card-title">Make this week's paper</h2>
     {% if weeks %}
-    <p class="card-sub">Run it once Sunday's games are final. Takes about 30 seconds.</p>
+    <p class="card-sub">Run it once Monday&rsquo;s game is over and the week is final. Takes about 30 seconds.</p>
     <form method="post" action="/l/{{ league.admin_token }}/generate" class="inline-form">
         <label class="field field-narrow">
             <span class="field-label">Week</span>
             <select name="week">
                 {% for w in weeks %}
-                <option value="{{ w }}" {% if loop.last %}selected{% endif %}>Week {{ w }}</option>
+                <option value="{{ w }}" {% if loop.last %}selected{% endif %}>Week {{ w }}{%
+                    if w in regenerations %} &mdash; {{ regenerations[w] }} redo{{ '' if regenerations[w] == 1 else 's' }} left{% endif %}</option>
                 {% endfor %}
             </select>
         </label>
         <button type="submit" class="btn btn-primary">Generate</button>
     </form>
     <p class="field-help" style="margin-top:10px;">
-        Only weeks with actual results show up here.
+        Only weeks with actual results show up here. Once a week&rsquo;s paper
+        exists you can regenerate it {{ regenerations_per_week }} more times
+        &mdash; after that, edit it by hand instead, which costs nothing and
+        changes as much as you like.
     </p>
     {% elif earlier_season %}
     <p class="card-sub">
@@ -110,9 +114,15 @@
     <p class="card-sub">
         Every league has stuff only you guys know. Who chokes, who talks the most
         trash, who's been on tilt since Week 1, who's still bringing up a trade
-        from three years ago. Dump it here and it shows up in the paper every week.
+        from three years ago.
         <br /><br />
-        The paper works without this. It's a lot funnier with it.
+        Put your <strong>standing rules</strong> in here too &mdash; the drink
+        someone owes when a starter scores zero, what you call a team on a
+        losing streak, the trophy, the group chat bit that never dies. The
+        paper checks these every week and brings them up when they actually
+        happen.
+        <br /><br />
+        It works without this. It's a lot funnier with it.
     </p>
 
     {% if lore %}
@@ -132,7 +142,7 @@
 
     <form method="post" action="/l/{{ league.admin_token }}/lore" class="stack">
         <textarea name="entry" rows="2" maxlength="500"
-                  placeholder="Nick benches his best guy every single week. Champ sold his soul and still went 6-8."></textarea>
+                  placeholder="Anyone who starts a player that scores zero has to chug. Nick benches his best guy every single week."></textarea>
         <button type="submit" class="btn">Add it</button>
     </form>
 </section>
@@ -183,6 +193,10 @@
                     {{ p.season }} season
                     {% if p.view_count %}
                     &middot; {{ p.view_count }} {{ 'read' if p.view_count == 1 else 'reads' }}
+                    {% endif %}
+                    {% set used = [(p.generation_count or 1) - 1, 0]|max %}
+                    {% if used %}
+                    &middot; regenerated {{ used }} of {{ regenerations_per_week }}
                     {% endif %}
                 </div>
             </div>

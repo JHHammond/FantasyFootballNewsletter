@@ -173,6 +173,11 @@ def save_paper(league_id, week, season, storage_path_, public_url, ai_cache,
             "view_count": existing.get("view_count", 0),
             "first_viewed_at": existing.get("first_viewed_at"),
             "last_viewed_at": existing.get("last_viewed_at"),
+            # Renders, not edits. An edit re-renders the page but writes no
+            # prose and costs nothing, so it must not spend a regeneration.
+            "generation_count": (existing.get("generation_count", 0) + 1
+                                 if not is_edit
+                                 else existing.get("generation_count", 1)),
         }
 
 

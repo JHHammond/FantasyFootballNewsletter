@@ -211,6 +211,32 @@ async def security_headers(request: Request, call_next):
 
 GENERATIONS_PER_HOUR = 10           # per IP
 GENERATIONS_PER_LEAGUE_PER_DAY = 12  # per league — not spoofable
+
+#: How many times a single week's paper may be REGENERATED after the first one.
+#: Different in kind from the limits above: those are spend ceilings claimed
+#: atomically in the database, this is a courtesy allowance that exists to be
+#: SHOWN. A commissioner who wants a different lead story should be able to get
+#: one a couple of times without being made to feel like they are getting away
+#: with something — and should be able to see how many they have left before
+#: they press the button, not after.
+REGENERATIONS_PER_WEEK = 3
+
+
+def regenerations_used(paper: dict | None) -> int:
+    """How many of the weekly allowance this paper has spent.
+
+    generation_count counts renders, and the first render is the paper coming
+    into existence rather than a regeneration — so the allowance is spent from
+    the second one on. A row written before migration 011 has no count and is
+    treated as having used none, which errs toward the commissioner.
+    """
+    if not paper:
+        return 0
+    return max(0, (paper.get("generation_count") or 1) - 1)
+
+
+def regenerations_left(paper: dict | None) -> int:
+    return max(0, REGENERATIONS_PER_WEEK - regenerations_used(paper))
 LEAGUE_CREATES_PER_HOUR = 5
 SUBSCRIBES_PER_HOUR = 20
 RECOVERIES_PER_HOUR = 5
@@ -862,6 +888,14 @@ def manage(
 
     papers = db.list_papers(league["id"])
 
+    # How many regenerations each week of THIS season has left, so the number
+    # is on the page before the button is pressed rather than in the error
+    # message afterwards.
+    regenerations = {
+        p["week"]: regenerations_left(p)
+        for p in papers if p.get("season") == league["season"]
+    }
+
     return _render(
         request, "league.html",
         league=league,
@@ -871,6 +905,8 @@ def manage(
         lore=db.get_lore(league["id"]),
         papers=papers,
         total_reads=sum(int(p.get("view_count") or 0) for p in papers),
+        regenerations=regenerations,
+        regenerations_per_week=REGENERATIONS_PER_WEEK,
         subscriber_count=db.subscriber_count(league["id"]),
         is_new=bool(new),
         generated_week=generated or None,
@@ -1158,9 +1194,21 @@ def generate(request: Request, token: str, week: int = Form(...),
             f"charged.+The+owner+has+been+told.",
             status_code=303)
 
+    existing = db.get_paper(league["id"], league["season"], week)
+
+    # The weekly regeneration allowance. Checked before anything is spent, and
+    # only for a paper that already exists — the first generation of a week is
+    # not a regeneration.
+    if existing and regenerations_used(existing) >= REGENERATIONS_PER_WEEK:
+        return RedirectResponse(
+            f"/l/{token}?error=You've+used+all+"
+            f"{REGENERATIONS_PER_WEEK}+regenerations+for+week+{week}.+"
+            f"You+can+still+edit+this+one+by+hand+-+open+it+and+change+"
+            f"anything+you+like.",
+            status_code=303)
+
     # Regenerating throws away hand-edited prose. Ask first rather than
     # silently deleting someone's work.
-    existing = db.get_paper(league["id"], league["season"], week)
     if existing and existing.get("edited_at") and confirm_overwrite != "yes":
         return RedirectResponse(
             f"/l/{token}?error=Week+{week}+has+your+edits+in+it.+"
@@ -1392,6 +1440,10 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
     # The payload is innerHTML straight out of a browser. Sanitize hard.
     if "headline" in edits:
         edited["headline"] = clean_text(edits["headline"], 200)
+    if "pull_quote" in edits:
+        # Plain text, not HTML: it renders inside quotation marks in display
+        # type, so markup in it has nowhere sensible to go.
+        edited["pull_quote"] = clean_text(edits["pull_quote"], 300)
     for key in ("lead_story", "fraud_watch"):
         if key in edits:
             edited[key] = clean_html(edits[key])
@@ -1399,9 +1451,21 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
     matchups = [dict(m) for m in (ai.get("matchup_content") or [])]
     awards = [dict(a) for a in (ai.get("awards") or [])]
     rankings = dict(ai.get("power_rankings_comments") or {})
+    classifieds = [dict(c) for c in (ai.get("classifieds") or [])]
 
     for key, raw in edits.items():
-        if key.startswith("matchup_headline_") or key.startswith("matchup_body_"):
+        if key.startswith("classified_"):
+            # classified_<field>_<index>
+            rest = key[len("classified_"):]
+            field, _, idx = rest.rpartition("_")
+            if not idx.isdigit() or field not in ("heading", "body", "contact"):
+                continue
+            i = int(idx)
+            if 0 <= i < len(classifieds):
+                classifieds[i][field] = clean_text(
+                    raw, 80 if field == "heading" else 220)
+
+        elif key.startswith("matchup_headline_") or key.startswith("matchup_body_"):
             field, _, idx = key.rpartition("_")
             if not idx.isdigit():
                 continue
@@ -1435,6 +1499,8 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
         edited["awards"] = awards
     if rankings:
         edited["power_rankings_comments"] = rankings
+    if classifieds:
+        edited["classifieds"] = classifieds
 
     # Photos are stored as {"url", "width"}. Older rows hold a bare URL
     # string, so normalize on the way through.

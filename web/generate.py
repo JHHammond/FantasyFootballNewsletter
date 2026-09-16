@@ -20,7 +20,11 @@ from newspaper import (  # noqa: E402
     build_power_rankings_from_matchups,
     render_html,
 )
-from providers import load_week, week_to_legacy_games  # noqa: E402
+from providers import (  # noqa: E402
+    load_transactions,
+    load_week,
+    week_to_legacy_games,
+)
 from storylines import get_weekly_storylines  # noqa: E402
 from writer import WriterError, generate_full_newspaper_content  # noqa: E402
 
@@ -101,10 +105,30 @@ def build_league_context(league: dict[str, Any], lore_entries: list) -> str:
         # produce a funnier paper, it produces a more expensive one that
         # mentions the week less.
         selected = lore_entries[:MAX_LORE_IN_PROMPT]
-        parts.append("LEAGUE LORE — work these in wherever they fit:")
+        parts.append(
+            "LEAGUE LORE — the things only this league knows. Some are running "
+            "jokes about specific people; some are standing rules that fire "
+            "when something happens (a drink owed for a zero, a name for a "
+            "team on a slide). Check them against this week's results and "
+            "bring up the ones that actually triggered. Never explain one, and "
+            "never invent one that isn't listed here:"
+        )
         parts.extend(f"- {entry['entry']}" for entry in selected)
 
     return "\n".join(parts)
+
+
+def _transactions_for(league: dict[str, Any], season: int, week: int) -> list:
+    """This week's roster moves, as plain dicts for the renderer.
+
+    Edits re-render, and an edit must not depend on a third-party feed being
+    up: load_transactions already swallows everything, so the worst case here
+    is a paper that re-renders without its transactions section rather than an
+    edit that fails to save.
+    """
+    moves = load_transactions(league["provider"], league["platform_league_id"],
+                              season, week)
+    return [m.to_dict() for m in moves]
 
 
 def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
@@ -130,6 +154,7 @@ def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
         subscribe_slug=league["public_slug"],
         canonical_url=paper_url_for(league, week),
         canonical_base=public_base_url(),
+        transactions=_transactions_for(league, season, week),
     )
     edition["paper_name"] = paper_name
     html = render_html(edition, theme=league.get("theme"))
@@ -167,6 +192,7 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
         subscribe_slug=league["public_slug"], editable=True,
         canonical_url=paper_url_for(league, week),
         canonical_base=public_base_url(),
+        transactions=_transactions_for(league, season, week),
     )
     edition["paper_name"] = paper_name
     return render_html(edition, theme=league.get("theme"))

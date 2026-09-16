@@ -159,11 +159,83 @@ BASE_PRINT_CSS = """
        printable width, so the same grid at the same type size would set the
        outer columns four words wide. */
 
+    /* --- the front page stops being three columns ---------------------- */
+    /* THE WEEK 1 PDF BUG.
+       On screen the front page is [This Week | lead story | Standings] and the
+       page simply gets taller — the columns end where they end and nobody
+       notices. On paper a grid row cannot be split intelligently: the browser
+       slices the whole row at each page boundary, so a long lead story becomes
+       a thin ribbon running down the middle of three or four sheets with two
+       columns of white space beside it, because the sidebars ran out on page
+       one. That is exactly what "ugly and segmented" was.
+
+       So in print it isn't a grid. The lead story runs first at full width and
+       sets in two real newspaper columns; the sidebars become ordinary blocks
+       underneath it and are free to break wherever they like. */
     .front-page {
-        grid-template-columns: 1fr 2fr 1fr !important;
+        display: flex !important;
+        flex-direction: column !important;
+        grid-template-columns: none !important;
         padding: 0 18px 14px !important;
     }
-    .front-col { padding: 12px 10px 0 !important; }
+
+    /* The lead is the lead: it goes first on the sheet, whatever the DOM
+       order is for the screen layout. */
+    .front-col-center { order: 1; }
+    .front-page > .front-col:first-child { order: 2; }
+    .front-page > .front-col:last-child  { order: 3; }
+
+    /* The vertical rules separated columns that no longer sit side by side. */
+    .front-col,
+    .front-col:first-child,
+    .front-col:last-child,
+    .front-col-center {
+        border-left: none !important;
+        border-right: none !important;
+        padding: 0 0 10px !important;
+    }
+
+    .front-page > .front-col:first-child,
+    .front-page > .front-col:last-child {
+        border-top: 1px solid #ccc !important;
+        padding-top: 10px !important;
+        margin-top: 10px !important;
+    }
+
+    /* Two columns of 9.5pt across a Letter sheet is roughly 60 characters a
+       line, which is the measure a newspaper actually wants. One full-width
+       column would be 110 and unreadable. */
+    .lead-story {
+        column-count: 2 !important;
+        column-gap: 7mm !important;
+        column-rule: 1px solid #ddd !important;
+    }
+
+    /* Keep the standings together if they fit on the remainder of a sheet,
+       and keep the header with them if they don't. */
+    .front-col .stats { break-inside: auto; }
+    .front-col .stats thead { display: table-header-group; }
+    .front-col .stats tr { break-inside: avoid; }
+
+    /* Now that the sidebars are full width, one teaser per line wastes most of
+       a sheet. Set them two up — and keep each teaser whole, because a headline
+       stranded at the foot of a column with its score overleaf is worse than a
+       slightly ragged column. */
+    .front-page > .front-col:first-child {
+        column-count: 2 !important;
+        column-gap: 7mm !important;
+    }
+    .front-col .col-story,
+    .front-col .col-section-label { break-inside: avoid; }
+    .front-col .col-section-label { column-span: all; }
+
+    /* A ten-row standings table stretched across a Letter sheet is mostly
+       empty cell. Hold it to a sensible measure. */
+    .front-page > .front-col:last-child .stats {
+        max-width: 130mm !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
 
     .headline { font-size: 30pt !important; line-height: 1.05 !important; }
     .lead-story { font-size: 10pt !important; line-height: 1.5 !important; }
@@ -405,7 +477,23 @@ PRINT_BUTTON_CSS = """
         .print-footer { display: none; }
 
         @media (max-width: 600px) {
-            .print-button { right: 10px; bottom: 10px; font-size: 12px; padding: 9px 13px; }
+            /* A fixed button on a phone covers whatever is under it, and what
+               is under it is the paragraph somebody is reading. There is no
+               corner where that isn't true — the screen is all text.
+
+               So on phones it stops floating and sits at the end of the paper,
+               which is also where somebody who has just finished reading would
+               look for it. Saving a PDF is not something anyone does halfway
+               through a story on a phone. */
+            .print-button {
+                position: static;
+                display: block;
+                width: calc(100% - 24px);
+                margin: 22px auto 28px;
+                font-size: 13px;
+                padding: 13px 16px;
+                box-shadow: none;
+            }
         }
 """
 

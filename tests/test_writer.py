@@ -15,7 +15,9 @@ wrong, so none of them can quietly come back:
 
 from __future__ import annotations
 
+import json
 import os
+import re
 
 import httpx
 import pytest
@@ -30,22 +32,58 @@ import writer  # noqa: E402
 # Fixtures — the smallest league that produces a paper
 # ---------------------------------------------------------------------------
 
-def _team(name: str, points: float, record: str) -> dict:
+def _player(name, position, nfl_team, actual, projected, **extra):
+    line = {
+        "name": name, "position": position, "nfl_team": nfl_team,
+        "actual": actual, "projected": projected,
+        "beat_projection_by": round(actual - projected, 2),
+    }
+    line.update(extra)
+    return line
+
+
+#: Two real-shaped rosters. The point of these tests is that the whole lineup
+#: reaches the writer, so a fixture carrying two players would pass them
+#: vacuously — it has to look like what the provider layer actually emits.
+_WINNER_STARTERS = [
+    _player("Josh Allen", "QB", "BUF", 35.7, 19.4),
+    _player("Bijan Robinson", "RB", "ATL", 28.4, 19.0),
+    _player("Nico Collins", "WR", "HOU", 22.0, 15.2),
+    _player("Garrett Wilson", "WR", "NYJ", 18.9, 14.0,
+            injury_status="Questionable"),
+    _player("Cam Little", "K", "JAX", 11.0, 8.0),
+]
+_WINNER_BENCH = [
+    _player("Chuba Hubbard", "RB", "CAR", 23.7, 12.0),
+    _player("A Backup", "WR", "LV", 3.1, 9.0),
+]
+_LOSER_STARTERS = [
+    _player("Kyler Murray", "QB", "ARI", 0.7, 18.1),
+    _player("Ja'Marr Chase", "WR", "CIN", 3.2, 20.4),
+    _player("Colston Loveland", "TE", "CHI", 0.0, 13.8),
+    _player("James Cook", "RB", "BUF", 9.4, 14.1),
+]
+
+
+def _team(name, points, record, starters, bench, gap=3.2):
     return {
         "team_name": name,
         "owner_name": name.lower(),
         "points": points,
         "record": record,
-        "lineup_gap": 3.2,
+        "lineup_gap": gap,
         "avatar_url": None,
-        "top_performer": {"name": "Josh Allen", "points": 28.5, "position": "QB"},
-        "bottom_performer": {"name": "A Kicker", "points": 2.0, "position": "K"},
+        "top_performer": dict(starters[0]),
+        "bottom_performer": dict(starters[-1]),
+        "all_starters": starters,
+        "all_bench": bench,
     }
 
 
 GAME = {
-    "team_1": _team("Satan", 120.0, "2-1"),
-    "team_2": _team("The Sommelier", 99.0, "1-2"),
+    "team_1": _team("Satan", 120.0, "2-1", _WINNER_STARTERS, _WINNER_BENCH,
+                    gap=23.7),
+    "team_2": _team("The Sommelier", 99.0, "1-2", _LOSER_STARTERS, []),
     "winner": "Satan",
     "margin": 21.0,
 }
@@ -274,7 +312,7 @@ def _fail_when(marker: str):
 
 @pytest.mark.parametrize("marker,key,expected_type", [
     ("AWARDS", "awards", list),
-    ("power rankings comment", "power_rankings_comments", dict),
+    ("power rankings note", "power_rankings_comments", dict),
     ("LEAD STORY", "lead_story", str),
     ("FRAUD", "fraud_watch", str),
 ])
@@ -318,3 +356,168 @@ def test_nothing_in_a_finished_paper_is_none(swap_client, no_sleeping):
     for matchup in paper["matchup_content"]:
         assert not [k for k, v in matchup.items()
                     if v is None and not k.endswith("_avatar")]
+
+
+# ---------------------------------------------------------------------------
+# Lineup coverage — the fix for the flat writing
+# ---------------------------------------------------------------------------
+
+def test_the_whole_starting_lineup_reaches_the_prompt(swap_client):
+    """The complaint was that the writing was generic and named nobody. The
+    cause was not the prompt: build_game_context handed over two players per
+    team — top scorer and biggest bust — while the prompt asked for roster-wide
+    commentary. Four names for a whole matchup article.
+
+    This test is the guard on the data, not the phrasing.
+    """
+    fake = _Client(lambda _k: _reply())
+    swap_client(lambda _k: _reply())
+
+    ctx = writer.build_game_context(GAME)
+    joined = " ".join(ctx["winner_lineup"] + ctx["loser_lineup"])
+
+    for name in ("Josh Allen", "Bijan Robinson", "Nico Collins"):
+        assert name in joined, f"{name} never reached the writer"
+    assert len(ctx["winner_lineup"]) >= 4
+
+
+def test_every_named_player_carries_a_number(swap_client):
+    """"Bijan went off" is not reporting. A name without its points is what
+    the model produced when it was guessing."""
+    ctx = writer.build_game_context(GAME)
+    for line in ctx["winner_lineup"]:
+        assert re.search(r"\d", line), f"no number on: {line}"
+
+
+def test_bench_players_are_marked_as_benched(swap_client):
+    """"You should have started him" needs the bench, and needs it labelled —
+    an unmarked bench player reads as a starter who did fine."""
+    ctx = writer.build_game_context(GAME)
+    benched = [l for l in ctx["winner_lineup"] if "[BENCHED]" in l]
+    assert benched, "the bench never reached the writer"
+    assert "Chuba Hubbard" in " ".join(benched)
+
+
+def test_injury_status_survives_into_the_prompt():
+    ctx = writer.build_game_context(GAME)
+    assert any("Questionable" in line for line in ctx["winner_lineup"])
+
+
+def test_a_missing_lineup_does_not_crash_the_context():
+    """Older callers, and any provider that can't supply rosters."""
+    bare = {
+        "team_1": {"team_name": "A", "points": 100.0, "record": "0-0"},
+        "team_2": {"team_name": "B", "points": 90.0, "record": "0-0"},
+        "winner": "A", "margin": 10.0,
+    }
+    ctx = writer.build_game_context(bare)
+    assert ctx["winner_lineup"] == []
+    assert ctx["winner"] == "A"
+
+
+def test_the_matchup_prompt_actually_contains_the_lineup(swap_client, no_sleeping):
+    """Building the context is useless if the prompt drops it."""
+    seen = {}
+
+    def capture(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply()
+
+    swap_client(capture)
+    writer.generate_matchup_body(writer.build_game_context(GAME))
+
+    assert "Josh Allen" in seen["prompt"]
+    assert "[BENCHED]" in seen["prompt"]
+    assert "Chuba Hubbard" in seen["prompt"]
+
+
+# ---------------------------------------------------------------------------
+# The scoring scale — measured, not asserted
+# ---------------------------------------------------------------------------
+
+def test_the_scale_is_measured_from_the_league_not_hardcoded():
+    """The prompt used to state "under 100 is embarrassing, over 150 is
+    frightening" at every league. In a superflex league 150 is a Tuesday, and
+    calling a good week embarrassing is how a paper proves it wasn't
+    watching."""
+    superflex = [
+        {"team_1": {"points": 190.0}, "team_2": {"points": 175.0}},
+        {"team_1": {"points": 205.0}, "team_2": {"points": 168.0}},
+        {"team_1": {"points": 182.0}, "team_2": {"points": 160.0}},
+    ]
+    scale = writer.scoring_scale(superflex)
+
+    assert "100" not in scale and "150" not in scale
+    assert "18" in scale or "17" in scale or "19" in scale or "20" in scale
+
+
+def test_too_few_scores_produces_no_scale_at_all():
+    """Two teams is not a distribution. Silence beats an invented threshold —
+    the model does better with no scale than with a wrong one."""
+    assert writer.scoring_scale([{"team_1": {"points": 90.0},
+                                  "team_2": {"points": 80.0}}]) == ""
+    assert writer.scoring_scale([]) == ""
+    assert writer.scoring_scale(None) == ""
+
+
+def test_the_scale_survives_a_missing_score():
+    games = [{"team_1": {"points": 120.0}, "team_2": {"points": None}},
+             {"team_1": {"points": 110.0}, "team_2": {}},
+             {"team_1": {"points": 100.0}, "team_2": {"points": 95.0}},
+             {"team_1": {"points": 130.0}, "team_2": {"points": 88.0}}]
+    assert "Typical score" in writer.scoring_scale(games)
+
+
+def test_no_league_specific_rule_is_baked_into_the_house_prompt():
+    """The chug counter and ASS Watch shipped to every league that ever signed
+    up, in the system prompt, as though they were universal fantasy football.
+    They belong to Kevlarville and they belong in lore."""
+    house = writer.KEVLARVILLE_SYSTEM_PROMPT.lower()
+    assert "chug" not in house
+    assert "ass watch" not in house
+
+
+# ---------------------------------------------------------------------------
+# Classifieds and the pull quote
+# ---------------------------------------------------------------------------
+
+def test_classifieds_are_parsed_and_bounded(swap_client, no_sleeping):
+    payload = json.dumps([
+        {"heading": "WANTED: A QB", "body": "Kyler Murray, 0.7 points.",
+         "contact": "Ask for John"},
+        {"heading": "x" * 200, "body": "y" * 500, "contact": "z" * 200},
+        {"heading": "", "body": "no heading, should be dropped"},
+        "not a dict",
+    ])
+    swap_client(lambda _k: _reply(payload))
+
+    ads = writer.generate_classifieds(SUMMARY, [writer.build_game_context(GAME)])
+
+    assert len(ads) == 2, ads
+    assert ads[0]["heading"] == "WANTED: A QB"
+    assert len(ads[1]["heading"]) <= 80 and len(ads[1]["body"]) <= 220
+
+
+def test_unparseable_classifieds_fall_back_to_the_house_ads(swap_client,
+                                                            no_sleeping):
+    """An empty list is the signal for ads.py to fill from HOUSE_ADS. A crash
+    here would take the whole paper down over the back page."""
+    swap_client(lambda _k: _reply("I'm afraid I can't do that."))
+    assert writer.generate_classifieds(SUMMARY, [writer.build_game_context(GAME)]) == []
+
+
+def test_the_pull_quote_is_written_not_sliced(swap_client, no_sleeping):
+    swap_client(lambda _k: _reply('"Kyler Murray put up 0.7 and it was over."'))
+    quote = writer.generate_pull_quote([writer.build_game_context(GAME)])
+    assert quote == "Kyler Murray put up 0.7 and it was over."
+    assert not quote.endswith("...")
+
+
+def test_both_reach_the_finished_paper(swap_client, no_sleeping):
+    """They are new keys on ai_cache; if generate doesn't emit them the
+    renderer silently falls back and nobody notices for a week."""
+    swap_client(lambda _k: _reply("Some prose."))
+    paper = writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY)
+    assert "classifieds" in paper
+    assert "pull_quote" in paper

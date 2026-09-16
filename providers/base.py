@@ -98,6 +98,24 @@ class FantasyProvider(ABC):
         """
         return []
 
+    def get_transactions(self, league_id: str, season: int, week: int) -> list:
+        """Roster moves that happened in this week. Empty if unsupported.
+
+        A no-op default rather than a third abstract method, on purpose. The
+        two required methods are the reason only a handful of files in this
+        codebase import `providers` at all, and every abstract method added is
+        a new thing every future platform must implement before it can do
+        anything. A platform with no transactions feed should cost nothing.
+
+        Sleeper publishes this. ESPN and Yahoo may not expose an equivalent
+        that we can read without credentials — in which case they inherit this,
+        return nothing, and the paper simply prints no transactions section.
+        That is a better outcome than a section full of apologies.
+
+        Returns Transaction objects (see models.Transaction).
+        """
+        return []
+
     def current_state(self) -> Optional[dict]:
         """The platform's own view of what week and season it is.
 

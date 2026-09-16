@@ -107,15 +107,50 @@ def team_to_legacy(team: Team) -> dict[str, Any]:
     }
 
 
+def _record_after(team: Team, result: str) -> str:
+    """The record INCLUDING the week being reported on.
+
+    Team.record is deliberately the record *entering* the week, so that "upset"
+    and "fraud" logic can compare standings as they stood at kickoff. Correct
+    for that purpose, and wrong for every purpose a reader has: the Week 1
+    paper printed a standings table reading 0-0 for all ten teams, under
+    headlines describing the games that had just decided those records.
+
+    A paper reports the week it covers. This is the number it reports.
+    """
+    wins, losses, ties = team.wins, team.losses, team.ties
+    if result == "won":
+        wins += 1
+    elif result == "lost":
+        losses += 1
+    else:
+        ties += 1
+    base = f"{wins}-{losses}"
+    return f"{base}-{ties}" if ties else base
+
+
 def week_to_legacy_games(week_data: WeekData) -> list[dict[str, Any]]:
     """WeekData -> the `games` list that storylines/writer/newspaper consume."""
     games: list[dict[str, Any]] = []
 
     for matchup in week_data.matchups:
         winner = matchup.winner
+        team_1 = team_to_legacy(matchup.team_1)
+        team_2 = team_to_legacy(matchup.team_2)
+
+        if matchup.is_tie or winner is None:
+            r1 = r2 = "tied"
+        elif winner.team_id == matchup.team_1.team_id:
+            r1, r2 = "won", "lost"
+        else:
+            r1, r2 = "lost", "won"
+
+        team_1["record_after"] = _record_after(matchup.team_1, r1)
+        team_2["record_after"] = _record_after(matchup.team_2, r2)
+
         games.append({
-            "team_1": team_to_legacy(matchup.team_1),
-            "team_2": team_to_legacy(matchup.team_2),
+            "team_1": team_1,
+            "team_2": team_2,
             "winner": winner.team_name if winner else "Tie",
             "margin": matchup.margin,
             "matchup_id": matchup.matchup_id,

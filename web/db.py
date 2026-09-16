@@ -258,7 +258,8 @@ def save_paper(
         "ai_cache": ai_cache or None,   # jsonb column; pass the dict through
     }
     existing = (
-        client().table("newspapers").select("id, ai_cache_original")
+        client().table("newspapers")
+        .select("id, ai_cache_original, generation_count")
         .eq("league_id", league_id).eq("week", week).eq("season", season)
         .execute()
     )
@@ -273,6 +274,20 @@ def save_paper(
         # Never overwrite an original that's already recorded.
         if is_edit and not existing.data[0].get("ai_cache_original"):
             row["ai_cache_original"] = ai_cache or None
+
+        # Count renders, not edits: an edit re-renders the page but writes no
+        # prose and costs nothing, so it must not spend a regeneration.
+        #
+        # Read-modify-write rather than an atomic RPC, deliberately. This is a
+        # courtesy allowance shown to one commissioner, not a spend ceiling —
+        # the ceilings are GENERATIONS_PER_LEAGUE_PER_DAY and the global daily
+        # budget, both of which are claimed atomically. The worst case here is
+        # someone double-clicking Generate and getting four regenerations
+        # instead of three, which costs pennies and harms nobody.
+        if not is_edit:
+            row["generation_count"] = (
+                (existing.data[0].get("generation_count") or 1) + 1)
+
         client().table("newspapers").update(row).eq("id", existing.data[0]["id"]).execute()
     else:
         row.setdefault("ai_cache_original", ai_cache or None)
@@ -283,7 +298,7 @@ def list_papers(league_id: str) -> list[dict[str, Any]]:
     res = (
         client().table("newspapers")
         .select("id, week, season, generated_at, public_url, storage_path, "
-                "view_count, last_viewed_at")
+                "view_count, last_viewed_at, generation_count")
         .eq("league_id", league_id)
         .order("season", desc=True).order("week", desc=True)
         .execute()
@@ -335,6 +350,7 @@ _EXPECTED_SCHEMA = [
     ("007_themes", "column", "leagues", "theme"),
     ("008_views", "column", "newspapers", "view_count"),
     ("009_limits", "function", "claim_rate_slot", None),
+    ("011_generation_count", "column", "newspapers", "generation_count"),
 ]
 
 

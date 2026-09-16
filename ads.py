@@ -40,22 +40,29 @@ class Ad:
     is_house_ad: bool = True
 
 
-#: Filler inventory. Shown when nothing has been sold for a slot, so the paper
-#: never has a visible hole in it. House ads sell the product itself.
+#: The one ad that is actually selling something. It is the last line of the
+#: paper a reader sees after two thousand words they enjoyed, so it survives
+#: every fill: writer-generated classifieds replace the generic filler below,
+#: never this.
+PRODUCT_AD = Ad(
+    slot_id="classified-house",
+    heading="YOUR LEAGUE, YOUR PAPER",
+    body="This newspaper was generated automatically from real league "
+         "data. Free for any league that wants one.",
+    contact="commissionersdesk.com",
+)
+
+#: Last-resort filler, so the grid never has a visible hole in it. Deliberately
+#: generic, which is exactly why it should be crowded out by the ones the
+#: writer produces about the actual week — see ads_from_content.
 HOUSE_ADS: list[Ad] = [
+    PRODUCT_AD,
     Ad(
         slot_id="classified-1",
         heading="WANTED: ONE COMPETENT MANAGER",
         body="League seeks individual capable of setting a lineup before "
              "Sunday kickoff. Experience preferred. Standards low.",
         contact="Inquire within",
-    ),
-    Ad(
-        slot_id="classified-2",
-        heading="YOUR LEAGUE, YOUR PAPER",
-        body="This newspaper was generated automatically from real league "
-             "data. Free for any league that wants one.",
-        contact="commish.app",
     ),
     Ad(
         slot_id="classified-3",
@@ -81,10 +88,23 @@ def _escape(text: str) -> str:
     )
 
 
-def _render_ad(ad: Ad) -> str:
+def _edit(key: str, editable: bool) -> str:
+    """Mirror of newspaper.ed(), kept local so ads.py imports nothing."""
+    if not editable:
+        return ""
+    return f' data-edit-key="{key}" contenteditable="true" spellcheck="true"'
+
+
+def _render_ad(ad: Ad, editable: bool = False, index: int | None = None) -> str:
     width, height = ad.size
+    # Only writer-generated ads are editable. The product ad and the generic
+    # house filler are ours, not the commissioner's, and an edit to them would
+    # be silently discarded on the next generation anyway.
+    can_edit = editable and index is not None and not ad.is_house_ad
     contact_html = (
-        f'<div class="classified-contact">{_escape(ad.contact)}</div>'
+        f'<div class="classified-contact"'
+        f'{_edit(f"classified_contact_{index}", can_edit)}>'
+        f'{_escape(ad.contact)}</div>'
         if ad.contact else ""
     )
     # data-ad-slot / data-ad-size are the hooks an ad network script uses.
@@ -95,8 +115,8 @@ def _render_ad(ad: Ad) -> str:
              data-ad-slot="{_escape(ad.slot_id)}"
              data-ad-size="{width}x{height}"
              data-ad-house="{'true' if ad.is_house_ad else 'false'}">
-            <div class="classified-heading">{_escape(ad.heading)}</div>
-            <div class="classified-body">{_escape(ad.body)}</div>
+            <div class="classified-heading"{_edit(f"classified_heading_{index}", can_edit)}>{_escape(ad.heading)}</div>
+            <div class="classified-body"{_edit(f"classified_body_{index}", can_edit)}>{_escape(ad.body)}</div>
             {contact_html}
         </div>'''
 
@@ -156,12 +176,51 @@ CLASSIFIEDS_CSS = """
 """
 
 
-def render_classifieds(ads: Optional[list[Ad]] = None, limit: int = 4) -> str:
+def ads_from_content(entries, limit: int = 3) -> list[Ad]:
+    """Writer-generated classifieds -> Ad objects.
+
+    The house ads below stay as the last-resort fill (and the product ad stays
+    a real house ad). These are the ones written about the week that just
+    happened, which is the difference between a classified somebody reads and
+    a classified somebody's eye slides off.
+    """
+    made: list[Ad] = []
+    for i, entry in enumerate(entries or []):
+        if not isinstance(entry, dict):
+            continue
+        heading = (entry.get("heading") or "").strip()
+        body = (entry.get("body") or "").strip()
+        if not heading or not body:
+            continue
+        made.append(Ad(
+            slot_id=f"classified-{i + 1}",
+            heading=heading,
+            body=body,
+            contact=(entry.get("contact") or "").strip() or None,
+            is_house_ad=False,
+        ))
+        if len(made) >= limit:
+            break
+    return made
+
+
+def render_classifieds(ads: Optional[list[Ad]] = None, limit: int = 4,
+                       editable: bool = False) -> str:
     """The classifieds block, ready to drop into the paper."""
-    inventory = (ads or HOUSE_ADS)[:limit]
+    inventory = list(ads or [])
+
+    # Always keep the product ad, and top up from the house inventory if the
+    # writer produced fewer than the grid holds — a half-empty classifieds
+    # block looks like a rendering fault rather than a light week.
+    if len(inventory) < limit:
+        have = {a.heading for a in inventory}
+        inventory += [a for a in HOUSE_ADS if a.heading not in have]
+
+    inventory = inventory[:limit]
     if not inventory:
         return ""
-    blocks = "".join(_render_ad(ad) for ad in inventory)
+    blocks = "".join(_render_ad(ad, editable, i)
+                     for i, ad in enumerate(inventory))
     return f'''
     <div class="classifieds-section">
         <div class="classifieds-title">Classifieds</div>

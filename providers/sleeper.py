@@ -38,6 +38,8 @@ from .models import (
     Matchup,
     PlayerLine,
     Team,
+    Transaction,
+    TransactionPlayer,
     WeekData,
 )
 
@@ -575,3 +577,110 @@ class SleeperProvider(FantasyProvider):
             )
 
         return WeekData(league=league, week=week, matchups=matchups, byes=byes)
+
+
+    # -- transactions ------------------------------------------------------
+    #
+    # Sleeper calls a week a "round" here. One record covers a whole trade,
+    # with a merged adds/drops map keyed by player id and valued by the roster
+    # that gained or lost them — so a two-way trade arrives as a single row,
+    # not two.
+    # ----------------------------------------------------------------------
+
+    def get_transactions(self, league_id: str, season: int, week: int) -> list:
+        """Every roster move in this week, named and attributed.
+
+        Failed waiver claims are kept deliberately. A claim that lost is often
+        the better story than one that won: somebody bid, publicly, and did not
+        get the player — and everyone in the league can see what they wanted.
+        """
+        try:
+            rows = self._get(f"{BASE_URL}/league/{league_id}/transactions/{week}")
+        except ProviderError:
+            # A missing transactions feed must never cost the paper its
+            # matchups. This section is a bonus; the scores are the product.
+            return []
+        if not rows:
+            return []
+
+        names = self._roster_names(league_id)
+        players = self._player_index() or {}
+
+        def player(pid: str) -> TransactionPlayer:
+            info = players.get(pid) or {}
+            full = (info.get("full_name")
+                    or " ".join(filter(None, (info.get("first_name"),
+                                              info.get("last_name"))))).strip()
+
+            if not full:
+                # Sleeper identifies a team defense by the team abbreviation
+                # itself ("PIT"), with no name fields, so it falls through
+                # every name lookup and would otherwise print as a bare id in
+                # the middle of a sentence.
+                code = pid.replace("DEF_", "").strip().upper()
+                if 2 <= len(code) <= 4 and code.isalpha():
+                    return TransactionPlayer(player_id=pid,
+                                             name=f"{code} D/ST",
+                                             position="DEF", nfl_team=code)
+                full = pid
+
+            return TransactionPlayer(
+                player_id=pid,
+                name=full,
+                position=info.get("position"),
+                nfl_team=info.get("team"),
+            )
+
+        def team(roster_id) -> str:
+            return names.get(str(roster_id), f"Team {roster_id}")
+
+        out: list[Transaction] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+
+            kind = row.get("type") or "free_agent"
+            status = "complete" if row.get("status") == "complete" else "failed"
+
+            adds = [(team(rid), player(pid))
+                    for pid, rid in (row.get("adds") or {}).items()]
+            drops = [(team(rid), player(pid))
+                     for pid, rid in (row.get("drops") or {}).items()]
+
+            if not adds and not drops:
+                continue
+
+            settings = row.get("settings") or {}
+            bid = settings.get("waiver_bid")
+
+            out.append(Transaction(
+                kind=kind,
+                status=status,
+                week=week,
+                teams=[team(rid) for rid in (row.get("roster_ids") or [])],
+                adds=adds,
+                drops=drops,
+                bid=bid if isinstance(bid, int) else None,
+                created=row.get("created"),
+            ))
+
+        # Oldest first reads as a wire: the week in the order it happened.
+        out.sort(key=lambda t: t.created or 0)
+        return out
+
+    def _roster_names(self, league_id: str) -> dict:
+        """roster_id -> team name, the same way get_week resolves them."""
+        users = self._get(f"{BASE_URL}/league/{league_id}/users") or []
+        rosters = self._get(f"{BASE_URL}/league/{league_id}/rosters") or []
+
+        display = {u["user_id"]: (u.get("display_name") or "Unknown Manager")
+                   for u in users if u.get("user_id")}
+
+        names = {}
+        for r in rosters:
+            rid = str(r.get("roster_id"))
+            meta = r.get("metadata") or {}
+            names[rid] = (meta.get("team_name")
+                          or display.get(r.get("owner_id"))
+                          or f"Team {rid}")
+        return names

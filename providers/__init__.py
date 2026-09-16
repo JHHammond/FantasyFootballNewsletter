@@ -35,6 +35,8 @@ from .models import (
     Matchup,
     PlayerLine,
     Team,
+    Transaction,
+    TransactionPlayer,
     WeekData,
     can_fill_slot,
     can_fill_slot_any,
@@ -80,6 +82,26 @@ def available_providers() -> list[dict]:
     ]
 
 
+def load_transactions(
+    provider_name: str,
+    league_id: str,
+    season: int,
+    week: int,
+    **provider_kwargs,
+) -> list:
+    """This week's roster moves, or an empty list.
+
+    Never raises. The transactions section is a bonus on top of the paper, and
+    a platform outage on a secondary feed must not cost a league its scores —
+    so everything here degrades to "no section" rather than to an error page.
+    """
+    try:
+        provider = get_provider(provider_name, **provider_kwargs)
+        return provider.get_transactions(league_id, season, week) or []
+    except Exception:  # noqa: BLE001 — a bonus section, never a blocker
+        return []
+
+
 def load_week(
     provider_name: str,
     league_id: str,
@@ -102,6 +124,7 @@ __all__ = [
     "get_provider",
     "available_providers",
     "load_week",
+    "load_transactions",
     "FantasyProvider",
     "SleeperProvider",
     "ESPNProvider",
@@ -116,6 +139,8 @@ __all__ = [
     "Matchup",
     "PlayerLine",
     "WeekData",
+    "Transaction",
+    "TransactionPlayer",
     "SLOT_ELIGIBILITY",
     "BENCH_SLOTS",
     "is_starting_slot",

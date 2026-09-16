@@ -3112,3 +3112,131 @@ def test_a_database_that_cannot_be_probed_does_not_stop_the_app_booting(
 
     webapp.announce_missing_migrations()
     assert "could not be checked" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# The weekly regeneration allowance
+# ---------------------------------------------------------------------------
+
+def _generate(client, week=1):
+    return client.post("/l/secret-admin-token/generate", data={"week": week},
+                       follow_redirects=False)
+
+
+def test_the_first_generation_is_not_a_regeneration(client, league, monkeypatch):
+    """You cannot redo something you have not done. A week with no paper has
+    its whole allowance intact."""
+    assert webapp.regenerations_used(None) == 0
+    assert webapp.regenerations_left(None) == webapp.REGENERATIONS_PER_WEEK
+
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: demo_db.save_paper(
+                            lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
+    _generate(client)
+
+    paper = demo_db.get_paper(league["id"], league["season"], 1)
+    assert webapp.regenerations_used(paper) == 0
+    assert webapp.regenerations_left(paper) == webapp.REGENERATIONS_PER_WEEK
+
+
+def test_editing_never_spends_a_regeneration(client, league):
+    """An edit re-renders the page and makes no Claude call at all. Charging
+    for it would make the cheap, unlimited thing feel like the expensive one.
+    """
+    demo_db.save_paper(league["id"], 1, league["season"], "p", "u", {"headline": "x"})
+    for _ in range(4):
+        demo_db.save_paper(league["id"], 1, league["season"], "p", "u",
+                           {"headline": "edited"}, is_edit=True)
+
+    paper = demo_db.get_paper(league["id"], league["season"], 1)
+    assert webapp.regenerations_used(paper) == 0
+
+
+def test_the_allowance_runs_out_after_three(client, league, monkeypatch):
+    calls = {"n": 0}
+
+    def fake(db_, lg, wk):
+        calls["n"] += 1
+        demo_db.save_paper(lg["id"], wk, lg["season"], "p", "u", {"headline": "x"})
+
+    monkeypatch.setattr(webapp, "generate_and_store", fake)
+
+    _generate(client)                      # the paper itself
+    for _ in range(webapp.REGENERATIONS_PER_WEEK):
+        _generate(client)                  # the three redos
+    assert calls["n"] == webapp.REGENERATIONS_PER_WEEK + 1
+
+    blocked = _generate(client)
+    assert calls["n"] == webapp.REGENERATIONS_PER_WEEK + 1, "generated anyway"
+    assert blocked.status_code == 303
+    assert "error=" in blocked.headers["location"]
+
+
+def test_running_out_points_at_editing_rather_than_just_refusing(client, league,
+                                                                 monkeypatch):
+    """Editing is free, unlimited, and changes more than a regeneration would.
+    Someone who has run out should be told that, not just told no."""
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: demo_db.save_paper(
+                            lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
+    for _ in range(webapp.REGENERATIONS_PER_WEEK + 1):
+        _generate(client)
+
+    message = _generate(client).headers["location"]
+    assert "edit" in message.lower()
+
+
+def test_the_allowance_is_per_week_not_per_league(client, league, monkeypatch):
+    """Week 3 being spent must not stop week 4 from being written at all."""
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: demo_db.save_paper(
+                            lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
+
+    for _ in range(webapp.REGENERATIONS_PER_WEEK + 1):
+        _generate(client, week=1)
+    assert "error=" in _generate(client, week=1).headers["location"]
+
+    fresh = _generate(client, week=2)
+    assert fresh.headers["location"].endswith("/published/2"), fresh.headers["location"]
+
+
+def test_a_paper_written_before_the_counter_existed_keeps_its_allowance(client):
+    """Rows predating migration 011 have no generation_count. Erring toward
+    the commissioner is the only defensible direction — the alternative is
+    silently confiscating redos from everyone who already had a paper."""
+    assert webapp.regenerations_left({"week": 3}) == webapp.REGENERATIONS_PER_WEEK
+    assert webapp.regenerations_left({"week": 3, "generation_count": None}) == \
+        webapp.REGENERATIONS_PER_WEEK
+
+
+def test_the_remaining_count_is_on_the_week_picker(client, league, monkeypatch):
+    """The whole point. A number that only appears in the error message after
+    you have run out is not an allowance, it is a surprise — it has to be
+    attached to the week you are about to pick."""
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=(1, 2, 3)))
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: demo_db.save_paper(
+                            lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
+    _generate(client)
+    _generate(client)   # one redo spent
+
+    body = client.get("/l/secret-admin-token").text
+    assert "2 redos left" in body, "the remaining count is not on the week picker"
+
+
+def test_the_past_editions_list_shows_what_each_paper_has_used(client, league):
+    """The picker covers this season. The list is where you see the history,
+    including weeks the platform no longer offers."""
+    demo_db.save_paper(league["id"], 3, league["season"], "p", "u", {"h": 1})
+    demo_db.save_paper(league["id"], 3, league["season"], "p", "u", {"h": 1})
+
+    body = client.get("/l/secret-admin-token").text
+    assert "regenerated 1 of 3" in body
+
+
+def test_a_paper_that_was_never_regenerated_says_nothing_about_it(client, league):
+    """Zero of three is noise on every row of a list that is mostly zeroes."""
+    demo_db.save_paper(league["id"], 3, league["season"], "p", "u", {"h": 1})
+
+    body = client.get("/l/secret-admin-token").text
+    assert "regenerated" not in body

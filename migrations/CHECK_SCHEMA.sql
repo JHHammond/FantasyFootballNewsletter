@@ -44,7 +44,9 @@ with expected(ordering, migration, kind, obj, col, note) as (
     (9,  '009_rate_limits', 'function', 'claim_rate_slot', null,
          'the durable spend ceiling. Fails CLOSED — nothing generates without it'),
     (10, '010_accounts',    'table',    'users',       null,
-         'email/password accounts')
+         'email/password accounts'),
+    (11, '011_generation_count', 'column', 'newspapers', 'generation_count',
+         'the weekly regeneration allowance. Without it the count never moves')
 )
 select
     e.migration,
