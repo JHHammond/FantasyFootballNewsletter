@@ -2919,3 +2919,196 @@ def test_the_create_account_button_is_readable(client):
 def io_open_style():
     import pathlib
     return pathlib.Path("web/static/style.css").read_text(encoding="utf-8")
+
+
+def test_start_a_new_paper_goes_to_the_connect_page(client):
+    """It pointed at "/" — the homepage — which for a signed-in person is the
+    marketing page they have already read, with no way onward except the nav.
+
+    The button is the whole path from "I have an account" to "I have a paper",
+    so it has to land on the step that actually starts one.
+    """
+    _signup(client)
+    body = client.get("/account").text
+
+    start = [line for line in body.splitlines() if "Start a new paper" in line]
+    assert start, "the account page no longer offers to start a paper"
+    assert 'href="/connect"' in start[0], start[0]
+
+
+def test_a_writer_failure_is_a_message_not_a_500(client, league, monkeypatch):
+    """What the user actually saw the first time this happened was "Nothing
+    here. Something broke on our end." — the 500 page, from a TypeError that
+    had nothing to do with the real fault.
+
+    Claude being unreachable is a temporary, ordinary condition. It deserves a
+    sentence that says to come back in a few minutes, not a crash page.
+    """
+    from writer import WriterError
+
+    def unreachable(*a, **k):
+        raise WriterError("Couldn't reach Claude — every request failed. "
+                          "(APIConnectionError <- ConnectError: no route)")
+
+    monkeypatch.setattr(webapp, "generate_and_store", unreachable)
+
+    r = client.post("/l/secret-admin-token/generate", data={"week": 1},
+                    follow_redirects=False)
+
+    assert r.status_code == 303, "a writer failure must not reach the 500 page"
+    assert r.headers["location"].startswith("/l/secret-admin-token?error=")
+
+
+def test_a_writer_failure_does_not_leak_the_stack_to_the_reader(client, league,
+                                                                monkeypatch):
+    """The cause belongs in the log, where it is useful, and not in a URL a
+    commissioner is looking at."""
+    from writer import WriterError
+
+    monkeypatch.setattr(webapp, "generate_and_store", lambda *a, **k: (
+        _ for _ in ()).throw(WriterError("APIConnectionError <- ConnectError")))
+
+    r = client.post("/l/secret-admin-token/generate", data={"week": 1},
+                    follow_redirects=False)
+
+    assert "ConnectError" not in r.headers["location"]
+    assert "APIConnection" not in r.headers["location"]
+
+
+def test_a_writer_failure_returns_the_generation_slot(client, league,
+                                                      monkeypatch):
+    """Four slots. Leak them and the site refuses to generate anything until
+    it restarts — a much worse outage than the one that caused it."""
+    from writer import WriterError
+
+    monkeypatch.setattr(webapp, "generate_and_store", lambda *a, **k: (
+        _ for _ in ()).throw(WriterError("nope")))
+
+    before = webapp._GENERATION_SLOTS._value
+    client.post("/l/secret-admin-token/generate", data={"week": 1},
+                follow_redirects=False)
+    assert webapp._GENERATION_SLOTS._value == before, "leaked a slot"
+
+
+def test_generation_is_refused_before_paying_when_a_migration_is_missing(
+        client, league, monkeypatch):
+    """Migration 006 was missing through a deploy. Every Claude call succeeded,
+    fourteen seconds passed, the paper was written — and *then* the insert
+    raised `column newspapers.ai_cache_original does not exist` and threw all
+    of it away. A crash page, and the tokens spent on nothing.
+
+    The check has to happen before the money does.
+    """
+    spent = {"called": False}
+
+    def must_not_run(*a, **k):
+        spent["called"] = True
+
+    monkeypatch.setattr(webapp, "generate_and_store", must_not_run)
+    monkeypatch.setattr(demo_db, "schema_blockers", lambda: ["006_edits"])
+
+    r = client.post("/l/secret-admin-token/generate", data={"week": 1},
+                    follow_redirects=False)
+
+    assert not spent["called"], "paid for a paper that could not be saved"
+    assert r.status_code == 303
+    assert "error=" in r.headers["location"]
+
+
+def test_the_migration_refusal_does_not_name_the_migration_to_the_reader(
+        client, league, monkeypatch):
+    """A commissioner can do nothing with "006_edits", and it advertises the
+    shape of the database. The log gets the detail; the page gets a sentence."""
+    monkeypatch.setattr(webapp, "generate_and_store", lambda *a, **k: None)
+    monkeypatch.setattr(demo_db, "schema_blockers", lambda: ["006_edits"])
+
+    r = client.post("/l/secret-admin-token/generate", data={"week": 1},
+                    follow_redirects=False)
+
+    assert "error=" in r.headers["location"], "it didn't refuse at all"
+    assert "006" not in r.headers["location"]
+    assert "migration" not in r.headers["location"].lower()
+
+
+def test_a_healthy_schema_does_not_block_generation(client, league, monkeypatch):
+    """The guard must not become the thing that breaks generating."""
+    ran = {"called": False}
+
+    def note(*a, **k):
+        ran["called"] = True
+
+    monkeypatch.setattr(webapp, "generate_and_store", note)
+    r = client.post("/l/secret-admin-token/generate", data={"week": 1},
+                    follow_redirects=False)
+
+    assert ran["called"]
+    assert r.headers["location"].endswith("/published/1")
+
+
+def test_a_failure_after_writing_is_not_a_crash_page(client, league,
+                                                     monkeypatch):
+    """The save side — storage, the database, the renderer. The paper is gone
+    either way; the reader should still get a sentence, not a stack trace."""
+    def save_fails(*a, **k):
+        raise RuntimeError("column newspapers.ai_cache_original does not exist")
+
+    monkeypatch.setattr(webapp, "generate_and_store", save_fails)
+
+    r = client.post("/l/secret-admin-token/generate", data={"week": 1},
+                    follow_redirects=False)
+
+    assert r.status_code == 303, "fell through to the 500 page"
+    assert "ai_cache_original" not in r.headers["location"]
+
+
+def test_a_failure_after_writing_returns_the_generation_slot(client, league,
+                                                             monkeypatch):
+    monkeypatch.setattr(webapp, "generate_and_store", lambda *a, **k: (
+        _ for _ in ()).throw(RuntimeError("storage exploded")))
+
+    before = webapp._GENERATION_SLOTS._value
+    client.post("/l/secret-admin-token/generate", data={"week": 1},
+                follow_redirects=False)
+    assert webapp._GENERATION_SLOTS._value == before, "leaked a slot"
+
+
+def test_an_unapplied_migration_is_announced_at_startup(monkeypatch, capsys):
+    """The check was right; the channel was wrong.
+
+    /healthz has reported this since the first time it bit us — but it reports
+    inside a 200 body, on purpose, so a half-migrated database isn't pulled out
+    of rotation. The host's probe therefore logs a cheerful "GET /healthz 200
+    OK" and nobody ever reads the warning in it. That is how 006 survived two
+    deploys. Startup logs are what actually gets looked at after a deploy.
+    """
+    monkeypatch.setattr(webapp, "DEMO_MODE", False)
+    monkeypatch.setattr(demo_db, "schema_report", lambda: ["006_edits"])
+
+    webapp.announce_missing_migrations()
+
+    out = capsys.readouterr().out
+    assert "006_edits" in out
+    assert "notify pgrst" in out, "the log has to include the step people miss"
+
+
+def test_a_healthy_schema_says_so_rather_than_saying_nothing(monkeypatch,
+                                                             capsys):
+    """Silence is ambiguous — it reads the same as the check never running."""
+    monkeypatch.setattr(webapp, "DEMO_MODE", False)
+    monkeypatch.setattr(demo_db, "schema_report", lambda: [])
+
+    webapp.announce_missing_migrations()
+    assert "all migrations present" in capsys.readouterr().out
+
+
+def test_a_database_that_cannot_be_probed_does_not_stop_the_app_booting(
+        monkeypatch, capsys):
+    """A site that already has papers should keep serving them even if this
+    one probe fails. Refusing to boot would be a worse outage than the one it
+    is trying to warn about."""
+    monkeypatch.setattr(webapp, "DEMO_MODE", False)
+    monkeypatch.setattr(demo_db, "schema_report", lambda: (
+        _ for _ in ()).throw(RuntimeError("supabase unreachable")))
+
+    webapp.announce_missing_migrations()
+    assert "could not be checked" in capsys.readouterr().out

@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import anthropic
 from dotenv import load_dotenv
 
@@ -180,22 +181,88 @@ def build_game_context(game):
     }
 
 
-def call_claude(prompt, max_tokens=400, system=None):
+class WriterError(RuntimeError):
+    """Generation could not produce a paper.
+
+    Raised only for wholesale failure — the API was unreachable, or refused
+    every request. A single task failing is survivable and does not raise;
+    the section falls back and the rest of the paper still prints.
+    """
+
+
+class CallFailed(RuntimeError):
+    """One Claude call gave up after its retries.
+
+    Deliberately carries no message of its own: the useful text is the chained
+    __cause__, and duplicating it here produced log lines that described the
+    same failure twice in a row.
+    """
+
+
+def describe_api_failure(exc: BaseException) -> str:
+    """Why a Claude call failed, in a form worth pasting into a bug report.
+
+    The SDK's APIConnectionError stringifies to exactly "Connection error." —
+    which says a socket-level thing went wrong and nothing whatsoever about
+    what. The real exception is the __cause__: httpx.ConnectError,
+    ssl.SSLCertVerificationError, socket.gaierror, ReadTimeout. Those are four
+    completely different problems with four different fixes, and collapsing
+    them into one sentence cost an afternoon once. Walk the chain.
+    """
+    parts = []
+    seen = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        text = str(current).strip()
+        label = type(current).__name__
+        parts.append(f"{label}: {text}" if text else label)
+        current = current.__cause__ or current.__context__
+    return " <- ".join(parts[:4])
+
+
+def call_claude(prompt, max_tokens=400, system=None, attempts=3):
     """Make a single call to the Claude API and return the text response.
 
     `system` is passed explicitly rather than read from a module global because
     generation runs across a ThreadPoolExecutor — a global would race between
     two leagues generating at the same time with different tone settings.
+
+    Retried, because sixteen calls go out at once and a transient reset on one
+    of them should not cost the paper a section. Overloaded and rate-limit
+    responses are the common case and both are worth waiting out; a 400 or a
+    401 will never succeed on a second try, so those come straight back.
     """
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=max_tokens,
-        system=system or KEVLARVILLE_SYSTEM_PROMPT,
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return message.content[0].text.strip()
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise WriterError(
+            "ANTHROPIC_API_KEY is not set on this service, so there is nothing "
+            "to write the paper with."
+        )
+
+    last: BaseException | None = None
+    for attempt in range(attempts):
+        try:
+            message = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=max_tokens,
+                system=system or KEVLARVILLE_SYSTEM_PROMPT,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            return message.content[0].text.strip()
+        except anthropic.APIStatusError as exc:
+            # 4xx that isn't rate limiting is a bug in the request or the key.
+            # Retrying just makes the log longer.
+            if exc.status_code not in (408, 409, 429) and exc.status_code < 500:
+                raise
+            last = exc
+        except (anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
+            last = exc
+        if attempt < attempts - 1:
+            time.sleep(1.5 * (2 ** attempt))
+
+    raise CallFailed(f"gave up after {attempts} attempts") from last
 
 
 def generate_headline(summary, week, league_name, commissioner_name="", inside_jokes="", system=None):
@@ -569,6 +636,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     # Fire all tasks in parallel
     results = {}
+    failures = {}
+    api_failures = 0
     with ThreadPoolExecutor(max_workers=12) as executor:
         future_to_key = {executor.submit(fn): key for key, fn in tasks.items()}
         for future in as_completed(future_to_key):
@@ -576,12 +645,53 @@ def generate_full_newspaper_content(league_name, week, games, summary,
             try:
                 results[key] = future.result()
                 print(f"[writer] ✓ {key}")
-            except Exception as e:
-                print(f"[writer] ✗ {key} failed: {e}")
+            except CallFailed as e:
+                # The API is unreachable or refusing. Expected enough to log as
+                # one line — the chained cause is the part worth reading.
+                api_failures += 1
+                reason = describe_api_failure(e.__cause__ or e)
+                print(f"[writer] ✗ {key}: {reason}", flush=True)
                 results[key] = None
+                failures[key] = reason
+            except Exception as e:  # noqa: BLE001
+                # Anything else is a bug in our own code — a KeyError on league
+                # data, a bad format string. Those need a stack trace, and
+                # swallowing them into a one-line summary is how one sat
+                # undiagnosed behind a message about the network.
+                import traceback
+                print(f"[writer] ✗ {key} raised {type(e).__name__}", flush=True)
+                traceback.print_exc()
+                results[key] = None
+                failures[key] = f"{type(e).__name__}: {e}"
 
-    # Assemble matchup content in original order
-    teasers = results.get("game_teasers", [])
+    # Fail loudly on wholesale failure rather than quietly shipping a paper
+    # made entirely of fallback strings.
+    #
+    # The lesson from the first production 500: every one of sixteen calls
+    # failed with "Connection error.", and the symptom that reached the user
+    # was a TypeError fourteen lines further down, in code with nothing to do
+    # with the actual problem. A paper missing one recap is worth printing. A
+    # paper where nothing was written is not a paper, and pretending otherwise
+    # turns a clear infrastructure fault into a mystery.
+    if failures and len(failures) == len(tasks):
+        reason = next(iter(failures.values()))
+        print(f"[writer] ALL {len(tasks)} calls failed. First: {reason}",
+              flush=True)
+        if api_failures == len(tasks):
+            raise WriterError(
+                f"Couldn't reach Claude — every request failed. ({reason})")
+        raise WriterError(f"Nothing could be written. ({reason})")
+    if failures:
+        print(f"[writer] {len(failures)} of {len(tasks)} calls failed; "
+              f"printing with fallbacks for: {', '.join(sorted(failures))}",
+              flush=True)
+
+    # Assemble matchup content in original order.
+    #
+    # `or []`, not a .get default: the key IS present when the teaser call
+    # failed — its value is None. A default only fires on a missing key, which
+    # is precisely why this line read as correct and still crashed.
+    teasers = results.get("game_teasers") or []
     matchup_content = []
     for i, game_data in enumerate(game_contexts):
         ctx = game_data["ctx"]
@@ -597,21 +707,25 @@ def generate_full_newspaper_content(league_name, week, games, summary,
             "margin": ctx["margin"],
             "winner_avatar": game_data["winner_avatar"],
             "loser_avatar": game_data["loser_avatar"],
-            "headline": results.get(f"matchup_headline_{i}", "MATCHUP HEADLINE UNAVAILABLE"),
-            "body": results.get(f"matchup_body_{i}", "Recap unavailable."),
+            "headline": results.get(f"matchup_headline_{i}") or
+                        f"{ctx['winner']} over {ctx['loser']}",
+            "body": results.get(f"matchup_body_{i}") or "Recap unavailable.",
             "teaser": teasers[i] if i < len(teasers) else f"{ctx['winner']} defeats {ctx['loser']}",
         })
 
     elapsed = round(time.time() - start, 1)
     print(f"[writer] Done. All content generated in {elapsed}s")
 
+    # Every one of these is `or`, not a .get default, for the reason above: a
+    # failed task leaves the key present and None, and None reaches a template
+    # that expects a list or a dict.
     return {
-        "headline": results.get("headline", "KEVLARVILLE WEEKLY RECAP"),
-        "lead_story": results.get("lead_story", "Another week in the books."),
+        "headline": results.get("headline") or f"{league_name} — Week {week}",
+        "lead_story": results.get("lead_story") or "Another week in the books.",
         "matchup_content": matchup_content,
-        "awards": results.get("awards", []),
-        "fraud_watch": results.get("fraud_watch", "No fraud detected."),
-        "power_rankings_comments": results.get("power_rankings_comments", {}),
+        "awards": results.get("awards") or [],
+        "fraud_watch": results.get("fraud_watch") or "No fraud detected.",
+        "power_rankings_comments": results.get("power_rankings_comments") or {},
     }
 
 

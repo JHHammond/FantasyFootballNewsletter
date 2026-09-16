@@ -22,7 +22,7 @@ from newspaper import (  # noqa: E402
 )
 from providers import load_week, week_to_legacy_games  # noqa: E402
 from storylines import get_weekly_storylines  # noqa: E402
-from writer import generate_full_newspaper_content  # noqa: E402
+from writer import WriterError, generate_full_newspaper_content  # noqa: E402
 
 
 def public_base_url() -> str:

@@ -38,6 +38,7 @@ import hmac
 import os
 import sys
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -63,6 +64,7 @@ import themes  # noqa: E402
 from . import auth, emailer, images, legal, slugs  # noqa: E402
 from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
+    WriterError,
     generate_and_store,
     paper_name_for,
     public_base_url,
@@ -99,7 +101,54 @@ if os.getenv("SENTRY_DSN"):
         print("SENTRY_DSN is set but sentry-sdk isn't installed. "
               "Add it to requirements.txt or unset the variable.")
 
-app = FastAPI(title="The Commissioner's Desk", docs_url=None, redoc_url=None)
+def announce_missing_migrations():
+    """Shout about an unapplied migration into the deploy log.
+
+    /healthz has reported this since the first time it bit us — but it reports
+    it in a 200 response body, deliberately, so that a half-migrated database
+    doesn't get pulled out of rotation and take the working pages down with it.
+    The consequence is that the host's own health probe logs a cheerful
+    "GET /healthz 200 OK" and the warning inside it is never read by anybody.
+
+    That is how migration 006 stayed missing through two deploys and surfaced
+    as a 500 *after* fourteen seconds of Claude calls had already been paid
+    for. The check was right. The channel was wrong. Startup logs are the
+    thing that actually gets looked at after a deploy, so say it there.
+    """
+    if DEMO_MODE:
+        return
+    try:
+        missing = db.schema_report()
+    except Exception as exc:  # noqa: BLE001 — never block startup on a probe
+        print(f"[schema] could not be checked: {exc}", flush=True)
+        return
+
+    if not missing:
+        print("[schema] all migrations present", flush=True)
+        return
+
+    print("\n" + "!" * 70, flush=True)
+    print(f"!! UNAPPLIED MIGRATIONS: {', '.join(missing)}", flush=True)
+    print("!! Papers that already exist will serve. Generating a new one will",
+          flush=True)
+    print("!! fail, possibly AFTER the Claude calls have been made and paid",
+          flush=True)
+    print("!! for. Run these in the Supabase SQL editor, in order, then:",
+          flush=True)
+    print("!!     notify pgrst, 'reload schema';", flush=True)
+    print("!! migrations/CHECK_SCHEMA.sql lists every one in a single query.",
+          flush=True)
+    print("!" * 70 + "\n", flush=True)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    announce_missing_migrations()
+    yield
+
+
+app = FastAPI(title="The Commissioner's Desk", docs_url=None, redoc_url=None,
+              lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -1088,6 +1137,27 @@ def generate(request: Request, token: str, week: int = Form(...),
             f"Nothing+is+broken+-+try+again+tomorrow.",
             status_code=303)
 
+    # Check the database can hold a paper BEFORE paying to write one.
+    #
+    # Migration 006 was missing through a deploy. The shape of that failure:
+    # every Claude call succeeded, fourteen seconds passed, the paper was
+    # written — and the insert then raised "column newspapers.ai_cache_original
+    # does not exist" and threw all of it away. The user got a crash page and
+    # the tokens were spent on nothing.
+    #
+    # Free after the first success — schema_blockers latches once the schema is
+    # intact — and self-healing, since running the migration clears it on the
+    # next request with no redeploy.
+    blockers = db.schema_blockers()
+    if blockers:
+        print(f"[app] refusing to generate — unapplied migrations: "
+              f"{', '.join(blockers)}", flush=True)
+        return RedirectResponse(
+            f"/l/{token}?error=The+site+isn't+finished+setting+up+its+"
+            f"database,+so+a+new+paper+can't+be+saved+yet.+Nothing+was+"
+            f"charged.+The+owner+has+been+told.",
+            status_code=303)
+
     # Regenerating throws away hand-edited prose. Ask first rather than
     # silently deleting someone's work.
     existing = db.get_paper(league["id"], league["season"], week)
@@ -1109,6 +1179,33 @@ def generate(request: Request, token: str, week: int = Form(...),
         generate_and_store(db, league, week)
     except ProviderError as exc:
         return RedirectResponse(f"/l/{token}?error={exc}", status_code=303)
+    except WriterError as exc:
+        # Nothing was written at all. Say so in one sentence a person can act
+        # on, rather than letting it fall through to a 500 — "something broke
+        # on our end" is true and useless, and the fault is almost always
+        # temporary or a missing key rather than anything the league did.
+        print(f"[app] generation failed for league {league['id']}: {exc}",
+              flush=True)
+        return RedirectResponse(
+            f"/l/{token}?error=The+writers+couldn't+be+reached+just+now.+"
+            f"Nothing+was+charged+and+nothing+was+lost+-+try+again+in+a+"
+            f"few+minutes.",
+            status_code=303)
+    except Exception:  # noqa: BLE001
+        # Backstop for the save side: storage, the database, the renderer.
+        # Broad on purpose — this route is the one moment the product
+        # delivers, and a stack trace in the browser is the worst possible
+        # ending to it. The traceback still goes to the log in full, which is
+        # where it was useful anyway.
+        import traceback
+        print(f"[app] generation failed AFTER writing, league "
+              f"{league['id']} week {week} — the Claude calls were paid for "
+              f"and the result could not be saved:", flush=True)
+        traceback.print_exc()
+        return RedirectResponse(
+            f"/l/{token}?error=The+paper+was+written+but+couldn't+be+saved.+"
+            f"This+one's+on+us+-+it's+been+logged.+Try+again+in+a+few+minutes.",
+            status_code=303)
     finally:
         _GENERATION_SLOTS.release()
 
@@ -1773,6 +1870,16 @@ def healthz():
             "missing": missing,
             "fix": "run these in the Supabase SQL editor in order, then: "
                    "notify pgrst, 'reload schema';",
+        })
+
+    # Presence only, never the value. A service that can serve every existing
+    # paper but cannot write a new one looks completely healthy from outside,
+    # and this is the one bit that distinguishes those two states.
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        return JSONResponse({
+            "ok": True,
+            "warning": "ANTHROPIC_API_KEY is not set",
+            "effect": "existing papers serve fine; generating a new one fails",
         })
     return {"ok": True}
 

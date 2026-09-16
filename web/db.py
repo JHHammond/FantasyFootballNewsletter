@@ -338,6 +338,35 @@ _EXPECTED_SCHEMA = [
 ]
 
 
+#: Set once the schema has been seen intact, so the probe above — five round
+#: trips to Supabase — runs at most a handful of times rather than on every
+#: generate. Deliberately one-way: it latches on success only, so running the
+#: missing migration fixes the site on the next request with no redeploy.
+#: Nothing sets it back, because a column cannot un-exist.
+_SCHEMA_CONFIRMED = False
+
+
+def schema_blockers() -> list[str]:
+    """Migrations whose absence would make generating a paper fail.
+
+    Called *before* generation rather than after. Migration 006 was missing
+    through a deploy, and the shape of that failure was: sixteen Claude calls
+    succeed, fourteen seconds pass, the paper is written and paid for — and
+    then the insert raises `column newspapers.ai_cache_original does not
+    exist` and all of it is discarded. The user sees a crash page and the
+    money is gone.
+
+    Checking first costs one round trip the first time and nothing after.
+    """
+    global _SCHEMA_CONFIRMED
+    if _SCHEMA_CONFIRMED:
+        return []
+    missing = schema_report()
+    if not missing:
+        _SCHEMA_CONFIRMED = True
+    return missing
+
+
 def schema_report() -> list[str]:
     """Migrations that look unapplied. Empty list means everything is present.
 

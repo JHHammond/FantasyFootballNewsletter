@@ -206,6 +206,11 @@ def schema_report() -> list[str]:
     return []
 
 
+def schema_blockers() -> list[str]:
+    """Same contract as db.schema_blockers. Dicts grow columns for free."""
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Rate limiting — same contract as db.claim_rate_slot, in a dict.
 # ---------------------------------------------------------------------------
