@@ -33,37 +33,40 @@ SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 #: which makes it simultaneously the biggest saving available and the worst
 #: place to take one.
 #:
-#: awards and fraud_watch WERE on this list and came straight back off it
-#: after one real paper. Both failed in the same way, and it is worth writing
-#: down because it is not the failure the word "cheaper" makes you expect.
+#: fraud_watch WAS on this list and came straight back off after one real
+#: paper. It printed, into the newspaper, a request addressed to whoever reads
+#: the logs — "I need the actual box score data to write this, the players
+#: johnhenryhammond started, what they scored..." — followed by a bulleted
+#: list of what it wanted. A whole league read that.
 #:
-#: Neither wrote worse prose. Both stopped doing the job:
+#: awards came off at the same time AND I WAS WRONG ABOUT IT. The evidence was
+#: that the awards explained who their namesakes are: "Gardner Minshew is the
+#: backup QB for KC." I read that as a small model padding, and it was not —
+#: the PROMPT said, in as many words, "Always open by explaining the award:
+#: Gardner Minshew is the backup QB for KC", and the model did exactly as it
+#: was told. It also repeated a fact that has since stopped being true, which
+#: is what happens when you hardcode a roster into a prompt. The prompt is
+#: fixed and awards is back here, because the reason for moving it was not a
+#: reason.
 #:
-#:   Fraud Watch printed, into the newspaper, a request addressed to whoever
-#:   was reading the logs — "I need the actual box score data to write this,
-#:   the players johnhenryhammond started, what they scored..." — followed by
-#:   a bulleted list of what it wanted. A whole league read that.
+#: The line that does hold, from the one real failure:
 #:
-#:   The awards explained who their namesakes are. "Gardner Minshew is the
-#:   backup QB for KC." "Joe Burrow is arguably the best player in the NFL."
-#:   That is the system prompt's own first rule broken exactly: a sentence
-#:   that could be moved to any week without changing a word.
+#:   TRANSFORM a thing you were given — cheap. A teaser off a finished recap,
+#:   a quote pulled from finished prose, a headline off a scoreline.
 #:
-#: Both prompts hand over a summary and expect the writer to work from it.
-#: The sections still here are the ones where the prompt hands over the
-#: finished thing and asks for a rewrite — a teaser off a recap, a quote
-#: pulled from prose, an eight-word headline off a scoreline.
+#:   JUDGE what matters in a pile of data — expensive. fraud_watch is handed a
+#:   summary and asked to find the fraud in it, and that is the one that broke.
 #:
-#: That looks like the real line, and it is not about length or difficulty:
-#: TRANSFORM a thing you were given, cheap. JUDGE what matters in a pile of
-#: data, expensive.
-#:
-#: power_rankings_comments was never on the list, for the same reason under a
-#: different name.
+#: NOT on this list, deliberately: lead_story and every matchup_body. That is
+#: the writing people actually read, and it is 53% of the output budget —
+#: simultaneously the biggest saving available and the worst place to take one.
+#: power_rankings_comments is not here either; it was rewritten once already
+#: for producing "Fine. Perfectly, aggressively fine."
 SMALL_MODEL_TASKS = frozenset({
     "game_teasers",
     "classifieds",
     "pull_quote",
+    "awards",
 })
 
 
@@ -144,6 +147,12 @@ projection. Use them.
   an injury, a snap count or a play. You have the box score, not the tape —
   what the numbers say is yours to interpret, what happened on the field is
   not yours to make up.
+- NEVER say which NFL team a player plays for, who they back up, or where they
+  were drafted, unless that fact is in the data below. Rosters move every
+  offseason and you are remembering an old one. A paper that tells this league
+  a player is on the wrong team has lost them on the detail they are surest
+  about. Where the data gives you a team, it is correct and you may use it;
+  where it does not, write about the points.
 - Every line gives you both numbers, each labelled: what the player SCORED and
   what they were PROJECTED. Never swap them. The single fastest way to lose a
   reader is to tell them a player was projected for the number he actually
@@ -1005,30 +1014,26 @@ Write FOUR WEEKLY AWARDS for this week's Kevlarville Times.
 Each award needs: a title, and 2-3 sentences of body text.
 Do not use any markdown formatting. Plain prose only.
 
-Awards to write:
-1. GARDNER MINSHEW AWARD — best bench player (most points left on bench).
-   Always open by explaining the award: Gardner Minshew is the backup QB for KC,
-   substantially better than starter (bum ass) Patrick Mahomes.
+Awards to write. The NAMES are fixed and never change — they are this
+league's own running joke and the readers already know them. Do NOT explain
+who the namesake is, and do NOT state which NFL team anybody plays for. Write
+about what happened in THIS league THIS week.
+
+1. GARDNER MINSHEW AWARD — most points left on the bench.
    Winner: {context['bench_blunder_team']} ({context['bench_blunder_owner']})
    with {context['bench_blunder_gap']:.1f} points left on the bench.
 
-2. JOE BURROW AWARD — manager who did everything right but still lost.
-   Always open by explaining: Joe Burrow is arguably the best player in the NFL,
-   yet the team around him always finds a way to lose.
+2. JOE BURROW AWARD — did everything right and still lost.
    Winner: {context['lowest_score_team']} ({context['lowest_score_owner']})
    with only {context['lowest_score']:.1f} points.
 
-3. KYLE PITTS AWARD — boldest correct starting decision.
-   Always open by explaining: the award rewards courage and ball knowledge,
-   not just the highest scorer.
+3. KYLE PITTS AWARD — boldest correct starting decision. Courage and ball
+   knowledge, not simply the highest score.
    Winner: {context['highest_score_team']} ({context['highest_score_owner']})
    who dropped {context['highest_score']:.1f} points.
 
-4. JERRY JONES AWARD — worst overall manager of the week.
-   Jerry Jones is the Cowboys owner who meddles endlessly, has all the resources,
-   makes catastrophically bad decisions, and still somehow blames everyone else.
-   This award goes to the loser who had the talent but made the worst decisions.
-   Always open by explaining the award and comparing the winner to Jerry Jones specifically.
+4. JERRY JONES AWARD — worst manager of the week. All the talent, all the
+   resources, the worst decisions, and somehow everyone else's fault.
    Winner: {context['jerry_jones_team']} ({context['jerry_jones_owner']})
    who scored only {context['jerry_jones_score']:.1f} points and left
    {context['jerry_jones_gap']:.1f} points rotting on the bench unused.

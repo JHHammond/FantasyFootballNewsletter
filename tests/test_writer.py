@@ -701,7 +701,7 @@ def test_the_mechanical_calls_are_on_the_cheap_model():
     awards and fraud_watch used to be in this list and are not any more; see
     test_the_sections_that_judge_stay_on_the_big_model for what they did.
     """
-    for task in ("game_teasers", "classifieds", "pull_quote",
+    for task in ("game_teasers", "classifieds", "pull_quote", "awards",
                  "matchup_headline_0", "matchup_headline_3"):
         assert writer.model_for(task) == writer.SMALL_MODEL, (
             f"{task} is still on the expensive model")
@@ -1009,16 +1009,19 @@ def test_the_guard_only_reads_the_opening():
 def test_the_sections_that_judge_stay_on_the_big_model():
     """The line the first real paper drew, which is not about difficulty.
 
-    awards and fraud_watch were moved to the cheap model and came straight
-    back: the awards explained who Gardner Minshew is instead of giving an
-    award, and fraud watch asked for data in the paper. Both prompts hand over
-    a pile and expect the writer to pick what matters.
+    fraud_watch was moved to the cheap model and came straight back: it asked
+    for data, in the paper. Its prompt hands over a summary and expects the
+    writer to find the fraud in it.
+
+    awards came back at the same time and that was MY misreading — the prompt
+    literally said "Always open by explaining the award", so the model was
+    obeying it. The prompt is fixed and awards is cheap again.
 
     What stayed cheap is the opposite shape — a teaser off a finished recap, a
     quote pulled from finished prose, a headline off a scoreline. TRANSFORM a
     thing you were given, cheap. JUDGE what matters in a pile, expensive.
     """
-    for task in ("awards", "fraud_watch", "power_rankings_comments"):
+    for task in ("fraud_watch", "power_rankings_comments"):
         assert writer.model_for(task) == writer.MODEL, (
             f"{task} judges what matters and cannot be on the cheap model")
 
@@ -1200,3 +1203,39 @@ def test_call_claude_survives_a_thinking_block_end_to_end(monkeypatch):
 
     assert writer.call_claude("recap it", attempts=1) == (
         "Walker went for 34.1 against a 13.7 projection.")
+
+
+def test_the_awards_do_not_explain_who_their_namesakes_are():
+    """This was diagnosed wrong once and is worth pinning.
+
+    The first ESPN paper's awards opened "Gardner Minshew is the backup QB for
+    KC" and I read it as a cheap model padding. It was not. The PROMPT said,
+    in as many words, "Always open by explaining the award: Gardner Minshew is
+    the backup QB for KC", and the model did as it was told — including
+    repeating a roster fact that had since stopped being true, because Minshew
+    plays in Arizona now.
+
+    The award NAMES stay; they are the league's own running joke. What goes is
+    the instruction to explain them and the hardcoded roster.
+    """
+    import inspect
+
+    source = inspect.getsource(writer.generate_awards)
+
+    assert "GARDNER MINSHEW AWARD" in source, "the namesake was removed"
+    assert "JERRY JONES AWARD" in source
+
+    assert "Always open by explaining" not in source
+    assert "backup QB for KC" not in source, (
+        "a roster fact is hardcoded into the prompt again — it will be wrong "
+        "within a season")
+    assert "Do NOT explain" in source
+
+
+def test_the_writer_is_told_not_to_remember_rosters():
+    """A stat it invents is caught by the existing rule. A TEAM it invents was
+    not, and it is the same mistake in a different coat — and worse, because a
+    league is surer about which team a player is on than about any number."""
+    prompt = writer.KEVLARVILLE_SYSTEM_PROMPT
+    assert "NEVER say which NFL team a player plays for" in prompt
+    assert "Rosters move every" in prompt

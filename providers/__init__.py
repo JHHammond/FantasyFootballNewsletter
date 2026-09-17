@@ -82,6 +82,39 @@ def available_providers() -> list[dict]:
     ]
 
 
+#: How much of a week's roster movement belongs in a weekly paper.
+#:
+#: Seven days, and the reason is week 1. ESPN files EVERY move made before the
+#: season under scoringPeriodId 1 — the whole offseason, every preseason cut,
+#: months of it. The Hands Times week 1 printed NINETY transactions across
+#: four pages, including people dropping players in July. Filtering by the
+#: platform's own week number is not a filter at all in week 1.
+TRANSACTION_WINDOW_DAYS = 7
+
+
+def transaction_window(season: int, week: int) -> tuple[int, int]:
+    """(start, end) in epoch milliseconds for the moves week N should carry.
+
+    Anchored to the WEEK, not to now. Anchoring to now would be simpler and
+    would break the archive: a paper re-renders every time it is edited, so a
+    week 1 paper opened and corrected in December would fetch its transactions
+    against a December window and come back empty. The same trap the
+    classifieds page has already been through.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from nfl_week import season_opener
+
+    # Week N ends N weeks after the season's Thursday opener. Its window is
+    # the seven days before that, which is Thursday to Wednesday — the span a
+    # manager thinks of as "this week", waiver processing included.
+    end = (datetime.combine(season_opener(int(season)),
+                            datetime.min.time(), tzinfo=timezone.utc)
+           + timedelta(days=7 * int(week)))
+    start = end - timedelta(days=TRANSACTION_WINDOW_DAYS)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
 def load_transactions(
     provider_name: str,
     league_id: str,
@@ -94,12 +127,25 @@ def load_transactions(
     Never raises. The transactions section is a bonus on top of the paper, and
     a platform outage on a secondary feed must not cost a league its scores —
     so everything here degrades to "no section" rather than to an error page.
+
+    The seven-day window is applied HERE rather than in each adapter, because
+    it is a fact about what a weekly newspaper prints and not a fact about any
+    platform's API.
     """
     try:
         provider = get_provider(provider_name, **provider_kwargs)
-        return provider.get_transactions(league_id, season, week) or []
+        moves = provider.get_transactions(league_id, season, week) or []
     except Exception:  # noqa: BLE001 — a bonus section, never a blocker
         return []
+
+    start, end = transaction_window(season, week)
+    recent = [m for m in moves
+              if getattr(m, "created", None) is None
+              or start <= m.created < end]
+
+    # A move with no timestamp is kept rather than dropped: a platform that
+    # does not date its transactions should lose the filter, not the section.
+    return recent
 
 
 def load_week(

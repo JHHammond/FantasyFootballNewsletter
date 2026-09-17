@@ -1149,3 +1149,80 @@ def test_both_lineup_guards_hold_on_their_own(espn):
     }], espn).get_transactions(fixtures_espn.LEAGUE_ID, 2026, 2)
     assert waiver_with_only_lineup == [], (
         "a LINEUP item reached the wire — only the type filter is holding")
+
+
+# ---------------------------------------------------------------------------
+# What belongs in a WEEKLY paper
+# ---------------------------------------------------------------------------
+
+def test_the_offseason_does_not_count_as_this_week(monkeypatch):
+    """The Hands Times week 1 printed NINETY transactions across four pages,
+    including people dropping players in July.
+
+    ESPN files every move made before the season under scoringPeriodId 1 — the
+    whole offseason, every preseason cut, months of it. Filtering by the
+    platform's own week number is not a filter at all in week 1, which is
+    exactly the week a new league generates its first paper.
+    """
+    import providers
+    from providers.models import Transaction
+
+    start, end = providers.transaction_window(2026, 1)
+
+    july = int(providers.transaction_window(2026, 1)[0]) - 60 * 86400 * 1000
+    moves = [
+        Transaction(kind="free_agent", status="complete", week=1,
+                    created=july, adds=[], drops=[]),
+        Transaction(kind="waiver", status="complete", week=1,
+                    created=start + 86400 * 1000, adds=[], drops=[]),
+    ]
+
+    # monkeypatch, not assignment: the first version of this test replaced
+    # providers.get_provider for the rest of the session and broke an
+    # unrelated test forty files later.
+    monkeypatch.setattr(providers, "get_provider", lambda *a, **k: type(
+        "P", (), {"get_transactions": lambda *a, **k: moves})())
+    kept = providers.load_transactions("espn", "1", 2026, 1)
+
+    assert len(kept) == 1, (
+        f"{len(kept)} moves survived; the July drop should not have")
+    assert kept[0].kind == "waiver"
+
+
+def test_the_window_is_anchored_to_the_week_not_to_today():
+    """Anchoring to now would be simpler and would break the archive.
+
+    A paper re-renders every time it is edited, so a week 1 paper opened and
+    corrected in December would fetch its transactions against a December
+    window and come back empty — the section silently disappearing from an old
+    paper. The classifieds page has already been through this exact trap.
+    """
+    import providers
+
+    week_one = providers.transaction_window(2026, 1)
+    week_five = providers.transaction_window(2026, 5)
+
+    assert week_five[0] > week_one[0]
+    # Four weeks apart, to the millisecond, regardless of when this runs.
+    assert week_five[0] - week_one[0] == 4 * 7 * 86400 * 1000
+
+
+def test_the_window_is_exactly_a_week_long():
+    import providers
+
+    start, end = providers.transaction_window(2026, 3)
+    assert end - start == providers.TRANSACTION_WINDOW_DAYS * 86400 * 1000
+
+
+def test_a_move_with_no_timestamp_keeps_its_place(monkeypatch):
+    """A platform that does not date its transactions should lose the filter,
+    not the section."""
+    import providers
+    from providers.models import Transaction
+
+    undated = Transaction(kind="trade", status="complete", week=1,
+                          created=None, adds=[], drops=[])
+    monkeypatch.setattr(providers, "get_provider", lambda *a, **k: type(
+        "P", (), {"get_transactions": lambda *a, **k: [undated]})())
+
+    assert len(providers.load_transactions("sleeper", "1", 2026, 1)) == 1
