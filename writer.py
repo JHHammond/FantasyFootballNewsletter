@@ -12,6 +12,57 @@ client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 #: without a deploy if pricing or quality changes.
 MODEL = os.getenv("WRITER_MODEL", "claude-sonnet-4-6")
 
+#: The model for the mechanical calls — see SMALL_MODEL_TASKS below.
+SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
+
+#: WHICH CALLS GO TO THE CHEAP MODEL.
+#:
+#: Output is 60% of a paper's bill, measured rather than assumed, and the
+#: cheap model is roughly three times cheaper per output token. So the
+#: question is not "can a small model do this" but "would a reader notice".
+#:
+#: These are the calls where the answer is no. A teaser is a line of ad copy
+#: pointing at a story somebody is about to read anyway; a pull quote is an
+#: extraction from prose that already exists; a classified is a one-joke
+#: filler; a headline is eight words with the score already in them.
+#:
+#: NOT on this list, deliberately: lead_story and every matchup_body. That is
+#: the writing people actually read, it is the thing the league noticed and
+#: complained about when it was weak, and it is 53% of the output budget —
+#: which makes it simultaneously the biggest saving available and the worst
+#: place to take one.
+#:
+#: awards is on this list as the first real test of where the line sits. An
+#: award is a title and two sentences off a single fact — "most points on the
+#: bench, here is who" — which is close to the mechanical end. If the next
+#: paper's awards read flat, it is the first thing to move back.
+#:
+#: power_rankings_comments is NOT here, and that is a deliberate exception to
+#: its own logic. One line per team looks mechanical, but these were rewritten
+#: once already because they were producing "Fine. Perfectly, aggressively
+#: fine." — a comment with only the score behind it can only restate the
+#: score. Having fixed that by hand, spending $0.004 a paper to keep it fixed
+#: is the easiest call here.
+SMALL_MODEL_TASKS = frozenset({
+    "game_teasers",
+    "classifieds",
+    "pull_quote",
+    "fraud_watch",
+    "awards",
+})
+
+
+def model_for(task: str) -> str:
+    """Which model writes this section.
+
+    Per-game tasks arrive numbered — matchup_headline_3 — so the suffix is
+    stripped before the set is consulted.
+    """
+    name = task.rsplit("_", 1)[0] if task.rsplit("_", 1)[-1].isdigit() else task
+    if name == "matchup_headline":
+        return SMALL_MODEL
+    return SMALL_MODEL if name in SMALL_MODEL_TASKS else MODEL
+
 KEVLARVILLE_SYSTEM_PROMPT = """
 You are the staff writer for a fantasy football newspaper: a ruthless, deeply
 football-literate columnist who knows this league personally and is not being
@@ -362,6 +413,16 @@ def format_lineup(team_side):
     return starters + bench
 
 
+def _compact(payload) -> str:
+    """JSON for a prompt, without the pretty-printing.
+
+    `indent=2` is for a human reading a file. In a prompt it is 8% more
+    tokens spent on newlines and leading spaces, on every call, forever. The
+    model reads the compact form identically.
+    """
+    return json.dumps(payload, separators=(",", ":"))
+
+
 def build_game_context(game):
     """Convert a game dict into a clean text summary for the prompt."""
     t1 = game["team_1"]
@@ -451,6 +512,17 @@ def _system_blocks(system):
     }]
 
 
+def _looks_like_a_model_problem(exc) -> bool:
+    """Is this 4xx about the model, rather than about the request?
+
+    Checked rather than assumed: a 400 is also what a malformed prompt or an
+    over-long context returns, and retrying those on a bigger model spends
+    more money to fail the same way.
+    """
+    text = str(getattr(exc, "message", "") or exc).lower()
+    return "model" in text
+
+
 def call_claude(prompt, max_tokens=400, system=None, attempts=3,
                 model=None):
     """Make a single call to the Claude API and return the text response.
@@ -490,8 +562,32 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
             )
             return message.content[0].text.strip()
         except anthropic.APIStatusError as exc:
-            # 4xx that isn't rate limiting is a bug in the request or the key.
-            # Retrying just makes the log longer.
+            # A MODEL THIS ACCOUNT CANNOT USE.
+            #
+            # Model ids are strings in an environment variable, and the cheap
+            # model is named in one place for five different sections. Get it
+            # wrong — a typo, a retired alias, an account without access — and
+            # every one of those sections 404s at once, so the paper prints
+            # with the teasers, classifieds, awards, pull quote and every
+            # matchup headline simply missing. The reader sees a broken paper
+            # and the log says "400".
+            #
+            # Falling back to the model that is definitely working turns that
+            # into a paper that costs what it used to. Loud, because a silent
+            # fallback is a bill that quietly goes back up and nobody notices.
+            attempted = model or MODEL
+            if (exc.status_code in (400, 403, 404) and attempted != MODEL
+                    and _looks_like_a_model_problem(exc)):
+                print(f"[writer] !! model {attempted!r} was refused "
+                      f"({exc.status_code}); falling back to {MODEL!r}. "
+                      f"This paper costs more than it should — fix "
+                      f"WRITER_SMALL_MODEL.", flush=True)
+                return call_claude(prompt, max_tokens=max_tokens,
+                                   system=system, attempts=attempts,
+                                   model=MODEL)
+
+            # Any other 4xx that isn't rate limiting is a bug in the request
+            # or the key. Retrying just makes the log longer.
             if exc.status_code not in (408, 409, 429) and exc.status_code < 500:
                 raise
             last = exc
@@ -503,7 +599,7 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
     raise CallFailed(f"gave up after {attempts} attempts") from last
 
 
-def generate_headline(summary, week, league_name, commissioner_name="", inside_jokes="", system=None):
+def generate_headline(summary, week, league_name, commissioner_name="", inside_jokes="", system=None, model=None):
     context = {
         "week": week,
         "league_name": league_name,
@@ -524,12 +620,12 @@ Write a single HEADLINE for this week's Kevlarville Times newspaper edition.
 It should be ALL CAPS, punchy, dramatic, and funny — like a tabloid front page.
 Max 10 words. Just the headline text, nothing else.
 
-Week data: {json.dumps(context, indent=2)}
+Week data: {_compact(context)}
 """
-    return call_claude(prompt, max_tokens=60, system=system)
+    return call_claude(prompt, max_tokens=60, system=system, model=model)
 
 
-def generate_lead_story(summary, week, league_name, commissioner_name="", inside_jokes="", system=None):
+def generate_lead_story(summary, week, league_name, commissioner_name="", inside_jokes="", system=None, model=None):
     games_context = []
     for game in [
         summary.get("closest_game"),
@@ -558,25 +654,41 @@ This is the opening paragraph of the newspaper — set the tone for the whole we
 Reference the closest game, the blowout, and the highest/lowest scores.
 Do not use bullet points. Just flowing prose.
 
-Week data: {json.dumps(context, indent=2)}
+Week data: {_compact(context)}
 """
-    return call_claude(prompt, max_tokens=600, system=system)
+    return call_claude(prompt, max_tokens=600, system=system, model=model)
 
 
-def generate_matchup_headline(game_context, commissioner_name="", inside_jokes="", system=None):
+#: What a headline actually needs. Everything else in a game context is two
+#: full lineups — every starter on both teams, with their score and their
+#: projection — and this call was being handed all of it to write EIGHT WORDS.
+#:
+#: Measured: 756 prompt tokens in, 60 out, five times a paper. That is more
+#: input than the call that writes the whole recap, for 7% of the output.
+#: A headline cannot name six players, so the roster was never going to appear
+#: in it; it was being paid for and thrown away.
+_HEADLINE_FIELDS = (
+    "winner", "loser", "winner_score", "loser_score", "margin",
+    "winner_record", "loser_record",
+    "winner_top_performer", "loser_bottom_performer", "loser_lineup_gap",
+)
+
+
+def generate_matchup_headline(game_context, commissioner_name="", inside_jokes="", system=None, model=None):
+    slim = {k: game_context[k] for k in _HEADLINE_FIELDS if k in game_context}
     prompt = f"""
 Write a MATCHUP HEADLINE for this game. ALL CAPS. Max 8 words.
 Be creative — reference the score, the margin, and any relevant drama.
 Just the headline text, nothing else.
 
-Game data: {json.dumps(game_context, indent=2)}
+Game data: {_compact(slim)}
 Commissioner: {commissioner_name}
 Inside jokes: {inside_jokes}
 """
-    return call_claude(prompt, max_tokens=60, system=system)
+    return call_claude(prompt, max_tokens=60, system=system, model=model)
 
 
-def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", system=None):
+def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", system=None, model=None):
     """The recap for one game.
 
     REWRITTEN. The previous prompt was a list of if-then triggers — "if margin
@@ -638,10 +750,10 @@ Write only what the numbers support. No invented injuries, plays, snap counts
 or quotes. Plain prose — no markdown, no bullets, no headers.
 
 {f"Things this league would want referenced if they fit: {inside_jokes}" if inside_jokes else ""}
-""", max_tokens=900, system=system)
+""", max_tokens=900, system=system, model=model)
 
 
-def generate_awards(summary, commissioner_name="", inside_jokes="", system=None):
+def generate_awards(summary, commissioner_name="", inside_jokes="", system=None, model=None):
     highest = summary.get("highest_score", {})
     lowest = summary.get("lowest_score", {})
     bench = summary.get("bench_blunder", {})
@@ -711,9 +823,9 @@ Format as JSON array like this:
 ]
 
 Inside jokes: {inside_jokes}
-Data: {json.dumps(context, indent=2)}
+Data: {_compact(context)}
 """
-    raw = call_claude(prompt, max_tokens=900, system=system)
+    raw = call_claude(prompt, max_tokens=900, system=system, model=model)
 
     # Strip markdown code fences if Claude wraps in ```json
     cleaned = raw.strip()
@@ -732,7 +844,7 @@ Data: {json.dumps(context, indent=2)}
         ]
 
 
-def generate_pull_quote(game_contexts, commissioner_name="", system=None):
+def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=None):
     """The one line blown up in large type beside the lead story.
 
     Previously this was not written at all: newspaper.py sliced the lead
@@ -765,13 +877,13 @@ Write ONE sentence to print in large type beside the lead story.
 It has to stand alone — someone reading only this sentence should get the
 week. Name a player or a manager and carry a number. Between 8 and 22 words.
 No quotation marks, no markdown, no trailing ellipsis. Just the sentence.
-""", max_tokens=120, system=system)
+""", max_tokens=120, system=system, model=model)
 
     return (quote or "").strip().strip('"“”')
 
 
 def generate_classifieds(summary, game_contexts, commissioner_name="",
-                         inside_jokes="", system=None, count=3):
+                         inside_jokes="", system=None, count=3, model=None):
     """Small ads written about this week, for the back page.
 
     These used to be four fixed strings in ads.py — "WANTED: ONE COMPETENT
@@ -821,7 +933,7 @@ short sign-off like "Inquire within" or "No reasonable offer refused".
 
 Return ONLY a JSON array, no markdown:
 [{{"heading": "...", "body": "...", "contact": "..."}}]
-""", max_tokens=700, system=system)
+""", max_tokens=700, system=system, model=model)
 
     cleaned = raw.strip()
     if cleaned.startswith("```"):
@@ -845,7 +957,7 @@ Return ONLY a JSON array, no markdown:
     return ads
 
 
-def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=None):
+def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=None, model=None):
     fraud = summary.get("fraud")
     lowest = summary.get("lowest_score", {})
 
@@ -870,12 +982,12 @@ Do NOT use financial, legal, or crime metaphors. Keep it entirely on the footbal
 Frame it as a football analyst calling out bad roster management and poor player performance.
 Be savage, be funny, be specific to the sport.
 
-Subject: {json.dumps(context, indent=2)}
+Subject: {_compact(context)}
 """
-    return call_claude(prompt, max_tokens=300, system=system)
+    return call_claude(prompt, max_tokens=300, system=system, model=model)
 
 
-def generate_power_rankings_comments(teams, commissioner_name="", system=None):
+def generate_power_rankings_comments(teams, commissioner_name="", system=None, model=None):
     """
     Generate power rankings comments for ALL teams in one API call.
     teams: list of dicts with keys: team, record, score, rank
@@ -927,7 +1039,7 @@ Return ONLY a JSON object mapping team name to the note, like this:
 }}
 No markdown. No extra text. Just the JSON object.
 """
-    raw = call_claude(prompt, max_tokens=600, system=system)
+    raw = call_claude(prompt, max_tokens=600, system=system, model=model)
 
     cleaned = raw.strip()
     if cleaned.startswith("```"):
@@ -941,7 +1053,7 @@ No markdown. No extra text. Just the JSON object.
         return {t["team"]: "Still under review." for t in teams}
 
 
-def generate_game_teasers(game_contexts, commissioner_name="", inside_jokes="", system=None):
+def generate_game_teasers(game_contexts, commissioner_name="", inside_jokes="", system=None, model=None):
     """
     Generate one-line teaser hooks for all games in one API call.
     Returns a list of strings in the same order as game_contexts.
@@ -967,7 +1079,7 @@ No extra text. Just the JSON array.
 
 Inside jokes: {inside_jokes}
 """
-    raw = call_claude(prompt, max_tokens=400, system=system)
+    raw = call_claude(prompt, max_tokens=400, system=system, model=model)
 
     cleaned = raw.strip()
     if cleaned.startswith("```"):
@@ -1014,15 +1126,16 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     tasks = {}
 
     # Top-level tasks
-    tasks["headline"] = lambda: generate_headline(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt)
-    tasks["lead_story"] = lambda: generate_lead_story(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt)
-    tasks["awards"] = lambda: generate_awards(summary, commissioner_name, inside_jokes, sys_prompt)
-    tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, inside_jokes, sys_prompt)
+    tasks["headline"] = lambda: generate_headline(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt, model_for("headline"))
+    tasks["lead_story"] = lambda: generate_lead_story(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt, model_for("lead_story"))
+    tasks["awards"] = lambda: generate_awards(summary, commissioner_name, inside_jokes, sys_prompt, model_for("awards"))
+    tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, inside_jokes, sys_prompt, model_for("fraud_watch"))
     tasks["classifieds"] = lambda: generate_classifieds(
         summary, [gc["ctx"] for gc in game_contexts], commissioner_name,
-        inside_jokes, sys_prompt)
+        inside_jokes, sys_prompt, model=model_for("classifieds"))
     tasks["pull_quote"] = lambda: generate_pull_quote(
-        [gc["ctx"] for gc in game_contexts], commissioner_name, sys_prompt)
+        [gc["ctx"] for gc in game_contexts], commissioner_name, sys_prompt,
+        model_for("pull_quote"))
     # Build full team list for power rankings (all teams, not just winners).
     # Each team carries its best and worst performance, because a ranking
     # comment with only a score behind it can only ever restate the score —
@@ -1047,19 +1160,21 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         t["rank"] = i + 1
 
     tasks["power_rankings_comments"] = lambda teams=all_teams_for_rankings: generate_power_rankings_comments(
-        teams, commissioner_name, sys_prompt
+        teams, commissioner_name, sys_prompt,
+        model_for("power_rankings_comments")
     )
 
     # 3. AI teaser hooks for left column — one call for all games
     tasks["game_teasers"] = lambda: generate_game_teasers(
-        [gc["ctx"] for gc in game_contexts], commissioner_name, inside_jokes, sys_prompt
+        [gc["ctx"] for gc in game_contexts], commissioner_name, inside_jokes,
+        sys_prompt, model_for("game_teasers")
     )
 
     # Per-game tasks — headline and body for each game
     for i, game_data in enumerate(game_contexts):
         ctx = game_data["ctx"]
-        tasks[f"matchup_headline_{i}"] = lambda c=ctx: generate_matchup_headline(c, commissioner_name, inside_jokes, sys_prompt)
-        tasks[f"matchup_body_{i}"] = lambda c=ctx: generate_matchup_body(c, commissioner_name, inside_jokes, sys_prompt)
+        tasks[f"matchup_headline_{i}"] = lambda c=ctx, k=f"matchup_headline_{i}": generate_matchup_headline(c, commissioner_name, inside_jokes, sys_prompt, model_for(k))
+        tasks[f"matchup_body_{i}"] = lambda c=ctx, k=f"matchup_body_{i}": generate_matchup_body(c, commissioner_name, inside_jokes, sys_prompt, model_for(k))
 
     results = {}
     failures = {}

@@ -667,3 +667,194 @@ def test_a_failed_warm_up_does_not_stop_the_rest(swap_client, no_sleeping):
 
     assert paper["lead_story"] == "Some prose."
     assert paper["headline"], "fell back to nothing at all"
+
+
+# ---------------------------------------------------------------------------
+# What each section costs
+#
+# Output is about 60% of a paper's bill, measured with a recorder in front of
+# the client rather than inferred from the max_tokens constants. The cheap
+# model is roughly three times cheaper per output token, so the routing below
+# is worth real money — and the prose it must NOT touch is worth more.
+# ---------------------------------------------------------------------------
+
+def test_the_writing_people_read_stays_on_the_expensive_model():
+    """The load-bearing assertion in this file.
+
+    matchup_body is 53% of the output budget, which makes it both the biggest
+    saving available and the worst place to take one — it is the writing the
+    league complained about when it was weak. lead_story is the first thing
+    anybody reads. Neither may quietly end up on the cheap model because
+    somebody was chasing a number.
+    """
+    for task in ("lead_story", "headline", "power_rankings_comments",
+                 "matchup_body_0", "matchup_body_4"):
+        assert writer.model_for(task) == writer.MODEL, (
+            f"{task} is on the cheap model")
+
+
+def test_the_mechanical_calls_are_on_the_cheap_model():
+    for task in ("game_teasers", "classifieds", "pull_quote", "fraud_watch",
+                 "awards", "matchup_headline_0", "matchup_headline_3"):
+        assert writer.model_for(task) == writer.SMALL_MODEL, (
+            f"{task} is still on the expensive model")
+
+
+def test_a_numbered_task_is_routed_like_its_family():
+    """Per-game tasks arrive as matchup_body_3, not matchup_body. A lookup
+    that misses the suffix sends every per-game call to the default, which is
+    silently correct for the body and silently expensive for the headline."""
+    assert writer.model_for("matchup_headline_11") == writer.SMALL_MODEL
+    assert writer.model_for("matchup_body_11") == writer.MODEL
+    # A task that merely ends in a word, not a number, is left alone.
+    assert writer.model_for("classifieds") == writer.SMALL_MODEL
+
+
+def test_the_headline_call_is_not_handed_two_whole_rosters():
+    """It writes EIGHT WORDS.
+
+    Measured at 756 prompt tokens against 60 of output, five times a paper —
+    more input than the call that writes the entire recap, for 7% of the
+    output. The roster could never appear in a headline; it was being paid
+    for and thrown away.
+    """
+    captured = {}
+
+    def fake(prompt, max_tokens=400, system=None, attempts=3, model=None):
+        captured["prompt"] = prompt
+        return "TEAM A HOLDS OFF TEAM B"
+
+    context = {
+        "winner": "A", "loser": "B", "winner_score": 120.0,
+        "loser_score": 100.0, "margin": 20.0,
+        "winner_record": "1-0", "loser_record": "0-1",
+        "winner_top_performer": "Somebody (RB) 30.1",
+        "loser_bottom_performer": "Nobody (WR) 0.0",
+        "winner_lineup_gap": 2.0, "loser_lineup_gap": 18.0,
+        "winner_lineup": [f"Player {i} (RB/DET) — scored 10.0 | projected 9.0"
+                          for i in range(9)],
+        "loser_lineup": [f"Other {i} (WR/NYJ) — scored 4.0 | projected 12.0"
+                         for i in range(9)],
+    }
+
+    original = writer.call_claude
+    writer.call_claude = fake
+    try:
+        writer.generate_matchup_headline(context, "john", "a joke")
+    finally:
+        writer.call_claude = original
+
+    prompt = captured["prompt"]
+    assert "Player 3" not in prompt and "Other 3" not in prompt, (
+        "the whole lineup is still being sent to write a headline")
+    # The things a headline is actually built from do have to survive.
+    for needed in ("120.0", "100.0", "20.0"):
+        assert needed in prompt, f"the headline lost {needed}"
+
+
+def test_prompt_json_is_not_pretty_printed():
+    """`indent=2` is for a human reading a file. In a prompt it is 8% more
+    tokens spent on newlines and leading spaces, on every call, forever."""
+    import json as _json
+
+    payload = {"a": 1, "b": [1, 2, 3], "c": {"d": "e"}}
+    compact = writer._compact(payload)
+    assert "\n" not in compact
+    assert ": " not in compact
+    assert _json.loads(compact) == payload, "compacting changed the data"
+
+
+def test_every_section_can_be_told_which_model_to_use():
+    """The routing is worthless if a generator quietly ignores it.
+
+    Each of these took `system` and nothing else before, so `model_for` could
+    have been written, wired up, and had no effect whatsoever — which is a
+    change that looks right in a diff and saves nothing.
+    """
+    import inspect
+
+    generators = [name for name in dir(writer)
+                  if name.startswith("generate_")
+                  and name not in ("generate_full_newspaper_content",
+                                   "generate_recap")]
+    assert generators, "no generators found"
+    for name in generators:
+        signature = inspect.signature(getattr(writer, name))
+        assert "model" in signature.parameters, (
+            f"{name} cannot be told which model to use")
+
+
+def test_a_refused_cheap_model_falls_back_instead_of_losing_five_sections(
+        monkeypatch, capsys):
+    """Model ids are strings in an environment variable.
+
+    The cheap model is named once and used by five different sections, so a
+    typo or a retired alias 404s all of them at the same moment — the paper
+    prints with its teasers, classifieds, awards, pull quote and every matchup
+    headline missing, and the log says "400". Falling back to the model that
+    is definitely working turns a broken paper into an expensive one.
+    """
+    import anthropic
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    seen = []
+
+    class Response:
+        # The SDK reads .request off the response when it builds the error.
+        status_code = 404
+        request = None
+        headers = {}
+
+    def create(*, model, **kw):
+        seen.append(model)
+        if model != writer.MODEL:
+            raise anthropic.APIStatusError(
+                "model: claude-haiku-9-9 not found",
+                response=Response(), body=None)
+
+        class Block:
+            text = "Some prose."
+
+        class Message:
+            content = [Block()]
+
+        return Message()
+
+    monkeypatch.setattr(writer.client, "messages",
+                        type("M", (), {"create": staticmethod(create)}))
+
+    out = writer.call_claude("write something", model="claude-haiku-9-9")
+    assert out == "Some prose."
+    assert seen == ["claude-haiku-9-9", writer.MODEL], seen
+
+    # Loud, because a silent fallback is a bill that quietly goes back up.
+    printed = capsys.readouterr().out
+    assert "falling back" in printed and "costs more" in printed
+
+
+def test_a_bad_prompt_does_not_get_retried_on_the_expensive_model(monkeypatch):
+    """A 400 is also what a malformed request returns. Retrying that on a
+    bigger model spends more money to fail in exactly the same way."""
+    import anthropic
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    seen = []
+
+    class Response:
+        status_code = 400
+        request = None
+        headers = {}
+
+    def create(*, model, **kw):
+        seen.append(model)
+        raise anthropic.APIStatusError(
+            "messages.0.content: field required",
+            response=Response(), body=None)
+
+    monkeypatch.setattr(writer.client, "messages",
+                        type("M", (), {"create": staticmethod(create)}))
+
+    with pytest.raises(anthropic.APIStatusError):
+        writer.call_claude("bad", model="claude-haiku-4-5")
+    assert seen == ["claude-haiku-4-5"], (
+        f"a malformed request was retried on the expensive model: {seen}")
