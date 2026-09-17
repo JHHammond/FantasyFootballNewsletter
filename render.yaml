@@ -64,16 +64,31 @@ services:
       - key: TASK_KEY
         generateValue: true
       - key: PUBLISHER_TOKEN
-        generateValue: true   # opens /publisher/<value>, where the weekly
-                              # classifieds page is made. Read it out of the
-                              # Render dashboard — generated here so it is
-                              # never typed anywhere it could be logged.
-                              #
-                              # Unset means the publisher routes 404, which is
-                              # the safe direction: a deploy that forgets this
-                              # turns the page OFF rather than leaving it open.
-                              # Changing it invalidates the old URL, which is
-                              # how to revoke a link that got shared.
+        sync: false        # opens /publisher/<value>, where the weekly
+                           # classifieds page is made.
+                           #
+                           # NOT generateValue, which is what this said first
+                           # and which is a trap here. Render generates a
+                           # standard base64 value, and standard base64
+                           # includes "/" and "+". This token goes in a URL
+                           # PATH, and a "/" in it splits the path — the route
+                           # is /publisher/{token}, so a token containing a
+                           # slash simply never matches and the page 404s with
+                           # nothing to indicate why. Across 43 characters
+                           # there is roughly a 75% chance of drawing at least
+                           # one; the first generated value happened to miss.
+                           #
+                           # Generate a URL-safe one instead:
+                           #   python3 -c "import secrets; \
+                           #       print(secrets.token_urlsafe(32))"
+                           # token_urlsafe uses -_ in place of +/ precisely
+                           # for this, and the result is safe in a path.
+                           #
+                           # Unset means the publisher routes 404, which is the
+                           # safe direction: a deploy that forgets this turns
+                           # the page OFF rather than leaving it open. Changing
+                           # it revokes the old URL, which is how to retire a
+                           # link that ended up somewhere it should not be.
 
   # Tuesday 9am ET. Generates the week for every league with auto-send on and
   # emails their subscribers. Idempotent, so a retry can't double-send.

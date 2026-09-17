@@ -3617,3 +3617,36 @@ def test_a_broken_ad_table_never_costs_anybody_a_paper(monkeypatch):
             raise RuntimeError("relation publisher_ads does not exist")
 
     assert _snapshot_publisher_ads(Exploding(), {}, 2025, 6) == []
+
+
+def test_a_token_with_a_slash_in_it_is_announced_at_boot(monkeypatch, capsys):
+    """Three problems, one symptom.
+
+    The token is a URL path segment, so a slash in it splits the path and the
+    route never matches. A 404 then means "wrong token", "no token", or "a
+    token that cannot possibly work" — and nothing distinguishes them from
+    outside. This happened: render.yaml asked Render to generate the value,
+    Render generates standard base64, and standard base64 contains "/" and
+    "+". The value drawn happened to contain neither, which is a one-in-four
+    outcome; the next rotation was better than even money to break the page
+    silently.
+    """
+    monkeypatch.setenv("PUBLISHER_TOKEN", "abc/def")
+    webapp.announce_unusable_publisher_token()
+    printed = capsys.readouterr().out
+    assert "cannot work in a URL" in printed
+    assert "token_urlsafe" in printed, "say how to fix it, not just that it is broken"
+
+
+def test_a_url_safe_token_says_nothing(monkeypatch, capsys):
+    """Every line of boot noise costs the next warning some attention."""
+    monkeypatch.setenv("PUBLISHER_TOKEN", "4acq7OXHKMF3KzZk9ACa3klegp9RCpDl")
+    webapp.announce_unusable_publisher_token()
+    assert capsys.readouterr().out == ""
+
+
+def test_an_unset_token_is_not_reported_as_broken(monkeypatch, capsys):
+    """Unset is off, and off is a choice rather than a fault."""
+    monkeypatch.delenv("PUBLISHER_TOKEN", raising=False)
+    webapp.announce_unusable_publisher_token()
+    assert capsys.readouterr().out == ""

@@ -144,9 +144,44 @@ def announce_missing_migrations():
     print("!" * 70 + "\n", flush=True)
 
 
+def announce_unusable_publisher_token() -> None:
+    """Say so at boot if PUBLISHER_TOKEN can never work.
+
+    The token is a URL PATH segment: /publisher/{token}. A token containing a
+    slash splits the path, the route never matches, and the page 404s — which
+    is exactly what a wrong token looks like, and exactly what an unset one
+    looks like. Three different problems, one symptom, no way to tell them
+    apart from outside.
+
+    This happened. render.yaml asked Render to generate the value, Render
+    generates standard base64, and standard base64 contains "/" and "+". The
+    first value drawn happened to contain neither, which is a 25% outcome —
+    the next rotation would have had a better than even chance of quietly
+    breaking the page with nothing in any log to say why.
+
+    render.yaml now asks for a URL-safe token instead. This is the belt to
+    that braces, in the deploy log, where somebody is standing when it matters.
+    """
+    token = os.getenv("PUBLISHER_TOKEN", "")
+    if not token:
+        return          # off, deliberately. Not a fault.
+
+    bad = [ch for ch in "/?#% " if ch in token]
+    if bad:
+        print("\n" + "!" * 70, flush=True)
+        print("PUBLISHER_TOKEN contains " + ", ".join(repr(c) for c in bad)
+              + " and cannot work in a URL.", flush=True)
+        print("/publisher/<token> will 404 and look exactly like a wrong "
+              "token.", flush=True)
+        print("Replace it with:  python3 -c \"import secrets; "
+              "print(secrets.token_urlsafe(32))\"", flush=True)
+        print("!" * 70 + "\n", flush=True)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     announce_missing_migrations()
+    announce_unusable_publisher_token()
     yield
 
 
