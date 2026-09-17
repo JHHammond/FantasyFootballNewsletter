@@ -80,7 +80,16 @@ Set these secrets on **both** services:
 | `EMAIL_FROM` | `Name <papers@yourdomain.com>` |
 | `MAILING_ADDRESS` | a real postal address — CAN-SPAM requires it |
 
-`TASK_KEY` is generated automatically.
+`TASK_KEY` is generated automatically. So is **`PUBLISHER_TOKEN`**, which is
+the key to `/publisher/<token>` — the page where the weekly classifieds are
+made. Read the generated value out of the Render dashboard (web service →
+Environment) and bookmark the URL; there is no recovery flow, exactly like a
+league's admin link. Changing the value revokes the old URL.
+
+If `PUBLISHER_TOKEN` is unset the publisher routes return 404. That is the
+safe direction — a deploy that forgets it turns the page off rather than
+leaving it open — but it also means a missing variable looks exactly like a
+mistyped URL, so check the dashboard before assuming the link is wrong.
 
 **`BASE_URL` matters more than it looks.** Every share link, every link
 preview, and every URL in an email is built from it. Get it wrong and the

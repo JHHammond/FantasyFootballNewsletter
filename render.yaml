@@ -63,6 +63,17 @@ services:
                               # every deploy.
       - key: TASK_KEY
         generateValue: true
+      - key: PUBLISHER_TOKEN
+        generateValue: true   # opens /publisher/<value>, where the weekly
+                              # classifieds page is made. Read it out of the
+                              # Render dashboard — generated here so it is
+                              # never typed anywhere it could be logged.
+                              #
+                              # Unset means the publisher routes 404, which is
+                              # the safe direction: a deploy that forgets this
+                              # turns the page OFF rather than leaving it open.
+                              # Changing it invalidates the old URL, which is
+                              # how to revoke a link that got shared.
 
   # Tuesday 9am ET. Generates the week for every league with auto-send on and
   # emails their subscribers. Idempotent, so a retry can't double-send.
