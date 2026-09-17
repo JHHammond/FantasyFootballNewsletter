@@ -417,8 +417,18 @@ def _ad_figure(ad: dict, index: int, banner: bool = False) -> str:
     caption_html = (f'<figcaption class="pub-ad-caption">{_escape(caption)}'
                     f'</figcaption>') if caption else ""
 
+    # NOT loading="lazy", which is what it said first and which printed a page
+    # of EMPTY FRAMES. The classifieds page is six sheets down a long
+    # single-page document, so every ad on it is far outside the viewport when
+    # the reader hits print; a lazy image that has never been scrolled to has
+    # never been fetched, and the print comes out as five bordered boxes with
+    # nothing in them. The frames were there because the width and height
+    # attributes reserve the space, which made it look like a styling problem
+    # rather than a missing file.
+    # Eight images eagerly is a rounding error against a paper that already
+    # carries a headshot for every player it mentions.
     img = (f'<img class="pub-ad-img" src="{_attr(src)}" alt="{alt}" '
-           f'width="{width}" height="{height}" loading="lazy">')
+           f'width="{width}" height="{height}">')
 
     link = _safe_url(str(ad.get("link_url") or ""))
     if link:
@@ -441,7 +451,7 @@ def pack_columns(ads: list, columns: int = 2) -> list:
     """Lay the ads out: banners full width, everything else into columns.
 
     Returns a list of blocks, each either ("banner", ad, index) or
-    ("columns", [[(ad, index), ...] per column]).
+    ("columns", [[(ad, index), ...] per column], [flex-grow per column]).
 
     WHY THIS IS DONE HERE AND NOT IN CSS
 
@@ -491,7 +501,32 @@ def pack_columns(ads: list, columns: int = 2) -> list:
         for column in packed:
             column.sort(key=lambda item: item[1])
 
-        blocks.append(("columns", packed))
+        # COLUMNS OF DIFFERENT WIDTHS, CHOSEN SO THEY COME OUT THE SAME HEIGHT.
+        #
+        # Equal-width columns are the reflex and they are what made the first
+        # version look, in John's words, "too spaced out". With the widths
+        # fixed, the only way to stop a column of portraits running off the
+        # page was to cap each ad's height — which left every tall ad floating
+        # in the middle of its column with white down both sides. Five ads,
+        # ten gutters.
+        #
+        # Turn it around. A column of ads at width w is w * S tall, where S is
+        # the sum of 1/aspect down it. Two columns match when w is proportional
+        # to 1/S — so the column carrying the portraits is simply narrower.
+        # Every ad then fills its column edge to edge, nothing is capped, and
+        # the columns finish level.
+        #
+        # Handed to the browser as flex-grow rather than a computed percentage
+        # on purpose: the arithmetic then happens against whatever width the
+        # page actually turns out to be. Screen at 1100px, a phone, a Letter
+        # sheet, A4, a reader who set their own margins in the print dialog —
+        # all correct, with no page size written down anywhere.
+        grows = [(1.0 / height) if height > 0 else 1.0 for height in heights]
+
+        # An empty column is a gap the width of a column.
+        keep = [i for i, column in enumerate(packed) if column]
+        blocks.append(("columns", [packed[i] for i in keep],
+                       [grows[i] for i in keep]))
         pending = []
 
     for index, ad in enumerate(ads):
@@ -529,10 +564,10 @@ def render_publisher_page(ads: Optional[list] = None,
             parts.append(_ad_figure(ad, index, banner=True))
         else:
             columns_html = "".join(
-                f'<div class="pub-ad-col">'
+                f'<div class="pub-ad-col" style="flex-grow:{grow:.4f};">'
                 + "".join(_ad_figure(ad, index) for ad, index in column)
                 + "</div>"
-                for column in block[1])
+                for column, grow in zip(block[1], block[2]))
             parts.append(f'<div class="pub-ad-cols">{columns_html}</div>')
 
     body = "".join(parts)
@@ -572,15 +607,21 @@ PUBLISHER_PAGE_CSS = """
        does. */
     .pub-ad-cols {
         display: flex;
-        gap: 18px;
+        /* Tight. This is a classifieds sheet, where ads butt up against each
+           other and the whole page is meant to read as full. Anything looser
+           and the page reads as five pictures with a lot of paper around
+           them. */
+        gap: 9px;
         align-items: flex-start;
+        margin-bottom: 9px;
     }
+    .pub-ad-cols:last-child { margin-bottom: 0; }
     .pub-ad-col { flex: 1 1 0; min-width: 0; }
 
     .pub-ad {
         break-inside: avoid;
         page-break-inside: avoid;
-        margin: 0 0 18px;
+        margin: 0 0 9px;
     }
     .pub-ad:last-child { margin-bottom: 0; }
 
@@ -589,7 +630,7 @@ PUBLISHER_PAGE_CSS = """
        without looking pasted on. */
     .pub-ad-frame {
         border: 3px double #111;
-        padding: 6px;
+        padding: 3px;
         background: #fffdf8;
         margin: 0 auto;
     }
@@ -604,13 +645,13 @@ PUBLISHER_PAGE_CSS = """
 
     .pub-ad-caption {
         font-family: "Barlow Condensed", Georgia, serif;
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 700;
         letter-spacing: 1.5px;
         text-transform: uppercase;
         text-align: center;
         color: #555;
-        padding: 6px 4px 0;
+        padding: 4px 4px 0;
     }
 
     /* One column on a phone. Two columns of memes on a 390px screen is two
@@ -627,3 +668,67 @@ PUBLISHER_PAGE_CSS = """
         .pub-ad-col { width: 100%; }
     }
 """
+
+
+# ---------------------------------------------------------------------------
+# WILL IT FIT?
+#
+# The columns are sized to come out level, but nothing makes their combined
+# height match a sheet — that depends entirely on which images were uploaded.
+# Five landscape memes barely half-fill a page; five phone screenshots of a
+# group chat are three pages of advertising.
+#
+# There is no CSS that scales a block to fit a page, so the stylesheet uses a
+# fixed safety factor (--ad-fit) and that factor cannot be right for every
+# mix. What closes the gap is telling the publisher, on the page where they
+# are choosing the images, how full the sheet is going to be. An invisible
+# failure becomes a number they can act on before anybody else sees it.
+#
+# The model below is calibrated against real printed PDFs: predicted 1.326
+# where the measured page came out at 1.34 of its own width. Good to about a
+# percent, which is all this needs to be.
+# ---------------------------------------------------------------------------
+
+#: Printable height ÷ printable width of a Letter sheet at 12mm margins, less
+#: the paper's own side padding. 965px tall, about 690px wide.
+#: A4 is very slightly taller in proportion (1.41 against 1.40), so calling it
+#: Letter is the conservative choice.
+PAGE_ASPECT = 1.399
+
+#: The page's own furniture — the Classifieds rule, the frames and the gaps
+#: between ads — as a fraction of the page width. Not modelled individually;
+#: measured as the residual between the image arithmetic below and the height
+#: a real PDF came out at.
+PAGE_CHROME = 0.101
+
+#: Matches --ad-fit in printing.py. If one moves the other has to.
+PRINT_FIT = 0.94
+
+
+def estimate_page_fill(ads: Optional[list] = None) -> float:
+    """Roughly how much of one printed sheet this week's page will take.
+
+    1.0 means it fills a sheet exactly. Below 1.0 there is white at the foot
+    of the page; above it, the page runs onto a second sheet — and "slightly
+    over" is not a slightly cramped page, it is both columns fragmenting and
+    the bottom ad of each landing alone on a sheet of its own.
+
+    Returns 0.0 for a week with no ads, which renders no page at all.
+    """
+    rows = [a for a in (ads or []) if a and _safe_url(str(a.get("image_url") or ""))]
+    if not rows:
+        return 0.0
+
+    height = PAGE_CHROME
+    for block in pack_columns(rows):
+        if block[0] == "banner":
+            # Full width, so its height as a fraction of the width is 1/aspect.
+            height += 1.0 / _ad_shape(block[1])[2]
+        else:
+            # Every column in the group is the same height by construction, and
+            # that height is width / sum(flex-grow) — see pack_columns.
+            total_grow = sum(block[2])
+            if total_grow > 0:
+                height += PRINT_FIT / total_grow
+
+    return height / PAGE_ASPECT

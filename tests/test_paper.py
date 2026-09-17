@@ -190,14 +190,29 @@ def test_the_section_notes_describe_what_the_sections_actually_do():
 
     source = inspect.getsource(newspaper)
 
+    import re
+
+    notes = re.findall(r'<div class="section-note">(.*?)</div>', source)
+    assert len(notes) >= 2, "the section notes have gone"
+    honor_note, detention_note = notes[0].lower(), notes[1].lower()
+
     # Honor Roll: top N by actual score.
     assert 'key=lambda p: p["actual"], reverse=True' in source, (
         "Honor Roll's sort changed — the note under it needs to change too")
-    assert "highest scorers" in source
+    assert "scor" in honor_note and "project" not in honor_note, (
+        f"the Honor Roll note has to say SCORE and must not promise anything "
+        f"about projections, which are not what it sorts by: {notes[0]!r}")
 
     # Detention: the biggest projection misses.
     assert 'key=lambda p: p["beat_by"]' in source
-    assert "missed their projection" in source
+    assert "missed their projection" in detention_note
+
+    # Both pools are starters only — `team.get("all_starters", [])`. A note
+    # that doesn't say so reads as a league-wide leaderboard including benches,
+    # and somebody's benched 40-point tight end not being on it looks like a
+    # bug rather than the point.
+    assert "started" in honor_note or "starter" in honor_note, notes[0]
+    assert "started" in detention_note or "starter" in detention_note, notes[1]
 
 
 def test_both_notes_are_short_enough_to_read_in_passing():

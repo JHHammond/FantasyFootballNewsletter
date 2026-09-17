@@ -240,3 +240,143 @@ def test_the_phone_breakpoint_cannot_fire_on_paper():
             assert "screen" in query, (
                 f"`@media{query.strip()}` fires on a printed page too, which "
                 f"collapses the classifieds page into one column")
+
+
+# ---------------------------------------------------------------------------
+# Density
+#
+# "It looks a bit too spaced out." The first version gave both columns the
+# same width and then capped each ad's height to stop the taller column
+# running off the page, which left every tall ad floating in the middle of its
+# column with white down both sides. Five ads, ten gutters.
+# ---------------------------------------------------------------------------
+
+def test_the_columns_are_sized_to_come_out_level():
+    """A column of ads at width w is w * S tall, where S is the sum of
+    1/aspect down it. Two columns match when w is proportional to 1/S — so
+    the column carrying the portraits is simply narrower, and every ad in it
+    still fills its column edge to edge.
+
+    Handed to the browser as flex-grow rather than a percentage so the
+    arithmetic happens against whatever width the page turns out to be: a
+    screen, a phone, Letter, A4, or a reader who set their own margins.
+    """
+    _, columns, grows = ads.pack_columns(MIXED)[1]
+
+    heights = []
+    for column, grow in zip(columns, grows):
+        stack = sum(1.0 / ads._ad_shape(ad)[2] for ad, _ in column)
+        # Width is proportional to grow, so height is grow * stack.
+        heights.append(grow * stack)
+
+    assert max(heights) - min(heights) < 0.01, (
+        f"the columns will not finish level: {heights}")
+
+
+def test_an_empty_column_is_not_emitted():
+    """An empty column is a gap the width of a column."""
+    blocks = ads.pack_columns([_ad(900, 900)])
+    _, columns, grows = blocks[0]
+    assert len(columns) == 1 and len(grows) == 1
+    assert "<div class=\"pub-ad-col\"" in ads.render_publisher_page([_ad(900, 900)])
+
+
+def test_the_ads_are_not_lazily_loaded():
+    """This one printed a page of empty frames.
+
+    The classifieds page is six sheets down a long single-page document, so
+    every ad on it is far outside the viewport when a reader hits print. A
+    lazy image that has never been scrolled to has never been fetched. The
+    width and height attributes still reserved the space, so the PDF came out
+    as five bordered boxes with nothing inside them — which looks like a
+    styling problem and is a missing file.
+    """
+    html = ads.render_publisher_page(MIXED)
+    assert "loading=" not in html, (
+        "an ad below the fold will print as an empty frame")
+
+
+def test_the_fit_factor_matches_the_stylesheet():
+    """Two copies of one number: PRINT_FIT here and --ad-fit in printing.py.
+
+    They are in different files because one does arithmetic and the other
+    does layout, and if they drift the page-fill figure shown to the publisher
+    quietly stops describing the page that prints.
+    """
+    import re
+
+    import printing
+
+    match = re.search(r"--ad-fit:\s*(\d+)%", printing.BASE_PRINT_CSS)
+    assert match, "--ad-fit has gone from the print stylesheet"
+    assert int(match.group(1)) == round(ads.PRINT_FIT * 100), (
+        f"--ad-fit is {match.group(1)}% but ads.PRINT_FIT is {ads.PRINT_FIT}")
+
+
+# ---------------------------------------------------------------------------
+# Will it fit?
+# ---------------------------------------------------------------------------
+
+def _uniform(count, width, height):
+    return [_ad(width, height, f"/{i}.png") for i in range(count)]
+
+
+def test_a_week_with_nothing_in_it_fills_nothing():
+    assert ads.estimate_page_fill([]) == 0.0
+    assert ads.estimate_page_fill(None) == 0.0
+
+
+def test_five_landscape_memes_do_not_fill_a_sheet():
+    """Wide images are short. Five of them are half a page, and the publisher
+    should be told so while they can still add another."""
+    fill = ads.estimate_page_fill(_uniform(5, 1200, 700))
+    assert 0.3 < fill < 0.7, fill
+
+
+def test_five_phone_screenshots_run_over():
+    """The case the warning exists for. A few percent over is not a slightly
+    cramped page — it is both columns fragmenting and the bottom ad of each
+    landing alone on a second sheet."""
+    assert ads.estimate_page_fill(_uniform(5, 750, 1600)) > 1.2
+
+
+def test_the_estimate_matches_what_actually_printed():
+    """Calibration, against a measured PDF rather than against itself.
+
+    The five-ad page below is the one in tests/test_layout.py. Printed on
+    Letter at 12mm margins it came out one sheet with 6.4% of the sheet blank
+    at the foot — so a little over 0.93 of a page. The model has to land near
+    that or the number shown to the publisher is decoration.
+    """
+    fill = ads.estimate_page_fill(MIXED)
+    assert 0.90 <= fill <= 0.99, (
+        f"estimated {fill:.3f}; the real page measured about 0.936")
+
+
+def test_adding_an_ad_never_shrinks_the_page_once_there_are_two_columns():
+    """Monotonic from two ads up. A publisher adding an image and watching the
+    number go DOWN would reasonably conclude the number is nonsense."""
+    previous = 0.0
+    for count in range(2, 9):
+        fill = ads.estimate_page_fill(_uniform(count, 900, 900))
+        assert fill >= previous - 1e-9, (
+            f"{count} ads estimated {fill:.3f}, fewer estimated {previous:.3f}")
+        previous = fill
+
+
+def test_one_ad_on_its_own_runs_the_full_width_of_the_page():
+    """The exception to the rule above, and it is real rather than a bug.
+
+    One ad means one column, and one column is the whole page wide — so a
+    single square ad is a 726px square, about three quarters of a sheet. Add a
+    second and they sit side by side at half the width and therefore half the
+    height, and the estimate drops. That reads as backwards on a progress bar
+    and is exactly what a classifieds sheet does.
+
+    Pinned so that if the single-ad case is ever changed, it is changed on
+    purpose.
+    """
+    alone = ads.estimate_page_fill(_uniform(1, 900, 900))
+    pair = ads.estimate_page_fill(_uniform(2, 900, 900))
+    assert alone > pair, (alone, pair)
+    assert 0.6 < alone < 0.9, alone

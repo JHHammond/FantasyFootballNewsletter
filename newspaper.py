@@ -2430,7 +2430,7 @@ def render_html(edition, theme=None):
         <!-- HONOR ROLL + DETENTION -->
         <div class="full-section">
             <div class="section-title-full">Honor Roll</div>
-            <div class="section-note">The week&rsquo;s highest scorers, whoever started them</div>
+            <div class="section-note">The week&rsquo;s highest-scoring starters, whichever lineup they were in</div>
             <div style="padding:8px 0;">
                 {edition['honor_roll_html']}
             </div>
@@ -2438,7 +2438,7 @@ def render_html(edition, theme=None):
 
         <div class="full-section" style="margin-top:16px;">
             <div class="section-title-full">Detention</div>
-            <div class="section-note">Started, and missed their projection by the most</div>
+            <div class="section-note">The starters who missed their projection by the most</div>
             <div style="padding:8px 0;">
                 {edition['detention_html']}
             </div>

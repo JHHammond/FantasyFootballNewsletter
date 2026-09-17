@@ -204,23 +204,59 @@ BASE_PRINT_CSS = """
         page-break-inside: avoid;
     }
 
-    /* MAKING FIVE ADS FIT ONE SHEET.
-       A Letter page has about 965px of printable height and the ads arrive at
-       whatever size they were exported at, so left alone they run over — the
-       first measured attempt needed a second sheet for the last ad and left
-       it 53% empty. So each ad gets a height ceiling.
-       The ceiling is applied as a max-WIDTH, computed from the ad's own
-       aspect ratio, which is what --ad-aspect on each figure is for. That
-       matters: `max-height` on an image that is also `width: 100%` does not
-       scale the image down, it squashes it — the height obeys and the width
-       does not, and a squashed meme is a cropped meme by another name. Capping
-       the width instead scales both together, so the shape survives and the
-       ad simply sits narrower than its column, centred. Which is what the
-       classifieds sheets this is modelled on look like anyway. */
-    .publisher-page { --ad-cap: 300px; }
+    /* A GUARD, NOT A LAYOUT TOOL.
+       The columns are sized so they come out level and every ad fills its
+       column edge to edge — see pack_columns. Nothing here is needed to make
+       a normal page fit, and this ceiling should never fire on one.
+       It exists for the pathological upload: one 800x4000 screenshot of a
+       group chat, which at any column width is taller than the sheet and
+       would print as a blank page followed by a cropped one.
+       Applied as a max-WIDTH computed from the ad's own aspect ratio, which
+       is what --ad-aspect on each figure is for. That matters: `max-height`
+       on an image that is also `width: 100%` does not scale the image down,
+       it squashes it — the height obeys and the width does not, and a
+       squashed meme is a cropped meme by another name. Capping the width
+       scales both together, so the shape survives.
+       An earlier version used this at 300px as the actual fitting mechanism.
+       It worked, and it left every tall ad floating in the middle of its
+       column with white down both sides — five ads, ten gutters, and a page
+       that read as spaced out rather than as a classifieds sheet. */
+    .publisher-page { --ad-cap: 620px; --ad-fit: 94%; }
     .pub-ad-frame {
         max-width: calc(var(--ad-cap) * var(--ad-aspect, 1));
     }
+
+    /* THE LAST FEW PERCENT.
+       The columns are sized to come out level, but nothing makes their
+       combined height match a sheet — that depends entirely on which five
+       images got uploaded. Measured at full width the first real page came
+       out about 1% too tall, and 1% too tall is not a slightly cramped page,
+       it is BOTH columns fragmenting and the bottom ad of each landing on a
+       sheet of its own.
+       So the block runs a little narrower than the page and centres. Narrower
+       is shorter, in exact proportion, because every ad in it is locked to
+       its own aspect ratio — 8% off the width takes 8% off the height and
+       buys back roughly 55px of slack on Letter.
+       The cost is a margin down each side of the block. That is a very
+       different thing from the gutters the old height ceiling produced: this
+       is white at the edge of the page, where a margin belongs, rather than
+       white between ads, where it reads as the page being half empty.
+       Deliberately not computed from a page size. Readers print with whatever
+       margins their dialog is set to, and on A4 as well as Letter; a
+       percentage is right in all of them. */
+    .pub-ad-cols {
+        max-width: var(--ad-fit);
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* On screen the page needs air above it. On paper it starts a fresh
+       sheet, so a top margin is 30px of advertising thrown away. */
+    .publisher-page { margin-top: 0 !important; }
+
+    /* The page's own heading, tighter than a section heading in the body of
+       the paper. Every millimetre here is a millimetre of advertising. */
+    .publisher-page .section-title-full { margin-bottom: 9px !important; }
 
     /* Colour is the point of this page — a meme in greyscale is a meme with
        the joke removed — so the backgrounds print even where the rest of the

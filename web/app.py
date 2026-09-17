@@ -1807,12 +1807,21 @@ def publisher_page(request: Request, token: str, week: int = None,
     week_number, season_number = _publisher_week(week, season)
 
     import nfl_week
+    from ads import estimate_page_fill
+
+    week_ads = db.publisher_ads(season_number, week_number)
     return _render(
         request, "publisher.html",
         token=token,
         week=week_number,
         season=season_number,
-        ads=db.publisher_ads(season_number, week_number),
+        ads=week_ads,
+        # How much of a printed sheet this mix will take. Shown because the
+        # answer depends entirely on which images were uploaded — five
+        # landscape memes half-fill a page, five phone screenshots are nearly
+        # two — and "slightly over" is not a slightly cramped page, it is the
+        # bottom ad of each column landing alone on a second sheet.
+        fill=round(100 * estimate_page_fill(week_ads)),
         max_ads=MAX_PUBLISHER_ADS,
         # "No ads this week" and "the table isn't there" look identical on
         # this page and mean completely different things — one needs five

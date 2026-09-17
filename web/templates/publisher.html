@@ -48,6 +48,26 @@
     <span class="pub-count"><span id="pub-n">{{ ads|length }}</span> of {{ max_ads }}</span>
 </div>
 
+{# How full the printed sheet will be. The number moves a lot with the shapes
+   uploaded, and the failure it warns about is invisible until someone prints:
+   a page a few percent too tall does not come out slightly cramped, it comes
+   out as two sheets with the bottom ad of each column stranded on the second. #}
+{% if ads %}
+<div class="pub-fill {% if fill > 100 %}is-over{% elif fill < 60 %}is-under{% endif %}">
+    <div class="pub-fill-bar"><i style="width: {{ [fill, 130]|min }}%;"></i></div>
+    <div class="pub-fill-text">
+        {% if fill > 100 %}
+        <strong>{{ fill }}% of a printed page</strong> &mdash; this will run onto a
+        second sheet. Swap a tall image for a wide one, or take one out.
+        {% elif fill < 60 %}
+        <strong>{{ fill }}% of a printed page</strong> &mdash; room for another.
+        {% else %}
+        <strong>{{ fill }}% of a printed page.</strong>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 <div id="pub-drop" class="pub-drop">
     Drop images here &mdash; or use <strong>Add images</strong>.
     They keep their own shape on the page; nothing gets cropped.
@@ -93,6 +113,15 @@
 .pub-actions { display: flex; align-items: center; gap: 10px; margin: 14px 0; }
 .pub-count { color: #6b6050; font-size: 14px; }
 
+.pub-fill { margin: 0 0 14px; }
+.pub-fill-bar { height: 6px; background: #e7e1d3; border-radius: 3px;
+    overflow: hidden; max-width: 420px; }
+.pub-fill-bar i { display: block; height: 100%; background: #2d5016; }
+.pub-fill-text { font-size: 13px; color: #6b6050; margin-top: 5px; }
+.pub-fill.is-over .pub-fill-bar i { background: #9b3b3b; }
+.pub-fill.is-over .pub-fill-text { color: #9b3b3b; }
+.pub-fill.is-under .pub-fill-bar i { background: #b5ab97; }
+
 .pub-drop { border: 2px dashed #c9c1b0; border-radius: 8px; padding: 22px;
     text-align: center; color: #6b6050; font-size: 14px; line-height: 1.6;
     background: #faf7f0; }
@@ -133,7 +162,6 @@
     var drop = document.getElementById('pub-drop');
     var picker = document.getElementById('pub-file');
     var errorBox = document.getElementById('pub-error');
-    var counter = document.getElementById('pub-n');
 
     function showError(message) {
         errorBox.textContent = message;
@@ -142,7 +170,6 @@
     function clearError() { errorBox.hidden = true; }
 
     function count() { return list.querySelectorAll('.pub-item').length; }
-    function refreshCount() { counter.textContent = count(); }
 
     // ---- upload ---------------------------------------------------------
     // One at a time, in the order they were dropped. Firing five requests at
@@ -150,6 +177,7 @@
     // same list, and the page would come out in whatever order they landed.
     async function uploadAll(files) {
         clearError();
+        var added = 0;
         for (var i = 0; i < files.length; i++) {
             if (count() >= MAX) {
                 showError('That is ' + MAX + ' ads. Remove one to add another.');
@@ -167,49 +195,18 @@
                     showError(files[i].name + ': ' + (body.error || 'upload failed'));
                     return;
                 }
-                addRow(body.ad);
+                added += 1;
             } catch (err) {
                 showError('Upload failed: ' + err);
                 return;
             }
         }
-    }
-
-    function addRow(ad) {
-        var empty = document.getElementById('pub-empty');
-        if (empty) { empty.remove(); }
-
-        var li = document.createElement('li');
-        li.className = 'pub-item';
-        li.draggable = true;
-        li.dataset.id = ad.id;
-
-        var grip = document.createElement('div');
-        grip.className = 'pub-item-grip';
-        grip.textContent = '⋮⋮';
-
-        var img = document.createElement('img');
-        img.className = 'pub-item-img';
-        img.src = ad.image_url;
-        img.alt = '';
-        if (ad.width) { img.width = ad.width; img.height = ad.height; }
-
-        var meta = document.createElement('div');
-        meta.className = 'pub-item-meta';
-        var size = document.createElement('div');
-        size.className = 'pub-item-size';
-        size.textContent = ad.width ? (ad.width + '×' + ad.height) : 'size unknown';
-        meta.appendChild(size);
-
-        var del = document.createElement('button');
-        del.className = 'pub-item-del';
-        del.type = 'button';
-        del.dataset.id = ad.id;
-        del.textContent = 'Remove';
-
-        li.append(grip, img, meta, del);
-        list.appendChild(li);
-        refreshCount();
+        // Reload rather than splicing the new rows in by hand. The page has
+        // to show the new count, the new order AND the recomputed share of a
+        // printed sheet, and the server already knows all three — building a
+        // second, JavaScript version of the same markup is how the two drift
+        // apart. It is a local reload on an admin tool; it costs nothing.
+        if (added) { window.location.reload(); }
     }
 
     picker.addEventListener('change', function () {
@@ -242,8 +239,7 @@
         var res = await fetch('/publisher/' + encodeURIComponent(TOKEN) + '/delete',
                               { method: 'POST', body: form });
         if (res.ok) {
-            button.closest('.pub-item').remove();
-            refreshCount();
+            window.location.reload();
         } else {
             showError('Could not remove that one.');
         }
