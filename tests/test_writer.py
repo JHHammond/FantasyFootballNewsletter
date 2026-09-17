@@ -694,8 +694,15 @@ def test_the_writing_people_read_stays_on_the_expensive_model():
 
 
 def test_the_mechanical_calls_are_on_the_cheap_model():
-    for task in ("game_teasers", "classifieds", "pull_quote", "fraud_watch",
-                 "awards", "matchup_headline_0", "matchup_headline_3"):
+    """Everything left here TRANSFORMS something it was handed — a teaser off
+    a finished recap, a quote pulled from finished prose, an eight-word
+    headline off a scoreline.
+
+    awards and fraud_watch used to be in this list and are not any more; see
+    test_the_sections_that_judge_stay_on_the_big_model for what they did.
+    """
+    for task in ("game_teasers", "classifieds", "pull_quote",
+                 "matchup_headline_0", "matchup_headline_3"):
         assert writer.model_for(task) == writer.SMALL_MODEL, (
             f"{task} is still on the expensive model")
 
@@ -945,3 +952,182 @@ def test_a_call_outside_any_generation_does_not_explode():
     writer._ledger.__dict__.pop("current", None)
     writer._record_usage("claude-haiku-4-5",
                          type("M", (), {"usage": _Usage(output_tokens=5)})())
+
+
+# ---------------------------------------------------------------------------
+# The paper is not a place to talk to the operator
+# ---------------------------------------------------------------------------
+
+def test_a_response_that_asks_for_data_is_treated_as_a_failure():
+    """Week 1 of The Hands Times printed this, under a FRAUD WATCH headline,
+    for a whole league to read:
+
+        "I need the actual box score data to write this — the players
+        johnhenryhammond started, what they scored, what they were projected
+        for..."
+
+    A section that FAILS has a fallback and nobody notices. A section that
+    prints the model's homework is a section nobody trusts again, so this is
+    treated as a failure rather than as content.
+    """
+    refusals = [
+        "I need the actual box score data to write this.",
+        "I don't have the roster breakdown for that team.",
+        "Give me the full roster and I'll write it.",
+        "To write this I would need the starters.",
+        "**I cannot** write this without the projections.",
+        "- I'm unable to produce that from the data given.",
+    ]
+    for text in refusals:
+        assert writer.looks_like_the_model_talking_to_us(text), text
+
+
+def test_real_prose_that_happens_to_use_the_word_i_survives():
+    """A recap may quote somebody, and a paper that threw away good writing
+    because a manager said "I can't believe that started" would be a worse
+    bug than the one this guards against."""
+    keepers = [
+        "Chase cannot believe what he watched. I need a drink, he said after.",
+        "Kyler Murray put up 0.7. I have seen better from a kicker.",
+        "WALKER SAVES COLBY FROM DISASTER",
+        "Nobody in this league has answers, and I don't have sympathy either.",
+    ]
+    for text in keepers:
+        assert not writer.looks_like_the_model_talking_to_us(text), text
+
+
+def test_the_guard_only_reads_the_opening():
+    """Anchored to the front because the paper is third person about a league.
+    A first-person request for data in the FIRST LINE is a refusal; the same
+    words in paragraph three are a quote."""
+    buried = ("Walker went for 34.1 against a 13.7 projection and the game "
+              "was over by the fourth. I need the actual box score to say "
+              "more than that.")
+    assert not writer.looks_like_the_model_talking_to_us(buried)
+
+
+def test_the_sections_that_judge_stay_on_the_big_model():
+    """The line the first real paper drew, which is not about difficulty.
+
+    awards and fraud_watch were moved to the cheap model and came straight
+    back: the awards explained who Gardner Minshew is instead of giving an
+    award, and fraud watch asked for data in the paper. Both prompts hand over
+    a pile and expect the writer to pick what matters.
+
+    What stayed cheap is the opposite shape — a teaser off a finished recap, a
+    quote pulled from finished prose, a headline off a scoreline. TRANSFORM a
+    thing you were given, cheap. JUDGE what matters in a pile, expensive.
+    """
+    for task in ("awards", "fraud_watch", "power_rankings_comments"):
+        assert writer.model_for(task) == writer.MODEL, (
+            f"{task} judges what matters and cannot be on the cheap model")
+
+
+def test_call_claude_itself_rejects_a_refusal(monkeypatch):
+    """The detector being right is worth nothing if nothing calls it.
+
+    The first version of this file tested `looks_like_the_model_talking_to_us`
+    directly and never went through call_claude — so deleting the check from
+    the call path left every test green and put the refusal back in the paper.
+    This one drives the real function.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+    def create(**kw):
+        class Block:
+            text = ("I need the actual box score data to write this — the "
+                    "players johnhenryhammond started.")
+
+        class Message:
+            content = [Block()]
+            usage = _Usage(output_tokens=100)
+
+        return Message()
+
+    monkeypatch.setattr(writer.client, "messages",
+                        type("M", (), {"create": staticmethod(create)}))
+
+    with pytest.raises(writer.CallFailed):
+        writer.call_claude("write the fraud watch", attempts=1)
+
+
+def test_call_claude_returns_ordinary_prose_untouched(monkeypatch):
+    """The other half: the guard must not eat real writing."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+    def create(**kw):
+        class Block:
+            text = "  Walker went for 34.1 against a 13.7 projection.  "
+
+        class Message:
+            content = [Block()]
+            usage = _Usage(output_tokens=100)
+
+        return Message()
+
+    monkeypatch.setattr(writer.client, "messages",
+                        type("M", (), {"create": staticmethod(create)}))
+
+    assert writer.call_claude("recap it", attempts=1) == (
+        "Walker went for 34.1 against a 13.7 projection.")
+
+
+# ---------------------------------------------------------------------------
+# Backing off for long enough to matter
+# ---------------------------------------------------------------------------
+
+class _Headers(dict):
+    pass
+
+
+def _rate_limited(retry_after=None):
+    class Response:
+        status_code = 429
+        request = None
+        headers = _Headers({"retry-after": retry_after}
+                           if retry_after is not None else {})
+
+    class Exc:
+        status_code = 429
+        response = Response()
+
+    return Exc()
+
+
+def test_a_rate_limit_waits_long_enough_for_the_window_to_reopen():
+    """The original backoff was 1.5s then 3s.
+
+    Rate limits reset on a window — per minute, typically — so all three
+    attempts were spent inside five seconds and every one of them hit the same
+    closed window. This paper fires twelve calls at once and the recaps are
+    the biggest, which is exactly why a rate limit shows up as most of the
+    RECAPS missing while every short section came through fine.
+    """
+    first = writer._backoff(0, _rate_limited())
+    assert first >= 5.0, f"still giving up inside a rate limit window: {first}s"
+
+
+def test_the_api_gets_to_say_when_to_come_back():
+    """retry-after is the only number from the party that actually knows."""
+    assert writer._backoff(0, _rate_limited(retry_after="12")) == 12.0
+
+
+def test_an_absurd_retry_after_becomes_giving_up():
+    """Generation blocks the request that started it. An honest "come back in
+    five minutes" has to not become a browser hanging for five minutes."""
+    assert writer._backoff(0, _rate_limited(retry_after="300")) <= 20.0
+
+
+def test_a_connection_blip_still_retries_quickly():
+    """A reset or a 502 is usually over in a moment, and waiting fifteen
+    seconds for one would make every paper slower to punish a rare case."""
+    class Blip:
+        status_code = 503
+        response = None
+
+    assert writer._backoff(0, Blip()) < 5.0
+
+
+def test_a_junk_retry_after_does_not_crash_the_paper():
+    for junk in ("soon", "", None, "Wed, 21 Oct 2026 07:28:00 GMT"):
+        assert 0 <= writer._backoff(0, _rate_limited(retry_after=junk)) <= 20.0

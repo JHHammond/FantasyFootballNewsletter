@@ -528,22 +528,41 @@ def build_power_rankings_from_matchups(matchups):
     standings = build_standings(matchups)
     rankings = []
 
-    for team in standings:
-        wins, losses = parse_record(team["record"])
-        score = wins * 10 + team["points"] / 20
+    # The comment used when the writer has not supplied one — a failed call,
+    # or a CLI render with no AI at all.
+    #
+    # These were ABSOLUTE thresholds: 110 and 90, against wins*10 + points/20.
+    # In week 1 the best possible score is 10 + about 9, so every team in the
+    # league fell into the bottom bucket and the whole page read
+    #
+    #     Needs answers, not excuses.
+    #     Needs answers, not excuses.
+    #     Needs answers, not excuses.
+    #
+    # ...ten times, which is what The Hands Times printed. The thresholds were
+    # written for a cumulative late-season number and silently say nothing for
+    # the first half of every season.
+    #
+    # Relative to the league instead. A ranking is a position among these
+    # teams, so the fallback should be too, and it reads correctly in week 1
+    # and in week 17.
+    total = len(standings) or 1
+    for position, team in enumerate(standings):
+        share = position / total
 
-        if score >= 110:
+        if share < 0.34:
             comment = "Looks like a weekly threat."
-        elif score >= 90:
+        elif share < 0.67:
             comment = "Doing enough to stay dangerous."
         else:
             comment = "Needs answers, not excuses."
 
+        wins, _losses = parse_record(team["record"])
         rankings.append({
             "team": team["team_name"],
             "comment": comment,
             "avatar_url": team.get("avatar_url"),
-            "score": score,
+            "score": wins * 10 + team["points"] / 20,
         })
 
     rankings.sort(key=lambda x: x["score"], reverse=True)

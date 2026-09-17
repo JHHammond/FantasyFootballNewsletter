@@ -231,3 +231,34 @@ def test_both_notes_are_short_enough_to_read_in_passing():
 def inspect_source():
     import inspect
     return inspect.getsource(newspaper)
+
+
+def test_the_fallback_power_ranking_comments_are_not_all_the_same():
+    """The Hands Times printed "Needs answers, not excuses." ten times.
+
+    The thresholds were absolute — 110 and 90 against wins*10 + points/20 —
+    and in week 1 the best possible score is about 19, so every team in the
+    league landed in the bottom bucket. The rule said nothing at all for the
+    first half of every season, and it only became visible on the week the AI
+    comments failed and the fallback had to carry the page.
+
+    A ranking is a position among these teams, so the fallback is too.
+    """
+    import newspaper
+
+    def week(points, record):
+        return {"team_name": f"T{points}", "points": points, "record": record,
+                "owner_name": "o", "avatar_url": None}
+
+    matchups = [
+        {"team_1": week(150 - i * 7, "1-0"), "team_2": week(90 - i * 5, "0-1"),
+         "winner": f"T{150 - i * 7}", "margin": 20}
+        for i in range(5)
+    ]
+    comments = [r["comment"]
+                for r in newspaper.build_power_rankings_from_matchups(matchups)]
+
+    assert len(set(comments)) > 1, (
+        f"every team in week 1 got the same comment: {comments[0]!r}")
+    # The best team and the worst team must not read the same.
+    assert comments[0] != comments[-1]

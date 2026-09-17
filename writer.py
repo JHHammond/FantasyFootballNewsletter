@@ -33,23 +33,37 @@ SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 #: which makes it simultaneously the biggest saving available and the worst
 #: place to take one.
 #:
-#: awards is on this list as the first real test of where the line sits. An
-#: award is a title and two sentences off a single fact — "most points on the
-#: bench, here is who" — which is close to the mechanical end. If the next
-#: paper's awards read flat, it is the first thing to move back.
+#: awards and fraud_watch WERE on this list and came straight back off it
+#: after one real paper. Both failed in the same way, and it is worth writing
+#: down because it is not the failure the word "cheaper" makes you expect.
 #:
-#: power_rankings_comments is NOT here, and that is a deliberate exception to
-#: its own logic. One line per team looks mechanical, but these were rewritten
-#: once already because they were producing "Fine. Perfectly, aggressively
-#: fine." — a comment with only the score behind it can only restate the
-#: score. Having fixed that by hand, spending $0.004 a paper to keep it fixed
-#: is the easiest call here.
+#: Neither wrote worse prose. Both stopped doing the job:
+#:
+#:   Fraud Watch printed, into the newspaper, a request addressed to whoever
+#:   was reading the logs — "I need the actual box score data to write this,
+#:   the players johnhenryhammond started, what they scored..." — followed by
+#:   a bulleted list of what it wanted. A whole league read that.
+#:
+#:   The awards explained who their namesakes are. "Gardner Minshew is the
+#:   backup QB for KC." "Joe Burrow is arguably the best player in the NFL."
+#:   That is the system prompt's own first rule broken exactly: a sentence
+#:   that could be moved to any week without changing a word.
+#:
+#: Both prompts hand over a summary and expect the writer to work from it.
+#: The sections still here are the ones where the prompt hands over the
+#: finished thing and asks for a rewrite — a teaser off a recap, a quote
+#: pulled from prose, an eight-word headline off a scoreline.
+#:
+#: That looks like the real line, and it is not about length or difficulty:
+#: TRANSFORM a thing you were given, cheap. JUDGE what matters in a pile of
+#: data, expensive.
+#:
+#: power_rankings_comments was never on the list, for the same reason under a
+#: different name.
 SMALL_MODEL_TASKS = frozenset({
     "game_teasers",
     "classifieds",
     "pull_quote",
-    "fraud_watch",
-    "awards",
 })
 
 
@@ -600,6 +614,79 @@ def _record_usage(model, message) -> None:
         ledger.add(model, usage)
 
 
+#: Openings that mean the model stopped writing the paper and started talking
+#: to us. Anchored to the front of the response because the paper is written
+#: in the third person about a league — a first-person request for data in the
+#: first line is not a style, it is a refusal.
+#:
+#: This is not hypothetical. Week 1 of The Hands Times went out with "I need
+#: the actual box score data to write this" printed under a FRAUD WATCH
+#: headline, in the paper, for everybody.
+_META_OPENINGS = (
+    "i need the", "i don't have", "i do not have", "i cannot", "i can't",
+    "give me the", "please provide", "to write this", "i'm unable",
+    "i am unable", "could you provide", "i would need",
+)
+
+
+def looks_like_the_model_talking_to_us(text: str) -> bool:
+    """Is this the paper, or is it a message about the paper?
+
+    Checked on the FIRST LINE only. A recap may well quote somebody saying "I
+    can't believe that started", and a rule that scanned the whole response
+    would throw away the good paragraph for the sake of the quote in it.
+    """
+    first = (text or "").strip().lower()
+    # Strip a leading markdown heading or quote marker before looking.
+    first = first.lstrip("#*>_- ").strip()
+    opening = first[:120]
+    return any(opening.startswith(phrase) for phrase in _META_OPENINGS)
+
+
+#: How long to wait after a rate limit before trying again, when the API has
+#: not said. Rate limits reset on a WINDOW — per minute, typically — and the
+#: original backoff here was 1.5s then 3s, so all three attempts were spent
+#: inside five seconds and every one of them hit the same closed window.
+#:
+#: This paper fires twelve calls at once and the recaps are the biggest of
+#: them, which is why a rate limit shows up as most of the recaps missing
+#: while every short section came through fine.
+_RATE_LIMIT_BACKOFF = (5.0, 15.0, 30.0)
+
+#: Ceiling on anything the API asks us to wait. Generation blocks the request
+#: that started it, so an honest "come back in 300 seconds" has to become
+#: giving up rather than a browser hanging for five minutes.
+_MAX_BACKOFF = 20.0
+
+
+def _backoff(attempt: int, exc) -> float:
+    """Seconds to wait before the next attempt.
+
+    Prefers the API's own retry-after header, because it is the only party
+    that knows when the window actually reopens.
+    """
+    status = getattr(exc, "status_code", None)
+
+    retry_after = None
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    if headers:
+        raw = headers.get("retry-after") or headers.get("Retry-After")
+        try:
+            retry_after = float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            retry_after = None
+
+    if retry_after is not None:
+        return max(0.0, min(retry_after, _MAX_BACKOFF))
+
+    if status == 429:
+        index = min(attempt, len(_RATE_LIMIT_BACKOFF) - 1)
+        return min(_RATE_LIMIT_BACKOFF[index], _MAX_BACKOFF)
+
+    # A connection reset or a 5xx is usually over in a moment.
+    return min(1.5 * (2 ** attempt), _MAX_BACKOFF)
+
+
 def _looks_like_a_model_problem(exc) -> bool:
     """Is this 4xx about the model, rather than about the request?
 
@@ -649,7 +736,17 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
                 ]
             )
             _record_usage(model or MODEL, message)
-            return message.content[0].text.strip()
+            text = message.content[0].text.strip()
+
+            # A section that failed is a section with a fallback. A section
+            # that printed the model's homework is a section nobody can trust
+            # again, so this is treated as a failure rather than as content.
+            if looks_like_the_model_talking_to_us(text):
+                print(f"[writer] !! a response began by asking for data "
+                      f"rather than writing: {text[:80]!r}", flush=True)
+                raise CallFailed()
+
+            return text
         except anthropic.APIStatusError as exc:
             # A MODEL THIS ACCOUNT CANNOT USE.
             #
@@ -683,7 +780,7 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
         except (anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
             last = exc
         if attempt < attempts - 1:
-            time.sleep(1.5 * (2 ** attempt))
+            time.sleep(_backoff(attempt, last))
 
     raise CallFailed(f"gave up after {attempts} attempts") from last
 
