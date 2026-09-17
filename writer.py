@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import threading
 import anthropic
 from dotenv import load_dotenv
 
@@ -10,7 +11,7 @@ client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 #: The model that writes the prose. Overridable so a league can be moved
 #: without a deploy if pricing or quality changes.
-MODEL = os.getenv("WRITER_MODEL", "claude-sonnet-4-6")
+MODEL = os.getenv("WRITER_MODEL", "claude-sonnet-5")
 
 #: The model for the mechanical calls — see SMALL_MODEL_TASKS below.
 SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
@@ -512,6 +513,93 @@ def _system_blocks(system):
     }]
 
 
+#: Published per-million rates, for the one line printed at the end of a
+#: generation. Wrong rates here make a wrong number in a log, not a wrong
+#: bill — but a wrong number in a log is how you talk yourself out of a real
+#: problem, so they are worth keeping current.
+#:
+#: Cache writes bill at 1.25x the base input rate, cache reads at 0.1x.
+PRICES = {
+    "claude-sonnet-5": {"in": 2.00, "out": 10.00},
+    "claude-sonnet-4-6": {"in": 3.00, "out": 15.00},
+    "claude-haiku-4-5": {"in": 1.00, "out": 5.00},
+}
+
+#: Fallback for a model not in the table above — priced as the most expensive
+#: thing we know about, so an unknown model shows up as a number that looks
+#: too big rather than as a number that looks fine.
+_UNKNOWN_PRICE = {"in": 3.00, "out": 15.00}
+
+#: Where the running total goes. Thread-local because generation fans out
+#: across a ThreadPoolExecutor: a module-level total would blend two leagues
+#: generating at the same moment into one meaningless figure, and the whole
+#: point of this is to stop guessing.
+_ledger = threading.local()
+
+
+class Ledger:
+    """What one paper actually cost, totalled from the API's own numbers."""
+
+    def __init__(self):
+        self.calls = []
+        self._lock = threading.Lock()
+
+    def add(self, model, usage):
+        with self._lock:
+            self.calls.append((model, usage))
+
+    def cost(self) -> float:
+        total = 0.0
+        for model, usage in self.calls:
+            rate = PRICES.get(model, _UNKNOWN_PRICE)
+            total += (getattr(usage, "input_tokens", 0) or 0) * rate["in"] / 1e6
+            total += (getattr(usage, "output_tokens", 0) or 0) * rate["out"] / 1e6
+            # Cache writes cost more than plain input and reads cost a tenth.
+            # Leaving them out understates a first call and overstates every
+            # one after it, which is exactly the shape of this workload.
+            total += ((getattr(usage, "cache_creation_input_tokens", 0) or 0)
+                      * rate["in"] * 1.25 / 1e6)
+            total += ((getattr(usage, "cache_read_input_tokens", 0) or 0)
+                      * rate["in"] * 0.1 / 1e6)
+        return total
+
+    def summary(self) -> str:
+        if not self.calls:
+            return "no calls"
+        out = sum(getattr(u, "output_tokens", 0) or 0 for _, u in self.calls)
+        read = sum(getattr(u, "cache_read_input_tokens", 0) or 0
+                   for _, u in self.calls)
+        fresh = sum(getattr(u, "input_tokens", 0) or 0 for _, u in self.calls)
+        per_model = {}
+        for model, _ in self.calls:
+            per_model[model] = per_model.get(model, 0) + 1
+        models = ", ".join(f"{n}x {m}" for m, n in sorted(per_model.items()))
+        return (f"${self.cost():.4f}  ({len(self.calls)} calls: {models}; "
+                f"{fresh:,} in, {read:,} cached, {out:,} out)")
+
+
+def start_ledger() -> "Ledger":
+    """Begin counting for this thread. Returns the ledger to read later."""
+    _ledger.current = Ledger()
+    return _ledger.current
+
+
+def adopt_ledger(ledger) -> None:
+    """Attach an existing ledger to THIS thread.
+
+    Called at the top of every worker, because a thread-local is per thread
+    and the executor's workers are not the thread that started the count.
+    """
+    _ledger.current = ledger
+
+
+def _record_usage(model, message) -> None:
+    ledger = getattr(_ledger, "current", None)
+    usage = getattr(message, "usage", None)
+    if ledger is not None and usage is not None:
+        ledger.add(model, usage)
+
+
 def _looks_like_a_model_problem(exc) -> bool:
     """Is this 4xx about the model, rather than about the request?
 
@@ -560,6 +648,7 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
                     {"role": "user", "content": prompt}
                 ]
             )
+            _record_usage(model or MODEL, message)
             return message.content[0].text.strip()
         except anthropic.APIStatusError as exc:
             # A MODEL THIS ACCOUNT CANNOT USE.
@@ -1110,6 +1199,13 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     print(f"[writer] Generating AI content for Week {week} (parallel mode, tone={tone})...")
     start = time.time()
 
+    # What this paper costs, from the API's own usage numbers rather than from
+    # an estimate. Every figure that shaped the model routing was derived from
+    # token budgets and a guess at how full each response would be; this is the
+    # one that settles it, and it lands in the deploy log next to the paper it
+    # describes.
+    ledger = start_ledger()
+
     # Build all game contexts upfront
     game_contexts = []
     for game in games:
@@ -1182,6 +1278,10 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     def record(key, fn):
         """Run one task, folding success or failure into the shared state."""
+        # A thread-local belongs to the thread that set it, and this runs on
+        # an executor worker. Without this line the ledger stays empty and
+        # reports every paper as free.
+        adopt_ledger(ledger)
         try:
             results[key] = fn()
             print(f"[writer] ✓ {key}")
@@ -1280,6 +1380,10 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     elapsed = round(time.time() - start, 1)
     print(f"[writer] Done. All content generated in {elapsed}s")
+    # The real number, from the API rather than from arithmetic. One line, in
+    # the log, beside the paper it paid for — the alternative is reading a
+    # monthly dashboard and dividing.
+    print(f"[writer] Cost: {ledger.summary()}", flush=True)
 
     # Every one of these is `or`, not a .get default, for the reason above: a
     # failed task leaves the key present and None, and None reaches a template

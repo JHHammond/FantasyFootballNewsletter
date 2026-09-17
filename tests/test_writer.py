@@ -858,3 +858,90 @@ def test_a_bad_prompt_does_not_get_retried_on_the_expensive_model(monkeypatch):
         writer.call_claude("bad", model="claude-haiku-4-5")
     assert seen == ["claude-haiku-4-5"], (
         f"a malformed request was retried on the expensive model: {seen}")
+
+
+# ---------------------------------------------------------------------------
+# What the paper actually cost
+#
+# Every figure that shaped the model routing came from token budgets and a
+# guess at how full each response would be. This is the one that settles it:
+# the API's own usage numbers, totalled, printed beside the paper they paid
+# for.
+# ---------------------------------------------------------------------------
+
+class _Usage:
+    def __init__(self, input_tokens=0, output_tokens=0,
+                 cache_creation_input_tokens=0, cache_read_input_tokens=0):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_creation_input_tokens = cache_creation_input_tokens
+        self.cache_read_input_tokens = cache_read_input_tokens
+
+
+def test_the_ledger_prices_each_model_separately():
+    """The whole point of the routing is that two models cost different
+    amounts. A ledger that priced them the same would report the saving as
+    zero and nobody would ever know whether any of this worked."""
+    ledger = writer.Ledger()
+    ledger.add("claude-sonnet-5", _Usage(input_tokens=1_000_000,
+                                         output_tokens=1_000_000))
+    ledger.add("claude-haiku-4-5", _Usage(input_tokens=1_000_000,
+                                          output_tokens=1_000_000))
+    # $2 + $10 on the big model, $1 + $5 on the small one.
+    assert ledger.cost() == pytest.approx(18.0)
+
+
+def test_cache_reads_are_priced_as_cache_reads():
+    """A cached system block is a tenth of the price, and a cache WRITE is
+    a quarter more than plain input. Counting either as ordinary input
+    understates the first call and overstates every one after it — which is
+    exactly the shape of this workload, eighteen calls behind one block."""
+    ledger = writer.Ledger()
+    ledger.add("claude-haiku-4-5",
+               _Usage(cache_read_input_tokens=1_000_000))
+    assert ledger.cost() == pytest.approx(0.10)
+
+    written = writer.Ledger()
+    written.add("claude-haiku-4-5",
+                _Usage(cache_creation_input_tokens=1_000_000))
+    assert written.cost() == pytest.approx(1.25)
+
+
+def test_an_unknown_model_is_priced_high_rather_than_free():
+    """A model missing from the table must not report as costing nothing.
+    A number that looks too big gets investigated; a zero gets believed."""
+    ledger = writer.Ledger()
+    ledger.add("claude-something-new", _Usage(output_tokens=1_000_000))
+    assert ledger.cost() > 0
+
+
+def test_the_ledger_follows_generation_onto_its_worker_threads(monkeypatch):
+    """A thread-local belongs to the thread that set it, and generation fans
+    out across an executor. Without the adopt call in the task runner the
+    ledger stays empty and every paper reports as free — which is the most
+    dangerous possible bug in a cost meter, because it looks like success.
+    """
+    import concurrent.futures
+
+    ledger = writer.start_ledger()
+
+    def work():
+        writer.adopt_ledger(ledger)
+        writer._record_usage("claude-haiku-4-5", type(
+            "M", (), {"usage": _Usage(output_tokens=1000)})())
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda _: work(), range(4)))
+
+    assert len(ledger.calls) == 4, (
+        "usage recorded on a worker thread did not reach the ledger")
+    assert ledger.cost() > 0
+
+
+def test_a_call_outside_any_generation_does_not_explode():
+    """The CLI and the tests call call_claude directly, with no ledger
+    started. Recording has to be a no-op there rather than an AttributeError
+    in the middle of writing a paper."""
+    writer._ledger.__dict__.pop("current", None)
+    writer._record_usage("claude-haiku-4-5",
+                         type("M", (), {"usage": _Usage(output_tokens=5)})())
