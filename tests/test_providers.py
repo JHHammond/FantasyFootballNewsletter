@@ -9,6 +9,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import copy
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -625,12 +627,27 @@ def test_a_broken_feed_costs_the_section_not_the_paper(tmp_path):
 
 
 def test_a_platform_without_transactions_returns_nothing_quietly():
-    """ESPN and Yahoo inherit the base implementation. This must be a no-op,
-    not a NotImplementedError — it is an optional capability, and adding a
-    third abstract method would make every future platform implement it."""
-    from providers.espn import ESPNProvider
+    """The base implementation must be a no-op, not a NotImplementedError.
 
-    assert ESPNProvider().get_transactions("123", 2026, 1) == []
+    Transactions are an optional capability. Making it abstract would force
+    every future platform to implement a feed some of them do not have.
+
+    ESPN used to be the example here and now implements it, so this asks the
+    base class directly rather than naming a provider that might grow the
+    feature next.
+    """
+    from providers.base import FantasyProvider
+
+    class Bare(FantasyProvider):
+        name = "bare"
+
+        def get_league(self, league_id, season=None):
+            raise NotImplementedError
+
+        def get_week(self, league_id, season, week):
+            raise NotImplementedError
+
+    assert Bare().get_transactions("123", 2026, 1) == []
 
 
 def test_load_transactions_never_raises(tmp_path, monkeypatch):
@@ -732,8 +749,8 @@ def espn(tmp_path, monkeypatch):
     p = ESPNProvider(cache=TTLCache(cache_dir=tmp_path, namespace="espn"))
     monkeypatch.setattr(
         p, "_get",
-        lambda lid, season, views, params=None:
-            fixtures_espn.fake_get(lid, season, views, params))
+        lambda lid, season, views, params=None, fantasy_filter=None:
+            fixtures_espn.fake_get(lid, season, views, params, fantasy_filter))
     return p
 
 
@@ -936,3 +953,199 @@ def test_espn_the_wrong_week_is_never_read_as_this_week(espn_week):
         for player in team.all_players:
             assert player.points != pytest.approx(99.9)
             assert player.projected != pytest.approx(88.8)
+
+
+# ---------------------------------------------------------------------------
+# ESPN transactions
+#
+# Every record in the fixture is one ESPN actually produced for league
+# 1909054258 in week 2 of 2026, captured through a browser because the egress
+# proxy here cannot reach ESPN. The feed is not a list of roster moves — it is
+# a list of everything that touched a roster, and most of it is not news.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def espn_moves(espn):
+    return espn.get_transactions(fixtures_espn.LEAGUE_ID, 2026, 2)
+
+
+def test_setting_your_lineup_is_not_a_transaction(espn_moves):
+    """The big one. Nine of the league's nineteen records were type ROSTER
+    carrying only LINEUP items — somebody moving a running back from the bench
+    to the flex. Printed as transactions they are nine lines of nothing in the
+    middle of the paper, and they outnumber the real moves two to one."""
+    everyone = [p.name for t in espn_moves
+                for _, p in (t.adds + t.drops)]
+    assert "Rhamondre Stevenson" not in everyone, (
+        "a lineup change reached the wire")
+    assert len(espn_moves) == 4, (
+        f"expected 4 real moves from 7 records, got {len(espn_moves)}: "
+        f"{[(t.kind, t.status) for t in espn_moves]}")
+
+
+def test_a_claim_that_has_not_processed_is_not_reported_at_all(espn_moves):
+    """Not as a success, and — the version this shipped with first — not as a
+    failure either.
+
+    PENDING is not EXECUTED, so the obvious status mapping calls it failed,
+    and the paper tells the league a claim lost that has not run yet and may
+    still win. It will process on Tuesday and appear correctly in next week's
+    paper, having already been reported as lost in this one.
+    """
+    claimed = [p.name for t in espn_moves for _, p in t.adds]
+    assert "Malik Washington" not in claimed, (
+        "a pending waiver claim was printed as though it had happened")
+
+
+def test_a_completed_trade_survives_its_own_pending_flag(espn_moves):
+    """`isPending` does not mean "did not happen".
+
+    The one completed trade in the league reports status EXECUTED and
+    isPending TRUE at the same time. Filtering on isPending — which is the
+    obvious way to drop the pending claim above — deletes the single most
+    interesting row of the week. So the filter is on status instead.
+    """
+    trades = [t for t in espn_moves if t.kind == "trade"]
+    assert len(trades) == 1, "the trade was dropped"
+
+    trade = trades[0]
+    assert trade.status == "complete"
+    # Both sides, both directions: a TRADE item is one player leaving one
+    # roster and arriving on another, so it is a drop and an add at once.
+    assert {p.name for _, p in trade.adds} == {"Carnell Tate", "A.J. Brown"}
+    assert {p.name for _, p in trade.drops} == {"Carnell Tate", "A.J. Brown"}
+    assert set(trade.teams) == {"Mike Vick Legal Team", "ACCOMMODATIONS"}
+
+
+def test_a_failed_claim_is_recognised_and_kept(espn_moves):
+    """`status` is a FAMILY of strings, not a value.
+
+    The real failure was FAILED_INVALIDPLAYERSOURCE. Comparing against
+    "FAILED" matches nothing, and every failed claim would print as a
+    successful one — the paper announcing pickups that never happened.
+
+    Kept rather than dropped, deliberately, the same as Sleeper: somebody bid
+    publicly and did not get the player, and everyone can see what they wanted.
+    """
+    failed = [t for t in espn_moves if t.status == "failed"]
+    assert len(failed) == 1
+    assert [p.name for _, p in failed[0].adds] == ["Jalen Coker"]
+
+
+def test_a_waiver_priority_league_reports_no_bid(espn_moves):
+    """ESPN sends bidAmount 0 for every claim in a league that runs on
+    priority rather than a budget, which is most of them. Zero is the absence
+    of bidding, not a bid of nothing — "$0" in the paper tells a league that
+    does not use FAAB that everybody bid nothing."""
+    assert all(t.bid is None for t in espn_moves), (
+        [t.bid for t in espn_moves])
+
+
+def test_a_real_faab_bid_still_comes_through(espn):
+    """The other half of the rule above: a league that does use a budget has
+    to see its numbers."""
+    raw = copy.deepcopy(fixtures_espn.TRANSACTIONS_RAW)
+    for row in raw["transactions"]:
+        if row["type"] == "WAIVER" and row["status"] == "EXECUTED":
+            row["bidAmount"] = 47
+
+    espn._get = (lambda lid, season, views, params=None, fantasy_filter=None:
+                 raw if "mTransactions2" in set(views)
+                 else fixtures_espn.fake_get(lid, season, views, params,
+                                             fantasy_filter))
+    bids = [t.bid for t in espn.get_transactions(fixtures_espn.LEAGUE_ID, 2026, 2)]
+    assert 47 in bids, bids
+
+
+def test_defences_come_through_named(espn_moves):
+    """ESPN gives a D/ST a negative player id and a perfectly ordinary
+    fullName, so unlike Sleeper there is no special case — but the negative id
+    is exactly the sort of thing a lookup drops on the floor, so it is
+    checked."""
+    names = {p.name for t in espn_moves for _, p in (t.adds + t.drops)}
+    assert "Buccaneers D/ST" in names
+    assert "Jaguars D/ST" in names
+
+
+def test_players_are_looked_up_by_id_rather_than_hoped_for(espn_moves):
+    """A transaction record names nobody — it carries player ids and nothing
+    else. The names come from a second request carrying an X-Fantasy-Filter
+    header, and the test fake returns nothing at all when that header is
+    missing, so an adapter that forgets it fails here rather than silently
+    printing "A player" nine times."""
+    names = {p.name for t in espn_moves for _, p in (t.adds + t.drops)}
+    assert "A player" not in names, "the player lookup did not happen"
+    assert "Jacory Croskey-Merritt" in names
+
+
+def test_another_weeks_move_stays_in_another_week(espn_moves):
+    """The feed carries the whole season, not the week asked for."""
+    names = {p.name for t in espn_moves for _, p in (t.adds + t.drops)}
+    assert "Germie Bernard" not in names, "a week 1 claim printed in week 2"
+
+
+def test_free_agency_is_not_a_manager(espn_moves):
+    """`fromTeamId`/`toTeamId` are 0 for the free agent pool. A name for team
+    0 would print "Team 0 acquired…" as though it were somebody in the
+    league."""
+    for t in espn_moves:
+        for team, _ in (t.adds + t.drops):
+            assert team and not team.startswith("Team 0"), team
+
+
+def test_a_transactions_outage_costs_the_section_and_nothing_else(espn):
+    """The scores are the product; this section is a bonus on top."""
+    from providers.base import ProviderError
+
+    def explode(*a, **k):
+        raise ProviderError("ESPN is having a moment")
+
+    espn._get = explode
+    assert espn.get_transactions(fixtures_espn.LEAGUE_ID, 2026, 2) == []
+
+
+def _espn_with(transactions, espn):
+    """Point the provider at a hand-built transactions payload."""
+    raw = copy.deepcopy(fixtures_espn.TRANSACTIONS_RAW)
+    raw["transactions"] = transactions
+    espn._get = (lambda lid, season, views, params=None, fantasy_filter=None:
+                 raw if "mTransactions2" in set(views)
+                 else fixtures_espn.fake_get(lid, season, views, params,
+                                             fantasy_filter))
+    return espn
+
+
+def test_both_lineup_guards_hold_on_their_own(espn):
+    """Written because the first version of the lineup test was vacuous.
+
+    Two independent things drop a lineup change: ROSTER is not in _MOVE_TYPES,
+    and LINEUP is not in _MOVE_ITEMS. Against the real fixture, deleting
+    EITHER one still produces the right answer, because the other catches it —
+    so `test_setting_your_lineup_is_not_a_transaction` passed with the type
+    filter removed and was defending nothing.
+
+    Neither shape below was observed in the real league, which is the point:
+    they exist to hold each guard up on its own, rather than to model ESPN.
+    """
+    # A ROSTER record that does move a player. Only the TYPE filter stops it.
+    roster_with_an_add = _espn_with([{
+        "type": "ROSTER", "status": "EXECUTED", "isPending": False,
+        "scoringPeriodId": 2, "teamId": 3, "bidAmount": 0,
+        "proposedDate": 1789542778194,
+        "items": [{"type": "ADD", "playerId": 4575131,
+                   "fromTeamId": 0, "toTeamId": 3}],
+    }], espn).get_transactions(fixtures_espn.LEAGUE_ID, 2026, 2)
+    assert roster_with_an_add == [], (
+        "a ROSTER record reached the wire — only the item filter is holding")
+
+    # A WAIVER record carrying nothing but a lineup shuffle. Only the ITEM
+    # filter stops it.
+    waiver_with_only_lineup = _espn_with([{
+        "type": "WAIVER", "status": "EXECUTED", "isPending": False,
+        "scoringPeriodId": 2, "teamId": 3, "bidAmount": 0,
+        "proposedDate": 1789542778194,
+        "items": [{"type": "LINEUP", "playerId": 4569173,
+                   "fromTeamId": 0, "toTeamId": 0}],
+    }], espn).get_transactions(fixtures_espn.LEAGUE_ID, 2026, 2)
+    assert waiver_with_only_lineup == [], (
+        "a LINEUP item reached the wire — only the type filter is holding")

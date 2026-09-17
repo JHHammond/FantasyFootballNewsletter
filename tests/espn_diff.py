@@ -111,7 +111,12 @@ def main(argv):
     roster_root = _entry_paths(raw)
 
     missing, present = [], []
-    for path in fixtures_espn.LOAD_BEARING_PATHS:
+    paths = list(fixtures_espn.LOAD_BEARING_PATHS)
+    # Only checked when the capture actually carries the transactions view, so
+    # a capture taken with view=mMatchup does not report nine bugs that aren't.
+    if raw.get("transactions"):
+        paths += fixtures_espn.TRANSACTION_PATHS
+    for path in paths:
         root = roster_root if path.startswith("entries[]") else raw
         if root is None:
             missing.append((path, "no roster entries found anywhere"))

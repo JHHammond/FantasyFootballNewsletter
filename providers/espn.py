@@ -39,6 +39,7 @@ their league public, is the common failure and deserves a good sentence.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Iterable, Optional
 
 import requests
@@ -50,7 +51,8 @@ from .base import (
     ProviderError,
     WeekNotAvailable,
 )
-from .models import League, Manager, Matchup, PlayerLine, Team, WeekData
+from .models import (League, Manager, Matchup, PlayerLine, Team,
+                     Transaction, TransactionPlayer, WeekData)
 
 BASE_URL = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl"
 
@@ -282,18 +284,26 @@ class ESPNProvider(FantasyProvider):
         return {}
 
     def _get(self, league_id: str, season: int, views: Iterable[str],
-             params: dict | None = None):
+             params: dict | None = None, fantasy_filter: dict | None = None):
         """One request to the league endpoint with the given views.
 
         `view` is repeatable, and requests encodes a list value as repeated
         parameters, which is exactly what ESPN wants.
+
+        `fantasy_filter` becomes the X-Fantasy-Filter header, which is how
+        ESPN takes arguments too large for a query string — the player lookup
+        behind the transactions feed passes a list of ids that way.
         """
         url = f"{BASE_URL}/seasons/{int(season)}/segments/0/leagues/{league_id}"
         query = {"view": list(views)}
         query.update(params or {})
 
+        headers = dict(_HEADERS)
+        if fantasy_filter is not None:
+            headers["X-Fantasy-Filter"] = json.dumps(fantasy_filter)
+
         try:
-            response = requests.get(url, params=query, headers=_HEADERS,
+            response = requests.get(url, params=query, headers=headers,
                                     cookies=self._cookies,
                                     timeout=REQUEST_TIMEOUT)
         except requests.RequestException as exc:
@@ -589,6 +599,236 @@ class ESPNProvider(FantasyProvider):
                 continue
 
         return records
+
+    # -- transactions ------------------------------------------------------
+    #
+    # ESPN's feed is NOT a list of roster moves. It is a list of everything
+    # that touched a roster, and most of it is people setting their lineup.
+    # In the league this was written against, nine of nineteen records were
+    # type ROSTER carrying only LINEUP items — somebody moving a running back
+    # from the bench to the flex. Printed as transactions those would be nine
+    # lines of nothing in the middle of the paper.
+    #
+    # Three more things the real payload does that the obvious reading gets
+    # wrong, each verified against league 1909054258:
+    #
+    #   * `status` is a FAMILY, not a value. EXECUTED, PENDING, and
+    #     FAILED_INVALIDPLAYERSOURCE all appear. Comparing to "FAILED" misses
+    #     every real failure; every failure is FAILED_<reason>.
+    #
+    #   * `isPending` is not "did not happen". The one completed TRADE in the
+    #     league reports status EXECUTED with isPending TRUE. Filtering on
+    #     isPending drops the single most interesting row of the week.
+    #
+    #   * `bidAmount` is 0 in a waiver-PRIORITY league, which is most of them.
+    #     Zero is not a bid of nothing, it is the absence of bidding, and
+    #     printing "$0" tells a league that doesn't use FAAB that everybody
+    #     bid nothing.
+
+    #: ESPN transaction types that move a player between rosters. ROSTER is
+    #: deliberately absent: it is a lineup change.
+    _MOVE_TYPES = {"WAIVER", "FREEAGENT", "TRADE_ACCEPT", "TRADE"}
+
+    #: Item types that mean a player changed hands. LINEUP does not.
+    _MOVE_ITEMS = {"ADD", "DROP", "TRADE"}
+
+    def get_transactions(self, league_id: str, season: int, week: int) -> list:
+        """Every roster move in this week, named and attributed.
+
+        Failed claims are kept deliberately, the same as the Sleeper adapter:
+        somebody bid, publicly, and did not get the player.
+        """
+        try:
+            raw = self._get(league_id, season, ["mTransactions2", "mTeam"])
+        except ProviderError:
+            # A missing transactions feed must never cost the paper its
+            # matchups. This section is a bonus; the scores are the product.
+            return []
+
+        rows = [r for r in (raw.get("transactions") or [])
+                if isinstance(r, dict)]
+        if not rows:
+            return []
+
+        team_names = {t.get("id"): _team_name(t) for t in (raw.get("teams") or [])}
+
+        def team(team_id) -> Optional[str]:
+            # 0 is free agency, not a team. Returning a name for it would
+            # print "Free Agency acquired…" as though it were a manager.
+            if not team_id:
+                return None
+            return team_names.get(team_id) or f"Team {team_id}"
+
+        kept = []
+        wanted_ids: set[int] = set()
+        for row in rows:
+            if (row.get("type") or "").upper() not in self._MOVE_TYPES:
+                continue
+
+            # A claim that has not processed has not happened. Left in, the
+            # first draft printed "Mike Vick Legal Team claimed Malik
+            # Washington" — as a FAILURE, because PENDING is not EXECUTED —
+            # for a claim that had not run yet and might still win. Both
+            # halves of that are wrong, and it is worse than silence: the
+            # claim will process on Tuesday and appear correctly in next
+            # week's paper, having already been reported as lost in this one.
+            #
+            # Filtered on STATUS, not on isPending. The one completed trade in
+            # the league reports isPending TRUE alongside status EXECUTED, so
+            # the obvious check deletes the best story of the week.
+            if (row.get("status") or "").upper() == "PENDING":
+                continue
+            try:
+                if int(row.get("scoringPeriodId") or 0) != int(week):
+                    continue
+            except (TypeError, ValueError):
+                continue
+
+            items = [i for i in (row.get("items") or [])
+                     if isinstance(i, dict)
+                     and (i.get("type") or "").upper() in self._MOVE_ITEMS]
+            if not items:
+                continue
+
+            kept.append((row, items))
+            for item in items:
+                if item.get("playerId") is not None:
+                    wanted_ids.add(int(item["playerId"]))
+
+        if not kept:
+            return []
+
+        players = self._player_names(league_id, season, sorted(wanted_ids))
+
+        def player(player_id) -> TransactionPlayer:
+            info = players.get(int(player_id)) if player_id is not None else None
+            if not info:
+                # A name we could not resolve prints as the id otherwise, in
+                # the middle of a sentence, which reads as a bug to a reader
+                # and is one.
+                return TransactionPlayer(player_id=str(player_id),
+                                         name="A player")
+            return TransactionPlayer(
+                player_id=str(player_id),
+                name=info.get("name") or "A player",
+                position=info.get("position"),
+                nfl_team=info.get("nfl_team"),
+            )
+
+        out: list[Transaction] = []
+        for row, items in kept:
+            kind = self._transaction_kind(row)
+            status = self._transaction_status(row)
+
+            adds, drops, teams = [], [], []
+            for item in items:
+                item_type = (item.get("type") or "").upper()
+                who = player(item.get("playerId"))
+                gained, lost = team(item.get("toTeamId")), team(item.get("fromTeamId"))
+
+                # A TRADE item is a drop and an add at once — one player
+                # leaving one roster and arriving on another.
+                if item_type in ("ADD", "TRADE") and gained:
+                    adds.append((gained, who))
+                if item_type in ("DROP", "TRADE") and lost:
+                    drops.append((lost, who))
+                teams.extend(t for t in (gained, lost) if t)
+
+            if not adds and not drops:
+                continue
+
+            ordered_teams = list(dict.fromkeys(teams))
+            out.append(Transaction(
+                kind=kind,
+                status=status,
+                week=int(week),
+                teams=ordered_teams,
+                adds=adds,
+                drops=drops,
+                bid=self._transaction_bid(row),
+                created=row.get("proposedDate"),
+            ))
+
+        # Oldest first reads as a wire: the week in the order it happened.
+        out.sort(key=lambda t: t.created or 0)
+        return out
+
+    @staticmethod
+    def _transaction_kind(row: dict) -> str:
+        """ESPN's vocabulary mapped onto the paper's three kinds."""
+        espn_type = (row.get("type") or "").upper()
+        if espn_type.startswith("TRADE"):
+            return "trade"
+        if espn_type == "WAIVER":
+            return "waiver"
+        return "free_agent"
+
+    @staticmethod
+    def _transaction_status(row: dict) -> str:
+        """"complete" or "failed", from a status that is a family of strings.
+
+        EXECUTED is the only success. Everything beginning FAILED_ is a
+        failure, and there is more than one — FAILED_INVALIDPLAYERSOURCE is
+        the one this league produced. PENDING never reaches here — those rows
+        are dropped in get_transactions, because a claim that has not
+        processed has not happened, and calling it either a success or a
+        failure is a statement the paper cannot support.
+        """
+        status = (row.get("status") or "").upper()
+        return "complete" if status == "EXECUTED" else "failed"
+
+    @staticmethod
+    def _transaction_bid(row: dict) -> Optional[int]:
+        """FAAB spent, or None in a waiver-priority league.
+
+        ESPN reports bidAmount 0 for every claim in a league that runs on
+        priority rather than a budget — which is most of them. Zero is the
+        absence of bidding, not a bid of nothing, and "$0" in the paper tells
+        a league that does not use FAAB that everybody bid nothing.
+        """
+        bid = row.get("bidAmount")
+        if isinstance(bid, (int, float)) and bid > 0:
+            return int(bid)
+        return None
+
+    def _player_names(self, league_id: str, season: int,
+                      player_ids: list[int]) -> dict[int, dict]:
+        """id -> {name, position, nfl_team}, for ids the feed only numbers.
+
+        A transaction record names nobody; it carries player ids and nothing
+        else. This is the lookup, and it is best-effort: a paper that says
+        "A player" is worse than one with the name and far better than one
+        that fails to render.
+
+        Defences come back from this correctly — ESPN gives them negative ids
+        and a fullName of "Buccaneers D/ST" — so unlike the Sleeper adapter
+        there is no special case for them here.
+        """
+        if not player_ids:
+            return {}
+
+        try:
+            raw = self._get(
+                league_id, season, ["kona_player_info"],
+                fantasy_filter={"players": {"filterIds": {"value": player_ids}}})
+        except ProviderError:
+            return {}
+
+        found: dict[int, dict] = {}
+        for row in (raw.get("players") or []):
+            if not isinstance(row, dict):
+                continue
+            info = row.get("player") or {}
+            try:
+                key = int(row.get("id"))
+            except (TypeError, ValueError):
+                continue
+            found[key] = {
+                "name": info.get("fullName"),
+                "position": POSITION_MAP.get(info.get("defaultPositionId")),
+                "nfl_team": PRO_TEAMS.get(info.get("proTeamId")),
+            }
+        return found
 
 
 def _points(side: dict) -> float:

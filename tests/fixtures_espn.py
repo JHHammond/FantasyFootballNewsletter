@@ -287,8 +287,35 @@ def league_payload(*, week: int = 2) -> dict:
     }
 
 
-def fake_get(league_id, season, views, params=None):
-    """Drop-in for ESPNProvider._get in tests."""
+def fake_get(league_id, season, views, params=None, fantasy_filter=None):
+    """Drop-in for ESPNProvider._get in tests.
+
+    Dispatches on the view, the way the real endpoint does — the transactions
+    feed and the player lookup are separate requests to the same URL and a
+    fake that ignored the view would hand the adapter a roster when it asked
+    for a name.
+    """
+    names = set(views or [])
+
+    if "kona_player_info" in names:
+        # The real endpoint returns ONLY the ids asked for. Returning the lot
+        # would hide an adapter that forgot to send the filter at all.
+        wanted = (((fantasy_filter or {}).get("players") or {})
+                  .get("filterIds") or {}).get("value")
+        if wanted is None:
+            # The real endpoint answers an unfiltered kona_player_info with
+            # the league's whole player universe, paginated — never with the
+            # ten ids the caller happened to want. Returning nothing here
+            # makes the filter load-bearing: an adapter that forgets to send
+            # it gets no names, and the tests below say so.
+            return {"players": []}
+        keep = {int(i) for i in wanted}
+        return {"players": [r for r in TRANSACTION_PLAYERS["players"]
+                            if int(r["id"]) in keep]}
+
+    if "mTransactions2" in names:
+        return TRANSACTIONS_RAW
+
     week = int((params or {}).get("scoringPeriodId") or 2)
     return league_payload(week=week)
 
@@ -327,4 +354,141 @@ LOAD_BEARING_PATHS = [
     "entries[].playerPoolEntry.player.stats[].statSplitTypeId",
     "entries[].playerPoolEntry.player.stats[].scoringPeriodId",
     "entries[].playerPoolEntry.player.stats[].appliedTotal",
+]
+
+
+# ---------------------------------------------------------------------------
+# TRANSACTIONS
+#
+# Copied field for field out of league 1909054258, week 2 of 2026, captured
+# through a browser because the egress proxy here cannot reach ESPN.
+#
+# Every record below is one ESPN actually produced, and the set is chosen for
+# the four things that make this feed harder than it looks:
+#
+#   1. ROSTER/LINEUP. Nine of that league's nineteen records were somebody
+#      moving a player from the bench to the flex. They are not transactions.
+#   2. FAILED_INVALIDPLAYERSOURCE. `status` is a family; there is no plain
+#      "FAILED" to compare against.
+#   3. A TRADE that EXECUTED while reporting isPending TRUE. Filtering on
+#      isPending deletes the best story of the week.
+#   4. bidAmount 0 everywhere, because this league runs waiver priority. Zero
+#      is the absence of a bid, not a bid of zero.
+#
+# The lineup record is FIRST on purpose. A filter that only skips the tail
+# passes on a fixture that puts the awkward row last.
+# ---------------------------------------------------------------------------
+
+TRANSACTIONS_RAW = {
+    "seasonId": 2026,
+    "scoringPeriodId": 2,
+    "teams": [
+        {"id": 1, "name": "The Intentional Torts"},
+        {"id": 2, "name": "Mike Vick Legal Team"},
+        {"id": 3, "name": "Prisoner of AzBijan"},
+        {"id": 5, "name": "ACCOMMODATIONS"},
+        {"id": 10, "name": "Likely going back 2 back"},
+    ],
+    "transactions": [
+        # 1 — a lineup change. Not a transaction. Deliberately first.
+        {"type": "ROSTER", "status": "EXECUTED", "isPending": False,
+         "executionType": "EXECUTE", "scoringPeriodId": 2, "teamId": 10,
+         "bidAmount": 0, "proposedDate": 1789467771866,
+         "items": [{"type": "LINEUP", "playerId": 4569173,
+                    "fromTeamId": 0, "toTeamId": 0,
+                    "fromLineupSlotId": 23, "toLineupSlotId": 2}]},
+
+        # 2 — a waiver claim that has not processed. Nobody has him yet.
+        {"type": "WAIVER", "status": "PENDING", "isPending": True,
+         "executionType": "EXECUTE", "scoringPeriodId": 2, "teamId": 2,
+         "bidAmount": 0, "proposedDate": 1789562601765,
+         "items": [{"type": "ADD", "playerId": 4569603,
+                    "fromTeamId": 0, "toTeamId": 2},
+                   {"type": "DROP", "playerId": 4696044,
+                    "fromTeamId": 2, "toTeamId": 0}]},
+
+        # 3 — a claim that went through.
+        {"type": "WAIVER", "status": "EXECUTED", "isPending": False,
+         "executionType": "PROCESS", "scoringPeriodId": 2, "teamId": 3,
+         "bidAmount": 0, "proposedDate": 1789542778194,
+         "items": [{"type": "ADD", "playerId": 4575131,
+                    "fromTeamId": 0, "toTeamId": 3},
+                   {"type": "DROP", "playerId": 4373626,
+                    "fromTeamId": 3, "toTeamId": 0}]},
+
+        # 4 — a claim that lost. The better story, most weeks.
+        {"type": "WAIVER", "status": "FAILED_INVALIDPLAYERSOURCE",
+         "isPending": False, "executionType": "PROCESS", "scoringPeriodId": 2,
+         "teamId": 10, "bidAmount": 0, "proposedDate": 1789542778194,
+         "items": [{"type": "ADD", "playerId": 4695883,
+                    "fromTeamId": 0, "toTeamId": 10},
+                   {"type": "DROP", "playerId": 4683062,
+                    "fromTeamId": 10, "toTeamId": 0}]},
+
+        # 5 — a free agent swap, both sides a defence. ESPN gives D/ST
+        # negative ids and resolves their names like anybody else's.
+        {"type": "FREEAGENT", "status": "EXECUTED", "isPending": False,
+         "executionType": "EXECUTE", "scoringPeriodId": 2, "teamId": 1,
+         "bidAmount": 0, "proposedDate": 1789500000000,
+         "items": [{"type": "ADD", "playerId": -16027,
+                    "fromTeamId": 0, "toTeamId": 1},
+                   {"type": "DROP", "playerId": -16030,
+                    "fromTeamId": 1, "toTeamId": 0}]},
+
+        # 6 — the trade. EXECUTED, and isPending is True anyway.
+        {"type": "TRADE_ACCEPT", "status": "EXECUTED", "isPending": True,
+         "executionType": "PROCESS", "scoringPeriodId": 2, "teamId": 2,
+         "bidAmount": 0, "proposedDate": 1789580000000,
+         "items": [{"type": "TRADE", "playerId": 4871023,
+                    "fromTeamId": 2, "toTeamId": 5},
+                   {"type": "TRADE", "playerId": 4047646,
+                    "fromTeamId": 5, "toTeamId": 2}]},
+
+        # 7 — last week's claim. Right shape, wrong week.
+        {"type": "WAIVER", "status": "EXECUTED", "isPending": False,
+         "executionType": "PROCESS", "scoringPeriodId": 1,
+         "teamId": 1, "bidAmount": 0, "proposedDate": 1789000000000,
+         "items": [{"type": "ADD", "playerId": 4685261,
+                    "fromTeamId": 0, "toTeamId": 1}]},
+    ],
+}
+
+#: What kona_player_info returns for the ids above. Real names, real ids.
+TRANSACTION_PLAYERS = {
+    "players": [
+        {"id": 4569603, "player": {"fullName": "Malik Washington",
+                                   "defaultPositionId": 3, "proTeamId": 15}},
+        {"id": 4696044, "player": {"fullName": "Kaelon Black",
+                                   "defaultPositionId": 2, "proTeamId": 25}},
+        {"id": 4575131, "player": {"fullName": "Jacory Croskey-Merritt",
+                                   "defaultPositionId": 2, "proTeamId": 28}},
+        {"id": 4373626, "player": {"fullName": "Tyler Allgeier",
+                                   "defaultPositionId": 2, "proTeamId": 22}},
+        {"id": 4695883, "player": {"fullName": "Jalen Coker",
+                                   "defaultPositionId": 3, "proTeamId": 29}},
+        {"id": 4683062, "player": {"fullName": "Xavier Worthy",
+                                   "defaultPositionId": 3, "proTeamId": 12}},
+        {"id": -16027, "player": {"fullName": "Buccaneers D/ST",
+                                  "defaultPositionId": 16, "proTeamId": 27}},
+        {"id": -16030, "player": {"fullName": "Jaguars D/ST",
+                                  "defaultPositionId": 16, "proTeamId": 30}},
+        {"id": 4871023, "player": {"fullName": "Carnell Tate",
+                                   "defaultPositionId": 3, "proTeamId": 10}},
+        {"id": 4047646, "player": {"fullName": "A.J. Brown",
+                                   "defaultPositionId": 3, "proTeamId": 17}},
+    ]
+}
+
+#: Paths the transactions adapter reads. Fed to tests/espn_diff.py so a real
+#: capture can be checked against them in one command.
+TRANSACTION_PATHS = [
+    "transactions[].type",
+    "transactions[].status",
+    "transactions[].scoringPeriodId",
+    "transactions[].bidAmount",
+    "transactions[].proposedDate",
+    "transactions[].items[].type",
+    "transactions[].items[].playerId",
+    "transactions[].items[].fromTeamId",
+    "transactions[].items[].toTeamId",
 ]
