@@ -764,14 +764,34 @@ def render_scorebar(story, compact=False):
     </div>'''
 
 
+#: How many rendered blocks of the story section come BEFORE the classifieds
+#: page. The blocks are not stories one-for-one: the lead is one, the feature
+#: is one, stories 3 and 4 are a single side-by-side pair, and each story after
+#: that is one more.
+#:
+#: Three puts the page after the pair — so the featured half of the section
+#: runs, then a full sheet of advertising, then the round-up briefs continue
+#: underneath it. That is where a newspaper puts it, and it is the only split
+#: point that does not cut the paired block down the middle.
+#:
+#: In a ten-team league (five games) that is four stories, the page, then one.
+#: A twelve-team league gets four, the page, then two.
+CLASSIFIEDS_AFTER_BLOCKS = 3
+
+
 def render_matchup_stories_html(stories, editable=False, images=None,
-                                auto_photos=None, pull_quote=None):
+                                auto_photos=None, pull_quote=None,
+                                interleave=""):
     """
     Render game stories in a varied newspaper layout:
     - Story 0: LEAD — full width, large headline, photo floated right, pull quote
     - Story 1: FEATURE — full width, medium headline, photo floated left
     - Stories 2-3: PAIRED — two columns side by side, no photos, smaller type
     - Story 4+: BRIEF — compact single column, no photo, small headline
+
+    `interleave` is html dropped into the middle of the section — the
+    classifieds page. It goes between two rendered blocks, never inside one,
+    which is why the split is counted in blocks rather than in stories.
     """
     images = images or {}
     auto_photos = auto_photos or {}
@@ -871,6 +891,22 @@ def render_matchup_stories_html(stories, editable=False, images=None,
                 {render_scorebar(story, compact=True)}
                 <div class="story-body story-body-small"{ed(f"matchup_body_{i}", editable)}>{body}</div>
             </article>''')
+
+    if interleave:
+        # Between blocks, and never last: a page of advertising at the very
+        # bottom of the section is not "in the middle of the paper", it is the
+        # old placement with extra steps. If the section is too short to have
+        # anything after the page, it goes at the end and the continuation
+        # line is left off.
+        at = min(CLASSIFIEDS_AFTER_BLOCKS, len(html_parts))
+        tail = html_parts[at:]
+        if tail:
+            # A reader who turns past a full sheet of adverts and finds more
+            # game stories needs one line telling them why. Real papers have
+            # printed this line for a century.
+            tail = ['<div class="continued-note">Game stories, continued</div>'
+                    ] + tail
+        html_parts = html_parts[:at] + [interleave] + tail
 
     return "\n".join(html_parts)
 
@@ -1247,6 +1283,21 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     else:
         awards_html = render_awards_html(build_weekly_awards(summary), editable=editable)
 
+    # --- The classifieds page ---
+    # Built here rather than down in the edition dict because it is placed
+    # INSIDE the game stories, and the stories are rendered below. The page
+    # belongs in the middle of the paper: a reader turns past a full sheet of
+    # advertising and the section carries on underneath it, the way it does in
+    # a paper that pays for itself. At the end of the paper it was something
+    # you scroll past on the way out.
+    #
+    # `nested` because it goes inside the stories' own .full-section, which
+    # already carries the paper's side padding.
+    publisher_page = render_publisher_page(
+        publisher_ads if publisher_ads is not None
+        else (ai_content or {}).get("publisher_ads"),
+        nested=True)
+
     # --- Matchup stories ---
     if ai_content and ai_content.get("matchup_content"):
         # AI content already has headline + body per matchup
@@ -1272,13 +1323,15 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         matchup_stories_html = render_matchup_stories_html(
             stories, editable=editable, images=images,
             auto_photos=auto_photos,
-            pull_quote=(ai_content or {}).get("pull_quote"))
+            pull_quote=(ai_content or {}).get("pull_quote"),
+            interleave=publisher_page)
     else:
         stories = build_matchup_stories(matchups)
         matchup_stories_html = render_matchup_stories_html(
             stories, editable=editable, images=images,
             auto_photos=auto_photos,
-            pull_quote=(ai_content or {}).get("pull_quote"))
+            pull_quote=(ai_content or {}).get("pull_quote"),
+            interleave=publisher_page)
 
     # The front page hero used to fall back to a random bundled meme. Those are
     # gone: once a paper carries advertising, shipping images somebody else owns
@@ -1395,12 +1448,13 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             ads if ads is not None
             else ads_from_content((ai_content or {}).get("classifieds")),
             editable=editable),
-        # The publisher's own page. Passed in explicitly where one is
-        # available, otherwise read from the stored content — which is where
-        # the generator snapshots it, so re-rendering a paper months later
-        # reproduces the page that actually went out rather than this week's.
-        # Not editable: it isn't the commissioner's to edit.
-        "publisher_page_html": render_publisher_page(
+        # Normally EMPTY, because the page has already been spliced into the
+        # middle of the game stories above. This is the fallback for a paper
+        # with no stories at all to sit between — a week where every game is a
+        # bye, or a fixture — so a page that was uploaded still prints
+        # somewhere rather than silently vanishing.
+        "publisher_page_html": "" if (publisher_page and stories)
+                               else render_publisher_page(
             publisher_ads if publisher_ads is not None
             else (ai_content or {}).get("publisher_ads")),
         # The reader just finished two thousand words of this. Best moment
@@ -1843,6 +1897,21 @@ def render_html(edition, theme=None):
             color: #6b6050;
             text-align: center;
             margin: -12px 0 6px;
+        }}
+
+        /* "Game stories, continued" — the line after the classifieds page.
+           Deliberately NOT .section-note, which carries a negative top margin
+           so that it tucks up under a heading. This one follows a whole sheet
+           of advertising and has nothing above it to tuck under. */
+        .continued-note {{
+            font-family: Georgia, "Times New Roman", serif;
+            font-style: italic;
+            font-size: 12px;
+            color: #6b6050;
+            text-align: center;
+            border-top: 1px solid #cfc8b8;
+            padding-top: 8px;
+            margin: 4px 0 14px;
         }}
 
         .section-title-full {{

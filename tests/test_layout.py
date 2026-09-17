@@ -56,7 +56,7 @@ def _long_lead() -> str:
     )
 
 
-def _paper_html() -> str:
+def _paper_html(publisher_ads=None) -> str:
     teams = [("WillDavidson10", 177.8), ("Audobo", 155.6),
              ("johnhenryhammond", 155.3), ("champayyy", 146.4),
              ("Jagan34", 138.8), ("CoosaRiverTv", 131.0),
@@ -113,7 +113,7 @@ def _paper_html() -> str:
 
     edition = newspaper.build_edition(
         "The Kevlarville Times", 1, summary, games, rankings, ai,
-        subscribe_slug="kevlarville-test")
+        subscribe_slug="kevlarville-test", publisher_ads=publisher_ads)
     edition["paper_name"] = "The Kevlarville Times"
     return newspaper.render_html(edition)
 
@@ -586,19 +586,51 @@ def ad_rows(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def classifieds_paper_file(ad_rows, tmp_path_factory):
-    import newspaper
+    """The same paper as every other test here, with the ads passed in.
 
-    # Same paper as every other test here, with the page added, so anything
-    # that changes is the page's doing.
-    html = _paper_html()
-    section = ads_module().render_publisher_page(ad_rows)
-    assert section, "the page rendered as nothing"
-    html = html.replace("<!-- SUBSCRIBE", section + "\n<!-- SUBSCRIBE", 1)
-    assert "publisher-page" in html
+    Built through build_edition rather than by splicing the section into the
+    rendered HTML, which is what this did first. The page is placed INSIDE the
+    game stories, and a fixture that pastes it somewhere else is a fixture
+    that tests a layout the product does not ship.
+    """
+    html = _paper_html(publisher_ads=ad_rows)
+    assert "publisher-page" in html, "the page did not reach the paper"
 
     path = tmp_path_factory.mktemp("classifieds") / "paper.html"
     path.write_text(html, encoding="utf-8")
     return path
+
+
+def test_the_page_sits_between_the_game_stories(classifieds_paper_file):
+    """Not at the end of the paper, which is where it started.
+
+    A reader turns past a full sheet of advertising and the section carries on
+    underneath it, the way it does in a paper that pays for itself. At the end
+    it was something you scrolled past on the way out.
+    """
+    import re
+
+    html = classifieds_paper_file.read_text(encoding="utf-8")
+
+    # Matching the CLASS LIST, not one exact tag. The fallback copy at the end
+    # of the paper renders as `full-section publisher-page` — a different
+    # string — so counting the nested spelling alone found one section whether
+    # the page was rendered once or twice, and passed with the fallback
+    # unconditionally on.
+    sections = re.findall(r'<section class="[^"]*publisher-page"', html)
+    assert len(sections) == 1, (
+        f"the page is rendered {len(sections)} times — once inside the "
+        f"stories and once at the end, which is what happens if the fallback "
+        f"stops being conditional: {sections}")
+
+    # The TAG, not the string: ".publisher-page" also appears in the
+    # stylesheet at the top of the document, and an index into the CSS put the
+    # page before every story in the paper.
+    page_at = html.index('<section class="publisher-page"')
+    stories = [m.start() for m in re.finditer(r'class="story-card', html)]
+    assert any(s < page_at for s in stories), "no stories before the page"
+    assert any(s > page_at for s in stories), "no stories after the page"
+    assert "Game stories, continued" in html
 
 
 def ads_module():

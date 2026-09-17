@@ -544,7 +544,8 @@ def pack_columns(ads: list, columns: int = 2) -> list:
 
 def render_publisher_page(ads: Optional[list] = None,
                           title: str = "Classifieds",
-                          note: str = "") -> str:
+                          note: str = "",
+                          nested: bool = False) -> str:
     """The full-page classifieds section, or "" if there is nothing to show.
 
     Empty in, empty out — and that is the whole fallback. The small classifieds
@@ -552,6 +553,12 @@ def render_publisher_page(ads: Optional[list] = None,
     middle of a paper looks like a rendering fault. A whole page cannot be
     padded that way: five house ads stretched over a page would look far worse
     than the page simply not being there on a week nobody uploaded anything.
+
+    `nested` drops the .full-section class, for when the page is placed INSIDE
+    another section rather than between two of them — which is where it
+    normally goes, in the middle of the game stories. .full-section carries the
+    paper's side padding, and a .full-section inside a .full-section indents
+    the ads by twice as much as everything around them.
     """
     rows = [a for a in (ads or []) if a and _safe_url(str(a.get("image_url") or ""))]
     if not rows:
@@ -577,8 +584,9 @@ def render_publisher_page(ads: Optional[list] = None,
     note_html = (f'<div class="pub-page-note">{_escape(note)}</div>'
                  if note else "")
 
+    outer = "publisher-page" if nested else "full-section publisher-page"
     return f'''
-    <section class="full-section publisher-page">
+    <section class="{outer}">
         <div class="pub-page-head">
             <div class="section-title-full">{_escape(title)}</div>
             {note_html}

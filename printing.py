@@ -155,6 +155,11 @@ BASE_PRINT_CSS = """
        comes immediately next, so every element in a header stack needs it,
        not just the first. */
     .section-note,
+    /* "Game stories, continued". It follows the classifieds page, so it is
+       the first thing on a sheet — and a continuation line at the foot of a
+       page, with the stories it introduces overleaf, is the same bug as the
+       Honor Roll heading, one section further on. */
+    .continued-note,
     .story-label,
     .col-section-label,
     .story-headline,
