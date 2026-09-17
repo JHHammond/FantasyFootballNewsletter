@@ -61,6 +61,7 @@ from providers import (  # noqa: E402
     get_provider,
 )
 
+import printing  # noqa: E402
 import themes  # noqa: E402
 
 from . import auth, emailer, images, legal, slugs  # noqa: E402
@@ -1735,6 +1736,202 @@ async def upload_image(request: Request, token: str, photo: UploadFile = File(..
         db.upload_image, league["public_slug"],
         f"photo.{kind.extension}", data, kind.mime)
     return JSONResponse({"url": url})
+
+
+# ---------------------------------------------------------------------------
+# THE PUBLISHER
+#
+# Every other authenticated surface in this app is a league: you hold a
+# league's admin token, and it lets you do things to that league. This is the
+# first surface that belongs to nobody's league. It writes one page that
+# appears in every paper, so a league admin token must not open it — those are
+# free to mint, and anyone can have one in thirty seconds.
+#
+# The key is PUBLISHER_TOKEN in the environment. Two properties matter:
+#
+#   UNSET MEANS OFF, NOT OPEN. If the variable is missing the routes 404. The
+#   failure that this is guarding against is a deploy where the variable did
+#   not get set and the page quietly let the first URL through.
+#
+#   COMPARED IN CONSTANT TIME. A plain == leaks the length of the shared
+#   prefix through timing, which over enough requests recovers the token one
+#   character at a time. compare_digest is the same comparison without the
+#   early return.
+# ---------------------------------------------------------------------------
+
+#: Upload ceilings for the publisher. Far lower than a league's, because this
+#: is one person working through five images on a Sunday night, and anything
+#: much above that is a sign something has gone wrong rather than a sign of
+#: heavy use.
+PUBLISHER_UPLOADS_PER_HOUR = 40
+
+#: What the page is about. A whole page of anything is a lot of scrolling, and
+#: five is what John asked for; the cap is here so a mis-drop of a folder full
+#: of images doesn't silently become a forty-ad page in everybody's paper.
+MAX_PUBLISHER_ADS = 8
+
+
+def _require_publisher(token: str) -> str:
+    """Prove this is the publisher, or 404."""
+    expected = os.getenv("PUBLISHER_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=404, detail="Not found.")
+    if not hmac.compare_digest(str(token), expected):
+        raise HTTPException(status_code=404, detail="Not found.")
+    return token
+
+
+def _publisher_week(week, season) -> tuple[int, int]:
+    """Which week is being edited. Defaults to the one being played.
+
+    Bounded rather than trusted: these arrive in a URL, and an unbounded week
+    number is a key that writes rows nothing will ever read.
+    """
+    import nfl_week
+    try:
+        week_number = int(week) if week is not None else nfl_week.current_week()
+    except (TypeError, ValueError):
+        week_number = nfl_week.current_week()
+    try:
+        season_number = int(season) if season is not None else nfl_week.current_season()
+    except (TypeError, ValueError):
+        season_number = nfl_week.current_season()
+    return max(1, min(22, week_number)), max(2000, min(2100, season_number))
+
+
+@app.get("/publisher/{token}", response_class=HTMLResponse)
+def publisher_page(request: Request, token: str, week: int = None,
+                   season: int = None):
+    """Where the week's classifieds page gets made."""
+    _require_publisher(token)
+    week_number, season_number = _publisher_week(week, season)
+
+    import nfl_week
+    return _render(
+        request, "publisher.html",
+        token=token,
+        week=week_number,
+        season=season_number,
+        ads=db.publisher_ads(season_number, week_number),
+        max_ads=MAX_PUBLISHER_ADS,
+        # "No ads this week" and "the table isn't there" look identical on
+        # this page and mean completely different things — one needs five
+        # images, the other needs a migration.
+        schema_ready=db.publisher_ads_table_ready(),
+        this_week=nfl_week.current_week(),
+        weeks=list(range(1, 19)),
+    )
+
+
+@app.post("/publisher/{token}/upload")
+async def publisher_upload(request: Request, token: str,
+                           photo: UploadFile = File(...),
+                           week: int = Form(...), season: int = Form(...),
+                           caption: str = Form(""), link_url: str = Form("")):
+    """Add one ad to a week.
+
+    Nothing the caller says about the file is trusted: the type comes from the
+    bytes and the stored extension and content-type are both derived from it.
+    Same rule as the league photo endpoint — see web/images.py.
+    """
+    _require_publisher(token)
+    week_number, season_number = _publisher_week(week, season)
+
+    if _rate_limited(f"pub-upload:{_client_ip(request)}",
+                     PUBLISHER_UPLOADS_PER_HOUR):
+        return JSONResponse({"error": "too many uploads this hour"},
+                            status_code=429)
+
+    if len(db.publisher_ads(season_number, week_number)) >= MAX_PUBLISHER_ADS:
+        return JSONResponse(
+            {"error": f"that's {MAX_PUBLISHER_ADS} ads already — "
+                      f"delete one to add another"}, status_code=400)
+
+    data = await photo.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        return JSONResponse({"error": "over 8MB"}, status_code=413)
+
+    kind = images.sniff(data)
+    if kind is None:
+        return JSONResponse({"error": images.describe_rejection(data)},
+                            status_code=400)
+
+    # Read before storing. A dimensionless ad still renders — the page falls
+    # back to a 4:3 box — so this never blocks an upload.
+    size = images.dimensions(data)
+    width, height = size if size else (None, None)
+
+    path, url = await run_in_threadpool(
+        db.upload_publisher_image, f"ad.{kind.extension}", data, kind.mime,
+        season_number, week_number)
+    row = await run_in_threadpool(
+        db.add_publisher_ad, season_number, week_number, url, path,
+        width, height, caption, link_url)
+
+    return JSONResponse({"ok": True, "ad": {
+        "id": row.get("id"), "image_url": url,
+        "width": width, "height": height,
+        "caption": row.get("caption") or "",
+    }})
+
+
+@app.post("/publisher/{token}/delete")
+async def publisher_delete(token: str, ad_id: str = Form(...)):
+    _require_publisher(token)
+    await run_in_threadpool(db.delete_publisher_ad, ad_id)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/publisher/{token}/reorder")
+async def publisher_reorder(request: Request, token: str):
+    _require_publisher(token)
+    body = await request.json()
+    week_number, season_number = _publisher_week(body.get("week"),
+                                                 body.get("season"))
+    ids = [str(i) for i in (body.get("ids") or [])][:MAX_PUBLISHER_ADS]
+    await run_in_threadpool(db.reorder_publisher_ads, season_number,
+                            week_number, ids)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/publisher/{token}/preview", response_class=HTMLResponse)
+def publisher_preview(token: str, week: int = None, season: int = None):
+    """The page exactly as it will appear in a paper.
+
+    Rendered through the same function the paper uses, with the paper's own
+    stylesheets — including the print rules, so the preview's own Print
+    command shows what a reader's PDF will do. A preview built any other way
+    is a preview of the preview.
+    """
+    _require_publisher(token)
+    week_number, season_number = _publisher_week(week, season)
+    ads_rows = db.publisher_ads(season_number, week_number)
+
+    from ads import PUBLISHER_PAGE_CSS, render_publisher_page
+    body = render_publisher_page(ads_rows)
+    if not body:
+        body = ('<p style="text-align:center;font-family:Georgia,serif;'
+                'color:#6b6050;padding:60px 20px;">Nothing uploaded for week '
+                f'{week_number} yet. The paper simply won\'t have this page.</p>')
+
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classifieds preview &mdash; week {week_number}</title>
+<style>
+  body {{ margin: 0; background: #e8e2d5; font-family: Georgia, serif; }}
+  .sheet {{ max-width: 860px; margin: 24px auto; background: #faf7f0;
+            padding: 28px 36px 36px; box-shadow: 0 2px 18px rgba(0,0,0,.18); }}
+  .section-title-full {{ font-size: 13px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 2px; border-top: 3px solid #111;
+      border-bottom: 1px solid #111; padding: 5px 0; margin-bottom: 20px;
+      text-align: center; font-family: "Barlow Condensed", Georgia, serif; }}
+  {PUBLISHER_PAGE_CSS}
+  {printing.BASE_PRINT_CSS}
+  @media print {{ .sheet {{ box-shadow: none; margin: 0; max-width: none;
+                            padding: 0; }} body {{ background: #fff; }} }}
+</style></head>
+<body><div class="sheet">{body}</div></body></html>""")
 
 
 @app.post("/l/{token}/edit/{week}/revert")

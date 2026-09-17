@@ -695,3 +695,129 @@ def leagues_for_user(user_id: str) -> list[dict[str, Any]]:
 def claim_league(league_id: str, user_id: str) -> None:
     """Attach a league to an account."""
     client().table("leagues").update({"user_id": user_id}).eq("id", league_id).execute()
+
+
+# ---------------------------------------------------------------------------
+# The classifieds page
+#
+# The first global content in the app. Every other read in this file is scoped
+# to a league, and the scoping is load-bearing security — a stray ID from
+# another league cannot be touched because the league_id is in the filter.
+# Nothing here is scoped, because the page genuinely does belong to everyone.
+# What replaces the scoping is that only one route can reach these functions,
+# and it needs PUBLISHER_TOKEN.
+#
+# Every read fails SOFT. If migration 012 has not been applied, or Supabase is
+# having a moment, a league's paper prints without the classifieds page —
+# which is a paper missing a page of memes, not a paper that failed. Compare
+# `schema_blockers`, which is deliberately hard: that list is migrations whose
+# absence makes generation fail *after* the Claude calls have been paid for,
+# and this is not one of them.
+# ---------------------------------------------------------------------------
+
+def publisher_ads(season: int, week: int) -> list[dict[str, Any]]:
+    """This week's ads, in the order they should appear."""
+    try:
+        res = (client().table("publisher_ads").select("*")
+               .eq("season", int(season)).eq("week", int(week))
+               .order("position").order("created_at").execute())
+        return res.data or []
+    except Exception as exc:  # noqa: BLE001 — see the note above
+        print(f"[ads] could not read the classifieds page: "
+              f"{type(exc).__name__}: {exc}", flush=True)
+        return []
+
+
+def publisher_ads_table_ready() -> bool:
+    """Whether migration 012 has been applied.
+
+    Only the publisher page asks. It is the one surface where "there are no ads
+    this week" and "the table does not exist" look identical and mean entirely
+    different things — one needs five images, the other needs a migration.
+    """
+    try:
+        client().table("publisher_ads").select("id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001 — absence is the signal
+        return False
+
+
+def add_publisher_ad(season: int, week: int, image_url: str,
+                     storage_path_: Optional[str] = None,
+                     width: Optional[int] = None,
+                     height: Optional[int] = None,
+                     caption: str = "", link_url: str = "") -> dict[str, Any]:
+    """Append an ad to a week. Returns the stored row."""
+    existing = publisher_ads(season, week)
+    row = {
+        "season": int(season),
+        "week": int(week),
+        "position": len(existing),
+        "image_url": image_url,
+        "storage_path": storage_path_,
+        "width": int(width) if width else None,
+        "height": int(height) if height else None,
+        "caption": (caption or "").strip()[:200] or None,
+        "link_url": (link_url or "").strip()[:500] or None,
+    }
+    res = client().table("publisher_ads").insert(row).execute()
+    return (res.data or [row])[0]
+
+
+def delete_publisher_ad(ad_id: str) -> None:
+    """Remove an ad, and the file behind it.
+
+    The row goes either way. A bucket delete that fails leaves one orphaned
+    image, which costs a fraction of a cent; a row that survives its own
+    delete leaves a broken image on the page.
+    """
+    row = None
+    try:
+        res = (client().table("publisher_ads").select("storage_path")
+               .eq("id", ad_id).limit(1).execute())
+        row = (res.data or [None])[0]
+    except Exception:  # noqa: BLE001
+        pass
+
+    client().table("publisher_ads").delete().eq("id", ad_id).execute()
+
+    path = (row or {}).get("storage_path")
+    if path:
+        try:
+            client().storage.from_(BUCKET).remove([path])
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ads] orphaned {path}: {exc}", flush=True)
+
+
+def reorder_publisher_ads(season: int, week: int, ordered_ids: list[str]) -> None:
+    """Write the order the publisher dragged them into.
+
+    Scoped by season and week in every update, so an id from another week
+    cannot be dragged into this one by a handcrafted request.
+    """
+    for index, ad_id in enumerate(ordered_ids):
+        (client().table("publisher_ads").update({"position": index})
+         .eq("id", ad_id).eq("season", int(season)).eq("week", int(week))
+         .execute())
+
+
+def upload_publisher_image(filename: str, data: bytes,
+                           content_type: str = "image/jpeg",
+                           season: int = 0, week: int = 0) -> tuple[str, str]:
+    """Store an ad image. Returns (storage_path, public_url).
+
+    Under its own prefix rather than a league's, because it belongs to no
+    league — and because a league being deleted must not take the classifieds
+    page down with it.
+    """
+    import secrets
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "jpg").lower()[:5]
+    path = (f"publisher/{int(season)}/week-{int(week):02d}/"
+            f"{secrets.token_urlsafe(12)}.{ext}")
+    storage = client().storage.from_(BUCKET)
+    options = {"content-type": content_type, "upsert": "true"}
+    try:
+        storage.upload(path, data, options)
+    except Exception:
+        storage.update(path, data, options)
+    return path, storage.get_public_url(path)

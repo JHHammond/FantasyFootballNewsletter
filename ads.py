@@ -223,7 +223,10 @@ def render_classifieds(ads: Optional[list[Ad]] = None, limit: int = 4,
                      for i, ad in enumerate(inventory))
     return f'''
     <div class="classifieds-section">
-        <div class="classifieds-title">Classifieds</div>
+        <!-- Named for what it is now that the publisher's own Classifieds
+             page exists further up. Two sections with the same title in one
+             paper is a reader wondering which one they already read. -->
+        <div class="classifieds-title">League Notices</div>
         <div class="classifieds-grid">{blocks}</div>
     </div>'''
 
@@ -322,3 +325,305 @@ def render_subscribe_block(public_slug: Optional[str], paper_name: str = "") -> 
         </form>
         <div class="subscribe-fine">One click to unsubscribe. We won&rsquo;t sell your email.</div>
     </div>'''
+
+
+# ---------------------------------------------------------------------------
+# THE CLASSIFIEDS PAGE
+#
+# A full page of the publisher's own material — topical NFL memes now, paid
+# advertising later — laid out like a period classifieds sheet. Distinct from
+# everything above it in this file, which is per-league filler the writer
+# produced about that league's week. This page is identical in every paper.
+#
+# LAYOUT: each ad keeps its own shape. Nothing is cropped and nothing is
+# letterboxed, because a meme that loses its bottom two lines is no longer a
+# joke. That means the page cannot be a fixed template, so it is a two-column
+# masonry: images run at column width and stack at whatever height their own
+# proportions give them, which is what the vintage sheets this is modelled on
+# actually look like. An ad appreciably wider than it is tall runs as a banner
+# across both columns, the way the wide blocks do on those sheets — decided
+# from the image's own dimensions, so there is nothing to name or configure.
+#
+# The width and height attributes are not decoration. Without them the page
+# has no idea how tall an image will be until it arrives, so the layout jumps
+# as each one loads, and — worse — a print render can paginate against a
+# half-measured page and put the fold in the middle of an ad.
+# ---------------------------------------------------------------------------
+
+#: Wider than this and an ad runs full width instead of in a column. 1.8 is
+#: about where a banner stops looking like a square that got stretched: a
+#: 728x90 leaderboard is 8.1, a 16:9 screenshot is 1.78 and reads fine in a
+#: column, a 3:2 photo is 1.5 and would look absurd spanning the page.
+BANNER_ASPECT = 1.8
+
+#: What an ad is assumed to be when its header didn't give up a size. 4:3 is
+#: unremarkable in a column and wrong in a way nobody notices; the alternative
+#: is reserving no space at all, which makes the page jump.
+FALLBACK_ASPECT = (4, 3)
+
+
+def _attr(text: str) -> str:
+    """Escape for inside a double-quoted attribute."""
+    return _escape(text).replace('"', "&quot;")
+
+
+def _safe_url(value: str) -> Optional[str]:
+    """http(s) or a same-origin path, or nothing.
+
+    Mirrors web.sanitize.clean_image_url — kept local because this module
+    deliberately imports nothing, so it can render a paper with no web package
+    present (the CLI does exactly that). The canonical version is the one to
+    change first if this ever needs to get cleverer.
+
+    Worth having even though only one person can set these: the whole point of
+    a `javascript:` URL is that it does not look like one in a text box.
+    """
+    candidate = (value or "").strip()
+    candidate = "".join(ch for ch in candidate if ord(ch) > 32 or ch == " ")
+    lowered = candidate.lower()
+    if lowered.startswith("/") and not lowered.startswith("//"):
+        return candidate[:600]
+    if lowered.startswith("http://") or lowered.startswith("https://"):
+        return candidate[:600]
+    return None
+
+
+def _ad_shape(ad: dict) -> tuple:
+    """(width, height, aspect) for one ad, falling back where unknown."""
+    width = ad.get("width") or 0
+    height = ad.get("height") or 0
+    try:
+        width, height = int(width), int(height)
+    except (TypeError, ValueError):
+        width = height = 0
+    if width <= 0 or height <= 0:
+        width, height = FALLBACK_ASPECT
+    return width, height, width / height
+
+
+def _ad_figure(ad: dict, index: int, banner: bool = False) -> str:
+    """One framed ad. Returns "" for a row with no usable image."""
+    src = _safe_url(str(ad.get("image_url") or ""))
+    if not src:
+        return ""
+
+    width, height, aspect = _ad_shape(ad)
+
+    caption = (ad.get("caption") or "").strip()
+    # The caption doubles as alt text. Where there isn't one, the alt says what
+    # the thing IS rather than being empty — a screen reader announcing
+    # "image" five times running is no better than silence.
+    alt = _attr(caption) if caption else f"Classified advertisement {index + 1}"
+    caption_html = (f'<figcaption class="pub-ad-caption">{_escape(caption)}'
+                    f'</figcaption>') if caption else ""
+
+    img = (f'<img class="pub-ad-img" src="{_attr(src)}" alt="{alt}" '
+           f'width="{width}" height="{height}" loading="lazy">')
+
+    link = _safe_url(str(ad.get("link_url") or ""))
+    if link:
+        # rel is not optional on a link to somebody else's site: without
+        # noopener the destination gets a handle on this window.
+        img = (f'<a class="pub-ad-link" href="{_attr(link)}" target="_blank" '
+               f'rel="noopener noreferrer nofollow">{img}</a>')
+
+    # The aspect ratio is handed to CSS as a plain number so the print rules
+    # can cap an ad's HEIGHT by setting its max-width — see the stylesheet. A
+    # height cap applied directly to an image that is also width:100% does not
+    # scale it, it squashes it.
+    classes = "pub-ad pub-ad-banner" if banner else "pub-ad"
+    return (f'<figure class="{classes}" data-ad-slot="publisher-{index}" '
+            f'style="--ad-aspect:{aspect:.4f};">'
+            f'<div class="pub-ad-frame">{img}</div>{caption_html}</figure>')
+
+
+def pack_columns(ads: list, columns: int = 2) -> list:
+    """Lay the ads out: banners full width, everything else into columns.
+
+    Returns a list of blocks, each either ("banner", ad, index) or
+    ("columns", [[(ad, index), ...] per column]).
+
+    WHY THIS IS DONE HERE AND NOT IN CSS
+
+    The first version was a CSS multi-column container, which is the obvious
+    way to get a masonry and reads beautifully in the stylesheet. Printed, it
+    fell apart: `column-span: all` silently does nothing on the inline-block
+    the ads needed to be, so the banner never spanned; and a multicol container
+    that has to fragment across a page boundary produced a five-ad page that
+    ran to SIX sheets, one of them 73% empty. Measured, not guessed.
+
+    Packing here instead means the page is ordinary block boxes by the time a
+    browser sees it, which paginate predictably, and it means the column
+    balance can be tested without a browser at all.
+
+    Greedy shortest-column-first. Not optimal — optimal is bin packing, and
+    with five items the difference is invisible — but it is stable: the same
+    ads in the same order always produce the same page.
+    """
+    blocks: list = []
+    pending: list = []
+    heights = [0.0] * columns
+
+    def flush():
+        nonlocal pending, heights
+        if not pending:
+            return
+        packed: list = [[] for _ in range(columns)]
+        heights = [0.0] * columns
+
+        # Tallest first. Assigning in document order is the obvious version
+        # and it balances badly: on the five-ad page it put both portraits in
+        # one column and left the other 40% shorter, which is a page with a
+        # hole in the side of it. Taking the tallest first is the standard fix
+        # and cost one line.
+        #
+        # Height at a fixed column width is 1/aspect — the width cancels, so
+        # these compare correctly without knowing what it will be.
+        order = sorted(pending, key=lambda item: -1.0 / _ad_shape(item[0])[2])
+        for ad, index in order:
+            shortest = heights.index(min(heights))
+            packed[shortest].append((ad, index))
+            heights[shortest] += 1.0 / _ad_shape(ad)[2]
+
+        # Assigned tallest-first, but READ top to bottom: within a column the
+        # publisher's own order is restored, so dragging an ad up the list
+        # still moves it up the page.
+        for column in packed:
+            column.sort(key=lambda item: item[1])
+
+        blocks.append(("columns", packed))
+        pending = []
+
+    for index, ad in enumerate(ads):
+        _, _, aspect = _ad_shape(ad)
+        if aspect >= BANNER_ASPECT:
+            # A banner interrupts the columns rather than sitting in one, so
+            # everything above it is settled before it goes down.
+            flush()
+            blocks.append(("banner", ad, index))
+        else:
+            pending.append((ad, index))
+    flush()
+    return blocks
+
+
+def render_publisher_page(ads: Optional[list] = None,
+                          title: str = "Classifieds",
+                          note: str = "") -> str:
+    """The full-page classifieds section, or "" if there is nothing to show.
+
+    Empty in, empty out — and that is the whole fallback. The small classifieds
+    block above tops itself up with house ads because a half-empty grid in the
+    middle of a paper looks like a rendering fault. A whole page cannot be
+    padded that way: five house ads stretched over a page would look far worse
+    than the page simply not being there on a week nobody uploaded anything.
+    """
+    rows = [a for a in (ads or []) if a and _safe_url(str(a.get("image_url") or ""))]
+    if not rows:
+        return ""
+
+    parts: list[str] = []
+    for block in pack_columns(rows):
+        if block[0] == "banner":
+            _, ad, index = block
+            parts.append(_ad_figure(ad, index, banner=True))
+        else:
+            columns_html = "".join(
+                f'<div class="pub-ad-col">'
+                + "".join(_ad_figure(ad, index) for ad, index in column)
+                + "</div>"
+                for column in block[1])
+            parts.append(f'<div class="pub-ad-cols">{columns_html}</div>')
+
+    body = "".join(parts)
+    if not body.strip():
+        return ""
+
+    note_html = (f'<div class="pub-page-note">{_escape(note)}</div>'
+                 if note else "")
+
+    return f'''
+    <section class="full-section publisher-page">
+        <div class="pub-page-head">
+            <div class="section-title-full">{_escape(title)}</div>
+            {note_html}
+        </div>
+        <div class="pub-ad-grid">{body}</div>
+    </section>'''
+
+
+PUBLISHER_PAGE_CSS = """
+    .publisher-page {
+        margin-top: 30px;
+    }
+    .pub-page-head { margin-bottom: 4px; }
+    .pub-page-note {
+        font-family: Georgia, "Times New Roman", serif;
+        font-style: italic;
+        font-size: 12px;
+        color: #6b6050;
+        text-align: center;
+        margin: -12px 0 14px;
+    }
+
+    /* Two columns, packed on the server — see pack_columns for why this is
+       not a CSS multi-column container. These are ordinary blocks, which is
+       the entire point: they paginate the way every other block in the paper
+       does. */
+    .pub-ad-cols {
+        display: flex;
+        gap: 18px;
+        align-items: flex-start;
+    }
+    .pub-ad-col { flex: 1 1 0; min-width: 0; }
+
+    .pub-ad {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        margin: 0 0 18px;
+    }
+    .pub-ad:last-child { margin-bottom: 0; }
+
+    /* The frame. Double rule outside, hairline inside, which is the whole
+       trick to making a colour image sit inside a black-and-white paper
+       without looking pasted on. */
+    .pub-ad-frame {
+        border: 3px double #111;
+        padding: 6px;
+        background: #fffdf8;
+        margin: 0 auto;
+    }
+
+    .pub-ad-img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid #cfc8b8;
+    }
+    .pub-ad-link { display: block; text-decoration: none; }
+
+    .pub-ad-caption {
+        font-family: "Barlow Condensed", Georgia, serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        text-align: center;
+        color: #555;
+        padding: 6px 4px 0;
+    }
+
+    /* One column on a phone. Two columns of memes on a 390px screen is two
+       columns of unreadable memes.
+
+       `screen and` is load-bearing, not tidiness. A printed Letter page is
+       about 726px wide, so a bare `max-width: 760px` fires on PAPER as well
+       as on phones — and this page printed as a single stacked column running
+       over two sheets, one of them two-thirds empty, until that word was
+       added. Any breakpoint above roughly 700px in this codebase is a print
+       rule whether its author meant it to be or not. */
+    @media screen and (max-width: 760px) {
+        .pub-ad-cols { display: block; }
+        .pub-ad-col { width: 100%; }
+    }
+"""

@@ -429,3 +429,79 @@ def claim_league(league_id: str, user_id: str) -> None:
     with _lock:
         if league_id in _LEAGUES:
             _LEAGUES[league_id]["user_id"] = user_id
+
+
+# ---------------------------------------------------------------------------
+# The classifieds page
+#
+# Mirrors db.py. The demo store is where the publisher page gets clicked
+# through before anyone has run migration 012, so `publisher_ads_table_ready`
+# is unconditionally true here — in demo mode the table is a dict and it
+# always exists.
+# ---------------------------------------------------------------------------
+
+_PUBLISHER_ADS: dict[str, dict[str, Any]] = {}
+
+
+def publisher_ads(season: int, week: int) -> list[dict[str, Any]]:
+    rows = [dict(a) for a in _PUBLISHER_ADS.values()
+            if a["season"] == int(season) and a["week"] == int(week)]
+    # Same ordering as the real one, ties broken the same way, so a reorder
+    # that half-applied looks identical in both stores.
+    rows.sort(key=lambda a: (a.get("position", 0), a.get("created_at") or ""))
+    return rows
+
+
+def publisher_ads_table_ready() -> bool:
+    return True
+
+
+def add_publisher_ad(season: int, week: int, image_url: str,
+                     storage_path_: Optional[str] = None,
+                     width: Optional[int] = None,
+                     height: Optional[int] = None,
+                     caption: str = "", link_url: str = "") -> dict[str, Any]:
+    row = {
+        "id": str(uuid4()),
+        "season": int(season),
+        "week": int(week),
+        "position": len(publisher_ads(season, week)),
+        "image_url": image_url,
+        "storage_path": storage_path_,
+        "width": int(width) if width else None,
+        "height": int(height) if height else None,
+        "caption": (caption or "").strip()[:200] or None,
+        "link_url": (link_url or "").strip()[:500] or None,
+        "created_at": _now(),
+    }
+    with _lock:
+        _PUBLISHER_ADS[row["id"]] = row
+    return dict(row)
+
+
+def delete_publisher_ad(ad_id: str) -> None:
+    with _lock:
+        row = _PUBLISHER_ADS.pop(ad_id, None)
+    path = (row or {}).get("storage_path")
+    if path:
+        _IMAGES.pop(path.rsplit("/", 1)[-1], None)
+
+
+def reorder_publisher_ads(season: int, week: int, ordered_ids: list[str]) -> None:
+    with _lock:
+        for index, ad_id in enumerate(ordered_ids):
+            row = _PUBLISHER_ADS.get(ad_id)
+            # Scoped exactly as the real one is: an id from another week is
+            # ignored rather than dragged into this one.
+            if row and row["season"] == int(season) and row["week"] == int(week):
+                row["position"] = index
+
+
+def upload_publisher_image(filename: str, data: bytes,
+                           content_type: str = "image/jpeg",
+                           season: int = 0, week: int = 0) -> tuple[str, str]:
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "jpg").lower()[:5]
+    name = f"publisher-{secrets.token_urlsafe(8)}.{ext}"
+    with _lock:
+        _IMAGES[name] = (data, content_type)
+    return name, f"/demo-image/{name}"

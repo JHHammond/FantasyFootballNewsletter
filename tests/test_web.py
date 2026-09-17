@@ -34,7 +34,8 @@ from web import demo_db, emailer, slugs  # noqa: E402
 def clean_state(monkeypatch):
     for store in (demo_db._LEAGUES, demo_db._LORE, demo_db._PAPERS,
                   demo_db._STORAGE, demo_db._SUBSCRIBERS, demo_db._MAGIC_LINKS,
-                  demo_db._RATE_EVENTS, demo_db._USERS):
+                  demo_db._RATE_EVENTS, demo_db._USERS,
+                  demo_db._PUBLISHER_ADS):
         store.clear()
     monkeypatch.setattr(webapp, "db", demo_db)
     yield
@@ -3380,3 +3381,239 @@ def test_espn_still_takes_interest_in_private_league_support(client, capsys):
 
     assert r.status_code == 303
     assert "PLATFORM INTEREST espn" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# The publisher
+#
+# The first surface in the app that is not a league. Everything else here is
+# reachable with an admin token, and admin tokens are free — anyone can mint
+# one in thirty seconds by making a league. This one writes a page that
+# appears in EVERY paper, so the interesting tests are the ones about who
+# cannot open it.
+# ---------------------------------------------------------------------------
+
+import io as _io  # noqa: E402
+
+
+def _png(width=900, height=900) -> bytes:
+    Image = pytest.importorskip(
+        "PIL.Image", reason="pillow not installed (dev-only dependency)")
+    buf = _io.BytesIO()
+    Image.new("RGB", (width, height), (10, 90, 200)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+@pytest.fixture
+def publisher(monkeypatch):
+    monkeypatch.setenv("PUBLISHER_TOKEN", "publisher-secret")
+    return "publisher-secret"
+
+
+def test_the_publisher_page_is_off_when_no_token_is_configured(client,
+                                                               monkeypatch):
+    """Unset means OFF, not open.
+
+    The failure being guarded against is a deploy where the variable did not
+    get set and the page quietly let the first URL through — which is the
+    worst possible version of this, because nothing would look wrong.
+    """
+    monkeypatch.delenv("PUBLISHER_TOKEN", raising=False)
+    for path in ("/publisher/anything", "/publisher/", "/publisher/x/preview"):
+        assert client.get(path).status_code == 404, path
+
+
+def test_a_league_admin_token_does_not_open_the_publisher_page(client, league,
+                                                               publisher):
+    """The whole reason this has its own credential.
+
+    An admin token is free — make a league and you have one. If one opened
+    this page, every user of the product could rewrite the advertising in
+    everybody else's paper.
+    """
+    assert client.get(f"/publisher/{league['admin_token']}").status_code == 404
+
+
+def test_a_wrong_publisher_token_is_indistinguishable_from_no_page(client,
+                                                                   publisher):
+    assert client.get("/publisher/publisher-secre").status_code == 404
+    assert client.get("/publisher/publisher-secretx").status_code == 404
+    assert client.get("/publisher/PUBLISHER-SECRET").status_code == 404
+
+
+def test_the_publisher_page_opens_with_the_right_token(client, publisher):
+    response = client.get(f"/publisher/{publisher}?week=6&season=2025")
+    assert response.status_code == 200
+    assert "Classifieds" in response.text
+
+
+def test_an_uploaded_ad_records_the_size_read_from_its_own_bytes(client,
+                                                                 publisher):
+    """The dimensions are not asked of the uploader, they are read.
+
+    Everything the caller says about a file is a claim; the bytes are the
+    only fact. Same rule as the league photo endpoint.
+    """
+    response = client.post(
+        f"/publisher/{publisher}/upload",
+        files={"photo": ("meme.png", _png(1200, 700), "image/png")},
+        data={"week": "6", "season": "2025"})
+    assert response.status_code == 200, response.text
+    assert response.json()["ad"]["width"] == 1200
+    assert response.json()["ad"]["height"] == 700
+
+    stored = demo_db.publisher_ads(2025, 6)
+    assert len(stored) == 1
+    assert stored[0]["width"] == 1200
+
+
+def test_an_svg_cannot_be_uploaded_as_an_ad(client, publisher):
+    """SVG is a document format that can carry script, and this page is
+    served from the project's own storage domain."""
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>x</script></svg>'
+    response = client.post(
+        f"/publisher/{publisher}/upload",
+        files={"photo": ("meme.svg", svg, "image/svg+xml")},
+        data={"week": "6", "season": "2025"})
+    assert response.status_code == 400
+    assert "SVG" in response.json()["error"]
+    assert demo_db.publisher_ads(2025, 6) == []
+
+
+def test_uploading_needs_the_publisher_token_too(client, league, publisher):
+    """The page is guarded; so is every write behind it. A guard on the page
+    alone is a guard on the door of a room with a window."""
+    response = client.post(
+        f"/publisher/{league['admin_token']}/upload",
+        files={"photo": ("meme.png", _png(), "image/png")},
+        data={"week": "6", "season": "2025"})
+    assert response.status_code == 404
+    assert demo_db.publisher_ads(2025, 6) == []
+
+
+def test_a_week_cannot_be_filled_past_the_cap(client, publisher):
+    for _ in range(webapp.MAX_PUBLISHER_ADS):
+        client.post(f"/publisher/{publisher}/upload",
+                    files={"photo": ("m.png", _png(), "image/png")},
+                    data={"week": "6", "season": "2025"})
+    response = client.post(
+        f"/publisher/{publisher}/upload",
+        files={"photo": ("m.png", _png(), "image/png")},
+        data={"week": "6", "season": "2025"})
+    assert response.status_code == 400
+    assert len(demo_db.publisher_ads(2025, 6)) == webapp.MAX_PUBLISHER_ADS
+
+
+def test_reordering_cannot_drag_an_ad_in_from_another_week(client, publisher):
+    """The scoping that replaces the per-league scoping everywhere else.
+
+    Every other write in db.py is filtered by league_id so a stray id from
+    somebody else's league cannot be touched. Nothing here is scoped to a
+    league, so the season and week do that job instead.
+    """
+    mine = demo_db.add_publisher_ad(2025, 6, "/a.png")
+    first = demo_db.add_publisher_ad(2025, 9, "/first.png")
+    second = demo_db.add_publisher_ad(2025, 9, "/second.png")
+
+    # Week 9's ads named first, so an unscoped update would move THEM.
+    client.post(f"/publisher/{publisher}/reorder",
+                json={"ids": [second["id"], first["id"], mine["id"]],
+                      "week": 6, "season": 2025})
+
+    # Asserting on ORDER, not membership. The first version of this test
+    # compared the ids in each week and passed with the scoping deleted —
+    # of course it did: an ad whose position is rewritten is still in the
+    # week it was always in. What an unscoped update actually does is
+    # reshuffle another week's page, so that is what has to be looked at.
+    assert [a["image_url"] for a in demo_db.publisher_ads(2025, 9)] == [
+        "/first.png", "/second.png"], "week 9's page was reordered from week 6"
+    assert [a["image_url"] for a in demo_db.publisher_ads(2025, 6)] == ["/a.png"]
+
+
+def test_the_preview_renders_the_page_the_paper_will_print(client, publisher):
+    demo_db.add_publisher_ad(2025, 6, "/a.png", width=1200, height=700)
+    response = client.get(f"/publisher/{publisher}/preview?week=6&season=2025")
+    assert response.status_code == 200
+    assert "pub-ad" in response.text
+    # Through the paper's own print stylesheet, so the preview's own Print
+    # command shows what a reader's PDF will do. A preview built any other way
+    # is a preview of the preview.
+    assert "@media print" in response.text
+
+
+def test_the_preview_says_so_when_a_week_is_empty(client, publisher):
+    response = client.get(f"/publisher/{publisher}/preview?week=13&season=2025")
+    assert response.status_code == 200
+    assert "Nothing uploaded" in response.text
+
+
+def test_a_nonsense_week_cannot_write_rows_nothing_will_read(client, publisher):
+    """These arrive in a URL. An unbounded week number is a key that stores
+    ads on week 99999, where no paper will ever look for them."""
+    response = client.post(
+        f"/publisher/{publisher}/upload",
+        files={"photo": ("m.png", _png(), "image/png")},
+        data={"week": "99999", "season": "2025"})
+    assert response.status_code == 200
+    assert demo_db.publisher_ads(2025, 99999) == []
+    assert len(demo_db.publisher_ads(2025, 22)) == 1
+
+
+# ---------------------------------------------------------------------------
+# The snapshot
+# ---------------------------------------------------------------------------
+
+def test_the_classifieds_page_is_frozen_into_the_paper_on_first_sight():
+    """A paper is an archive.
+
+    Somebody opening Week 2 in December has to see the page that actually went
+    out in Week 2. So the ads are copied into the paper's own content the
+    first time it is rendered, and every render after that uses the copy —
+    deleting an ad cannot reach backwards into a paper that has been read.
+    """
+    from web.generate import PUBLISHER_ADS_KEY, _snapshot_publisher_ads
+
+    demo_db.add_publisher_ad(2025, 6, "/week6.png", width=900, height=900)
+    content = {}
+
+    first = _snapshot_publisher_ads(demo_db, content, 2025, 6)
+    assert [a["image_url"] for a in first] == ["/week6.png"]
+    assert content[PUBLISHER_ADS_KEY], "the snapshot was not stored"
+
+    # The publisher rewrites the week. The paper does not change.
+    for ad in demo_db.publisher_ads(2025, 6):
+        demo_db.delete_publisher_ad(ad["id"])
+    demo_db.add_publisher_ad(2025, 6, "/different.png", width=900, height=900)
+
+    again = _snapshot_publisher_ads(demo_db, content, 2025, 6)
+    assert [a["image_url"] for a in again] == ["/week6.png"]
+
+
+def test_a_paper_generated_before_the_page_existed_picks_it_up_later():
+    """"First sight", not "at generation".
+
+    A commissioner who generates on Sunday morning, before that week's page
+    has been uploaded, gets a paper with no classifieds. The empty list is not
+    a snapshot, so their next edit or regeneration picks the page up.
+    """
+    from web.generate import PUBLISHER_ADS_KEY, _snapshot_publisher_ads
+
+    content = {}
+    assert _snapshot_publisher_ads(demo_db, content, 2025, 7) == []
+    assert PUBLISHER_ADS_KEY not in content
+
+    demo_db.add_publisher_ad(2025, 7, "/late.png", width=900, height=900)
+    later = _snapshot_publisher_ads(demo_db, content, 2025, 7)
+    assert [a["image_url"] for a in later] == ["/late.png"]
+
+
+def test_a_broken_ad_table_never_costs_anybody_a_paper(monkeypatch):
+    """A paper missing a page of memes is a paper. A paper that failed to
+    render because the ad table hiccuped is not."""
+    from web.generate import _snapshot_publisher_ads
+
+    class Exploding:
+        def publisher_ads(self, season, week):
+            raise RuntimeError("relation publisher_ads does not exist")
+
+    assert _snapshot_publisher_ads(Exploding(), {}, 2025, 6) == []

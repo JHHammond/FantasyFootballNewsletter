@@ -186,6 +186,53 @@ BASE_PRINT_CSS = """
     /* The front page is the front page. Everything after it may flow. */
     .full-section, .rankings-section { break-before: auto; }
 
+    /* --- THE CLASSIFIEDS PAGE ----------------------------------------- */
+    /* The one section in the paper that IS a page. Everything else is told to
+       flow, because making sections unbreakable is what filled the paper with
+       holes; this is the deliberate exception, and it earns it — a page of
+       advertising that starts halfway down a sheet under the tail of the
+       power rankings is not a page, it is a gap with pictures in it. */
+    .publisher-page {
+        break-before: page;
+        page-break-before: always;
+    }
+
+    /* An ad is a single object. Split across a fold it is two broken objects,
+       and unlike a paragraph it cannot be read across the break. */
+    .pub-ad {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    /* MAKING FIVE ADS FIT ONE SHEET.
+       A Letter page has about 965px of printable height and the ads arrive at
+       whatever size they were exported at, so left alone they run over — the
+       first measured attempt needed a second sheet for the last ad and left
+       it 53% empty. So each ad gets a height ceiling.
+       The ceiling is applied as a max-WIDTH, computed from the ad's own
+       aspect ratio, which is what --ad-aspect on each figure is for. That
+       matters: `max-height` on an image that is also `width: 100%` does not
+       scale the image down, it squashes it — the height obeys and the width
+       does not, and a squashed meme is a cropped meme by another name. Capping
+       the width instead scales both together, so the shape survives and the
+       ad simply sits narrower than its column, centred. Which is what the
+       classifieds sheets this is modelled on look like anyway. */
+    .publisher-page { --ad-cap: 300px; }
+    .pub-ad-frame {
+        max-width: calc(var(--ad-cap) * var(--ad-aspect, 1));
+    }
+
+    /* Colour is the point of this page — a meme in greyscale is a meme with
+       the joke removed — so the backgrounds print even where the rest of the
+       paper is happy to be ink on white. */
+    .pub-ad-frame, .pub-ad-img {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* Nothing on this page is a click target on paper. */
+    .pub-ad-link { text-decoration: none !important; color: inherit !important; }
+
     /* --- tighten for a smaller sheet ---------------------------------- */
     /* The screen layout assumes 1200px. A Letter page gives about 720px of
        printable width, so the same grid at the same type size would set the
@@ -468,6 +515,13 @@ GAMEDAY_PRINT_CSS = """
     .classified, .classifieds-section {
         border-color: #bbb !important;
     }
+
+    /* The classifieds page is already light — it is a sheet of framed colour
+       images and it looks the same in every theme on purpose. The only thing
+       gameday would otherwise do to it is turn the caption white, on a cream
+       frame. */
+    .pub-ad-caption { color: #555 !important; }
+    .pub-ad-frame { background: #fffdf8 !important; border-color: #111 !important; }
 
     .fraud-callout {
         background: #fff !important;

@@ -5,8 +5,9 @@ import random
 import re
 import markdown
 
-from ads import (CLASSIFIEDS_CSS, SUBSCRIBE_CSS, ads_from_content,
-                 render_classifieds, render_subscribe_block)
+from ads import (CLASSIFIEDS_CSS, PUBLISHER_PAGE_CSS, SUBSCRIBE_CSS,
+                 ads_from_content, render_classifieds, render_publisher_page,
+                 render_subscribe_block)
 import printing
 import themes
 
@@ -1171,7 +1172,7 @@ def build_week_ticker(summary):
 
 def build_edition(league_name, week, summary, matchups, power_rankings,
                   ai_content=None, ads=None, subscribe_slug=None,
-                  transactions=None,
+                  transactions=None, publisher_ads=None,
                   editable=False, canonical_url=None, canonical_base=None):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
@@ -1394,6 +1395,14 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             ads if ads is not None
             else ads_from_content((ai_content or {}).get("classifieds")),
             editable=editable),
+        # The publisher's own page. Passed in explicitly where one is
+        # available, otherwise read from the stored content — which is where
+        # the generator snapshots it, so re-rendering a paper months later
+        # reproduces the page that actually went out rather than this week's.
+        # Not editable: it isn't the commissioner's to edit.
+        "publisher_page_html": render_publisher_page(
+            publisher_ads if publisher_ads is not None
+            else (ai_content or {}).get("publisher_ads")),
         # The reader just finished two thousand words of this. Best moment
         # we will ever get to ask for an email.
         "subscribe_html": render_subscribe_block(subscribe_slug, league_name),
@@ -1501,6 +1510,7 @@ def render_html(edition, theme=None):
         }}
         .image-wrap-editing:hover .image-slot-empty {{ border-color: #2d5016; color: #2d5016; }}
         {CLASSIFIEDS_CSS}
+        {PUBLISHER_PAGE_CSS}
         {SUBSCRIBE_CSS}
         * {{ box-sizing: border-box; }}
 
@@ -2468,10 +2478,18 @@ def render_html(edition, theme=None):
              feed, rather than printing an empty heading. -->
         {edition.get('transactions_block', '')}
 
+        <!-- THE CLASSIFIEDS PAGE — the publisher's own page, identical in
+             every league's paper. Starts a fresh sheet in print. Renders
+             nothing at all on a week with no ads, rather than an empty
+             heading. See ads.py. -->
+        {edition.get('publisher_page_html', '')}
+
         <!-- SUBSCRIBE — see ads.py -->
         {edition.get('subscribe_html', '')}
 
-        <!-- CLASSIFIEDS — ad inventory, see ads.py -->
+        <!-- LEAGUE NOTICES — the small per-league strip the writer produces
+             about this league's week. Different thing from the page above:
+             that one is the publisher's, this one is theirs. -->
         {edition.get('classifieds_html', '')}
 
         <!-- Only ever visible on paper. -->

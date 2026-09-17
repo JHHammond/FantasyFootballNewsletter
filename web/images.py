@@ -81,3 +81,135 @@ def describe_rejection(data: bytes) -> str:
         return ("That's an iPhone HEIC photo. Sharing it to yourself first "
                 "converts it to a JPEG, which works.")
     return "That file isn't a JPEG, PNG, GIF or WebP."
+
+
+# ---------------------------------------------------------------------------
+# How big is it?
+#
+# The classifieds page lays ads out at their own shape — nothing is cropped,
+# because a cropped meme is a dead meme. To do that without the page jumping
+# around as images load, the server has to know each image's real dimensions
+# at upload time and write them into the markup.
+#
+# Read out of the file's own header rather than by decoding it. Pillow would
+# do this in one line, and it is a C extension that has to build on the host,
+# for a job that is forty lines of struct-reading. The bytes below are the
+# same bytes sniff() is already looking at.
+#
+# Every one of these returns None rather than guessing. A guessed aspect ratio
+# is worse than no aspect ratio: the page would silently letterbox.
+# ---------------------------------------------------------------------------
+
+#: A JPEG frame header. SOF0 through SOF15 all carry the dimensions in the
+#: same place, but C4 (Huffman tables), C8 (reserved) and CC (arithmetic
+#: coding conditioning) are not frame headers at all and must be skipped or
+#: the numbers come out of the middle of a Huffman table.
+_JPEG_FRAME_MARKERS = {
+    0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+    0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
+}
+
+
+def _u16be(data: bytes, at: int) -> int:
+    return (data[at] << 8) | data[at + 1]
+
+
+def _u16le(data: bytes, at: int) -> int:
+    return data[at] | (data[at + 1] << 8)
+
+
+def _jpeg_size(data: bytes):
+    """Walk the segment chain to the frame header.
+
+    A JPEG is a sequence of length-prefixed segments, and the dimensions live
+    in the frame header, which can be anywhere — after an EXIF block holding a
+    whole thumbnail, commonly. There is no shortcut; you follow the chain.
+    """
+    at = 2  # past the SOI
+    end = len(data)
+    while at + 9 < end:
+        if data[at] != 0xFF:
+            # Fill bytes are legal between segments; anything else means the
+            # chain is broken and nothing further can be trusted.
+            at += 1
+            continue
+        marker = data[at + 1]
+        if marker == 0xFF:
+            at += 1
+            continue
+        if marker in _JPEG_FRAME_MARKERS:
+            return _u16be(data, at + 7), _u16be(data, at + 5)  # w, h
+        length = _u16be(data, at + 2)
+        if length < 2:
+            return None
+        at += 2 + length
+    return None
+
+
+def _webp_size(data: bytes):
+    """Three different formats behind one four-letter name."""
+    chunk = data[12:16]
+
+    if chunk == b"VP8 " and len(data) >= 30:
+        # Lossy. The key frame starts at 20; 23-26 is the start code.
+        if data[23:26] != b"\x9d\x01\x2a":
+            return None
+        return _u16le(data, 26) & 0x3FFF, _u16le(data, 28) & 0x3FFF
+
+    if chunk == b"VP8L" and len(data) >= 25:
+        # Lossless. 14 bits each, minus one, packed little-endian.
+        if data[20] != 0x2F:
+            return None
+        bits = int.from_bytes(data[21:25], "little")
+        return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+
+    if chunk == b"VP8X" and len(data) >= 30:
+        # Extended (animation, alpha). 24 bits each, minus one.
+        width = int.from_bytes(data[24:27], "little") + 1
+        height = int.from_bytes(data[27:30], "little") + 1
+        return width, height
+
+    return None
+
+
+def dimensions(data: bytes):
+    """(width, height) in pixels, or None if the header doesn't say.
+
+    None is a real answer and callers must handle it — a truncated upload, an
+    unusual encoder, a format variant not covered here. The page falls back to
+    a sensible default shape rather than refusing the image.
+    """
+    kind = sniff(data)
+    if kind is None:
+        return None
+
+    try:
+        if kind is PNG:
+            # IHDR is mandatory and always first: 8 bytes signature, then a
+            # length and a type, then the two dimensions.
+            if data[12:16] != b"IHDR":
+                return None
+            width = int.from_bytes(data[16:20], "big")
+            height = int.from_bytes(data[20:24], "big")
+        elif kind is GIF:
+            width, height = _u16le(data, 6), _u16le(data, 8)
+        elif kind is JPEG:
+            found = _jpeg_size(data)
+            if not found:
+                return None
+            width, height = found
+        elif kind is WEBP:
+            found = _webp_size(data)
+            if not found:
+                return None
+            width, height = found
+        else:
+            return None
+    except (IndexError, ValueError):
+        return None
+
+    # A zero dimension is not a small image, it is a corrupt header, and it
+    # would divide by zero the moment anything computed an aspect ratio.
+    if width <= 0 or height <= 0:
+        return None
+    return width, height

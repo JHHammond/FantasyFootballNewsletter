@@ -131,6 +131,56 @@ def _transactions_for(league: dict[str, Any], season: int, week: int) -> list:
     return [m.to_dict() for m in moves]
 
 
+#: The key the classifieds page travels under inside a paper's stored content.
+#: It rides along with the prose so that everything needed to reproduce a paper
+#: exactly is in one object.
+PUBLISHER_ADS_KEY = "publisher_ads"
+
+
+def _snapshot_publisher_ads(db, ai_content: dict, season: int,
+                            week: int) -> list:
+    """The classifieds page for this paper, fixed at first sight.
+
+    A paper is an archive. Somebody opening Week 2 in December has to see the
+    page that actually went out in Week 2 — so the ads are copied into the
+    paper's own content the first time it is rendered, and every render after
+    that uses the copy. Deleting an ad, or re-cutting the page for a later
+    week, cannot reach backwards into a paper that has already been read.
+
+    "First sight" rather than "at generation", deliberately. A commissioner who
+    generates on Sunday morning, before the week's page has been uploaded, gets
+    a paper with no classifieds; the empty list is not a snapshot, so their
+    next edit or regeneration picks the page up. Once there is something to
+    freeze, it freezes.
+    """
+    existing = ai_content.get(PUBLISHER_ADS_KEY)
+    if existing:
+        return existing
+
+    try:
+        rows = db.publisher_ads(season, week)
+    except Exception as exc:  # noqa: BLE001
+        # Never fatal. A paper missing a page of memes is a paper; a paper that
+        # failed to render because the ad table hiccuped is not.
+        print(f"[ads] skipping the classifieds page: "
+              f"{type(exc).__name__}: {exc}", flush=True)
+        return []
+
+    # Only what the renderer reads. Storing the whole row would put storage
+    # paths and internal ids inside every paper for no reason.
+    snapshot = [{
+        "image_url": row.get("image_url"),
+        "width": row.get("width"),
+        "height": row.get("height"),
+        "caption": row.get("caption") or "",
+        "link_url": row.get("link_url") or "",
+    } for row in (rows or []) if row.get("image_url")]
+
+    if snapshot:
+        ai_content[PUBLISHER_ADS_KEY] = snapshot
+    return snapshot
+
+
 def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
                      *, is_edit: bool = False) -> dict[str, Any]:
     """Render a paper from existing prose and store it.
@@ -155,6 +205,11 @@ def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
         canonical_url=paper_url_for(league, week),
         canonical_base=public_base_url(),
         transactions=_transactions_for(league, season, week),
+        # Mutates ai_content on first sight, which is why it is called before
+        # the save below rather than after — the snapshot has to be in the
+        # object that gets stored, or it would be taken fresh every render and
+        # freeze nothing.
+        publisher_ads=_snapshot_publisher_ads(db, ai_content, season, week),
     )
     edition["paper_name"] = paper_name
     html = render_html(edition, theme=league.get("theme"))
@@ -193,6 +248,10 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
         canonical_url=paper_url_for(league, week),
         canonical_base=public_base_url(),
         transactions=_transactions_for(league, season, week),
+        # The editor shows the page so the commissioner can see the paper they
+        # are actually publishing. It carries no edit hooks — it is not theirs
+        # to edit — and this render is never stored, so nothing is frozen here.
+        publisher_ads=_snapshot_publisher_ads(db, dict(ai_content), season, week),
     )
     edition["paper_name"] = paper_name
     return render_html(edition, theme=league.get("theme"))

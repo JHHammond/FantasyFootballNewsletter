@@ -535,3 +535,186 @@ def test_the_whole_story_header_stack_is_in_the_break_after_group():
         assert needed in selectors, (
             f"{needed[:-1]} is not in the break-after group, so a page can "
             f"break in the middle of a story's header. Group was:\n{selectors}")
+
+
+# ---------------------------------------------------------------------------
+# The classifieds page
+#
+# The publisher's page is the one section in the paper that IS a page: it
+# starts a fresh sheet on purpose, which is the deliberate exception to the
+# rule that made the paper dense in the first place. That exception has to be
+# held to its side of the bargain — a sheet of its own, and only one.
+#
+# Built with real image files at real sizes. The shapes are the whole problem
+# here; five squares would pass a test that five real memes fail.
+# ---------------------------------------------------------------------------
+
+#: A banner, two portraits, a landscape and a square — the mix from the first
+#: real page, and the mix every packing bug so far has needed to show itself.
+_AD_SHAPES = [(1600, 360), (720, 960), (1200, 700), (900, 900), (640, 880)]
+
+
+@pytest.fixture(scope="module")
+def ad_rows(tmp_path_factory):
+    """Five ads on disk, as the database would hand them over."""
+    Image = pytest.importorskip(
+        "PIL.Image", reason="pillow not installed (dev-only dependency)")
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+    from web import images as image_tools
+
+    folder = tmp_path_factory.mktemp("ads")
+    rows = []
+    for n, (width, height) in enumerate(_AD_SHAPES):
+        path = folder / f"ad{n}.png"
+        Image.new("RGB", (width, height), (40 * n % 255, 90, 200)).save(path)
+        data = path.read_bytes()
+        # Read back rather than asserted: this is also a check that the header
+        # parser and the encoder agree about what was written.
+        assert image_tools.dimensions(data) == (width, height)
+        rows.append({
+            # An absolute path, which from a file:// document resolves to the
+            # file and is also one of the two shapes ads._safe_url accepts.
+            # data: URLs are NOT — the first version of this used them and the
+            # page came out empty, which was the sanitiser doing its job.
+            "image_url": str(path),
+            "width": width, "height": height, "caption": "",
+        })
+    return rows
+
+
+@pytest.fixture(scope="module")
+def classifieds_paper_file(ad_rows, tmp_path_factory):
+    import newspaper
+
+    # Same paper as every other test here, with the page added, so anything
+    # that changes is the page's doing.
+    html = _paper_html()
+    section = ads_module().render_publisher_page(ad_rows)
+    assert section, "the page rendered as nothing"
+    html = html.replace("<!-- SUBSCRIBE", section + "\n<!-- SUBSCRIBE", 1)
+    assert "publisher-page" in html
+
+    path = tmp_path_factory.mktemp("classifieds") / "paper.html"
+    path.write_text(html, encoding="utf-8")
+    return path
+
+
+def ads_module():
+    import ads
+    return ads
+
+
+_AD_STAMP_JS = """() => {
+    let id = 0;
+    const out = [];
+    const mark = (el, where, label) => {
+        const m = document.createElement('span');
+        m.style.cssText = 'display:block;width:8px;height:8px;' +
+            'background:rgb(250,' + id + ',7);' +
+            '-webkit-print-color-adjust:exact;print-color-adjust:exact;';
+        if (where === 'top') { el.insertBefore(m, el.firstChild); }
+        else { el.appendChild(m); }
+        out.push({id: id, label: label, where: where});
+        id += 1;
+    };
+    const page = document.querySelector('.publisher-page');
+    if (page) { mark(page, 'top', 'PAGE'); mark(page, 'bottom', 'PAGE'); }
+    document.querySelectorAll('.pub-ad').forEach((ad, i) => {
+        mark(ad, 'top', 'ad' + i);
+        mark(ad, 'bottom', 'ad' + i);
+    });
+    return out;
+}"""
+
+
+@pytest.fixture(scope="module")
+def classifieds_measured(browser, classifieds_paper_file, tmp_path_factory):
+    """Which sheet every part of the classifieds page landed on."""
+    page = browser.new_page(viewport={"width": 1100, "height": 900})
+    page.goto(classifieds_paper_file.as_uri())
+    page.wait_for_timeout(700)
+    markers = page.evaluate(_AD_STAMP_JS)
+    assert markers, "the classifieds page is not in the paper"
+
+    workdir = str(tmp_path_factory.mktemp("adpdf"))
+    where = _pages_of_markers(page, workdir, "ads")
+    page.close()
+
+    landed = {}
+    for marker in markers:
+        landed.setdefault(marker["label"], {})[marker["where"]] = \
+            where.get(marker["id"])
+    return landed
+
+
+def test_the_classifieds_page_gets_a_sheet_of_its_own(classifieds_measured):
+    """Both halves of that sentence.
+
+    A sheet OF ITS OWN: `break-before: page`, so it never starts halfway down
+    a sheet under the tail of the power rankings. A page of advertising that
+    begins in the middle of something else is not a page, it is a gap with
+    pictures in it.
+
+    ONE sheet: five ads at the size they were exported at do not fit on a
+    Letter page, so each ad has a height ceiling. Without it the last ad went
+    over onto a second sheet that was 53% empty.
+    """
+    page = classifieds_measured["PAGE"]
+    assert page["top"] is not None, "the page did not print at all"
+    assert page["top"] == page["bottom"], (
+        f"the classifieds page runs from sheet {page['top']} to "
+        f"{page['bottom']}; it is supposed to be one sheet")
+
+
+def test_no_single_ad_is_split_across_a_fold(classifieds_measured):
+    """Unlike a paragraph, half an ad cannot be read across the break."""
+    split = [label for label, where in classifieds_measured.items()
+             if label != "PAGE" and where["top"] != where["bottom"]]
+    assert not split, (
+        "these ads were cut in half by a page break: "
+        + ", ".join(f"{label} (sheets {classifieds_measured[label]['top']}"
+                    f"–{classifieds_measured[label]['bottom']})"
+                    for label in split))
+
+
+def test_every_ad_reached_the_printed_page(classifieds_measured):
+    """The page is one sheet either because it fits or because ads fell off
+    the end of it, and those are not the same thing."""
+    printed = {label for label in classifieds_measured if label != "PAGE"}
+    assert len(printed) == len(_AD_SHAPES), (
+        f"{len(printed)} of {len(_AD_SHAPES)} ads printed")
+
+
+def test_the_classifieds_page_does_not_hollow_out_the_rest_of_the_paper(
+        browser, classifieds_paper_file, tmp_path_factory, classifieds_measured):
+    """The forced page break is allowed to leave a short sheet before it. It
+    is not allowed to leave two.
+
+    A section that starts a new sheet necessarily leaves whatever room was
+    left on the previous one, and that is the price of the page being a page.
+    Everything else in the paper still has to be dense — this is the test that
+    notices if adding the page quietly undid the density work.
+    """
+    path = tmp_path_factory.mktemp("adpdf2") / "paper.pdf"
+    page = browser.new_page()
+    page.goto(classifieds_paper_file.as_uri())
+    page.wait_for_timeout(800)
+    page.pdf(path=str(path), format="Letter", print_background=True,
+             margin={"top": "12mm", "bottom": "12mm",
+                     "left": "12mm", "right": "12mm"})
+    page.close()
+
+    gaps = _page_gaps(path)
+    classifieds_sheet = classifieds_measured["PAGE"]["top"]
+
+    bad = []
+    for number, gap in enumerate(gaps[:-1], start=1):
+        if number == classifieds_sheet - 1:
+            continue        # the sheet the forced break cut short, by design
+        if gap > 20:
+            bad.append((number, gap))
+    assert not bad, (
+        "pages ending well short of the foot: "
+        + ", ".join(f"sheet {n} is {g:.0f}% empty" for n, g in bad))
