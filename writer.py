@@ -687,6 +687,40 @@ def _backoff(attempt: int, exc) -> float:
     return min(1.5 * (2 ** attempt), _MAX_BACKOFF)
 
 
+def first_text_block(message) -> str:
+    """The prose out of a response, wherever the API put it.
+
+    This was `message.content[0].text`, which held for two years and then
+    stopped the day the writer moved to a newer model:
+
+        AttributeError: 'ThinkingBlock' object has no attribute 'text'
+
+    A response is a LIST of blocks and a model may reason before it answers,
+    in which case content[0] is a thinking block and the prose is further
+    down. Three of four game recaps and the whole power rankings section
+    vanished from a real paper this way — and only the long calls, because
+    those are the ones a model stops to think about, which made it look like
+    a rate limit rather than a parse.
+    """
+    blocks = getattr(message, "content", None) or []
+    for block in blocks:
+        if getattr(block, "type", None) == "text":
+            return (getattr(block, "text", "") or "").strip()
+
+    # Some blocks carry text without a type, and a mock in a test certainly
+    # does. Falling back to "the first thing with text on it" keeps those
+    # working without letting a thinking block through — thinking carries
+    # .thinking, not .text.
+    for block in blocks:
+        text = getattr(block, "text", None)
+        if isinstance(text, str):
+            return text.strip()
+
+    raise CallFailed(
+        f"no text block in a response of "
+        f"{[getattr(b, 'type', type(b).__name__) for b in blocks]}")
+
+
 def _looks_like_a_model_problem(exc) -> bool:
     """Is this 4xx about the model, rather than about the request?
 
@@ -736,7 +770,7 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
                 ]
             )
             _record_usage(model or MODEL, message)
-            text = message.content[0].text.strip()
+            text = first_text_block(message)
 
             # A section that failed is a section with a fallback. A section
             # that printed the model's homework is a section nobody can trust

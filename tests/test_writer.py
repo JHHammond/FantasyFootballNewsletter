@@ -1131,3 +1131,72 @@ def test_a_connection_blip_still_retries_quickly():
 def test_a_junk_retry_after_does_not_crash_the_paper():
     for junk in ("soon", "", None, "Wed, 21 Oct 2026 07:28:00 GMT"):
         assert 0 <= writer._backoff(0, _rate_limited(retry_after=junk)) <= 20.0
+
+
+# ---------------------------------------------------------------------------
+# A response is a LIST of blocks
+# ---------------------------------------------------------------------------
+
+class _Thinking:
+    type = "thinking"
+    thinking = "Let me look at both lineups before I write this."
+
+
+class _Text:
+    type = "text"
+
+    def __init__(self, text="Walker went for 34.1 against a 13.7 projection."):
+        self.text = text
+
+
+def _message(*blocks):
+    return type("Message", (), {"content": list(blocks),
+                                "usage": _Usage(output_tokens=100)})()
+
+
+def test_prose_is_found_after_a_thinking_block():
+    """`message.content[0].text` held for two years and then stopped, on the
+    day the writer moved to a newer model:
+
+        AttributeError: 'ThinkingBlock' object has no attribute 'text'
+
+    Three of four game recaps and the entire power rankings section vanished
+    from a real paper. Only the LONG calls failed — those are the ones a model
+    stops to think about — which made it look like a rate limit rather than a
+    parse, and sent me to fix the backoff first.
+    """
+    assert writer.first_text_block(_message(_Thinking(), _Text())) == (
+        "Walker went for 34.1 against a 13.7 projection.")
+
+
+def test_prose_is_still_found_when_there_is_no_thinking():
+    assert writer.first_text_block(_message(_Text())) == (
+        "Walker went for 34.1 against a 13.7 projection.")
+
+
+def test_a_thinking_block_is_never_mistaken_for_the_answer():
+    """A thinking block carries .thinking, not .text. Printing a model's
+    reasoning into a newspaper is the same class of failure as printing its
+    request for data — worse, because it reads like prose."""
+    only_thinking = _message(_Thinking())
+    with pytest.raises(writer.CallFailed):
+        writer.first_text_block(only_thinking)
+
+
+def test_a_response_with_no_blocks_at_all_fails_rather_than_returning_empty():
+    """An empty section has a fallback. An empty STRING is printed."""
+    with pytest.raises(writer.CallFailed):
+        writer.first_text_block(_message())
+
+
+def test_call_claude_survives_a_thinking_block_end_to_end(monkeypatch):
+    """The wiring, not the helper. The bug was in call_claude, and a test of
+    first_text_block alone would pass with the old line still in place."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    monkeypatch.setattr(
+        writer.client, "messages",
+        type("M", (), {"create": staticmethod(
+            lambda **kw: _message(_Thinking(), _Text()))}))
+
+    assert writer.call_claude("recap it", attempts=1) == (
+        "Walker went for 34.1 against a 13.7 projection.")
