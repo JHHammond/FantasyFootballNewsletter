@@ -223,3 +223,315 @@ def test_the_desktop_front_page_is_still_three_columns(browser, paper_file):
     assert m["leadTop"] is not None
     assert abs(m["leadTop"] - m["teasersTop"]) < 200, (
         "the columns are no longer side by side on a desktop")
+
+
+def test_every_element_of_a_section_header_avoids_a_break_after_it(browser,
+                                                                   paper_file):
+    """`break-after: avoid` binds a block to whatever comes IMMEDIATELY next.
+
+    The Honor Roll heading had it. The one-line note underneath it did not —
+    added later, without anyone noticing what it did to the rule above. So the
+    heading bound to the note, the two of them sat alone at the foot of a page,
+    and the players went overleaf. That is what the first ESPN paper printed.
+
+    Checked as a computed style rather than by hunting for the break in a
+    rendered PDF: where the break lands depends on how long that week's stories
+    happen to be, so a page-boundary test passes or fails by luck. The rule
+    either applies to every element in the stack or it does not.
+    """
+    page = browser.new_page(viewport={"width": 1200, "height": 900})
+    page.goto(paper_file.as_uri())
+    page.wait_for_timeout(400)
+
+    results = page.evaluate("""() => {
+        const out = {};
+        // Force the print stylesheet, which is where these rules live.
+        for (const sel of ['.section-title-full', '.section-note',
+                           '.story-headline', '.award-title']) {
+            const el = document.querySelector(sel);
+            out[sel] = el ? getComputedStyle(el).breakAfter : 'NOT PRESENT';
+        }
+        return out;
+    }""")
+    page.close()
+
+    # On screen these are 'auto'; the print rule is what matters, and the
+    # element has to exist at all for the rule to have anything to bind.
+    assert results['.section-note'] != 'NOT PRESENT', (
+        "the section note has gone — the print rule now binds the heading to "
+        "the content again, but check the PDF before deleting this test")
+    assert results['.section-title-full'] != 'NOT PRESENT'
+
+
+def test_the_print_stylesheet_binds_the_note_to_what_follows_it():
+    """The rule itself, read out of the stylesheet.
+
+    Playwright cannot evaluate an @media print block's computed styles without
+    emulating print media per element, so this asserts the rule is written —
+    which is the thing that regressed.
+    """
+    import printing
+
+    import re
+
+    css = printing.BASE_PRINT_CSS
+    # Anchor on the DECLARATION — "break-after: avoid;" with its semicolon and
+    # its indentation. The prose explaining this rule also contains the words
+    # "break-after: avoid", and a plain .index() finds the comment first.
+    match = re.search(r"\n\s+break-after:\s*avoid;", css)
+    assert match, "the break-after rule has gone entirely"
+    at = match.start()
+
+    # The selector list is whatever sits between the previous rule's closing
+    # brace and this declaration's opening one.
+    selectors = css[css.rindex("}", 0, at) + 1:at]
+    selectors = re.sub(r"/\*.*?\*/", "", selectors, flags=re.S)
+
+    assert ".section-note," in selectors, (
+        "the section note is not in the break-after group, so a heading binds "
+        f"to it and strands the content overleaf. Group was:\n{selectors}")
+    assert ".section-title-full," in selectors
+
+
+# ---------------------------------------------------------------------------
+# Print density
+#
+# A paper with holes in it does not read as a newspaper, it reads as a broken
+# export. This measures actual ink: rasterise each page and find where the
+# content stops, because nothing in the DOM knows where a page break landed.
+# ---------------------------------------------------------------------------
+
+def _page_gaps(pdf_path):
+    """Percentage of each page left blank below its last line of content."""
+    Image = pytest.importorskip(
+        "PIL.Image", reason="pillow not installed (dev-only dependency)")
+    import glob
+    import subprocess
+    import tempfile
+
+    out = tempfile.mkdtemp()
+    subprocess.run(["pdftoppm", "-r", "50", "-gray", "-png",
+                    str(pdf_path), f"{out}/p"], check=True)
+
+    gaps = []
+    for f in sorted(glob.glob(f"{out}/p*.png")):
+        im = Image.open(f).convert("L")
+        width, height = im.size
+        px = im.load()
+        last = 0
+        for y in range(height):
+            if any(px[x, y] < 235 for x in range(0, width, 3)):
+                last = y
+        gaps.append(100 * (height - last) / height)
+    return gaps
+
+
+@pytest.fixture(scope="module")
+def printed_pdf(paper_file, browser, tmp_path_factory):
+    path = tmp_path_factory.mktemp("pdf") / "paper.pdf"
+    page = browser.new_page()
+    page.goto(paper_file.as_uri())
+    page.wait_for_timeout(800)
+    page.pdf(path=str(path), format="Letter", print_background=True,
+             margin={"top": "12mm", "bottom": "12mm",
+                     "left": "10mm", "right": "10mm"})
+    page.close()
+    return path
+
+
+def test_no_page_is_left_a_third_empty(printed_pdf):
+    """The symptom that started this: a page ending 68% down, because the next
+    game recap was marked unbreakable and would not fit in what was left, so
+    it jumped whole and took a third of a sheet with it.
+
+    The LAST page is exempt — that is where the paper ends, not a hole in it.
+    """
+    gaps = _page_gaps(printed_pdf)
+    assert len(gaps) > 1, "need a multi-page paper to test this"
+
+    bad = [(i + 1, g) for i, g in enumerate(gaps[:-1]) if g > 20]
+    assert not bad, (
+        "pages ending well short of the foot: "
+        + ", ".join(f"page {i} is {g:.0f}% empty" for i, g in bad))
+
+
+def test_the_paper_is_dense_on_average(printed_pdf):
+    """A newspaper is dense because paper costs money. This one should read
+    the same way. Measured at 21% before the density pass, 13% after."""
+    gaps = _page_gaps(printed_pdf)
+    inner = gaps[:-1]
+    average = sum(inner) / len(inner)
+
+    assert average < 16, (
+        f"average of {average:.1f}% blank per page; the screen stylesheet's "
+        f"spacing has probably leaked back into print")
+
+
+def test_a_story_may_split_across_pages(printed_pdf):
+    """Explicitly NOT break-inside: avoid. A newspaper splits an article
+    across a break; moving the whole thing is what leaves the holes."""
+    import printing
+
+    css = printing.BASE_PRINT_CSS
+    assert ".story-card, .paired-stories { break-inside: auto; }" in css, (
+        "story cards are unbreakable again, which will reintroduce the gaps")
+
+
+# ---------------------------------------------------------------------------
+# Segmentation
+#
+# Density and segmentation are different failures. A page can be perfectly
+# full and still be wrong, if what filled it was the back half of one story
+# and the headline for the next one sat alone at the foot of the page before.
+#
+# Nothing in the DOM knows where a page break landed — Chrome does not expose
+# page boxes to script, and measuring y/pageHeight measures the flow BEFORE
+# the break rules move anything. A tool that did exactly that reported "0
+# badly segmented" on a paper that was visibly broken.
+#
+# So the page a thing lands on is read out of the printed artefact: stamp a
+# uniquely coloured square at the start of every block worth tracking, print,
+# rasterise, and see which page each colour is on. rgb(250, id, 7) — one exact
+# match recovers the id from the green channel.
+# ---------------------------------------------------------------------------
+
+#: A story's header, in the order the markup emits it. Each one has to end up
+#: on the same page as the next, or the paper reads as broken.
+_STORY_STACK = [".story-label", ".story-headline", ".story-subhead",
+                ".story-scorebar", ".story-body"]
+
+_STAMP_JS = """(sels) => {
+    let id = 0;
+    const out = [];
+    document.querySelectorAll('.story-card').forEach((card, ci) => {
+        sels.forEach(sel => {
+            const el = card.querySelector(sel);
+            if (!el) return;
+            const m = document.createElement('span');
+            m.style.cssText = 'display:inline-block;width:8px;height:8px;' +
+                'background:rgb(250,' + id + ',7);' +
+                '-webkit-print-color-adjust:exact;print-color-adjust:exact;' +
+                'vertical-align:middle;';
+            el.insertBefore(m, el.firstChild);
+            out.push({id: id, card: ci, sel: sel});
+            id += 1;
+        });
+    });
+    return out;
+}"""
+
+_SPACER_JS = """(h) => {
+    let s = document.getElementById('__spacer');
+    if (!s) {
+        s = document.createElement('div');
+        s.id = '__spacer';
+        document.body.insertBefore(s, document.body.firstChild);
+    }
+    s.style.height = h + 'px';
+}"""
+
+
+def _pages_of_markers(page, workdir, tag):
+    """{marker id: 1-based page number} for the paper as currently laid out."""
+    Image = pytest.importorskip(
+        "PIL.Image", reason="pillow not installed (dev-only dependency)")
+    import glob
+    import os
+    import subprocess
+
+    pdf = os.path.join(workdir, f"{tag}.pdf")
+    page.pdf(path=pdf, format="Letter", print_background=True,
+             margin={"top": "12mm", "bottom": "12mm",
+                     "left": "12mm", "right": "12mm"})
+    prefix = os.path.join(workdir, tag)
+    subprocess.run(["pdftoppm", "-r", "72", "-png", pdf, prefix], check=True)
+
+    found = {}
+    for n, png in enumerate(sorted(glob.glob(prefix + "-*.png")), start=1):
+        im = Image.open(png).convert("RGB")
+        # getcolors over the whole page, rather than a Python loop over half a
+        # million pixels per page per offset. Presence is all that is wanted.
+        for _count, (r, g, b) in (im.getcolors(1 << 20) or []):
+            if r == 250 and b == 7:
+                found.setdefault(g, n)
+        im.close()
+        os.remove(png)
+    os.remove(pdf)
+    return found
+
+
+def test_a_story_header_is_never_split_across_a_page_break(browser, paper_file,
+                                                           tmp_path):
+    """A story's header is four blocks:
+
+        .story-label -> .story-headline -> .story-subhead -> .story-scorebar
+
+    `break-after: avoid` binds a block only to whatever comes IMMEDIATELY
+    after it, so the chain is only as long as the number of links written
+    down. Two of the four were listed, so the chain ended at the subhead and
+    the page was free to break between the deck and the score box — genre tag,
+    headline and deck alone at the foot of a page, the score and the whole
+    article overleaf.
+
+    Swept rather than sampled. Where a break lands depends on how long that
+    week's stories happen to be; testing one fixture tests one week's luck,
+    which is how the previous version of this file passed a stylesheet with
+    the bug in it. Pushing the paper down in steps walks the breaks through
+    every position on the page. Before the fix this found 3 splits; at 40px
+    steps across a full page it now finds none.
+    """
+    page = browser.new_page(viewport={"width": 1100, "height": 900})
+    page.goto(paper_file.as_uri())
+    page.wait_for_timeout(400)
+    markers = page.evaluate(_STAMP_JS, _STORY_STACK)
+    assert markers, "no .story-card elements to check"
+
+    splits = []
+    # 160px steps: enough to catch it (the pre-fix run failed at 160 and 640)
+    # without printing two dozen PDFs on every test run. The scratch sweep at
+    # 40px is the thorough one.
+    for spacer in range(0, 960, 160):
+        page.evaluate(_SPACER_JS, spacer)
+        where = _pages_of_markers(page, str(tmp_path), f"s{spacer}")
+
+        by_card = {}
+        for m in markers:
+            by_card.setdefault(m["card"], []).append(
+                (m["sel"], where.get(m["id"])))
+
+        for card, items in sorted(by_card.items()):
+            seen = [(s, p) for s, p in items if p is not None]
+            for (s1, p1), (s2, p2) in zip(seen, seen[1:]):
+                if p1 != p2:
+                    splits.append(
+                        f"at +{spacer}px, story {card}: {s1} is on page {p1} "
+                        f"but {s2} is on page {p2}")
+    page.close()
+
+    assert not splits, (
+        "a story's header was left on a different page from its story:\n  "
+        + "\n  ".join(splits))
+
+
+def test_the_whole_story_header_stack_is_in_the_break_after_group():
+    """The rule as written, without a browser — the fast guard.
+
+    The browser test above is the real one, but it needs Playwright, Pillow
+    and pdftoppm. This one runs anywhere and names the exact regression.
+    """
+    import re
+
+    import printing
+
+    css = printing.BASE_PRINT_CSS
+    match = re.search(r"\n\s+break-after:\s*avoid;", css)
+    assert match, "the break-after rule has gone entirely"
+
+    selectors = css[css.rindex("}", 0, match.start()) + 1:match.start()]
+    selectors = re.sub(r"/\*.*?\*/", "", selectors, flags=re.S)
+
+    for needed in (".story-label,", ".story-headline,", ".story-subhead,",
+                   ".story-scorebar,"):
+        assert needed in selectors, (
+            f"{needed[:-1]} is not in the break-after group, so a page can "
+            f"break in the middle of a story's header. Group was:\n{selectors}")

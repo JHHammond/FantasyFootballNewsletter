@@ -16,6 +16,7 @@ wrong, so none of them can quietly come back:
 from __future__ import annotations
 
 import json
+import time
 import os
 import re
 
@@ -521,3 +522,148 @@ def test_both_reach_the_finished_paper(swap_client, no_sleeping):
         "The Kevlarville Times", 3, GAMES, SUMMARY)
     assert "classifieds" in paper
     assert "pull_quote" in paper
+
+
+# ---------------------------------------------------------------------------
+# Prompt caching
+#
+# One paper is eighteen calls, and 74% of its entire input bill was the same
+# 1,700-token voice guide sent eighteen times. These tests defend the three
+# things that make caching actually work, each of which is silently easy to
+# break: the mark being present, the cached part being identical across
+# leagues, and the variable part being OUTSIDE the mark.
+# ---------------------------------------------------------------------------
+
+def test_the_voice_guide_is_marked_cacheable(swap_client):
+    seen = {}
+
+    def capture(kwargs):
+        seen["system"] = kwargs["system"]
+        return _reply()
+
+    swap_client(capture)
+    writer.call_claude("hi", system=writer.system_prompt("standard", GAMES))
+
+    blocks = seen["system"]
+    assert isinstance(blocks, list), "a bare string cannot carry a cache mark"
+    assert blocks[0].get("cache_control") == {"type": "ephemeral"}
+
+
+def test_the_cached_block_is_identical_across_leagues_and_tones(swap_client):
+    """This is the whole point of splitting it. If the tone override or the
+    week's scoring scale sat inside the cached block, every paper would be a
+    fresh cache write and nothing would ever be shared between them."""
+    standard = writer.system_prompt("standard", GAMES)
+    brutal = writer.system_prompt("brutal", GAMES)
+    other_week = writer.system_prompt("standard", GAMES * 3)
+
+    assert standard[0]["text"] == brutal[0]["text"] == other_week[0]["text"]
+
+
+def test_the_variable_part_is_outside_the_cached_block(swap_client):
+    """Anything after the mark is billed normally, which is correct for a few
+    dozen tokens that genuinely differ per league and per week."""
+    blocks = writer.system_prompt("brutal", GAMES)
+
+    assert "NO MERCY" not in blocks[0]["text"]
+    assert any("NO MERCY" in b["text"] for b in blocks[1:])
+    assert all("cache_control" not in b for b in blocks[1:])
+
+
+def test_a_bare_string_system_prompt_still_gets_cached(swap_client):
+    """Older callers and tests pass a string. Wrapping it here means nobody
+    loses the cache by passing the wrong shape."""
+    seen = {}
+    swap_client(lambda kwargs: (seen.update(system=kwargs["system"]), _reply())[1])
+
+    writer.call_claude("hi", system="just a string")
+    assert seen["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert seen["system"][0]["text"] == "just a string"
+
+
+def test_one_call_finishes_before_any_other_starts(swap_client):
+    """A cache only helps a call that starts after the cache has been written.
+    Firing all eighteen at once put twelve of them in flight before any had
+    written it, and twelve full-price copies of a 1,700-token prompt is most
+    of the saving thrown away.
+
+    Checking WHICH call goes first is not enough — the headline is first in
+    the task dict anyway, so that passes with no warm-up at all. What has to
+    be true is that the first call COMPLETES in isolation.
+    """
+    import threading
+
+    lock = threading.Lock()
+    spans = []          # (start_index, end_index) per call
+    clock = {"t": 0}
+
+    def tick():
+        with lock:
+            clock["t"] += 1
+            return clock["t"]
+
+    def timed(_kwargs):
+        # NOT time.sleep: the no_sleeping fixture patches it module-wide, and
+        # an earlier version of this test used both. The delay silently became
+        # a no-op, the calls never overlapped, and the test passed against code
+        # with no warm-up at all. Busy-wait on the clock instead, which nothing
+        # can patch out from under it.
+        start = tick()
+        until = time.perf_counter() + 0.02
+        while time.perf_counter() < until:
+            pass
+        spans.append((start, tick()))
+        return _reply("x")
+
+    swap_client(timed)
+    writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY)
+
+    assert len(spans) > 2
+    first_end = spans[0][1]
+    later_starts = [s for s, _ in spans[1:]]
+    assert all(start > first_end for start in later_starts), (
+        "a second call started before the first finished, so the cache was "
+        "still empty when it did")
+
+
+def test_the_warm_up_call_is_the_cheapest_one(swap_client, no_sleeping):
+    """It costs a round trip of latency, so it should be the call with the
+    smallest output budget — and one the paper needs anyway."""
+    fake = swap_client(lambda _k: _reply("x"))
+    writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY)
+
+    budgets = [c["max_tokens"] for c in fake.calls]
+    assert budgets[0] == min(budgets), (
+        f"warmed with a {budgets[0]}-token call; cheapest was {min(budgets)}")
+
+
+def test_warming_does_not_lose_a_failure(swap_client, no_sleeping):
+    """The warm-up call runs outside the thread pool. If its failure were
+    handled differently from the rest, a total outage would look partial."""
+    swap_client(lambda _k: (_ for _ in ()).throw(_connection_error()))
+
+    with pytest.raises(writer.WriterError) as caught:
+        writer.generate_full_newspaper_content(
+            "The Kevlarville Times", 3, GAMES, SUMMARY)
+    assert "Couldn't reach Claude" in str(caught.value)
+
+
+def test_a_failed_warm_up_does_not_stop_the_rest(swap_client, no_sleeping):
+    """Warming is an optimisation. If the headline call dies, the paper should
+    still be written — just without a cache and without a headline."""
+    calls = {"n": 0}
+
+    def first_one_fails(kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _connection_error()
+        return _reply("Some prose.")
+
+    swap_client(first_one_fails)
+    paper = writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY)
+
+    assert paper["lead_story"] == "Some prose."
+    assert paper["headline"], "fell back to nothing at all"

@@ -8,6 +8,10 @@ load_dotenv()
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+#: The model that writes the prose. Overridable so a league can be moved
+#: without a deploy if pricing or quality changes.
+MODEL = os.getenv("WRITER_MODEL", "claude-sonnet-4-6")
+
 KEVLARVILLE_SYSTEM_PROMPT = """
 You are the staff writer for a fantasy football newspaper: a ruthless, deeply
 football-literate columnist who knows this league personally and is not being
@@ -74,7 +78,19 @@ projection. Use them.
   an injury, a snap count or a play. You have the box score, not the tape —
   what the numbers say is yours to interpret, what happened on the field is
   not yours to make up.
+- Every line gives you both numbers, each labelled: what the player SCORED and
+  what they were PROJECTED. Never swap them. The single fastest way to lose a
+  reader is to tell them a player was projected for the number he actually
+  put up — they were watching, and they know.
 - End with where both teams now stand.
+
+PEOPLE
+You do not know anybody's gender. Not the managers, not the players. Refer to
+a manager by their name or their team, and to a player by their surname. Do
+not write he, she, him, her, his or hers about anyone — use their name again,
+or rewrite the sentence. "Nolan started Waddle and it cost him" becomes "Nolan
+started Waddle, and that was the week". This reads perfectly naturally and it
+never gets anyone wrong.
 
 HOW TO BE FUNNY WHILE DOING THAT
 - Specific nouns beat big adjectives. Not "a catastrophic performance" but
@@ -199,11 +215,36 @@ numbers and not against any general idea of what a fantasy score should be.
 """
 
 
-def system_prompt(tone: str = "standard", games=None) -> str:
-    """The house voice, adjusted for how hard this league wants to be hit."""
-    return (KEVLARVILLE_SYSTEM_PROMPT
-            + TONE_GUIDANCE.get(tone or "standard", "")
-            + scoring_scale(games))
+def system_prompt(tone: str = "standard", games=None) -> list[dict]:
+    """The house voice, as API blocks, split so the cache can be shared.
+
+    TWO BLOCKS, NOT ONE, AND THE ORDER MATTERS.
+
+    The first block is the voice guide: ~1,700 tokens, byte-identical for every
+    league and every week this app will ever write. It carries the cache mark,
+    so it is billed in full once and at a tenth of the price on every call
+    afterwards — including calls for a DIFFERENT league, as long as they land
+    within the cache's five-minute window. On a Sunday night when several
+    papers generate at once, that is the difference between paying for the
+    voice guide once and paying for it once per paper.
+
+    The second block is the tone override and this week's measured scoring
+    scale. Both vary by league and week, so putting them in the cached block
+    would make every paper a fresh cache write and throw the sharing away.
+    Anything after a cache mark is billed normally, which is exactly right for
+    a few dozen tokens that genuinely differ.
+    """
+    variable = (TONE_GUIDANCE.get(tone or "standard", "")
+                + scoring_scale(games))
+
+    blocks = [{
+        "type": "text",
+        "text": KEVLARVILLE_SYSTEM_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }]
+    if variable.strip():
+        blocks.append({"type": "text", "text": variable})
+    return blocks
 
 
 def format_performer(performer):
@@ -233,6 +274,23 @@ def _player_line(p, bench=False):
 
     A line, not a JSON object, because twenty nested dicts of five keys each is
     mostly punctuation. The model reads this the way a human reads a box score.
+
+    BOTH NUMBERS ARE LABELLED, and that is not cosmetic.
+
+    The first version of this line read:
+
+        Josh Allen (QB/BUF) 35.7 proj 19.3 (+16.4)
+
+    The score went out bare and only the projection carried a word. Nothing in
+    that line says which number is which, so the model guessed — and guessed
+    INCONSISTENTLY, which is worse than guessing wrong. The first real ESPN
+    paper printed "Justin Jefferson's 31.2 (projected 17.1)" correctly in one
+    paragraph and "Josh Allen came in at 35.7 projected" two paragraphs later,
+    with 35.7 being what he actually scored.
+
+    A paper whose numbers are sometimes backwards is not a paper anybody can
+    trust, and no amount of prompt instruction fixes an ambiguous input. Label
+    the number.
     """
     if not p or not p.get("name"):
         return None
@@ -242,16 +300,21 @@ def _player_line(p, bench=False):
     where = "/".join(x for x in (p.get("position"), p.get("nfl_team")) if x)
     if where:
         bits.append(f"({where})")
+    bits.append("\u2014")
 
     actual = p.get("actual")
-    bits.append(f"{actual:.1f}" if isinstance(actual, (int, float)) else "—")
+    bits.append(f"scored {actual:.1f}" if isinstance(actual, (int, float))
+                else "scored \u2014")
 
     projected = p.get("projected")
     if isinstance(projected, (int, float)):
-        bits.append(f"proj {projected:.1f}")
+        bits.append(f"| projected {projected:.1f}")
         gap = p.get("beat_projection_by")
         if isinstance(gap, (int, float)):
-            bits.append(f"({gap:+.1f})")
+            verb = "beat it by" if gap >= 0 else "missed by"
+            bits.append(f"| {verb} {abs(gap):.1f}")
+    else:
+        bits.append("| no projection")
 
     if p.get("injury_status"):
         bits.append(f"[{p['injury_status']}]")
@@ -372,7 +435,24 @@ def describe_api_failure(exc: BaseException) -> str:
     return " <- ".join(parts[:4])
 
 
-def call_claude(prompt, max_tokens=400, system=None, attempts=3):
+def _system_blocks(system):
+    """Normalise a system prompt into cacheable API blocks.
+
+    Accepts what system_prompt() returns (a block list, already marked), or a
+    bare string from an older caller or a test, which gets wrapped and marked
+    here so nothing silently loses the cache by passing the wrong shape.
+    """
+    if isinstance(system, list):
+        return system
+    return [{
+        "type": "text",
+        "text": system or KEVLARVILLE_SYSTEM_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }]
+
+
+def call_claude(prompt, max_tokens=400, system=None, attempts=3,
+                model=None):
     """Make a single call to the Claude API and return the text response.
 
     `system` is passed explicitly rather than read from a module global because
@@ -394,9 +474,16 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3):
     for attempt in range(attempts):
         try:
             message = client.messages.create(
-                model="claude-sonnet-4-6",
+                model=model or MODEL,
                 max_tokens=max_tokens,
-                system=system or KEVLARVILLE_SYSTEM_PROMPT,
+                # The system prompt is IDENTICAL across all eighteen calls
+                # that make one paper, and it is 74% of the paper's entire
+                # input bill. Marking it cacheable means it is billed in full
+                # once and at a tenth of the price for every call after.
+                #
+                # It has to be a block list, not a string, for cache_control
+                # to have anywhere to attach.
+                system=_system_blocks(system),
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
@@ -974,35 +1061,58 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         tasks[f"matchup_headline_{i}"] = lambda c=ctx: generate_matchup_headline(c, commissioner_name, inside_jokes, sys_prompt)
         tasks[f"matchup_body_{i}"] = lambda c=ctx: generate_matchup_body(c, commissioner_name, inside_jokes, sys_prompt)
 
-    # Fire all tasks in parallel
     results = {}
     failures = {}
     api_failures = 0
+
+    def record(key, fn):
+        """Run one task, folding success or failure into the shared state."""
+        try:
+            results[key] = fn()
+            print(f"[writer] ✓ {key}")
+            return
+        except CallFailed as e:
+            # The API is unreachable or refusing. Expected enough to log as
+            # one line — the chained cause is the part worth reading.
+            nonlocal api_failures
+            api_failures += 1
+            reason = describe_api_failure(e.__cause__ or e)
+            print(f"[writer] ✗ {key}: {reason}", flush=True)
+            results[key] = None
+            failures[key] = reason
+        except Exception as e:  # noqa: BLE001
+            # Anything else is a bug in our own code — a KeyError on league
+            # data, a bad format string. Those need a stack trace, and
+            # swallowing them into a one-line summary is how one sat
+            # undiagnosed behind a message about the network.
+            import traceback
+            print(f"[writer] ✗ {key} raised {type(e).__name__}", flush=True)
+            traceback.print_exc()
+            results[key] = None
+            failures[key] = f"{type(e).__name__}: {e}"
+
+    # ONE CALL FIRST, THEN THE REST FAN OUT.
+    #
+    # The system prompt is marked cacheable, but a cache only helps a call that
+    # starts after the cache exists. Firing all eighteen at once means twelve
+    # of them are in flight before any has written it, and twelve full-price
+    # copies of a 1,700-token prompt is most of the saving thrown away.
+    #
+    # So the headline goes first, alone. It is the cheapest call on the list
+    # (60 output tokens) and it is needed anyway, so the cost of warming the
+    # cache is one second of latency and nothing else.
+    total_calls = len(tasks)
+    remaining = dict(tasks)
+
+    warm = "headline"
+    if warm in remaining:
+        record(warm, remaining.pop(warm))
+
     with ThreadPoolExecutor(max_workers=12) as executor:
-        future_to_key = {executor.submit(fn): key for key, fn in tasks.items()}
-        for future in as_completed(future_to_key):
-            key = future_to_key[future]
-            try:
-                results[key] = future.result()
-                print(f"[writer] ✓ {key}")
-            except CallFailed as e:
-                # The API is unreachable or refusing. Expected enough to log as
-                # one line — the chained cause is the part worth reading.
-                api_failures += 1
-                reason = describe_api_failure(e.__cause__ or e)
-                print(f"[writer] ✗ {key}: {reason}", flush=True)
-                results[key] = None
-                failures[key] = reason
-            except Exception as e:  # noqa: BLE001
-                # Anything else is a bug in our own code — a KeyError on league
-                # data, a bad format string. Those need a stack trace, and
-                # swallowing them into a one-line summary is how one sat
-                # undiagnosed behind a message about the network.
-                import traceback
-                print(f"[writer] ✗ {key} raised {type(e).__name__}", flush=True)
-                traceback.print_exc()
-                results[key] = None
-                failures[key] = f"{type(e).__name__}: {e}"
+        futures = [executor.submit(record, key, fn)
+                   for key, fn in remaining.items()]
+        for future in as_completed(futures):
+            future.result()   # record() already swallowed anything worth it
 
     # Fail loudly on wholesale failure rather than quietly shipping a paper
     # made entirely of fallback strings.
@@ -1013,16 +1123,16 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # with the actual problem. A paper missing one recap is worth printing. A
     # paper where nothing was written is not a paper, and pretending otherwise
     # turns a clear infrastructure fault into a mystery.
-    if failures and len(failures) == len(tasks):
+    if failures and len(failures) == total_calls:
         reason = next(iter(failures.values()))
-        print(f"[writer] ALL {len(tasks)} calls failed. First: {reason}",
+        print(f"[writer] ALL {total_calls} calls failed. First: {reason}",
               flush=True)
-        if api_failures == len(tasks):
+        if api_failures == total_calls:
             raise WriterError(
                 f"Couldn't reach Claude — every request failed. ({reason})")
         raise WriterError(f"Nothing could be written. ({reason})")
     if failures:
-        print(f"[writer] {len(failures)} of {len(tasks)} calls failed; "
+        print(f"[writer] {len(failures)} of {total_calls} calls failed; "
               f"printing with fallbacks for: {', '.join(sorted(failures))}",
               flush=True)
 

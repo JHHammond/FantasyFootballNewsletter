@@ -638,13 +638,19 @@ def test_lore_reaches_the_context():
     assert "Nick benches his best guy" in ctx
 
 
-def test_tone_changes_the_system_prompt():
+def _system_text(*args, **kwargs):
+    """system_prompt returns API blocks now, not a string — see the docstring
+    on it for why. Tests care about the words, so flatten them."""
     from writer import system_prompt
 
-    assert "NO MERCY" in system_prompt("brutal")
-    assert "KEEP IT LIGHT" in system_prompt("friendly")
-    assert "No profanity" in system_prompt("friendly")
-    assert system_prompt("standard") == system_prompt(None)
+    return "".join(b["text"] for b in system_prompt(*args, **kwargs))
+
+
+def test_tone_changes_the_system_prompt():
+    assert "NO MERCY" in _system_text("brutal")
+    assert "KEEP IT LIGHT" in _system_text("friendly")
+    assert "No profanity" in _system_text("friendly")
+    assert _system_text("standard") == _system_text(None)
 
 
 def test_settings_page_can_edit_setup_answers(client, league):
@@ -1740,10 +1746,9 @@ def test_prompt_demands_specificity():
 
 
 def test_tone_overrides_still_apply():
-    from writer import system_prompt
-    assert "NO MERCY" in system_prompt("brutal")
-    assert "KEEP IT LIGHT" in system_prompt("friendly")
-    assert "Could this sentence be moved" in system_prompt("friendly")
+    assert "NO MERCY" in _system_text("brutal")
+    assert "KEEP IT LIGHT" in _system_text("friendly")
+    assert "Could this sentence be moved" in _system_text("friendly")
 
 
 # ===========================================================================

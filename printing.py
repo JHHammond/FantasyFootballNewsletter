@@ -113,31 +113,63 @@ BASE_PRINT_CSS = """
     /* A story split across a page boundary is the single thing that makes a
        printed web page look like a printed web page. */
 
-    .story-card,
+    /* SMALL things only.
+       .story-card and .paired-stories used to be in here, and that is what
+       made the paper full of holes: a game recap is about a third of a page,
+       so one that does not fit in the space left jumps WHOLE to the next
+       sheet and leaves that third blank. Measured at 29.5% of every page
+       wasted, with one page losing a third of itself and the last two thirds.
+       A newspaper splits a story across a break. It does not move it.
+       Orphan and widow control below keeps the split from landing somewhere
+       stupid. */
     .award-card,
     .ranking-card,
     .player-card,
     .classified,
     .fraud-callout,
-    .paired-stories,
     .subscribe-block,
     .image-wrap,
     .hero-image-wrap,
+    /* The score box is one row of two team names. Split down the middle it
+       reads as two different results. */
+    .story-scorebar,
     figure,
     img {
         break-inside: avoid;
         page-break-inside: avoid;
     }
 
+    /* A story may split, but never right after its own headline and never
+       leaving one line stranded. */
+    .story-card, .paired-stories { break-inside: auto; }
+
     /* A heading at the foot of a page, its content overleaf, is worse than a
        slightly short page. */
     .masthead,
     .section-title,
     .section-title-full,
+    /* The one-line note under Honor Roll and Detention. Without it here, the
+       heading binds to the NOTE and the two of them sit alone at the foot of
+       a page with the players overleaf — which is exactly what the first ESPN
+       paper printed. break-after: avoid only ever binds a block to whatever
+       comes immediately next, so every element in a header stack needs it,
+       not just the first. */
+    .section-note,
     .story-label,
     .col-section-label,
     .story-headline,
     .col-story-headline,
+    /* A story's header is four blocks, not one:
+           .story-label -> .story-headline -> .story-subhead -> .story-scorebar
+       Only the first two were listed here, so the chain ended at the subhead
+       and the page was free to break between the subhead and the score box.
+       Measured over a sweep of the whole page height: 3 breaks landed exactly
+       there, leaving a genre tag, a headline and a deck at the foot of a page
+       with the score and the entire article overleaf. Every link in the chain
+       needs the rule, because break-after: avoid binds a block only to
+       whatever comes IMMEDIATELY after it. */
+    .story-subhead,
+    .story-scorebar,
     .award-title,
     .headline {
         break-after: avoid;
@@ -244,7 +276,44 @@ BASE_PRINT_CSS = """
     .story-body, .col-story-body, .award-body { font-size: 9.5pt !important; }
     .col-story-headline { font-size: 11pt !important; }
     .full-section { padding: 0 18px !important; }
-    .rankings-section { padding: 14px 18px !important; }
+    .rankings-section { padding: 10px 18px !important; }
+
+    /* --- DENSITY -------------------------------------------------------
+       The screen stylesheet is built for a 1200px scroll where vertical
+       whitespace is free and helps. On a fixed sheet it is the enemy: every
+       28px gutter is a line of type not printed, and enough of them push a
+       section onto a page it did not need.
+
+       Measured: the paper was averaging over 20% blank on every page that had
+       content after it. A real newspaper is dense because paper costs money;
+       this one should read the same way. */
+    .full-section,
+    .wire-section,
+    .classifieds-section,
+    .subscribe-block { margin-top: 10px !important; margin-bottom: 10px !important; }
+
+    .section-title-full {
+        margin-bottom: 8px !important;
+        padding: 3px 0 !important;
+        font-size: 10pt !important;
+    }
+    .section-note { margin: 2px 0 6px !important; font-size: 8.5pt !important; }
+
+    .story-card { margin-bottom: 10px !important; }
+    .story-headline-lead { margin-bottom: 4px !important; }
+    .player-grid { gap: 8px !important; }
+    .awards-grid-full, .awards-grid { gap: 10px !important; }
+    .rankings-grid { gap: 8px !important; }
+    .week-ticker { margin: 8px 0 0 !important; }
+    .fraud-callout { margin: 10px 0 !important; padding: 10px 14px !important; }
+    .player-card { padding: 6px 4px !important; }
+    .award-card { padding: 10px 12px !important; }
+
+    /* Type that fills a column rather than floating in one. */
+    .story-body, .col-story-body, .award-body {
+        line-height: 1.38 !important;
+    }
+    .lead-story { line-height: 1.42 !important; }
 
     table, .stats { font-size: 8.5pt !important; }
 
