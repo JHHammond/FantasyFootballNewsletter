@@ -425,6 +425,11 @@ def create_user(email: str, password_hash: str) -> Optional[dict[str, Any]]:
         _USERS[uid] = {
             "id": uid, "email": email, "password_hash": password_hash,
             "created_at": _now(), "last_login_at": None, "verified_at": None,
+            # Migration 014's defaults, so demo mode is on the free tier from
+            # the moment an account exists rather than from the first webhook.
+            "plan": "free", "plan_status": None,
+            "stripe_customer_id": None, "stripe_subscription_id": None,
+            "plan_renews_at": None, "plan_updated_at": None,
         }
         return dict(_USERS[uid])
 
@@ -455,6 +460,35 @@ def claim_league(league_id: str, user_id: str) -> None:
     with _lock:
         if league_id in _LEAGUES:
             _LEAGUES[league_id]["user_id"] = user_id
+
+
+# --- plans, mirroring db.py -------------------------------------------------
+
+def user_by_stripe_customer(customer_id: str) -> Optional[dict[str, Any]]:
+    if not customer_id:
+        return None
+    return next((dict(u) for u in _USERS.values()
+                 if u.get("stripe_customer_id") == customer_id), None)
+
+
+def set_plan(user_id: str, *, plan: str, status: Optional[str] = None,
+             subscription_id: Optional[str] = None,
+             renews_at: Optional[str] = None) -> None:
+    with _lock:
+        row = _USERS.get(user_id)
+        if row:
+            row.update({
+                "plan": plan, "plan_status": status,
+                "stripe_subscription_id": subscription_id,
+                "plan_renews_at": renews_at, "plan_updated_at": _now(),
+            })
+
+
+def remember_stripe_customer(user_id: str, customer_id: str) -> None:
+    with _lock:
+        row = _USERS.get(user_id)
+        if row:
+            row["stripe_customer_id"] = customer_id
 
 
 # ---------------------------------------------------------------------------

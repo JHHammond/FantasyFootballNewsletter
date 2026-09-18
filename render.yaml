@@ -63,6 +63,37 @@ services:
                               # every deploy.
       - key: TASK_KEY
         generateValue: true
+      - key: STRIPE_SECRET_KEY
+        sync: false        # sk_live_... Never goes near a browser. With this
+                           # unset the app runs exactly as it does today:
+                           # everybody on the free plan, no upgrade buttons,
+                           # every gate still enforced. There is no state in
+                           # which forgetting a Stripe variable gives the paid
+                           # features away.
+      - key: STRIPE_PRICE_ID
+        sync: false        # price_... for the $4.99/month recurring price.
+                           # The PRICE id, not the product id — a product id
+                           # (prod_...) is rejected by Checkout with an error
+                           # that does not say which of the two it wanted.
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false        # whsec_... from the webhook endpoint you create in
+                           # the Stripe dashboard, pointed at
+                           #   https://<your domain>/stripe/webhook
+                           # subscribed to: checkout.session.completed and
+                           # customer.subscription.created/updated/deleted.
+                           #
+                           # THIS IS THE PAYWALL'S ONLY LOCK. The webhook is
+                           # the sole route that can move somebody onto the
+                           # paid plan, and it will not act on a request whose
+                           # signature it cannot verify with this value. Unset
+                           # means that route 404s — nobody can be upgraded,
+                           # including by a stranger who guesses the path.
+                           #
+                           # Stripe shows a DIFFERENT secret for its CLI test
+                           # listener than for a real endpoint. Pasting the
+                           # CLI one into production means every real event is
+                           # rejected with a 400 and every subscriber pays
+                           # while staying on the free tier.
       - key: PUBLISHER_TOKEN
         sync: false        # opens /publisher/<value>, where the weekly
                            # classifieds page is made.

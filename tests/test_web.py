@@ -48,12 +48,38 @@ def client():
 
 @pytest.fixture
 def league():
-    return demo_db.create_league(
+    """A league on the PAID plan.
+
+    Deliberately paid, because most of this file is about photo uploads,
+    themes and regenerations — things the paywall gates but that are not what
+    those tests are about. A free fixture would turn every one of them into a
+    test of the paywall by accident, and they would stop covering what they
+    were written to cover. The gates get their own tests, with `free_league`.
+    """
+    owner = demo_db.create_user("owner@example.com", "x")
+    demo_db.set_plan(owner["id"], plan="paid", status="active")
+    made = demo_db.create_league(
         provider="sleeper", platform_league_id="123",
         league_name="Kevlarville", paper_name="The Kevlarville Times",
         commissioner_name="johnhenryhammond", season=2025,
         public_slug="kevlarville-7f3a", admin_token="secret-admin-token",
     )
+    demo_db.claim_league(made["id"], owner["id"])
+    return demo_db.league_by_admin_token("secret-admin-token")
+
+
+@pytest.fixture
+def free_league():
+    """The same league, owned by somebody who has not paid."""
+    owner = demo_db.create_user("free@example.com", "x")
+    made = demo_db.create_league(
+        provider="sleeper", platform_league_id="789",
+        league_name="Thriftville", paper_name="The Thriftville Times",
+        commissioner_name="somebody", season=2025,
+        public_slug="thriftville-1", admin_token="free-admin-token",
+    )
+    demo_db.claim_league(made["id"], owner["id"])
+    return demo_db.league_by_admin_token("free-admin-token")
 
 
 @pytest.fixture
@@ -2997,7 +3023,9 @@ def test_a_league_made_while_signed_in_belongs_to_you(client, monkeypatch):
 def test_opening_an_orphan_league_while_signed_in_adopts_it(client, league):
     """How a league made before signing up joins an account: open the link you
     already have."""
-    assert league.get("user_id") is None
+    # The fixture arrives owned, because most tests need the paid plan. This
+    # one is about what happens to a league that has no owner at all.
+    demo_db.update_league(league["id"], {"user_id": None})
     _signup(client)
     user = demo_db.user_by_email("john@example.com")
 
@@ -3494,11 +3522,23 @@ def _generate(client, week=1):
                        follow_redirects=False)
 
 
+#: The `league` fixture is paid, so this is the allowance those tests mean.
+#: Asking plans.py rather than restating 3 means changing the price sheet
+#: changes these too, which is the whole reason plans.py exists.
+def _paid_allowance():
+    import plans
+    return plans.regenerations_per_week(plans.PLANS[plans.PAID])
+
+
+PAID_ALLOWANCE = _paid_allowance()
+
+
 def test_the_first_generation_is_not_a_regeneration(client, league, monkeypatch):
     """You cannot redo something you have not done. A week with no paper has
     its whole allowance intact."""
     assert webapp.regenerations_used(None) == 0
-    assert webapp.regenerations_left(None) == webapp.REGENERATIONS_PER_WEEK
+    assert webapp.regenerations_left(
+        None, demo_db.user_by_email("owner@example.com")) == PAID_ALLOWANCE
 
     monkeypatch.setattr(webapp, "generate_and_store",
                         lambda db_, lg, wk: demo_db.save_paper(
@@ -3507,7 +3547,8 @@ def test_the_first_generation_is_not_a_regeneration(client, league, monkeypatch)
 
     paper = demo_db.get_paper(league["id"], league["season"], 1)
     assert webapp.regenerations_used(paper) == 0
-    assert webapp.regenerations_left(paper) == webapp.REGENERATIONS_PER_WEEK
+    assert webapp.regenerations_left(
+        paper, demo_db.user_by_email("owner@example.com")) == PAID_ALLOWANCE
 
 
 def test_editing_never_spends_a_regeneration(client, league):
@@ -3533,12 +3574,12 @@ def test_the_allowance_runs_out_after_three(client, league, monkeypatch):
     monkeypatch.setattr(webapp, "generate_and_store", fake)
 
     _generate(client)                      # the paper itself
-    for _ in range(webapp.REGENERATIONS_PER_WEEK):
+    for _ in range(PAID_ALLOWANCE):
         _generate(client)                  # the three redos
-    assert calls["n"] == webapp.REGENERATIONS_PER_WEEK + 1
+    assert calls["n"] == PAID_ALLOWANCE + 1
 
     blocked = _generate(client)
-    assert calls["n"] == webapp.REGENERATIONS_PER_WEEK + 1, "generated anyway"
+    assert calls["n"] == PAID_ALLOWANCE + 1, "generated anyway"
     assert blocked.status_code == 303
     assert "error=" in blocked.headers["location"]
 
@@ -3550,7 +3591,7 @@ def test_running_out_points_at_editing_rather_than_just_refusing(client, league,
     monkeypatch.setattr(webapp, "generate_and_store",
                         lambda db_, lg, wk: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
-    for _ in range(webapp.REGENERATIONS_PER_WEEK + 1):
+    for _ in range(PAID_ALLOWANCE + 1):
         _generate(client)
 
     message = _generate(client).headers["location"]
@@ -3563,7 +3604,7 @@ def test_the_allowance_is_per_week_not_per_league(client, league, monkeypatch):
                         lambda db_, lg, wk: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
 
-    for _ in range(webapp.REGENERATIONS_PER_WEEK + 1):
+    for _ in range(PAID_ALLOWANCE + 1):
         _generate(client, week=1)
     assert "error=" in _generate(client, week=1).headers["location"]
 
@@ -3575,9 +3616,9 @@ def test_a_paper_written_before_the_counter_existed_keeps_its_allowance(client):
     """Rows predating migration 011 have no generation_count. Erring toward
     the commissioner is the only defensible direction — the alternative is
     silently confiscating redos from everyone who already had a paper."""
-    assert webapp.regenerations_left({"week": 3}) == webapp.REGENERATIONS_PER_WEEK
-    assert webapp.regenerations_left({"week": 3, "generation_count": None}) == \
-        webapp.REGENERATIONS_PER_WEEK
+    free = webapp.regenerations_allowed(None)
+    assert webapp.regenerations_left({"week": 3}) == free
+    assert webapp.regenerations_left({"week": 3, "generation_count": None}) == free
 
 
 def test_the_remaining_count_is_on_the_week_picker(client, league, monkeypatch):
@@ -3992,3 +4033,444 @@ def test_an_unset_token_is_not_reported_as_broken(monkeypatch, capsys):
     monkeypatch.delenv("PUBLISHER_TOKEN", raising=False)
     webapp.announce_unusable_publisher_token()
     assert capsys.readouterr().out == ""
+
+
+# ===========================================================================
+# The paywall
+#
+# The rule that matters here is the one about who can grant access: the
+# webhook, and nothing else. A paywall you can walk through by editing a URL
+# is not a paywall, and one that charges somebody and then does not let them
+# in is worse than not charging at all.
+# ===========================================================================
+
+import plans  # noqa: E402
+
+
+def _paid_user(email="payer@example.com", status="active"):
+    user = demo_db.create_user(email, "x")
+    demo_db.set_plan(user["id"], plan="paid", status=status)
+    return demo_db.user_by_id(user["id"])
+
+
+# --- what a plan means -----------------------------------------------------
+
+def test_nobody_signed_in_is_on_the_free_plan():
+    """Most readers, every token-only league, and every request that arrives
+    before migration 014 has run."""
+    assert plans.plan_for(None).key == plans.FREE
+    assert plans.plan_for({}).key == plans.FREE
+    assert plans.plan_for({"email": "x"}).key == plans.FREE
+
+
+def test_a_cancelled_subscription_loses_the_features():
+    """The `plan` column alone would keep somebody on the paid tier forever if
+    one webhook were ever missed. Stripe's own word for the subscription is
+    checked alongside it, and Stripe wins."""
+    for dead in ("canceled", "unpaid", "past_due", "incomplete",
+                 "incomplete_expired", "paused"):
+        user = {"plan": "paid", "plan_status": dead}
+        assert plans.plan_for(user).key == plans.FREE, dead
+
+    for alive in ("active", "trialing"):
+        assert plans.plan_for({"plan": "paid", "plan_status": alive}).key \
+            == plans.PAID, alive
+
+
+def test_cancelling_keeps_the_month_that_was_paid_for():
+    """Stripe leaves a cancelled-but-not-yet-expired subscription `active`
+    until the period actually ends. Anything else takes away something
+    somebody has already paid for."""
+    assert plans.plan_for({"plan": "paid", "plan_status": "active",
+                           "cancel_at_period_end": True}).key == plans.PAID
+
+
+# --- the gates, which hold against the form as well as the page ------------
+
+def test_a_free_account_cannot_post_its_way_to_a_paid_theme(client, free_league):
+    """The greyed-out radio button is a courtesy. This is the rule."""
+    client.post("/l/free-admin-token/settings", data={
+        "paper_name": "x", "commissioner": "y", "theme": "gameday",
+        "format": "redraft", "tone": "standard"})
+
+    assert demo_db._LEAGUES[free_league["id"]]["theme"] == "tabloid"
+
+
+def test_a_paid_account_gets_the_theme_it_asked_for(client, league):
+    client.post("/l/secret-admin-token/settings", data={
+        "paper_name": "x", "commissioner": "y", "theme": "gameday",
+        "format": "redraft", "tone": "standard"})
+
+    assert demo_db._LEAGUES[league["id"]]["theme"] == "gameday"
+
+
+def test_the_setup_page_gates_the_theme_too(client, free_league):
+    """Two forms write this column. Gating one of them is gating neither."""
+    client.post("/l/free-admin-token/setup", data={"theme": "broadsheet"})
+    assert demo_db._LEAGUES[free_league["id"]]["theme"] == "tabloid"
+
+
+def test_a_free_account_cannot_turn_on_auto_send(client, free_league):
+    """This one spends money every week without anybody pressing anything,
+    so it is the gate that would cost the most to get wrong."""
+    client.post("/l/free-admin-token/settings", data={
+        "paper_name": "x", "commissioner": "y", "auto_send": "on",
+        "theme": "tabloid", "format": "redraft", "tone": "standard"})
+
+    assert demo_db._LEAGUES[free_league["id"]]["auto_send"] is False
+
+
+def test_a_paid_account_can(client, league):
+    client.post("/l/secret-admin-token/settings", data={
+        "paper_name": "x", "commissioner": "y", "auto_send": "on",
+        "theme": "tabloid", "format": "redraft", "tone": "standard"})
+
+    assert demo_db._LEAGUES[league["id"]]["auto_send"] is True
+
+
+def test_photo_uploads_are_refused_on_the_free_plan(client, free_league):
+    png = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + b"IHDR"
+           + (1).to_bytes(4, "big") + (1).to_bytes(4, "big"))
+    r = client.post("/l/free-admin-token/upload-image",
+                    files={"photo": ("x.png", png, "image/png")})
+
+    assert r.status_code == 402
+    assert "4.99" in r.json()["error"]
+
+
+def test_the_free_allowance_is_smaller_and_still_works(client, free_league,
+                                                       monkeypatch):
+    """Free is not crippled, it is smaller. Two redos still happen."""
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: demo_db.save_paper(
+                            lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
+
+    free = plans.regenerations_per_week(plans.PLANS[plans.FREE])
+    for _ in range(free + 1):
+        r = client.post("/l/free-admin-token/generate", data={"week": 1},
+                        follow_redirects=False)
+        assert "error=" not in r.headers["location"], r.headers["location"]
+
+    spent = client.post("/l/free-admin-token/generate", data={"week": 1},
+                        follow_redirects=False)
+    assert "error=" in spent.headers["location"]
+    assert free < plans.regenerations_per_week(plans.PLANS[plans.PAID])
+
+
+def test_running_out_only_mentions_paying_to_somebody_it_would_help(
+        client, league, free_league, monkeypatch):
+    """Telling a paying customer who has used all three that they could pay
+    for more is the most irritating sentence a product can print."""
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: demo_db.save_paper(
+                            lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
+
+    def spend(token, times):
+        for _ in range(times):
+            client.post(f"/l/{token}/generate", data={"week": 1},
+                        follow_redirects=False)
+        return client.post(f"/l/{token}/generate", data={"week": 1},
+                           follow_redirects=False).headers["location"]
+
+    free_msg = spend("free-admin-token",
+                     plans.regenerations_per_week(plans.PLANS[plans.FREE]) + 2)
+    paid_msg = spend("secret-admin-token",
+                     plans.regenerations_per_week(plans.PLANS[plans.PAID]) + 2)
+
+    assert "4.99" in free_msg
+    assert "4.99" not in paid_msg
+
+
+def test_a_second_league_is_refused_on_the_free_plan(client, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(name="First"))
+    _signup(client)
+
+    client.post("/connect/sleeper/add", data={"league_id": "111"},
+                follow_redirects=False)
+    second = client.post("/connect/sleeper/add", data={"league_id": "222"},
+                         follow_redirects=False)
+
+    assert "error=" in second.headers["location"]
+    user = demo_db.user_by_email("john@example.com")
+    assert len(demo_db.leagues_for_user(user["id"])) == 1
+
+
+def test_a_paid_account_can_run_as_many_leagues_as_it_likes(client, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(name="Any"))
+    _signup(client)
+    user = demo_db.user_by_email("john@example.com")
+    demo_db.set_plan(user["id"], plan="paid", status="active")
+
+    for league_id in ("111", "222", "333"):
+        client.post("/connect/sleeper/add", data={"league_id": league_id},
+                    follow_redirects=False)
+
+    assert len(demo_db.leagues_for_user(user["id"])) == 3
+
+
+def test_picking_up_a_league_you_already_made_is_never_refused(client,
+                                                              monkeypatch):
+    """The cap is on creating, not on recovering. Refusing adoption would
+    strand somebody with a paper they own and cannot reach."""
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(name="Mine"))
+    _signup(client)
+    user = demo_db.user_by_email("john@example.com")
+
+    client.post("/connect/sleeper/add", data={"league_id": "111"},
+                follow_redirects=False)
+    orphan = demo_db.create_league(
+        provider="sleeper", platform_league_id="999", league_name="Orphan",
+        paper_name="The Orphan Times", commissioner_name="", season=2025,
+        public_slug="orphan-1", admin_token="orphan-token")
+
+    client.get("/l/orphan-token")
+
+    assert demo_db._LEAGUES[orphan["id"]]["user_id"] == user["id"]
+
+
+# --- the plan follows the owner, not whoever is holding the link -----------
+
+def test_a_shared_manage_link_carries_the_subscription_with_it(client, league):
+    """One member of a league pays and the paper is better for everybody. A
+    league-mate opening the manage link gets the paid features, because they
+    belong to the league's owner, not to the browser."""
+    r = client.post("/l/secret-admin-token/settings", data={
+        "paper_name": "x", "commissioner": "y", "theme": "broadsheet",
+        "format": "redraft", "tone": "standard"})
+
+    assert r.status_code in (200, 303)
+    assert demo_db._LEAGUES[league["id"]]["theme"] == "broadsheet"
+
+
+# --- the webhook, which is the only way in ---------------------------------
+
+def test_an_unsigned_webhook_cannot_hand_out_a_subscription(client, monkeypatch):
+    """The whole security of the paywall. The URL is public; the signature is
+    the only thing that says an event came from Stripe."""
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    user = demo_db.create_user("victim@example.com", "x")
+    demo_db.remember_stripe_customer(user["id"], "cus_123")
+
+    forged = {"type": "customer.subscription.updated",
+              "data": {"object": {"customer": "cus_123", "status": "active",
+                                  "id": "sub_1"}}}
+
+    r = client.post("/stripe/webhook", json=forged)
+
+    assert r.status_code == 400
+    assert demo_db.user_by_id(user["id"])["plan"] == "free"
+
+
+def test_the_webhook_is_invisible_with_no_secret_configured(client, monkeypatch):
+    """An endpoint that cannot verify anything should not look like an
+    endpoint that might."""
+    monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
+    assert client.post("/stripe/webhook", json={"type": "x"}).status_code == 404
+
+
+def test_the_success_page_grants_nothing(client):
+    """Coming back from Stripe proves somebody visited a URL. Anybody can
+    visit a URL."""
+    _signup(client)
+    user = demo_db.user_by_email("john@example.com")
+
+    body = client.get("/billing/done?ok=1").text
+
+    assert demo_db.user_by_id(user["id"])["plan"] == "free"
+    assert "Almost there" in body
+
+
+def test_a_verified_event_is_what_actually_grants_it(monkeypatch):
+    """The other half: a real event does work, and sets the plan from the
+    subscription's STATUS rather than from the event's name."""
+    from web import billing
+
+    user = demo_db.create_user("buyer@example.com", "x")
+    demo_db.remember_stripe_customer(user["id"], "cus_abc")
+
+    billing.apply_subscription(demo_db, _subscription("cus_abc", "active"))
+    assert demo_db.user_by_id(user["id"])["plan"] == "paid"
+
+    billing.apply_subscription(demo_db, _subscription("cus_abc", "canceled"))
+    assert demo_db.user_by_id(user["id"])["plan"] == "free"
+
+
+class _Obj:
+    """A stand-in for a Stripe object: attribute access over a dict."""
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _subscription(customer, status, period_end=1790000000, metadata=None):
+    return _Obj(id="sub_test", customer=customer, status=status,
+                metadata=metadata or {},
+                items=_Obj(data=[_Obj(current_period_end=period_end)]))
+
+
+def test_the_period_end_is_read_off_the_item_not_the_subscription():
+    """Stripe moved current_period_end onto the subscription ITEM in the
+    2025-03-31 API version and left nothing on the parent. Reading it off the
+    subscription returns None — silently, which is the worst kind."""
+    from web import billing
+
+    user = demo_db.create_user("dated@example.com", "x")
+    demo_db.remember_stripe_customer(user["id"], "cus_dated")
+
+    billing.apply_subscription(demo_db, _subscription("cus_dated", "active"))
+
+    renews = demo_db.user_by_id(user["id"])["plan_renews_at"]
+    assert renews and renews.startswith("2026-"), renews
+
+
+def test_an_event_for_a_stranger_changes_nobody(monkeypatch):
+    """A subscription against a customer this app has never stored must not
+    pick the nearest account and upgrade it."""
+    from web import billing
+
+    user = demo_db.create_user("bystander@example.com", "x")
+
+    result = billing.apply_subscription(demo_db,
+                                        _subscription("cus_unknown", "active"))
+
+    assert "no matching account" in result
+    assert demo_db.user_by_id(user["id"])["plan"] == "free"
+
+
+def test_a_subscription_made_in_the_stripe_dashboard_still_finds_its_owner():
+    """The one case the customer lookup cannot cover, which is why the user id
+    is copied onto the subscription's metadata at checkout."""
+    from web import billing
+
+    user = demo_db.create_user("dashboard@example.com", "x")
+    subscription = _subscription("cus_never_seen", "active",
+                                 metadata={"user_id": user["id"]})
+
+    billing.apply_subscription(demo_db, subscription)
+
+    fresh = demo_db.user_by_id(user["id"])
+    assert fresh["plan"] == "paid"
+    # And the customer id is backfilled, so the next event takes the fast path.
+    assert fresh["stripe_customer_id"] == "cus_never_seen"
+
+
+# --- what the page shows ---------------------------------------------------
+
+def test_the_locked_looks_are_shown_not_hidden(client, free_league):
+    """Nobody upgrades to get something they never knew existed."""
+    body = client.get("/l/free-admin-token").text
+
+    assert "Broadsheet" in body
+    assert "Gameday" in body
+    assert 'disabled' in body
+
+
+def test_a_paid_league_sees_no_locks_on_its_own_settings(client, league):
+    body = client.get("/l/secret-admin-token").text
+    assert "4.99" not in body
+
+
+def test_the_account_page_says_what_paying_would_add(client):
+    _signup(client)
+    body = client.get("/account").text
+
+    assert "Free" in body
+    for word in ("leagues", "photos", "Tuesday"):
+        assert word in body, word
+
+
+def test_the_upgrade_button_only_appears_when_stripe_is_configured(
+        client, monkeypatch):
+    """A button that 500s is worse than no button."""
+    _signup(client)
+
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("STRIPE_PRICE_ID", raising=False)
+    assert "/billing/checkout" not in client.get("/account").text
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRICE_ID", "price_test")
+    assert "/billing/checkout" in client.get("/account").text
+
+
+def _signed(payload: bytes, secret: str = "whsec_test") -> str:
+    """A real Stripe-Signature header, built the way Stripe builds one.
+
+    Without this, the unsigned-webhook test above proves nothing: a route that
+    rejected EVERY request would pass it. This is the other half — a correctly
+    signed event has to get through, which is the only thing that makes the
+    rejection meaningful.
+    """
+    import hashlib
+    import hmac as hmac_mod
+    import time as time_mod
+
+    stamp = int(time_mod.time())
+    signed = f"{stamp}.".encode() + payload
+    digest = hmac_mod.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    return f"t={stamp},v1={digest}"
+
+
+def test_a_correctly_signed_event_is_accepted_and_applied(client, monkeypatch):
+    import json as json_mod
+
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+
+    user = demo_db.create_user("signed@example.com", "x")
+    demo_db.remember_stripe_customer(user["id"], "cus_signed")
+
+    body = json_mod.dumps({
+        "id": "evt_1", "object": "event",
+        "type": "customer.subscription.updated",
+        "data": {"object": {
+            "id": "sub_signed", "object": "subscription",
+            "customer": "cus_signed", "status": "active",
+            "items": {"object": "list", "data": [
+                {"id": "si_1", "object": "subscription_item",
+                 "current_period_end": 1790000000},
+            ]},
+            "metadata": {},
+        }},
+    }).encode()
+
+    r = client.post("/stripe/webhook", content=body,
+                    headers={"stripe-signature": _signed(body),
+                             "content-type": "application/json"})
+
+    assert r.status_code == 200, r.text
+    fresh = demo_db.user_by_id(user["id"])
+    assert fresh["plan"] == "paid"
+    assert fresh["plan_status"] == "active"
+    assert (fresh["plan_renews_at"] or "").startswith("2026-")
+
+
+def test_the_same_event_with_one_byte_changed_is_rejected(client, monkeypatch):
+    """The signature covers the bytes. Tampering with the amount, the status
+    or the customer has to invalidate it, or it is decoration."""
+    import json as json_mod
+
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+
+    user = demo_db.create_user("tamper@example.com", "x")
+    demo_db.remember_stripe_customer(user["id"], "cus_tamper")
+
+    honest = json_mod.dumps({
+        "id": "evt_2", "object": "event",
+        "type": "customer.subscription.updated",
+        "data": {"object": {
+            "id": "sub_t", "object": "subscription",
+            "customer": "cus_tamper", "status": "canceled",
+            "items": {"object": "list", "data": []}, "metadata": {},
+        }},
+    }).encode()
+    signature = _signed(honest)
+    tampered = honest.replace(b'"canceled"', b'"active"  ')
+
+    r = client.post("/stripe/webhook", content=tampered,
+                    headers={"stripe-signature": signature,
+                             "content-type": "application/json"})
+
+    assert r.status_code == 400
+    assert demo_db.user_by_id(user["id"])["plan"] == "free"

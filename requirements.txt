@@ -13,6 +13,11 @@ anthropic>=0.34
 markdown>=3.5
 python-dotenv>=1.0
 
+# Payments. Pinned to 15.x because the paywall depends on a shape that CHANGED
+# in a recent API version: current_period_end moved off the Subscription and
+# onto the subscription item. See web/billing.py.
+stripe>=15.0,<16
+
 # Tests
 pytest>=7.4
 httpx>=0.27                  # FastAPI's TestClient depends on this

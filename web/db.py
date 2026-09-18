@@ -724,6 +724,55 @@ def claim_league(league_id: str, user_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Plans
+#
+# These are a cache of Stripe, written by the webhook. Unlike almost every
+# other read in this file, they do NOT fail soft: a lookup that swallowed its
+# error and returned None would silently drop somebody's subscription on the
+# floor and leave them paying for the free tier. If the database is unhappy
+# the webhook should fail, so Stripe retries it — which is exactly what Stripe
+# retries are for.
+# ---------------------------------------------------------------------------
+
+def user_by_stripe_customer(customer_id: str) -> Optional[dict[str, Any]]:
+    """Who this Stripe customer is.
+
+    The webhook arrives knowing a customer id and nothing else, so this is the
+    join between what Stripe says and who it happened to.
+    """
+    if not customer_id:
+        return None
+    res = (client().table("users").select("*")
+           .eq("stripe_customer_id", customer_id).limit(1).execute())
+    return res.data[0] if res.data else None
+
+
+def set_plan(user_id: str, *, plan: str, status: Optional[str] = None,
+             subscription_id: Optional[str] = None,
+             renews_at: Optional[str] = None) -> None:
+    """Record what Stripe just said about somebody's subscription."""
+    client().table("users").update({
+        "plan": plan,
+        "plan_status": status,
+        "stripe_subscription_id": subscription_id,
+        "plan_renews_at": renews_at,
+        "plan_updated_at": "now()",
+    }).eq("id", user_id).execute()
+
+
+def remember_stripe_customer(user_id: str, customer_id: str) -> None:
+    """Tie an account to its Stripe customer, once.
+
+    Written before checkout rather than after, so that the webhook can find
+    the account even if the person closes the tab on Stripe's page and the
+    success redirect never happens. The subscription event arrives regardless
+    and has to land somewhere.
+    """
+    client().table("users").update(
+        {"stripe_customer_id": customer_id}).eq("id", user_id).execute()
+
+
+# ---------------------------------------------------------------------------
 # The classifieds page
 #
 # The first global content in the app. Every other read in this file is scoped

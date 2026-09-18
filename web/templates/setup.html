@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import lock, upgrade_note %}
 
 {% block title %}Set up {{ paper_name }}{% endblock %}
 
@@ -65,20 +66,27 @@
         </p>
         <div class="theme-row">
             {% for t in theme_choices() %}
-            <label class="theme-card theme-{{ t.key }}">
+            {% set locked = t.key not in allowed_themes %}
+            <label class="theme-card theme-{{ t.key }}{% if locked %} locked-option{% endif %}">
                 <input type="radio" name="theme" value="{{ t.key }}"
-                       {% if loop.first %}checked{% endif %} />
+                       {% if locked %}disabled{% endif %}
+                       {% if t.key in allowed_themes and loop.first %}checked{% endif %} />
                 <span class="theme-sample theme-sample-{{ t.key }}">
                     <span class="theme-sample-masthead">The Times</span>
                     <span class="theme-sample-head">SATAN OPENS 0-1</span>
                     <span class="theme-sample-body"></span>
                     <span class="theme-sample-body short"></span>
                 </span>
-                <span class="theme-name">{{ t.label }}</span>
+                <span class="theme-name">
+                    {{ t.label }}{% if locked %}{{ lock(lock_reasons.themes) }}{% endif %}
+                </span>
                 <span class="theme-blurb">{{ t.blurb }}</span>
             </label>
             {% endfor %}
         </div>
+        {% if theme_choices()|length > allowed_themes|length %}
+        {{ upgrade_note(lock_reasons.themes, billing_enabled()) }}
+        {% endif %}
     </section>
 
     <section class="card">

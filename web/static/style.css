@@ -274,6 +274,50 @@ textarea { resize: vertical; }
 
 .empty { color: var(--muted); font-style: italic; margin-bottom: 18px; }
 
+/* ---------- locks ----------
+   What the paid plan has. Shown, not hidden: nobody upgrades to get something
+   they never knew existed, and a product whose free tier looks complete has
+   no second page. */
+
+.lock {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: -1px;
+    margin-left: 5px;
+    color: var(--gold);
+}
+
+/* Announced to a screen reader, invisible to everyone else. A padlock that is
+   only a picture tells a blind user nothing at all. */
+.sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.upgrade-note {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.upgrade-note a { color: var(--green); }
+
+/* A control you can see and cannot use. Deliberately still legible — greyed
+   to the point of unreadable reads as broken rather than as locked. */
+.locked-option {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.theme-card.locked-option .theme-sample { filter: grayscale(0.85); }
+
+.theme-card.locked-option .theme-name { color: var(--muted); }
+
 /* The one card on the page you can't undo. It should not look like the
    others — somebody scrolling past needs to see it coming. */
 .card-danger { border-color: var(--red); }
@@ -1041,3 +1085,20 @@ textarea { resize: vertical; }
     .specimen-name { font-size: 22px; }
     .specimen-headline { font-size: 22px; }
 }
+
+/* The list of what the paid plan adds, on the account page. Each line leads
+   with its padlock, so the column of locks reads as one answer to "what am I
+   not getting" rather than five separate disappointments. */
+.plan-list {
+    list-style: none;
+    margin: 0 0 20px;
+}
+
+.plan-list li {
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px;
+    color: var(--ink-2);
+}
+
+.plan-list .lock { margin-left: 0; margin-right: 9px; }

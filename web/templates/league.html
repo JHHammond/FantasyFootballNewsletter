@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import lock, upgrade_note %}
 
 {% block title %}{{ paper_name }} — manage{% endblock %}
 
@@ -298,11 +299,21 @@
                 </select>
             </label>
             <label class="field">
-                <span class="field-label">Look</span>
+                <span class="field-label">
+                    Look
+                    {% if theme_choices()|length > allowed_themes|length %}
+                    {{ lock(lock_reasons.themes) }}
+                    {% endif %}
+                </span>
                 <select name="theme">
                     {% for t in theme_choices() %}
+                    {# Locked looks stay in the list, disabled. Removing them
+                       would leave a one-item dropdown that reads as a bug. #}
                     <option value="{{ t.key }}"
-                            {% if league.theme == t.key %}selected{% endif %}>{{ t.label }}</option>
+                            {% if t.key not in allowed_themes %}disabled{% endif %}
+                            {% if league.theme == t.key %}selected{% endif %}>
+                        {{ t.label }}{% if t.key not in allowed_themes %} — paid{% endif %}
+                    </option>
                     {% endfor %}
                 </select>
             </label>
@@ -323,16 +334,19 @@
             <span class="field-label">Last place punishment</span>
             <input type="text" name="punishment" maxlength="300" value="{{ league.punishment or '' }}" />
         </label>
-        <label class="check">
-            <input type="checkbox" name="auto_send" {% if league.auto_send %}checked{% endif %} />
+        <label class="check{% if not plan.auto_send %} locked-option{% endif %}">
+            <input type="checkbox" name="auto_send"
+                   {% if not plan.auto_send %}disabled{% endif %}
+                   {% if league.auto_send %}checked{% endif %} />
             <span>
-                Do it for me every week.
+                Do it for me every week.{% if not plan.auto_send %}{{ lock(lock_reasons.auto_send) }}{% endif %}
                 <span class="check-help">
                     We'll generate Tuesday morning and email it to everyone who
                     subscribed, so you don't have to remember.
                 </span>
             </span>
         </label>
+        {% if not plan.auto_send %}{{ upgrade_note(lock_reasons.auto_send, billing_enabled()) }}{% endif %}
         <button type="submit" class="btn">Save</button>
     </form>
 </section>

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import lock %}
 {% block title %}Your papers{% endblock %}
 
 {% block content %}
@@ -8,6 +9,7 @@
 </div>
 {% endif %}
 {% if notice %}<div class="alert alert-success">{{ notice }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
 <div class="page-head">
     <div class="eyebrow">Signed in as {{ user.email }}</div>
@@ -34,6 +36,55 @@
     <p class="empty">No papers yet.</p>
     {% endif %}
     <a class="btn btn-primary" href="/connect">Start a new paper</a>
+</section>
+
+<section class="card">
+    <h2 class="card-title">
+        Your plan &mdash; {{ plan.label }}
+    </h2>
+
+    {% if plan.key == 'paid' %}
+    <p class="card-sub">
+        Every look, as many leagues as you like, three redos a week, your own
+        photos in the paper, and it can send itself every Tuesday.
+        {% if user.plan_renews_at %}
+        <br /><br />Renews {{ user.plan_renews_at[:10] }}.
+        {% endif %}
+    </p>
+    {% if billing_enabled() %}
+    <form method="post" action="/billing/portal">
+        <button type="submit" class="btn btn-quiet">Manage billing</button>
+    </form>
+    {% endif %}
+
+    {% else %}
+    <p class="card-sub">
+        You&rsquo;re on the free plan: one league, the tabloid look, and two
+        redos a week. The paper itself is the same paper &mdash; same writing,
+        same lore, same archive, and your league never pays anything to read
+        it.
+    </p>
+    <ul class="plan-list">
+        <li>{{ lock(lock_reasons.leagues) }} As many leagues as you run</li>
+        <li>{{ lock(lock_reasons.themes) }} Broadsheet and Gameday looks</li>
+        <li>{{ lock(lock_reasons.generations) }} A third redo each week</li>
+        <li>{{ lock(lock_reasons.photo_uploads) }} Your own photos in the paper</li>
+        <li>{{ lock(lock_reasons.auto_send) }} It writes and sends itself every Tuesday</li>
+    </ul>
+    {% if billing_enabled() %}
+    <form method="post" action="/billing/checkout">
+        <button type="submit" class="btn btn-primary">
+            Upgrade &mdash; {{ price_text }}
+        </button>
+    </form>
+    <p class="field-help" style="margin-top:10px;">
+        Cancel any time, from this page. Nothing you&rsquo;ve already made goes
+        away if you do.
+    </p>
+    {% else %}
+    <p class="field-help">Paid plans aren&rsquo;t switched on yet.</p>
+    {% endif %}
+    {% endif %}
 </section>
 
 <section class="card">

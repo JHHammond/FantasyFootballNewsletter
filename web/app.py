@@ -61,10 +61,11 @@ from providers import (  # noqa: E402
     get_provider,
 )
 
+import plans  # noqa: E402
 import printing  # noqa: E402
 import themes  # noqa: E402
 
-from . import auth, emailer, images, legal, slugs  # noqa: E402
+from . import auth, billing, emailer, images, legal, slugs  # noqa: E402
 from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
     WriterError,
@@ -212,6 +213,16 @@ def provider_name(provider: str) -> str:
 
 templates.env.filters["provider_name"] = provider_name
 
+# What the paid plan includes, and whether this deployment can sell it. Both
+# are globals so that no route has to remember to pass them and no template
+# has to restate the price.
+templates.env.globals["lock_reasons"] = plans.LOCK_REASONS
+templates.env.globals["price_text"] = plans.PRICE_TEXT
+# A callable, not a value: the environment variables are read when it is
+# called, so a deployment that configures Stripe does not need a restart to
+# start showing the buttons, and a test can set them per-case.
+templates.env.globals["billing_enabled"] = billing.configured
+
 
 # ---------------------------------------------------------------------------
 # Security headers
@@ -271,7 +282,16 @@ GENERATIONS_PER_LEAGUE_PER_DAY = 12  # per league — not spoofable
 #: one a couple of times without being made to feel like they are getting away
 #: with something — and should be able to see how many they have left before
 #: they press the button, not after.
-REGENERATIONS_PER_WEEK = 3
+#:
+#: The number now depends on the plan, and plans.py is where it lives. This
+#: name is kept as the free-tier value because it is what the fallback paths
+#: and the older tests mean by "the allowance".
+REGENERATIONS_PER_WEEK = plans.regenerations_per_week(plans.PLANS[plans.FREE])
+
+
+def regenerations_allowed(user: dict | None) -> int:
+    """This account's regenerations per week."""
+    return plans.regenerations_per_week(plans.plan_for(user))
 
 
 def regenerations_used(paper: dict | None) -> int:
@@ -287,8 +307,8 @@ def regenerations_used(paper: dict | None) -> int:
     return max(0, (paper.get("generation_count") or 1) - 1)
 
 
-def regenerations_left(paper: dict | None) -> int:
-    return max(0, REGENERATIONS_PER_WEEK - regenerations_used(paper))
+def regenerations_left(paper: dict | None, user: dict | None = None) -> int:
+    return max(0, regenerations_allowed(user) - regenerations_used(paper))
 LEAGUE_CREATES_PER_HOUR = 5
 SUBSCRIBES_PER_HOUR = 20
 RECOVERIES_PER_HOUR = 5
@@ -418,7 +438,63 @@ def _render(request: Request, template: str, **context) -> HTMLResponse:
     # Every template can ask who's looking, so the header renders correctly
     # without each route having to remember to pass it.
     context.setdefault("user", current_user(request))
+    # And what they're allowed, so a lock icon never has to guess. Defaults to
+    # the viewer's own plan; a league page overrides it with the OWNER's,
+    # because the person holding the manage link is not always the subscriber.
+    context.setdefault("plan", plans.plan_for(context.get("user")))
+    # Which themes this plan may pick, derived from the plan rather than
+    # restated in the template — a hardcoded list in a form is exactly how a
+    # picker ends up offering something the server then refuses.
+    context.setdefault("allowed_themes", [
+        t["key"] for t in themes.choices()
+        if plans.allows_theme(context["plan"], t["key"])
+    ])
     return templates.TemplateResponse(request, template, context)
+
+
+def league_owner(league: dict | None) -> dict | None:
+    """The account a league belongs to, if it belongs to one.
+
+    A league made from a manage link has no owner, which is not an error — it
+    is how every league from before accounts works, and it means the free
+    plan.
+    """
+    user_id = (league or {}).get("user_id")
+    if not user_id:
+        return None
+    try:
+        return db.user_by_id(user_id)
+    except Exception:  # noqa: BLE001 — see current_user
+        return None
+
+
+def out_of_leagues(user: dict | None) -> bool:
+    """Has this account used up the leagues its plan allows?
+
+    Only asked when a NEW league is about to be created. Adopting a league
+    that already exists — picking up something made before signing up, or
+    recovering one whose manage link was lost — is never refused: the row is
+    already there, the person is already its owner in every sense that
+    matters, and refusing would strand them with a paper they cannot reach.
+    """
+    if not user:
+        return False        # token-only creation, the accountless path
+    try:
+        count = len(db.leagues_for_user(user["id"]))
+    except Exception:  # noqa: BLE001
+        return False        # never block a sale on a database blip
+    return not plans.allows_another_league(plans.plan_for(user), count)
+
+
+def league_plan(league: dict | None) -> plans.Plan:
+    """What this league's paper is allowed to do.
+
+    The plan follows the OWNER, not whoever is looking. A commissioner who
+    shares their manage link with a league-mate has shared the subscription's
+    features along with it, which is intended: one member pays and the paper
+    is better for everybody.
+    """
+    return plans.plan_for(league_owner(league))
 
 
 def _require_user(request: Request) -> dict:
@@ -604,6 +680,13 @@ def connect_sleeper_add(request: Request, league_id: str = Form(...),
             "league.+If+that+is+you,+sign+in+with+that+email.",
             status_code=303)
 
+    # One league on the free plan. Checked here, where a NEW row is about to
+    # be created, and not on the adopt-an-existing-league branches above.
+    if out_of_leagues(user):
+        return RedirectResponse(
+            f"/connect/sleeper?error={quote(plans.LOCK_REASONS['leagues'])}",
+            status_code=303)
+
     league = db.create_league(
         provider="sleeper",
         platform_league_id=league_id.strip(),
@@ -679,6 +762,13 @@ def connect_espn_add(request: Request, league_id: str = Form(...),
         return RedirectResponse(
             "/connect/espn?error=Another+account+already+has+a+paper+for+that+"
             "league.+If+that+is+you,+sign+in+with+that+email.",
+            status_code=303)
+
+    # One league on the free plan. Checked here, where a NEW row is about to
+    # be created, and not on the adopt-an-existing-league branches above.
+    if out_of_leagues(user):
+        return RedirectResponse(
+            f"/connect/espn?error={quote(plans.LOCK_REASONS['leagues'])}",
             status_code=303)
 
     league = db.create_league(
@@ -855,11 +945,119 @@ def logout():
 
 
 @app.get("/account", response_class=HTMLResponse)
-def account(request: Request, welcome: int = 0, notice: str = ""):
+def account(request: Request, welcome: int = 0, notice: str = "",
+            error: str = ""):
     user = _require_user(request)
     return _render(request, "account.html",
                    leagues=db.leagues_for_user(user["id"]),
-                   welcome=bool(welcome), notice=notice)
+                   welcome=bool(welcome), notice=notice, error=error)
+
+
+# ---------------------------------------------------------------------------
+# Money
+#
+# Four routes. Three of them are a redirect to Stripe or back; the fourth is
+# the only thing in this application that can put somebody on the paid plan,
+# and it will not act on a request it cannot prove came from Stripe.
+# ---------------------------------------------------------------------------
+
+@app.post("/billing/checkout")
+def billing_checkout(request: Request):
+    user = _require_user(request)
+
+    if plans.is_paid(user):
+        return RedirectResponse("/account?notice=You're+already+subscribed.",
+                                status_code=303)
+
+    try:
+        url = billing.checkout_url(db, user, public_base_url())
+    except billing.BillingError as exc:
+        print(f"[billing] checkout failed for {user['id']}: {exc}", flush=True)
+        return RedirectResponse(
+            "/account?error=Couldn't+open+the+payment+page.+Nothing+was+"
+            "charged.+Try+again+in+a+minute.", status_code=303)
+
+    # 303 so the browser follows with GET. Stripe's session URL is single-use
+    # and belongs to this person, so it is never cached or shared.
+    return RedirectResponse(url, status_code=303)
+
+
+@app.post("/billing/portal")
+def billing_portal(request: Request):
+    """Stripe's own page, for changing a card or cancelling."""
+    user = _require_user(request)
+    try:
+        url = billing.portal_url(db, user, public_base_url())
+    except billing.BillingError as exc:
+        print(f"[billing] portal failed for {user['id']}: {exc}", flush=True)
+        return RedirectResponse(
+            "/account?error=Couldn't+open+the+billing+page.+Try+again+in+a+"
+            "minute.", status_code=303)
+    return RedirectResponse(url, status_code=303)
+
+
+@app.get("/billing/done", response_class=HTMLResponse)
+def billing_done(request: Request, ok: int = 0):
+    """Where Stripe sends the browser back to.
+
+    GRANTS NOTHING. Landing here proves somebody visited a URL, and anybody
+    can type a URL. The plan is set by the webhook and only by the webhook;
+    this page re-reads the account and reports what it finds.
+
+    Which is why it can honestly say "a moment" — if the webhook has not
+    landed yet, this is a page that says so rather than a lie that says paid.
+    """
+    user = _require_user(request)
+    return _render(
+        request, "message.html",
+        heading="Thanks" if plans.is_paid(user) else "Almost there",
+        body=("You're on the paid plan. Every league on this account has the "
+              "lot." if plans.is_paid(user) else
+              "Stripe has your subscription and we're waiting to hear back "
+              "from them — it usually takes a few seconds. Refresh your "
+              "account page in a moment."),
+        link_url="/account", link_label="Your papers")
+
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """The only door to the paid plan.
+
+    Unsigned, wrongly signed, or replayed past Stripe's tolerance — all
+    rejected, and rejected BEFORE the body is parsed as anything meaningful.
+    The signature covers the raw bytes, so the raw bytes are what gets
+    checked; re-serialising parsed JSON would change them and fail.
+
+    With no STRIPE_WEBHOOK_SECRET configured this route 404s, the same posture
+    as the publisher page: an endpoint that cannot verify anything should not
+    look like an endpoint that might.
+    """
+    if not billing.webhook_secret():
+        raise HTTPException(status_code=404)
+
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature", "")
+
+    try:
+        event = billing.verify(payload, signature)
+    except billing.BillingError as exc:
+        # 400 tells Stripe not to retry. A bad signature will never become a
+        # good one, and retrying it is noise in both dashboards.
+        print(f"[billing] webhook rejected: {exc}", flush=True)
+        raise HTTPException(status_code=400, detail="bad signature")
+
+    try:
+        result = billing.handle_event(db, event)
+    except Exception as exc:  # noqa: BLE001
+        # 500 so Stripe RETRIES. This is the one place in the app where
+        # swallowing an error would quietly lose somebody's subscription, so
+        # it is deliberately the one place that fails loudly.
+        print(f"[billing] handling {getattr(event, 'type', '?')} failed: "
+              f"{type(exc).__name__}: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail="retry please")
+
+    print(f"[billing] {getattr(event, 'type', '?')}: {result}", flush=True)
+    return {"ok": True}
 
 
 # --- password reset, on the magic-link machinery that already exists --------
@@ -1041,8 +1239,9 @@ def manage(
     # How many regenerations each week of THIS season has left, so the number
     # is on the page before the button is pressed rather than in the error
     # message afterwards.
+    owner = league_owner(league)
     regenerations = {
-        p["week"]: regenerations_left(p)
+        p["week"]: regenerations_left(p, owner)
         for p in papers if p.get("season") == league["season"]
     }
 
@@ -1057,7 +1256,9 @@ def manage(
         papers=papers,
         total_reads=sum(int(p.get("view_count") or 0) for p in papers),
         regenerations=regenerations,
-        regenerations_per_week=REGENERATIONS_PER_WEEK,
+        regenerations_per_week=regenerations_allowed(owner),
+        plan=plans.plan_for(owner),
+        owner=owner,
         subscriber_count=db.subscriber_count(league["id"]),
         is_new=bool(new),
         generated_week=generated or None,
@@ -1137,13 +1338,19 @@ def update_settings(
     punishment: str = Form(""),
 ):
     league = _require_league(token)
+
+    # The plan decides, not the form. A greyed-out radio button is a courtesy
+    # to somebody reading the page; this is the rule, and it holds against a
+    # curl request with any field in it.
+    plan = league_plan(league)
+
     db.update_league(league["id"], {
         "paper_name": paper_name.strip() or None,
         "commissioner_name": commissioner.strip(),
-        "auto_send": auto_send == "on",
+        "auto_send": auto_send == "on" and plan.auto_send,
         "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
         "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
-        "theme": themes.resolve(theme),
+        "theme": plans.resolve_theme(plan, themes.resolve(theme)),
         "stakes": stakes.strip()[:300] or None,
         "punishment": punishment.strip()[:300] or None,
     })
@@ -1301,7 +1508,8 @@ def use_season(token: str, platform_league_id: str = Form(...), season: int = Fo
 def setup_form(request: Request, token: str):
     league = _require_league(token)
     return _render(request, "setup.html",
-                   league=league, paper_name=paper_name_for(league))
+                   league=league, paper_name=paper_name_for(league),
+                   plan=league_plan(league))
 
 
 @app.post("/l/{token}/setup")
@@ -1326,7 +1534,7 @@ def save_setup(
     db.update_league(league["id"], {
         "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
         "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
-        "theme": themes.resolve(theme),
+        "theme": plans.resolve_theme(league_plan(league), themes.resolve(theme)),
         "founded_year": year,
         "stakes": stakes.strip()[:300] or None,
         "punishment": punishment.strip()[:300] or None,
@@ -1366,6 +1574,7 @@ def skip_setup(token: str):
 def generate(request: Request, token: str, week: int = Form(...),
              confirm_overwrite: str = Form("")):
     league = _require_league(token)
+    owner = league_owner(league)
 
     if _rate_limited(f"gen:{_client_ip(request)}", GENERATIONS_PER_HOUR):
         return RedirectResponse(
@@ -1412,12 +1621,18 @@ def generate(request: Request, token: str, week: int = Form(...),
     # The weekly regeneration allowance. Checked before anything is spent, and
     # only for a paper that already exists — the first generation of a week is
     # not a regeneration.
-    if existing and regenerations_used(existing) >= REGENERATIONS_PER_WEEK:
+    allowed = regenerations_allowed(owner)
+    if existing and regenerations_used(existing) >= allowed:
+        # The upsell is only mentioned to somebody it would actually help.
+        # Telling a paying customer who has used all three that they could pay
+        # for more is the single most irritating sentence a product can print.
+        more = ("" if plans.is_paid(owner)
+                else "+" + quote(plans.LOCK_REASONS["generations"]))
         return RedirectResponse(
             f"/l/{token}?error=You've+used+all+"
-            f"{REGENERATIONS_PER_WEEK}+regenerations+for+week+{week}.+"
+            f"{allowed}+regenerations+for+week+{week}.+"
             f"You+can+still+edit+this+one+by+hand+-+open+it+and+change+"
-            f"anything+you+like.",
+            f"anything+you+like.{more}",
             status_code=303)
 
     # Regenerating throws away hand-edited prose. Ask first rather than
@@ -1823,6 +2038,12 @@ async def upload_image(request: Request, token: str, photo: UploadFile = File(..
     derived from that — see web/images.py for why.
     """
     league = _require_league(token)
+
+    if not league_plan(league).photo_uploads:
+        # 402 rather than 403: this is not "you may not", it is "not on this
+        # plan", and the editor's JavaScript shows the message verbatim.
+        return JSONResponse({"error": plans.LOCK_REASONS["photo_uploads"]},
+                            status_code=402)
 
     # This endpoint writes megabytes to a storage bucket, so it needs the same
     # brakes as generation. It previously had none at all, which made an admin

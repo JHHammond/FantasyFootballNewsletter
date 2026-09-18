@@ -33,3 +33,37 @@
          aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
 {% if href %}</a>{% else %}</button>{% endif %}
 {% endmacro %}
+
+{#
+   A padlock, with the reason attached.
+
+   Locked things stay VISIBLE. Hiding what a plan would give you means nobody
+   ever discovers there is a plan, and it makes the free product feel like the
+   whole product — which is a worse outcome than a greyed-out radio button.
+
+   The SVG carries its own stroke and size for the same reason flow_button's
+   arrow does: a stylesheet that fails to load should degrade the look, not
+   leave a shape nobody can identify.
+#}
+{% macro lock(reason="") %}
+<span class="lock" title="{{ reason }}">
+    <svg viewBox="0 0 24 24" width="12" height="12" fill="none"
+         stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+         stroke-linejoin="round" aria-hidden="true">
+        <rect x="4" y="10.5" width="16" height="10.5" rx="2" />
+        <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+    </svg>
+    <span class="sr-only">{{ reason or "Paid plan" }}</span>
+</span>
+{% endmacro %}
+
+{#
+   The line under a locked control. One sentence and a link, or one sentence
+   on its own where this deployment cannot take money.
+#}
+{% macro upgrade_note(reason, billing_on=true) %}
+<p class="upgrade-note">
+    {{ reason }}
+    {% if billing_on %}<a href="/account">See the plan</a>.{% endif %}
+</p>
+{% endmacro %}

@@ -50,7 +50,9 @@ with expected(ordering, migration, kind, obj, col, note) as (
     (12, '012_publisher_ads', 'table', 'publisher_ads', null,
          'the classifieds page. The publisher page 500s and papers print without it'),
     (13, '013_managers', 'table', 'managers', null,
-         'per-person lore and real names. Papers keep printing handles without it')
+         'per-person lore and real names. Papers keep printing handles without it'),
+    (14, '014_plans', 'column', 'users', 'plan',
+         'the paywall. Everyone is on the free tier and no payment can be recorded')
 )
 select
     e.migration,
