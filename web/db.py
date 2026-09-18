@@ -821,3 +821,65 @@ def upload_publisher_image(filename: str, data: bytes,
     except Exception:
         storage.update(path, data, options)
     return path, storage.get_public_url(path)
+
+
+# ---------------------------------------------------------------------------
+# The people in the league
+#
+# Lore was one flat list per league. This is the other half: what is true about
+# one specific person, and what to call them.
+#
+# Every read here fails SOFT, like the classifieds. A league whose managers
+# table is missing gets a paper that prints handles — which is what it printed
+# all last season — rather than no paper.
+# ---------------------------------------------------------------------------
+
+def get_managers(league_id: str) -> list[dict[str, Any]]:
+    """Everyone in this league, with whatever is known about them."""
+    try:
+        res = (client().table("managers").select("*")
+               .eq("league_id", league_id).order("handle").execute())
+        return res.data or []
+    except Exception as exc:  # noqa: BLE001 — see the note above
+        print(f"[lore] could not read managers: "
+              f"{type(exc).__name__}: {exc}", flush=True)
+        return []
+
+
+def remember_managers(league_id: str, handles) -> None:
+    """Make sure every handle in this week's data has a row.
+
+    Called after a paper generates, because that is the one moment the app is
+    holding the real list of who is in the league. Existing rows are left
+    exactly alone — this adds the people it has not seen before and nothing
+    else, so it can run every week without touching anything anybody typed.
+    """
+    wanted = {str(h).strip() for h in (handles or []) if str(h or "").strip()}
+    if not wanted:
+        return
+
+    try:
+        known = {row.get("handle") for row in get_managers(league_id)}
+        new = sorted(wanted - known)
+        if not new:
+            return
+        client().table("managers").insert(
+            [{"league_id": league_id, "handle": handle} for handle in new]
+        ).execute()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[lore] could not record managers: "
+              f"{type(exc).__name__}: {exc}", flush=True)
+
+
+def save_manager(league_id: str, handle: str,
+                 display_name: str = "", notes: str = "") -> None:
+    """Write what the commissioner typed about one person."""
+    fields = {
+        "display_name": (display_name or "").strip()[:80] or None,
+        "notes": (notes or "").strip()[:2000] or None,
+        "updated_at": "now()",
+    }
+    # league_id in the filter so a handle from another league cannot be
+    # written through this, the same rule as every other scoped update here.
+    (client().table("managers").update(fields)
+     .eq("league_id", league_id).eq("handle", handle).execute())

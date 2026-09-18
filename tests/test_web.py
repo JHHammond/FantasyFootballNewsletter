@@ -35,7 +35,7 @@ def clean_state(monkeypatch):
     for store in (demo_db._LEAGUES, demo_db._LORE, demo_db._PAPERS,
                   demo_db._STORAGE, demo_db._SUBSCRIBERS, demo_db._MAGIC_LINKS,
                   demo_db._RATE_EVENTS, demo_db._USERS,
-                  demo_db._PUBLISHER_ADS):
+                  demo_db._PUBLISHER_ADS, demo_db._MANAGERS):
         store.clear()
     monkeypatch.setattr(webapp, "db", demo_db)
     yield
@@ -637,6 +637,257 @@ def test_lore_reaches_the_context():
     ctx = build_league_context({"format": "redraft"},
                                [{"entry": "Nick benches his best guy"}])
     assert "Nick benches his best guy" in ctx
+
+
+# ---------------------------------------------------------------------------
+# The people in the league
+#
+# Two separate failures this fixes. The paper printed `alexvierheilig4` in the
+# middle of sentences, because a handle was the only name anything had. And
+# lore was one flat list, so "Nick benches his best guy every week" had to fire
+# as a league-wide rule or not at all.
+# ---------------------------------------------------------------------------
+
+def _games(*pairs):
+    """Minimal legacy `games` — only the two fields the directory reads."""
+    return [{"team_1": {"owner_name": a, "team_name": f"{a}'s Team"},
+             "team_2": {"owner_name": b, "team_name": f"{b}'s Team"}}
+            for a, b in pairs]
+
+
+def test_the_directory_is_the_people_not_the_teams():
+    """Teams get renamed mid-season and two people can pick the same name.
+    The row has to key on the person, which is `owner_name`."""
+    from web.generate import manager_directory
+
+    found = manager_directory(_games(("alexvierheilig4", "WillDavidson10")))
+    assert [m["handle"] for m in found] == ["alexvierheilig4", "WillDavidson10"]
+    assert found[0]["team_name"] == "alexvierheilig4's Team"
+
+
+def test_the_directory_drops_blanks_and_repeats():
+    """A bye week puts the same person in two rows in some feeds, and a
+    provider with no owner data hands over "". Neither can become a box."""
+    from web.generate import manager_directory
+
+    found = manager_directory(_games(("mike", "will"), ("mike", ""), ("", "")))
+    assert [m["handle"] for m in found] == ["mike", "will"]
+
+
+def test_a_real_name_reaches_the_writer():
+    from web.generate import build_manager_context
+
+    ctx = build_manager_context([
+        {"handle": "alexvierheilig4", "display_name": "Alex", "notes": ""},
+    ])
+    assert "alexvierheilig4" in ctx
+    assert "is Alex" in ctx
+
+
+def test_personal_notes_reach_the_writer_and_league_lore_still_does():
+    """They are different things and both have to arrive. The per-person note
+    is true every week; league lore fires when something triggers it."""
+    from web.generate import build_league_context
+
+    ctx = build_league_context(
+        {"format": "redraft"},
+        [{"entry": "Zero from a starter means you owe a drink"}],
+        [{"handle": "nick", "display_name": "Nick",
+          "notes": "benches his best guy every single week"}],
+    )
+    assert "owe a drink" in ctx
+    assert "benches his best guy" in ctx
+
+
+def test_the_team_name_is_attached_so_a_person_can_be_matched_to_a_side():
+    """The game context names TEAMS. Without this line the writer is handed a
+    note about `nick` and no way to know which of ten teams that is."""
+    from web.generate import build_manager_context
+
+    ctx = build_manager_context(
+        [{"handle": "nick", "display_name": "Nick", "notes": "x"}],
+        {"nick": "Regular Season Champs"},
+    )
+    assert "Regular Season Champs" in ctx
+
+
+def test_people_with_nothing_filled_in_are_not_sent_at_all():
+    """Every league mate gets a row the first time a paper generates, so most
+    leagues will have twelve rows of nothing. Shipping twelve handles and no
+    facts costs tokens on every call and tells the writer nothing."""
+    from web.generate import build_manager_context
+
+    assert build_manager_context([{"handle": "a"}, {"handle": "b"}]) == ""
+    assert build_manager_context([]) == ""
+    assert build_manager_context(None) == ""
+
+
+def test_only_a_bounded_number_of_people_reach_the_prompt():
+    from web.generate import MAX_MANAGERS_IN_PROMPT, build_manager_context
+
+    ctx = build_manager_context(
+        [{"handle": f"h{i}", "notes": "a note"} for i in range(60)])
+    assert ctx.count("- h") == MAX_MANAGERS_IN_PROMPT
+
+
+def test_the_manage_page_shows_a_box_for_each_person(client, league):
+    demo_db.remember_managers(league["id"], ["mikevidan3", "WillDavidson10"])
+    text = client.get("/l/secret-admin-token").text
+
+    assert "mikevidan3" in text
+    assert "WillDavidson10" in text
+    assert text.count('name="notes"') == 2
+
+
+def test_saving_the_page_writes_names_and_notes(client, league):
+    demo_db.remember_managers(league["id"], ["mikevidan3", "WillDavidson10"])
+
+    client.post("/l/secret-admin-token/managers", data={
+        "handle": ["mikevidan3", "WillDavidson10"],
+        "display_name": ["Mike", "Will"],
+        "notes": ["drafts a kicker in the seventh", ""],
+    }, follow_redirects=False)
+
+    saved = {m["handle"]: m for m in demo_db.get_managers(league["id"])}
+    assert saved["mikevidan3"]["display_name"] == "Mike"
+    assert saved["mikevidan3"]["notes"] == "drafts a kicker in the seventh"
+    assert saved["WillDavidson10"]["display_name"] == "Will"
+    assert saved["WillDavidson10"]["notes"] is None
+
+
+def test_a_ragged_submission_writes_nothing_rather_than_the_wrong_person(
+        client, league):
+    """The three lists are paired by position. If they ever arrive at
+    different lengths the pairing is a guess, and the guess puts one person's
+    lore under another person's name — in a paper their friends read."""
+    demo_db.remember_managers(league["id"], ["mikevidan3", "WillDavidson10"])
+
+    r = client.post("/l/secret-admin-token/managers", data={
+        "handle": ["mikevidan3", "WillDavidson10"],
+        "display_name": ["Mike"],
+        "notes": ["drafts a kicker in the seventh", "fine"],
+    }, follow_redirects=False)
+
+    assert r.status_code == 303
+    assert "error=" in r.headers["location"]
+    assert all(m["display_name"] is None and m["notes"] is None
+               for m in demo_db.get_managers(league["id"]))
+
+
+def test_a_handle_from_another_league_cannot_be_written_through_this(
+        client, league):
+    other = demo_db.create_league(
+        provider="sleeper", platform_league_id="456", league_name="Other",
+        paper_name="The Other Times", commissioner_name="x", season=2025,
+        public_slug="other-1", admin_token="other-token")
+    demo_db.remember_managers(other["id"], ["victim"])
+
+    client.post("/l/secret-admin-token/managers", data={
+        "handle": ["victim"], "display_name": ["Owned"], "notes": ["hi"],
+    }, follow_redirects=False)
+
+    assert demo_db.get_managers(other["id"])[0]["display_name"] is None
+    assert demo_db.get_managers(league["id"]) == []
+
+
+def test_the_boxes_appear_before_the_first_paper_is_generated(
+        client, league, monkeypatch):
+    """"Once it's in, you should be able to fill in a box for each league
+    mate." A commissioner who just connected their league has generated
+    nothing, so nothing has told us who is in it yet. The first visit asks."""
+    import web.generate as generate
+
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=(1, 2)))
+    monkeypatch.setattr(generate, "load_week", lambda *a, **k: "week")
+    monkeypatch.setattr(generate, "week_to_legacy_games",
+                        lambda _w: _games(("mikevidan3", "WillDavidson10")))
+
+    text = client.get("/l/secret-admin-token").text
+
+    assert "mikevidan3" in text
+    assert text.count('name="notes"') == 2
+    assert len(demo_db.get_managers(league["id"])) == 2
+
+
+def test_seeding_never_takes_the_manage_page_down(client, league, monkeypatch):
+    """It is a network call to somebody else's API on a page the commissioner
+    needs in order to do anything at all."""
+    import web.generate as generate
+
+    def boom(*a, **k):
+        raise RuntimeError("ESPN is having a day")
+
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=(1, 2)))
+    monkeypatch.setattr(generate, "load_week", boom)
+
+    assert client.get("/l/secret-admin-token").status_code == 200
+
+
+def test_seeding_does_not_re_fetch_once_anybody_is_known(
+        client, league, monkeypatch):
+    """Otherwise every load of the manage page pulls a full week from the
+    provider, forever."""
+    import web.generate as generate
+
+    calls = []
+
+    demo_db.remember_managers(league["id"], ["mikevidan3"])
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=(1, 2)))
+    monkeypatch.setattr(generate, "load_week",
+                        lambda *a, **k: calls.append(a))
+
+    text = client.get("/l/secret-admin-token").text
+
+    assert calls == [], "fetched the week when it already knew everybody"
+    assert "mikevidan3" in text
+
+
+def test_generating_keeps_the_list_of_people_current_and_sends_their_lore(
+        league, monkeypatch):
+    """The end of the wire, in one test: the week's data is the only place the
+    app ever holds the real list of who is in this league, so generation is
+    what keeps the boxes current — and what anybody has typed into those boxes
+    has to come back out in the prompt."""
+    import web.generate as generate
+
+    demo_db.remember_managers(league["id"], ["mikevidan3"])
+    demo_db.save_manager(league["id"], "mikevidan3", "Mike",
+                         "drafts a kicker in the seventh")
+
+    sent = {}
+
+    monkeypatch.setattr(generate, "load_week", lambda *a, **k: "week")
+    monkeypatch.setattr(generate, "week_to_legacy_games",
+                        lambda _w: _games(("mikevidan3", "newguy")))
+    monkeypatch.setattr(generate, "get_weekly_storylines", lambda _g: {})
+    monkeypatch.setattr(generate, "generate_full_newspaper_content",
+                        lambda **kw: sent.update(kw) or {})
+    monkeypatch.setattr(generate, "render_and_store",
+                        lambda *a, **k: {"week": 1})
+
+    generate.generate_and_store(demo_db, league, 1)
+
+    handles = {m["handle"] for m in demo_db.get_managers(league["id"])}
+    assert handles == {"mikevidan3", "newguy"}, "a new team got no box"
+
+    context = sent["inside_jokes"]
+    assert "is Mike" in context
+    assert "drafts a kicker in the seventh" in context
+    assert "mikevidan3's Team" in context, "no way to tell which team is his"
+
+
+def test_a_week_that_adds_a_team_adds_a_box_without_wiping_anything(league):
+    """Leagues expand, and people rename themselves mid-season. The list has
+    to keep up — and it runs on every generation, so it must never overwrite
+    what the commissioner typed."""
+    demo_db.remember_managers(league["id"], ["mikevidan3"])
+    demo_db.save_manager(league["id"], "mikevidan3", "Mike", "drafts a kicker")
+
+    demo_db.remember_managers(league["id"], ["mikevidan3", "newguy"])
+
+    saved = {m["handle"]: m for m in demo_db.get_managers(league["id"])}
+    assert set(saved) == {"mikevidan3", "newguy"}
+    assert saved["mikevidan3"]["notes"] == "drafts a kicker"
 
 
 def _system_text(*args, **kwargs):

@@ -102,7 +102,7 @@
     </p>
     {% else %}
     <p class="card-sub">
-        Nothing to write about yet &mdash; {{ league.provider|title }} has no
+        Nothing to write about yet &mdash; {{ league.provider|provider_name }} has no
         scored weeks for this league. If you haven't drafted, that's why.
         Come back once a week has been played and it'll show up here.
     </p>
@@ -110,11 +110,53 @@
 </section>
 
 <section class="card">
+    <h2 class="card-title">Who's in the league</h2>
+    <p class="card-sub">
+        {{ league.provider|provider_name }} only tells us people's usernames, so that's
+        what the paper has been printing. Put in what everyone's actually
+        called and it'll use that instead.
+        <br /><br />
+        The notes are for what's true about that person <em>every</em> week
+        &mdash; who drafts a kicker in the seventh, who hasn't made the
+        playoffs since 2021, who still won't shut up about the trade. The paper
+        brings one up when the week gives it a reason.
+    </p>
+
+    {% if managers %}
+    <form method="post" action="/l/{{ league.admin_token }}/managers"
+          class="stack">
+        <ul class="manager-list">
+            {% for m in managers %}
+            <li class="manager">
+                <input type="hidden" name="handle" value="{{ m.handle }}" />
+                <label class="field">
+                    <span class="field-label">{{ m.handle }}</span>
+                    <input type="text" name="display_name" maxlength="80"
+                           value="{{ m.display_name or '' }}"
+                           placeholder="Their name" />
+                </label>
+                <textarea name="notes" rows="2" maxlength="2000"
+                          placeholder="Drafts his kicker in the seventh. Still brings up the 2022 trade."
+                          >{{ m.notes or '' }}</textarea>
+            </li>
+            {% endfor %}
+        </ul>
+        <button type="submit" class="btn">Save everyone</button>
+    </form>
+    {% else %}
+    <p class="empty">
+        Everyone shows up here once {{ league.provider|provider_name }} has a scored
+        week for this league.
+    </p>
+    {% endif %}
+</section>
+
+<section class="card">
     <h2 class="card-title">The lore</h2>
     <p class="card-sub">
-        Every league has stuff only you guys know. Who chokes, who talks the most
-        trash, who's been on tilt since Week 1, who's still bringing up a trade
-        from three years ago.
+        The stuff that isn't about one person &mdash; the rivalry everyone's
+        sick of, the draft nobody's forgotten, whatever happened at the
+        draft party.
         <br /><br />
         Put your <strong>standing rules</strong> in here too &mdash; the drink
         someone owes when a starter scores zero, what you call a team on a

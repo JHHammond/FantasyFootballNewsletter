@@ -1239,3 +1239,66 @@ def test_the_writer_is_told_not_to_remember_rosters():
     prompt = writer.KEVLARVILLE_SYSTEM_PROMPT
     assert "NEVER say which NFL team a player plays for" in prompt
     assert "Rosters move every" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Not every player needs their projection read out
+# ---------------------------------------------------------------------------
+
+def test_only_the_big_gaps_are_marked():
+    """The complaint, in John's words: "it basically just talks about what
+    someone's projection was v. what they scored."
+
+    He is right and it is the prompt's fault. Given eighteen labelled
+    comparisons and told to use the numbers, a model uses all eighteen:
+
+        Taylor delivered 25.1 on a 19.0 projection and Olave went off for
+        28.2 against 16.1, while Higgins managed 8.9 against a 16.1
+        projection and Cook was quiet at 9.9 against 16.5.
+
+    Four players, four identical constructions, and only noise in the gaps.
+    Which comparisons are worth a sentence is decided in the data now.
+    """
+    def line(actual, projected):
+        return writer._player_line({
+            "name": "A Player", "position": "RB", "nfl_team": "DET",
+            "actual": actual, "projected": projected,
+            "beat_projection_by": actual - projected})
+
+    assert "<< OVER" in line(35.7, 19.4), "a 16-point beat is the story"
+    assert "<< UNDER" in line(0.0, 13.8), "a starter who scored nothing is too"
+
+    for actual, projected in [(25.1, 19.0), (9.9, 16.5), (7.0, 8.5)]:
+        marked = line(actual, projected)
+        assert "<<" not in marked, f"ordinary week marked as notable: {marked}"
+
+
+def test_a_gap_is_judged_against_the_size_of_the_projection():
+    """Neither test works alone. Eight points is a lot off a 20-point
+    projection and nothing off a 40-point one; three quarters of a projection
+    is a lot for a flex and meaningless for a kicker projected at 4."""
+    # Small projection, proportionally enormous miss.
+    assert writer.is_notable_gap(-6.0, 6.0)
+    # Large projection, same absolute miss, unremarkable.
+    assert not writer.is_notable_gap(-6.0, 40.0)
+    # Tiny projections do not get to be notable on percentages alone.
+    assert not writer.is_notable_gap(-2.0, 2.0)
+
+
+def test_the_score_is_always_there_even_when_the_gap_is_not():
+    """The projection is optional. The score never is — it is the fact the
+    whole sentence hangs on."""
+    line = writer._player_line({
+        "name": "A Player", "position": "WR", "nfl_team": "MIA",
+        "actual": 12.3, "projected": 11.9, "beat_projection_by": 0.4})
+    assert "scored 12.3" in line
+    assert "<<" not in line
+
+
+def test_the_writer_is_told_to_stop_reciting_the_spreadsheet():
+    prompt = writer.KEVLARVILLE_SYSTEM_PROMPT
+    assert "<< OVER" in prompt, "the marker is not explained to the writer"
+    assert "started reciting a spreadsheet" in prompt
+    assert "Never use the same construction twice in a paragraph" in prompt
+    # And the markers must never reach the page.
+    assert "never appear in the paper" in prompt

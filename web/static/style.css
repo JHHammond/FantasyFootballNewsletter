@@ -274,6 +274,48 @@ textarea { resize: vertical; }
 
 .empty { color: var(--muted); font-style: italic; margin-bottom: 18px; }
 
+/* ---------- the people in the league ---------- */
+
+.manager-list {
+    list-style: none;
+    display: grid;
+    /* Two up on a desktop, one up on a phone, without a media query. */
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+.manager {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    /* The card behind this is --paper, so a box on it has to be the other
+       one or the boxes disappear into the card. */
+    background: var(--cream);
+    border-left: 3px solid var(--line);
+}
+
+/* The username, sitting above the box where you say who that actually is.
+   Printed EXACTLY as the platform has it — the commissioner is matching these
+   against a list on another screen, and uppercasing "WillDavidson10" into
+   "WILLDAVIDSON10" makes that harder for no gain. */
+.manager .field-label {
+    font-family: "Barlow Condensed", sans-serif;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    text-transform: none;
+    /* A username can be anything; it must not push the card wide. */
+    overflow-wrap: anywhere;
+}
+
+/* Tall enough for the placeholder to land whole. A note clipped mid-sentence
+   reads as a broken box rather than an example. */
+.manager textarea {
+    resize: vertical;
+    min-height: 92px;
+}
+
 /* ---------- how it works ---------- */
 
 .how { margin-top: 44px; }

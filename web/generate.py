@@ -71,7 +71,117 @@ FORMAT_NOTES = {
 }
 
 
-def build_league_context(league: dict[str, Any], lore_entries: list) -> str:
+#: How many people's notes ride along in a prompt. A twelve-team league with
+#: a paragraph each is a lot of tokens on every call; the cap keeps a thorough
+#: commissioner from quietly doubling their own bill.
+MAX_MANAGERS_IN_PROMPT = 16
+
+
+def manager_directory(games: list) -> list[dict[str, str]]:
+    """Everyone playing this week, as {handle, team_name}.
+
+    The handle is the platform's name for the PERSON — ESPN's display name,
+    Sleeper's username — because that is what a commissioner filling in the
+    form will recognise, and it survives a team rename. The team name rides
+    along so the manage page can say which box is whose, and so the writer can
+    connect a person to the team it is writing about.
+
+    Order is the order they appear in the week's schedule, and duplicates are
+    dropped: a two-team league mate (it happens) gets one box, not two.
+    """
+    seen: dict[str, dict[str, str]] = {}
+    for game in games or []:
+        for side in ("team_1", "team_2"):
+            team = (game or {}).get(side) or {}
+            handle = str(team.get("owner_name") or "").strip()
+            if not handle or handle in seen:
+                continue
+            seen[handle] = {
+                "handle": handle,
+                "team_name": str(team.get("team_name") or "").strip(),
+            }
+    return list(seen.values())
+
+
+def build_manager_context(managers: list,
+                          teams: dict[str, str] | None = None) -> str:
+    """Who these people are, for the writer.
+
+    Two separate things, and the second is the one that changes how a paper
+    reads:
+
+      THE NAME. Platforms hand over handles — `alexvierheilig4`,
+      `WillDavidson10`. The paper has been printing those in the middle of
+      sentences all season because it had nothing else. "Alex commissions a
+      mercy rule, still wins" is a different sentence.
+
+      THE NOTES. League-wide lore only fires when it triggers. What is true
+      about one person every week — who always drafts a kicker too early, who
+      has not made the playoffs since 2021 — has never had anywhere to live.
+    """
+    known = [m for m in (managers or [])
+             if (m.get("display_name") or m.get("notes"))]
+    if not known:
+        return ""
+
+    lines = [
+        "THE PEOPLE IN THIS LEAGUE. Use the NAME for anybody who has one — "
+        "these are real people and the handle is not what their friends call "
+        "them. The notes are standing facts about that person; bring one up "
+        "when this week gives you a reason and leave it alone when it does "
+        "not. Never explain a note, and never invent one."
+    ]
+    for manager in known[:MAX_MANAGERS_IN_PROMPT]:
+        handle = manager.get("handle") or ""
+        name = (manager.get("display_name") or "").strip()
+        notes = (manager.get("notes") or "").strip()
+        team = ((teams or {}).get(handle) or "").strip()
+
+        who = f"- {handle}"
+        if team and team != handle:
+            who += f" (team: {team})"
+        if name:
+            who += f" is {name}"
+        if notes:
+            who += f" — {notes}"
+        lines.append(who)
+
+    return "\n".join(lines)
+
+
+def managers_for_page(db, league: dict[str, Any], weeks: list | None) -> list:
+    """The boxes to show on the manage page, seeded on first look.
+
+    A commissioner who has just connected their league has generated nothing
+    yet, so nothing has ever told us who is in it. Rather than showing them an
+    empty section and telling them to come back after they have generated a
+    paper, the first visit fetches the latest week and writes the roster of
+    people down. It is the same cached call generation makes.
+
+    Fails soft in every direction: no playable weeks, a provider outage, a
+    missing table — all of them mean an empty section on an otherwise working
+    page, never a manage page that won't load.
+    """
+    known = db.get_managers(league["id"])
+    if known or not weeks:
+        return known
+
+    try:
+        week_data = load_week(league["provider"], league["platform_league_id"],
+                              league["season"], max(weeks))
+        directory = manager_directory(week_to_legacy_games(week_data))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[lore] could not seed managers: "
+              f"{type(exc).__name__}: {exc}", flush=True)
+        return []
+
+    db.remember_managers(league["id"], [m["handle"] for m in directory])
+    return db.get_managers(league["id"])
+
+
+def build_league_context(league: dict[str, Any], lore_entries: list,
+                         managers: list | None = None,
+                         teams: dict[str, str] | None = None) -> str:
     """Everything the columnist should know that the platform API can't say.
 
     Fed to the writer alongside the week's stats. The API knows the scores; it
@@ -114,6 +224,10 @@ def build_league_context(league: dict[str, Any], lore_entries: list) -> str:
             "never invent one that isn't listed here:"
         )
         parts.extend(f"- {entry['entry']}" for entry in selected)
+
+    people = build_manager_context(managers, teams)
+    if people:
+        parts.append(people)
 
     return "\n".join(parts)
 
@@ -265,12 +379,23 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
     season = league["season"]
     paper_name = paper_name_for(league)
 
-    lore_entries = db.get_lore(league["id"])
-    league_context = build_league_context(league, lore_entries)
-
     week_data = load_week(league["provider"], league["platform_league_id"], season, week)
     games = week_to_legacy_games(week_data)
     summary = get_weekly_storylines(games)
+
+    # The week's data is the one place the app holds the real list of who is in
+    # this league, so this is where the roster of people gets kept up to date —
+    # a league that adds a team, or somebody who renames themselves mid-season,
+    # gets a box on the manage page without anybody doing anything. Adds only;
+    # it never touches what the commissioner typed.
+    directory = manager_directory(games)
+    db.remember_managers(league["id"], [m["handle"] for m in directory])
+
+    lore_entries = db.get_lore(league["id"])
+    league_context = build_league_context(
+        league, lore_entries, db.get_managers(league["id"]),
+        {m["handle"]: m["team_name"] for m in directory},
+    )
 
     ai_content = generate_full_newspaper_content(
         league_name=paper_name,

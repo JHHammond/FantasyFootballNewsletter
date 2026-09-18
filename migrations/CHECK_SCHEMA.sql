@@ -48,7 +48,9 @@ with expected(ordering, migration, kind, obj, col, note) as (
     (11, '011_generation_count', 'column', 'newspapers', 'generation_count',
          'the weekly regeneration allowance. Without it the count never moves'),
     (12, '012_publisher_ads', 'table', 'publisher_ads', null,
-         'the classifieds page. The publisher page 500s and papers print without it')
+         'the classifieds page. The publisher page 500s and papers print without it'),
+    (13, '013_managers', 'table', 'managers', null,
+         'per-person lore and real names. Papers keep printing handles without it')
 )
 select
     e.migration,

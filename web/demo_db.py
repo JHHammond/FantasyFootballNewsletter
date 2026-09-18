@@ -505,3 +505,44 @@ def upload_publisher_image(filename: str, data: bytes,
     with _lock:
         _IMAGES[name] = (data, content_type)
     return name, f"/demo-image/{name}"
+
+
+# ---------------------------------------------------------------------------
+# The people in the league — mirrors db.py
+# ---------------------------------------------------------------------------
+
+_MANAGERS: dict[tuple, dict[str, Any]] = {}
+
+
+def get_managers(league_id: str) -> list[dict[str, Any]]:
+    rows = [dict(m) for (lid, _h), m in _MANAGERS.items() if lid == league_id]
+    # Case-insensitive, to match what Postgres' collation does in db.py —
+    # otherwise demo mode lists every capitalised handle first and stops being
+    # a truthful preview.
+    rows.sort(key=lambda m: (m.get("handle") or "").lower())
+    return rows
+
+
+def remember_managers(league_id: str, handles) -> None:
+    wanted = {str(h).strip() for h in (handles or []) if str(h or "").strip()}
+    with _lock:
+        for handle in sorted(wanted):
+            key = (league_id, handle)
+            # Never overwrite: this runs every week and must not wipe what the
+            # commissioner typed.
+            if key not in _MANAGERS:
+                _MANAGERS[key] = {
+                    "id": str(uuid4()), "league_id": league_id,
+                    "handle": handle, "display_name": None, "notes": None,
+                    "created_at": _now(), "updated_at": _now(),
+                }
+
+
+def save_manager(league_id: str, handle: str,
+                 display_name: str = "", notes: str = "") -> None:
+    with _lock:
+        row = _MANAGERS.get((league_id, handle))
+        if row:
+            row["display_name"] = (display_name or "").strip()[:80] or None
+            row["notes"] = (notes or "").strip()[:2000] or None
+            row["updated_at"] = _now()

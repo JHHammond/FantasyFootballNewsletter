@@ -141,8 +141,25 @@ projection. Use them.
 - Name at least five players per matchup, drawn from both teams.
 - Prefer the ones the numbers make interesting: the biggest beats, the biggest
   misses, anyone who scored zero, anyone benched who outscored a starter.
-- Every player you name gets their number attached. "Bijan went off" is not
-  reporting. "Bijan put up 28.4 against a 19 projection" is.
+- Every player you name gets their SCORE attached. "Bijan went off" is not
+  reporting. "Bijan put up 28.4" is.
+- The PROJECTION is not part of that. Bring it in only for the players whose
+  line is marked << OVER or << UNDER, where the gap is the story. For everybody
+  else the score on its own is the fact, and the projection is noise you are
+  charging the reader to read.
+
+  A paper that prints "X against a Y projection" for nine players in a row has
+  stopped writing and started reciting a spreadsheet. That is exactly what the
+  first papers did, and it is the thing this league noticed:
+
+    NO:  Taylor delivered 25.1 on a 19.0 projection and Olave went off for
+         28.2 against 16.1, while Higgins managed 8.9 against a 16.1
+         projection and Cook was quiet at 9.9 against 16.5.
+    YES: Taylor went for 25.1 and Olave for 28.2. Higgins managed 8.9 — he
+         was projected for nearly twice that, and it was the game.
+
+- Never use the same construction twice in a paragraph. If one sentence says
+  "against a projection", the next one finds another way or leaves it out.
 - Do not name a player who is not in the data below, and never invent a stat,
   an injury, a snap count or a play. You have the box score, not the tape —
   what the numbers say is yours to interpret, what happened on the field is
@@ -157,6 +174,8 @@ projection. Use them.
   what they were PROJECTED. Never swap them. The single fastest way to lose a
   reader is to tell them a player was projected for the number he actually
   put up — they were watching, and they know.
+- A line ending << OVER or << UNDER is one where the gap is big enough to
+  write about. Those markers are for you and never appear in the paper.
 - End with where both teams now stand.
 
 PEOPLE
@@ -344,6 +363,27 @@ def format_performer(performer):
     return result
 
 
+#: A gap big enough that the projection is part of the story.
+#:
+#: Both an absolute and a relative test, because neither works alone. Eight
+#: points is a lot off a 20-point projection and nothing off a 40-point one;
+#: three quarters of the projection is a lot for a flex and meaningless for a
+#: kicker projected at 4. A player has to clear one of them.
+NOTABLE_GAP_POINTS = 8.0
+NOTABLE_GAP_SHARE = 0.75
+NOTABLE_GAP_FLOOR = 4.0
+
+
+def is_notable_gap(gap, projected) -> bool:
+    """Is this the difference the reader should hear about?"""
+    if not isinstance(gap, (int, float)) or not isinstance(projected, (int, float)):
+        return False
+    if abs(gap) >= NOTABLE_GAP_POINTS:
+        return True
+    return (projected >= NOTABLE_GAP_FLOOR
+            and abs(gap) >= projected * NOTABLE_GAP_SHARE)
+
+
 def _player_line(p, bench=False):
     """One player as a line of prose-ready fact.
 
@@ -388,6 +428,13 @@ def _player_line(p, bench=False):
         if isinstance(gap, (int, float)):
             verb = "beat it by" if gap >= 0 else "missed by"
             bits.append(f"| {verb} {abs(gap):.1f}")
+            # Which gaps are worth a sentence, decided HERE rather than left
+            # to the writer. Given eighteen labelled comparisons and told to
+            # use the numbers, a model uses all eighteen — which is how a
+            # recap turns into "25.1 on a 19.0 projection and 28.2 against
+            # 16.1 and 8.9 against a 16.1 projection" for a whole paragraph.
+            if is_notable_gap(gap, projected):
+                bits.append("<< OVER" if gap >= 0 else "<< UNDER")
     else:
         bits.append("| no projection")
 

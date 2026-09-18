@@ -69,6 +69,7 @@ from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
     WriterError,
     generate_and_store,
+    managers_for_page,
     paper_name_for,
     public_base_url,
     render_and_store,
@@ -197,6 +198,19 @@ templates.env.globals["demo_mode"] = DEMO_MODE
 # which behind a proxy reports http:// and the internal hostname.
 templates.env.globals["public_base"] = public_base_url
 templates.env.globals["theme_choices"] = themes.choices
+
+
+#: `|title` turns "espn" into "Espn", which looks like a typo to anybody who
+#: has ever used the site it is naming.
+PROVIDER_NAMES = {"espn": "ESPN", "sleeper": "Sleeper", "yahoo": "Yahoo"}
+
+
+def provider_name(provider: str) -> str:
+    key = (provider or "").strip().lower()
+    return PROVIDER_NAMES.get(key, key.title() or "Your platform")
+
+
+templates.env.filters["provider_name"] = provider_name
 
 
 # ---------------------------------------------------------------------------
@@ -1039,6 +1053,7 @@ def manage(
         weeks=weeks,
         earlier_season=earlier_season,
         lore=db.get_lore(league["id"]),
+        managers=managers_for_page(db, league, weeks),
         papers=papers,
         total_reads=sum(int(p.get("view_count") or 0) for p in papers),
         regenerations=regenerations,
@@ -1076,6 +1091,37 @@ def remove_lore(token: str, lore_id: str):
     league = _require_league(token)
     db.deactivate_lore(lore_id, league["id"])
     return RedirectResponse(f"/l/{token}", status_code=303)
+
+
+@app.post("/l/{token}/managers")
+def save_managers(token: str,
+                  handle: list[str] = Form([]),
+                  display_name: list[str] = Form([]),
+                  notes: list[str] = Form([])):
+    """One save for the whole page of people.
+
+    The three lists are positional: browsers submit fields in document order,
+    and every box submits even when empty, so row N is
+    (handle[N], display_name[N], notes[N]). If those lengths ever disagree the
+    pairing is meaningless and writing it would put one person's lore under
+    another person's name, so nothing is written at all.
+
+    Only handles that already have a row can be written — save_manager filters
+    on league_id and handle and updates, so a forged handle updates nothing.
+    """
+    league = _require_league(token)
+
+    if not (len(handle) == len(display_name) == len(notes)):
+        return RedirectResponse(
+            f"/l/{token}?error=Something+went+wrong+saving+that.+"
+            f"Try+again.", status_code=303)
+
+    for who, name, note in zip(handle, display_name, notes):
+        who = (who or "").strip()
+        if who:
+            db.save_manager(league["id"], who, name, note)
+
+    return RedirectResponse(f"/l/{token}?notice=Saved.", status_code=303)
 
 
 @app.post("/l/{token}/settings")
