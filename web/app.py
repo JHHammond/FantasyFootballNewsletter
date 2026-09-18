@@ -2519,7 +2519,7 @@ def privacy(request: Request):
     return _render(request, "legal.html",
                    heading="Privacy",
                    updated=legal.LAST_UPDATED,
-                   sections=legal.PRIVACY_SECTIONS,
+                   sections=legal.privacy_sections(),
                    contact_email=legal.contact_email(),
                    mailing_address=legal.mailing_address())
 
@@ -2529,7 +2529,7 @@ def terms(request: Request):
     return _render(request, "legal.html",
                    heading="Terms",
                    updated=legal.LAST_UPDATED,
-                   sections=legal.TERMS_SECTIONS,
+                   sections=legal.terms_sections(),
                    contact_email=legal.contact_email(),
                    mailing_address=legal.mailing_address())
 

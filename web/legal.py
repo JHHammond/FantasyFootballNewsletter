@@ -22,14 +22,34 @@ from __future__ import annotations
 import os
 
 #: Bump when the substance changes, not when the wording is tidied.
-LAST_UPDATED = "31 August 2026"
+LAST_UPDATED = "18 September 2026"
 
 SERVICE_NAME = "The Commissioner's Desk"
 
+#: The address on every legal page, in every email footer, and in the
+#: arbitration clause's notice provisions. One constant, because a contract
+#: that names three different addresses for notice is a contract with an
+#: argument built into it.
+#:
+#: Overridable by CONTACT_EMAIL, but the default is the real address rather
+#: than a placeholder: an unset environment variable must not be able to
+#: publish "hello@example.com" as the address for legal notice.
+DEFAULT_CONTACT_EMAIL = "commissionersdesk@gmail.com"
+
+#: Where the operator is, which decides governing law and the seat of any
+#: arbitration. Change this and the terms change with it.
+GOVERNING_STATE = "Georgia"
+
+#: How long somebody has to opt out of arbitration after agreeing to the
+#: terms. Thirty days is the usual window and the one courts have been most
+#: comfortable with; a shorter one is the sort of detail that gets a whole
+#: clause thrown out.
+ARBITRATION_OPT_OUT_DAYS = 30
+
 
 def contact_email() -> str:
-    return os.getenv("CONTACT_EMAIL", "").strip() or os.getenv(
-        "EMAIL_FROM", "hello@example.com").split("<")[-1].strip("<> ")
+    return (os.getenv("CONTACT_EMAIL", "").strip()
+            or DEFAULT_CONTACT_EMAIL)
 
 
 def mailing_address() -> str:
@@ -44,8 +64,9 @@ PRIVACY_SECTIONS = [
             "into a weekly newspaper. To do that it needs your league's ID and, "
             "if you want the paper emailed to you, an email address. That's the "
             "whole list.",
-            "There are no accounts and no passwords, so there is no profile "
-            "building up behind the scenes.",
+            "You can make an account, which stores your email address and a "
+            "hashed password and nothing else. If you subscribe, Stripe "
+            "handles the payment and we never see your card.",
         ],
     },
     {
@@ -147,9 +168,29 @@ TERMS_SECTIONS = [
     {
         "title": "What this is",
         "paragraphs": [
-            f"{SERVICE_NAME} is free. It reads your league's public results and "
-            "writes a newspaper about them. There is no account, no payment, and "
-            "no contract beyond what is on this page.",
+            f"{SERVICE_NAME} reads your league's public results and writes a "
+            "newspaper about them. There is a free tier that does not ask for "
+            "a card, and a paid tier that adds a few things. Readers never "
+            "pay and never sign up — the papers are public.",
+            "This page is the whole contract. By using the site you agree to "
+            "it.",
+        ],
+    },
+    {
+        "title": "Paying, and stopping paying",
+        "paragraphs": [
+            "The paid plan is billed monthly in advance through Stripe, who "
+            "handle the card. We never see or store your card number.",
+            "Cancel whenever you like, from your account page. Cancelling "
+            "stops the next charge and you keep the paid features until the "
+            "month you have already paid for runs out. Nothing you have made "
+            "is deleted when you cancel, and every paper you have published "
+            "stays published.",
+            "Prices can change. If one does, anybody already subscribed is "
+            "told by email before it applies to them.",
+            "Refunds are not automatic, but if something went wrong — you were "
+            "charged twice, or the site was broken for the month you paid for "
+            f"— write to {{contact}} and it will be sorted out.",
         ],
     },
     {
@@ -204,6 +245,60 @@ TERMS_SECTIONS = [
         ],
     },
     {
+        "title": "If we end up in a dispute",
+        "paragraphs": [
+            "<strong>Talk to us first.</strong> Almost everything gets sorted "
+            "out in an email. Before starting any formal proceeding, send a "
+            "description of the problem and what you want done about it to "
+            "{contact}, and give us 30 days to put it right. We will do the "
+            "same for you.",
+            "<strong>If that does not work, it goes to arbitration.</strong> "
+            "Any dispute between you and "
+            f"{SERVICE_NAME} that is not resolved informally will be settled "
+            "by binding individual arbitration, administered by the American "
+            "Arbitration Association under its Consumer Arbitration Rules, "
+            "before a single arbitrator. The Federal Arbitration Act governs "
+            "this section. The arbitrator's decision can be entered as a "
+            "judgment in any court with jurisdiction.",
+            "<strong>You do not have to travel.</strong> You can ask for the "
+            "arbitration to be held by documents only, by phone, or by "
+            f"video, or in the county where you live. Otherwise it is seated "
+            f"in {GOVERNING_STATE}.",
+            "<strong>Small claims are exempt.</strong> Either of us can take "
+            "a qualifying dispute to small claims court instead, and nothing "
+            "here stops that.",
+            "<strong>Individually, not as a class.</strong> Claims must be "
+            "brought in your own name. There are no class actions, no "
+            "collective or representative actions, and no consolidating your "
+            "claim with anybody else's. If that particular sentence turns out "
+            "to be unenforceable for a given claim, then this whole "
+            "arbitration section does not apply to that claim, and it goes to "
+            "court instead.",
+            "<strong>Intellectual property is exempt.</strong> Either of us "
+            "can go to court over copyright, trademark, or unauthorised "
+            "access to the service.",
+            f"<strong>You can opt out, and it costs you nothing.</strong> "
+            f"Email {{contact}} within {ARBITRATION_OPT_OUT_DAYS} days of "
+            "first agreeing to these terms, with your name and a sentence "
+            "saying you are opting out of arbitration. That is the whole "
+            "process. Opting out changes nothing else about your account, and "
+            "we will not treat you differently for it.",
+        ],
+    },
+    {
+        "title": "Which law applies",
+        "paragraphs": [
+            f"These terms are governed by the laws of the State of "
+            f"{GOVERNING_STATE}, without regard to its conflict-of-laws "
+            "rules. Where a dispute goes to court rather than arbitration, it "
+            f"belongs in the state or federal courts of {GOVERNING_STATE}, "
+            "except that nothing here takes away a consumer-protection right "
+            "you have where you live that cannot be waived by agreement.",
+            "If any part of these terms is found unenforceable, the rest "
+            "still stands.",
+        ],
+    },
+    {
         "title": "Not affiliated with anybody",
         "paragraphs": [
             "This is not affiliated with, endorsed by, or connected to the NFL, "
@@ -213,3 +308,37 @@ TERMS_SECTIONS = [
         ],
     },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Filling in the live details
+#
+# The section lists above are plain data with a {contact} placeholder, because
+# the address is configurable and a contract that names two different
+# addresses for notice has an argument built into it. This is where it becomes
+# one address.
+# ---------------------------------------------------------------------------
+
+def _fill(text: str, contact: str) -> str:
+    return text.replace("{contact}", f'<a href="mailto:{contact}">{contact}</a>')
+
+
+def _filled(sections: list[dict]) -> list[dict]:
+    contact = contact_email()
+    out = []
+    for section in sections:
+        copy = dict(section)
+        copy["paragraphs"] = [_fill(p, contact)
+                              for p in section.get("paragraphs", [])]
+        if section.get("bullets"):
+            copy["bullets"] = [_fill(b, contact) for b in section["bullets"]]
+        out.append(copy)
+    return out
+
+
+def privacy_sections() -> list[dict]:
+    return _filled(PRIVACY_SECTIONS)
+
+
+def terms_sections() -> list[dict]:
+    return _filled(TERMS_SECTIONS)

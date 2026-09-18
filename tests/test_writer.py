@@ -1361,3 +1361,97 @@ def test_the_writer_is_pointed_at_the_football_first():
     prompt = writer.KEVLARVILLE_SYSTEM_PROMPT
     assert "2 rush TD" in prompt, "the notation is not explained to the writer"
     assert "never guess at one" in prompt
+
+
+# ---------------------------------------------------------------------------
+# A response that ran out of room before it wrote anything
+#
+# Reported twice: "recap unavailable" in the middle of a finished paper. The
+# first diagnosis was a rate limit and it was wrong. This is the other thing
+# that produces exactly that symptom, and it produces it PERSISTENTLY rather
+# than intermittently, which is what "I'm still getting it" means.
+#
+# Thinking tokens are spent out of max_tokens. A model handed a 900-token
+# budget that reasons for 900 tokens returns a thinking block, no text block,
+# and stop_reason "max_tokens". That is not an API error — it is a successful
+# response that never got to the writing.
+# ---------------------------------------------------------------------------
+
+def _thinking_only(stop_reason="max_tokens"):
+    msg = _message(_Thinking())
+    msg.stop_reason = stop_reason
+    return msg
+
+
+def test_running_out_of_room_says_so_instead_of_saying_nothing():
+    """The log line has to name the cause. "no text block" sent me looking at
+    rate limits; "stop_reason='max_tokens'" would not have."""
+    with pytest.raises(writer.CallFailed) as caught:
+        writer.first_text_block(_thinking_only())
+
+    message = str(caught.value)
+    assert "max_tokens" in message
+    assert "thinking" in message.lower()
+
+
+def test_running_out_of_room_is_retried_with_more_room(swap_client, no_sleeping):
+    """The one failure with a specific fix. Another attempt at the same size
+    reasons itself into the same wall."""
+    budgets = []
+
+    def behaviour(kwargs):
+        budgets.append(kwargs["max_tokens"])
+        if len(budgets) == 1:
+            return _thinking_only()
+        return _message(_Thinking(), _Text())
+
+    swap_client(behaviour)
+    out = writer.call_claude("write the recap", max_tokens=900)
+
+    assert out.startswith("Walker went for")
+    assert budgets == [900, 1800], budgets
+
+
+def test_the_retry_is_once_and_bounded(swap_client, no_sleeping):
+    """Doubling forever on a call that is empty for some other reason is how
+    a fix becomes a bill."""
+    budgets = []
+
+    def behaviour(kwargs):
+        budgets.append(kwargs["max_tokens"])
+        return _thinking_only()
+
+    swap_client(behaviour)
+    with pytest.raises(writer.CallFailed):
+        writer.call_claude("write the recap", max_tokens=900)
+
+    assert max(budgets) <= writer.MAX_OUTPUT_TOKENS
+    assert len(budgets) <= 8, budgets
+
+
+def test_an_empty_response_for_any_other_reason_is_not_retried_bigger(
+        swap_client, no_sleeping):
+    """More room cannot fix a response that stopped on its own. Spending
+    double the tokens to find that out twice is not a fix."""
+    budgets = []
+
+    def behaviour(kwargs):
+        budgets.append(kwargs["max_tokens"])
+        return _thinking_only(stop_reason="end_turn")
+
+    swap_client(behaviour)
+    with pytest.raises(writer.CallFailed):
+        writer.call_claude("write the recap", max_tokens=900)
+
+    assert budgets == [900], budgets
+
+
+def test_the_recap_call_has_room_to_think_before_it_writes():
+    """The budget that produced the reports. A two-paragraph recap is about
+    500 tokens of prose, so a 900-token ceiling left 400 for reasoning — and
+    the recaps are the calls a model reasons hardest about."""
+    import inspect
+
+    source = inspect.getsource(writer.generate_matchup_body)
+    assert "max_tokens=900" not in source
+    assert "max_tokens=1600" in source

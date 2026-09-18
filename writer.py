@@ -209,6 +209,34 @@ HOW TO BE FUNNY WHILE DOING THAT
 - If you reference the league's own history or running jokes, do it like someone
   who was there — glancingly, without explaining it.
 
+THE THINGS THAT GIVE YOU AWAY
+A language model writes what it has seen most, which is why every model reaches
+for the same handful of moves. A reader cannot say why a paragraph feels
+machine-made, but they can feel it instantly, and the moment they do, the paper
+stops being their league's paper. These are banned outright:
+
+- "It's not X, it's Y." Also "this isn't X. It's Y." and "not just X, but Y."
+  Say the thing you mean. The reversal adds nothing but a drumroll.
+- THREE OF ANYTHING. Three adjectives, three examples, three clauses building
+  to a flourish. "The lineup was bad, the bench was worse, and the season is
+  over" is the single most recognisable sentence a model writes. Use two, or
+  four, or one.
+- delve, tapestry, testament, landscape, realm, navigate, underscore,
+  showcase, harness, elevate, resonate, foster, pivotal, crucial, robust,
+  seamless, myriad, plethora, "a stark reminder", "speaks volumes",
+  "at the end of the day", "make no mistake", "let that sink in".
+- Opening a sentence with "In a league where", "When it comes to", "There's
+  something to be said for", or "Here's the thing".
+- Ending a paragraph on a short portentous fragment. "Brutal." "Ouch."
+  "That's the game." A sportswriter does that once a season, not once a
+  paragraph.
+- Rhetorical questions you then answer yourself.
+- Em dashes as the only pause you own. One per paragraph at most; a full stop
+  is usually better.
+
+Write the way somebody writes when they are typing fast about people they
+know. Plain verbs, real numbers, and no throat-clearing before the point.
+
 WHAT MATTERS IN A FANTASY WEEK
 - Close wins are theft. Blowouts are unnecessary.
 - Players who miss their projection badly get buried. Players who smash it get
@@ -560,6 +588,21 @@ class CallFailed(RuntimeError):
     """
 
 
+class NoRoomToWrite(CallFailed):
+    """The response contained no prose.
+
+    `out_of_room` means the model spent its whole token budget before writing
+    anything — almost always because it reasoned first and thinking is billed
+    out of max_tokens. That one is worth retrying, because there is a specific
+    thing that fixes it: more room. Every other reason for an empty response
+    is not.
+    """
+
+    def __init__(self, message: str = "", *, out_of_room: bool = False):
+        super().__init__(message)
+        self.out_of_room = out_of_room
+
+
 def describe_api_failure(exc: BaseException) -> str:
     """Why a Claude call failed, in a form worth pasting into a bug report.
 
@@ -729,6 +772,12 @@ _RATE_LIMIT_BACKOFF = (5.0, 15.0, 30.0)
 #: giving up rather than a browser hanging for five minutes.
 _MAX_BACKOFF = 20.0
 
+#: The ceiling on one retry-with-more-room. Big enough that no section of this
+#: paper can legitimately need more (the longest is a two-paragraph recap,
+#: about 500 tokens of prose), small enough that a call failing for some other
+#: reason cannot quietly become an expensive one.
+MAX_OUTPUT_TOKENS = 2400
+
 
 def _backoff(attempt: int, exc) -> float:
     """Seconds to wait before the next attempt.
@@ -787,9 +836,23 @@ def first_text_block(message) -> str:
         if isinstance(text, str):
             return text.strip()
 
-    raise CallFailed(
-        f"no text block in a response of "
-        f"{[getattr(b, 'type', type(b).__name__) for b in blocks]}")
+    # NO PROSE AT ALL. Worth its own sentence in the log, because the reason
+    # is almost always the same one and it is not obvious: thinking tokens are
+    # spent out of max_tokens. A model given a 900-token budget that decides
+    # to reason for 900 tokens returns a thinking block, no text block, and
+    # stop_reason "max_tokens" — the response is not an error, it is a
+    # response that ran out of room before it started writing.
+    #
+    # Only the long calls can hit it, which is why this shows up as most of
+    # the game recaps missing while every short section came through fine.
+    # That pattern also looks exactly like a rate limit, and was mistaken for
+    # one once already.
+    stop = getattr(message, "stop_reason", None)
+    kinds = [getattr(b, "type", type(b).__name__) for b in blocks]
+    raise NoRoomToWrite(
+        f"no text block (stop_reason={stop!r}, blocks={kinds})",
+        out_of_room=(stop == "max_tokens"),
+    )
 
 
 def _looks_like_a_model_problem(exc) -> bool:
@@ -852,6 +915,20 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
                 raise CallFailed()
 
             return text
+        except NoRoomToWrite as exc:
+            # A response that ran out of budget before writing a word. The
+            # fix is more budget, and only more budget — another attempt at
+            # the same size reasons itself into the same wall. One retry with
+            # double the room, once, then give up rather than doubling
+            # forever on a call that is failing for some other reason.
+            if not (exc.out_of_room and max_tokens < MAX_OUTPUT_TOKENS):
+                raise
+            bigger = min(max_tokens * 2, MAX_OUTPUT_TOKENS)
+            print(f"[writer] !! a response used its whole {max_tokens}-token "
+                  f"budget thinking and never wrote anything. Retrying with "
+                  f"{bigger}.", flush=True)
+            return call_claude(prompt, max_tokens=bigger, system=system,
+                               attempts=attempts, model=model)
         except anthropic.APIStatusError as exc:
             # A MODEL THIS ACCOUNT CANNOT USE.
             #
@@ -1041,7 +1118,7 @@ Write only what the numbers support. No invented injuries, plays, snap counts
 or quotes. Plain prose — no markdown, no bullets, no headers.
 
 {f"Things this league would want referenced if they fit: {inside_jokes}" if inside_jokes else ""}
-""", max_tokens=900, system=system, model=model)
+""", max_tokens=1600, system=system, model=model)
 
 
 def generate_awards(summary, commissioner_name="", inside_jokes="", system=None, model=None):

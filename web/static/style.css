@@ -584,13 +584,22 @@ textarea { resize: vertical; }
     margin-top: 2px;
 }
 
-/* Miniature of each paper, so the choice is visual rather than a word. */
+/* Miniature of each paper, so the choice is visual rather than a word.
+   Tall enough for a two-line headline in the condensed faces: at 92px the
+   sample clipped "Steve Opens 1-0, Henry Underperforms" mid-word, which reads
+   as a broken card rather than as a small one. */
 .theme-sample {
     display: block;
     padding: 10px 9px;
-    height: 92px;
+    height: 108px;
     overflow: hidden;
     border: 1px solid var(--line);
+}
+
+/* The headline is the one bit of real copy in the sample, so it gets to be
+   legible rather than merely present. */
+.theme-sample-head {
+    line-height: 1.15;
 }
 .theme-sample-masthead,
 .theme-sample-head { display: block; }
