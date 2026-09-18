@@ -1455,3 +1455,150 @@ def test_the_recap_call_has_room_to_think_before_it_writes():
     source = inspect.getsource(writer.generate_matchup_body)
     assert "max_tokens=900" not in source
     assert "max_tokens=1600" in source
+
+
+# ---------------------------------------------------------------------------
+# The lead story
+#
+# "Right now it just makes weird, hollow AI insults." The prompt was part of
+# it; the data was the rest. This call used to be handed four numbers — the
+# closest margin, the blowout margin, the high and low team scores — and no
+# players at all, then asked for something dramatic and funny. Attitude was
+# the only thing left in range.
+# ---------------------------------------------------------------------------
+
+def _team(name, manager, points, starters, bench=()):
+    return {
+        "team_name": name, "owner_name": manager, "points": points,
+        "record": "1-0", "record_after": "1-0", "avatar_url": None,
+        "lineup_gap": 0, "empty_slots": 0,
+        "all_starters": [{"name": n, "position": "RB", "actual": p,
+                          "projected": 10.0, "beat_projection_by": p - 10.0}
+                         for n, p in starters],
+        "all_bench": [{"name": n, "position": "TE", "actual": p,
+                       "projected": 10.0, "beat_projection_by": p - 10.0}
+                      for n, p in bench],
+        "top_performer": None, "bottom_performer": None,
+    }
+
+
+def _week():
+    """Deliberately NOT in scoring order, and deliberately not using the names
+    from the prompt's own worked example.
+
+    Both of those were wrong first time and both made a test pass for the
+    wrong reason: a fixture already sorted descending cannot detect a missing
+    sort, and asserting "Josh Allen is in the prompt" matches the example
+    sentence in the instructions whether or not any data arrived.
+    """
+    return [
+        {"team_1": _team("Dunder Mifflin", "Priya", 161.0,
+                         [("Kyren Jetson", 12.0), ("Tex Ballard", 43.0),
+                          ("Mo Okafor", 29.0)],
+                         bench=[("A Benched Monster", 51.0)]),
+         "team_2": _team("Blue Ridge", "Omar", 142.0, [("Cal Winters", 21.0)]),
+         "winner": "Dunder Mifflin", "margin": 19.0, "matchup_id": "1"},
+        {"team_1": _team("Ninth Street", "Lena", 116.0, [("Dex Moreau", 17.0)]),
+         "team_2": _team("Harbour FC", "Bo", 113.0, [("Ray Solano", 16.0)]),
+         "winner": "Ninth Street", "margin": 3.0, "matchup_id": "2"},
+    ]
+
+
+def test_the_biggest_scores_are_attached_to_whoever_started_them():
+    """"Josh Allen went for 43" is a fact about the NFL. "Steve, powered by 43
+    from Josh Allen, beat Mark" is a fact about this league, and it is the one
+    somebody opened the paper for."""
+    top = writer.week_top_performers(_week())
+
+    assert top[0]["player"] == "Tex Ballard"
+    assert top[0]["points"] == 43.0
+    assert top[0]["manager"] == "Priya"
+
+
+def test_a_benched_monster_is_not_in_the_lead():
+    """It is a good story and it is the recap's story. "Powered by" has to
+    mean points that actually counted."""
+    names = [p["player"] for p in writer.week_top_performers(_week())]
+
+    assert "A Benched Monster" not in names, (
+        "a bench score reached the front page as though it had played")
+
+
+def test_the_performers_are_ranked_and_capped():
+    top = writer.week_top_performers(_week(), limit=3)
+
+    # The fixture's document order starts 12.0, so this only passes if the
+    # list was actually ranked rather than merely truncated.
+    assert [p["points"] for p in top] == [43.0, 29.0, 21.0]
+    assert len(top) == 3
+
+
+def test_every_game_reaches_the_lead_with_both_scores():
+    """John's spec: every game gets named with its score. The old call was
+    handed two games — the closest and the blowout — so in a twelve-team
+    league the front page could not have covered the week if it wanted to."""
+    results = writer.week_results(_week())
+
+    assert len(results) == 2
+    assert {r["winner"] for r in results} == {"Dunder Mifflin", "Ninth Street"}
+    for r in results:
+        assert r["winner_score"] > r["loser_score"], r
+
+
+def test_the_lead_prompt_carries_the_players_and_every_result(
+        swap_client, no_sleeping):
+    """The regression that matters. A prompt that does not contain Josh Allen
+    cannot produce a sentence about Josh Allen, however it is instructed."""
+    seen = {}
+
+    def behaviour(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply("The week, reported.")
+
+    swap_client(behaviour)
+    writer.generate_lead_story({}, 2, "The Times", games=_week())
+
+    # The DATA half only. The instructions contain a worked example with its
+    # own players and scores in it, so searching the whole prompt finds those
+    # and passes even when nothing was handed over at all. That is exactly
+    # how this test passed the first time it was written.
+    data = seen["prompt"].split("Week data:", 1)[1]
+
+    assert "Tex Ballard" in data
+    assert "43" in data
+    for name in ("Priya", "Omar", "Lena", "Bo"):
+        assert name in data, name
+
+
+def test_the_lead_is_told_to_play_it_straight(swap_client, no_sleeping):
+    """The actual complaint. Jokes belong in the recaps, where there is room
+    to earn them; in the lead they land as snideness about people the reader
+    has not met yet."""
+    seen = {}
+
+    def behaviour(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply("x")
+
+    swap_client(behaviour)
+    writer.generate_lead_story({}, 2, "The Times", games=_week())
+
+    prompt = seen["prompt"]
+    assert "No insults here" in prompt
+    assert "ROUND-UP" in prompt
+    assert "winner's score first" in prompt.lower()
+
+
+def test_the_lead_survives_a_week_it_cannot_see():
+    """Called with no games at all — a provider hiccup mid-generation — it
+    has to produce a prompt rather than an exception."""
+    assert writer.week_top_performers(None) == []
+    assert writer.week_results(None) == []
+
+
+def test_the_system_prompt_bans_the_tells():
+    prompt = writer.KEVLARVILLE_SYSTEM_PROMPT
+
+    assert "It's not X, it's Y" in prompt
+    assert "THREE OF ANYTHING" in prompt
+    assert "delve" in prompt

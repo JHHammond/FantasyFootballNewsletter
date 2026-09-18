@@ -993,38 +993,139 @@ Week data: {_compact(context)}
     return call_claude(prompt, max_tokens=60, system=system, model=model)
 
 
-def generate_lead_story(summary, week, league_name, commissioner_name="", inside_jokes="", system=None, model=None):
-    games_context = []
-    for game in [
-        summary.get("closest_game"),
-        summary.get("biggest_blowout"),
-    ]:
-        if game:
-            games_context.append(build_game_context(game))
+#: How many of the week's biggest performances are named in the lead.
+#: Enough to cover the handful everybody is talking about, few enough that the
+#: paragraph stays a paragraph.
+TOP_PERFORMERS_IN_LEAD = 5
 
+
+def week_top_performers(games, limit=TOP_PERFORMERS_IN_LEAD):
+    """The week's biggest scores, each attached to the team that started it.
+
+    STARTERS ONLY. A 40-point tight end on somebody's bench is a good story
+    and it is the recap's story, not the lead's — "powered by" has to mean
+    points that actually counted.
+
+    The attachment is the whole point. "Josh Allen went for 43" is a fact
+    about the NFL; "Steve, powered by 43 from Josh Allen, beat Mark" is a fact
+    about this league, and it is the one the reader opened the paper for.
+    """
+    rows = []
+    for game in games or []:
+        for side in ("team_1", "team_2"):
+            team = (game or {}).get(side) or {}
+            for player in team.get("all_starters") or []:
+                if not player or not player.get("name"):
+                    continue
+                actual = player.get("actual")
+                if not isinstance(actual, (int, float)):
+                    continue
+                rows.append({
+                    "player": player["name"],
+                    "position": player.get("position") or "",
+                    "points": round(float(actual), 1),
+                    "team": team.get("team_name") or "",
+                    "manager": team.get("owner_name") or "",
+                })
+
+    rows.sort(key=lambda r: r["points"], reverse=True)
+    return rows[:limit]
+
+
+def week_results(games):
+    """Every game, as a result. Winner first, both scores, the margin."""
+    out = []
+    for game in games or []:
+        ctx = build_game_context(game)
+        out.append({
+            "winner": ctx.get("winner"),
+            "winner_manager": ctx.get("winner_owner"),
+            "winner_score": ctx.get("winner_score"),
+            "loser": ctx.get("loser"),
+            "loser_manager": ctx.get("loser_owner"),
+            "loser_score": ctx.get("loser_score"),
+            "margin": ctx.get("margin"),
+        })
+    return out
+
+
+def generate_lead_story(summary, week, league_name, commissioner_name="",
+                        inside_jokes="", system=None, model=None, games=None):
+    """The paragraph at the top of the front page.
+
+    REWRITTEN, because what it produced was the thing John described as
+    "weird, hollow AI insults". Two causes, and the prompt was only the
+    second of them.
+
+    THE DATA WAS NOT THERE. This call was handed the closest game, the
+    blowout, and the high and low team scores — four numbers and no players.
+    Asked for something "dramatic and funny" about a week it could barely
+    see, a model does the only thing left available to it and reaches for
+    attitude. The insults were not a failure of instruction; they were the
+    only thing in range.
+
+    So it now gets every result and the week's biggest performances, with the
+    manager attached to each. A round-up can be written from that. Attitude
+    cannot compete with "Steve, powered by 43 from Josh Allen, beat Mark
+    161-142", and once the facts are in the prompt the model stops inventing
+    a voice to fill the space.
+    """
     context = {
         "week": week,
         "league_name": league_name,
         "commissioner_name": commissioner_name,
+        "top_performers": week_top_performers(games),
+        "results": week_results(games),
         "highest_score_team": summary.get("highest_score", {}).get("team_name", ""),
         "highest_score": summary.get("highest_score", {}).get("points", 0),
         "lowest_score_team": summary.get("lowest_score", {}).get("team_name", ""),
         "lowest_score": summary.get("lowest_score", {}).get("points", 0),
-        "closest_game": games_context[0] if games_context else {},
-        "biggest_blowout": games_context[1] if len(games_context) > 1 else {},
+        "closest_margin": summary.get("closest_game", {}).get("margin", 0),
+        "biggest_margin": summary.get("biggest_blowout", {}).get("margin", 0),
         "inside_jokes": inside_jokes,
     }
 
     prompt = f"""
-Write the LEAD STORY paragraph for this week's Kevlarville Times.
-This is the opening paragraph of the newspaper — set the tone for the whole week.
-3-5 sentences. Dramatic, funny, and specific to the data below.
-Reference the closest game, the blowout, and the highest/lowest scores.
-Do not use bullet points. Just flowing prose.
+Write the LEAD STORY: the paragraph at the top of the front page that tells
+somebody who did not watch what happened in this league this week.
+
+IT IS A ROUND-UP, NOT A COLUMN. Every game gets its result. The week's
+biggest performances get named and attached to the manager who started them,
+because that is the connection the reader opened the paper for — who put up
+those numbers, and did it win.
+
+HOW IT GOES
+- Open with the biggest performance of the week and the game it decided.
+- Then work through the rest of the games. Every single one gets named, with
+  BOTH scores, winner's score first.
+- Where a manager's win was carried by one or two big scores, say so and give
+  the numbers. That is the sentence this paragraph exists for.
+- Let the margin pick the verb. Three points is a nail-biter; sixty is not a
+  game. You do not need an adjective for the ones in between.
+- Use people's names where the data gives you one, not team names, and never
+  a username where a real name exists.
+
+THIS IS THE ONE PART OF THE PAPER THAT PLAYS IT STRAIGHT.
+No insults here. None. The jokes belong in the game recaps where there is
+room to earn them; up here they land as snideness about people the reader
+has not been introduced to yet, which is exactly how this paragraph has been
+reading. Report the week. If something is genuinely absurd — a 40-point
+margin, somebody scoring 60 — the number carries it without help.
+
+    LIKE THIS:
+      Steve, powered by 43 from Josh Allen and 29 from Zay Flowers, toppled
+      Mark 161-142. Rick edged Nick 116-113 on Monday night, while Dave put
+      167 on Tom's 100 and never trailed.
+
+    NOT LIKE THIS:
+      Another week of questionable decisions in a league that specialises in
+      them. Somebody had to win. Brutal.
+
+One paragraph, flowing prose, no bullets and no headings.
 
 Week data: {_compact(context)}
 """
-    return call_claude(prompt, max_tokens=600, system=system, model=model)
+    return call_claude(prompt, max_tokens=1200, system=system, model=model)
 
 
 #: What a headline actually needs. Everything else in a game context is two
@@ -1498,7 +1599,9 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     # Top-level tasks
     tasks["headline"] = lambda: generate_headline(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt, model_for("headline"))
-    tasks["lead_story"] = lambda: generate_lead_story(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt, model_for("lead_story"))
+    tasks["lead_story"] = lambda: generate_lead_story(
+        summary, week, league_name, commissioner_name, inside_jokes,
+        sys_prompt, model_for("lead_story"), games=games)
     tasks["awards"] = lambda: generate_awards(summary, commissioner_name, inside_jokes, sys_prompt, model_for("awards"))
     tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, inside_jokes, sys_prompt, model_for("fraud_watch"))
     tasks["classifieds"] = lambda: generate_classifieds(
