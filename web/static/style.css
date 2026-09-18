@@ -1007,6 +1007,13 @@ textarea { resize: vertical; }
     hyphens: auto;
 }
 
+/* Paragraphs inside the specimen are set like a newspaper's: no blank line
+   between them, the next one just indents. Two columns of 15px type are
+   narrow, and a blank line in one of them reads as a gap in the page. */
+.specimen-body p + p {
+    text-indent: 1.2em;
+}
+
 .specimen-caption {
     margin-top: 16px;
     padding-top: 10px;
