@@ -890,6 +890,97 @@ def test_a_week_that_adds_a_team_adds_a_box_without_wiping_anything(league):
     assert saved["mikevidan3"]["notes"] == "drafts a kicker"
 
 
+# ---------------------------------------------------------------------------
+# Deleting a league
+#
+# The manage link is a bearer token that gets pasted into group chats and left
+# open in tabs. A delete behind it has to be hard to do by accident and total
+# when it happens.
+# ---------------------------------------------------------------------------
+
+def test_deleting_takes_the_league_and_everything_under_it(client, league):
+    demo_db.add_lore(league["id"], "Nick benches his best guy")
+    demo_db.remember_managers(league["id"], ["mikevidan3"])
+    demo_db.subscribe(league["id"], "reader@example.com")
+    demo_db.save_paper(league["id"], 1, 2025, "kevlarville-7f3a/2025/week-01.html",
+                       "http://example/p", {})
+
+    r = client.post("/l/secret-admin-token/delete",
+                    data={"confirm": "Kevlarville"})
+
+    assert r.status_code == 200
+    assert demo_db.league_by_admin_token("secret-admin-token") is None
+    assert demo_db.list_papers(league["id"]) == []
+    assert demo_db.get_lore(league["id"]) == []
+    assert demo_db.get_managers(league["id"]) == []
+    assert demo_db.subscriber_count(league["id"]) == 0
+
+
+def test_the_published_papers_come_down_too(client, league):
+    """They are world-readable at URLs people have already shared. A delete
+    that leaves the editions up is not a delete."""
+    path = "kevlarville-7f3a/2025/week-01.html"
+    demo_db.upload_paper("kevlarville-7f3a", 2025, 1, "<html>the paper</html>")
+    demo_db.save_paper(league["id"], 1, 2025, path, "http://example/p", {})
+
+    client.post("/l/secret-admin-token/delete", data={"confirm": "Kevlarville"})
+
+    assert demo_db.download_paper(path) is None
+
+
+def test_the_wrong_name_deletes_nothing(client, league):
+    r = client.post("/l/secret-admin-token/delete",
+                    data={"confirm": "kevlarvile"}, follow_redirects=False)
+
+    assert r.status_code == 303
+    assert "error=" in r.headers["location"]
+    assert demo_db.league_by_admin_token("secret-admin-token") is not None
+
+
+def test_an_empty_confirmation_deletes_nothing(client, league):
+    """A form posted with nothing in it must not read as agreement — and a
+    league whose name is somehow blank must not become one-click deletable."""
+    for junk in ("", "   "):
+        client.post("/l/secret-admin-token/delete", data={"confirm": junk},
+                    follow_redirects=False)
+        assert demo_db.league_by_admin_token("secret-admin-token") is not None
+
+
+def test_deleting_needs_the_admin_token(client, league):
+    r = client.post("/l/not-the-token/delete", data={"confirm": "Kevlarville"})
+    assert r.status_code == 404
+    assert demo_db.league_by_admin_token("secret-admin-token") is not None
+
+
+def test_the_name_is_matched_forgivingly(client, league):
+    """Typing it is the safeguard. Capitalising it the same way is not."""
+    r = client.post("/l/secret-admin-token/delete",
+                    data={"confirm": "  kevlarville "})
+    assert demo_db.league_by_admin_token("secret-admin-token") is None
+    assert r.status_code == 200
+
+
+def test_the_delete_form_says_what_to_type(client, league):
+    text = client.get("/l/secret-admin-token").text
+    assert "Delete this league" in text
+    assert "Kevlarville" in text
+
+
+def test_deleting_one_league_leaves_the_others_alone(client, league):
+    other = demo_db.create_league(
+        provider="sleeper", platform_league_id="456", league_name="Other",
+        paper_name="The Other Times", commissioner_name="x", season=2025,
+        public_slug="other-1", admin_token="other-token")
+    demo_db.add_lore(other["id"], "keep me")
+    demo_db.remember_managers(other["id"], ["someone"])
+
+    client.post("/l/secret-admin-token/delete", data={"confirm": "Kevlarville"})
+
+    assert demo_db.league_by_admin_token("other-token") is not None
+    assert len(demo_db.get_lore(other["id"])) == 1
+    assert len(demo_db.get_managers(other["id"])) == 1
+
+
 def _system_text(*args, **kwargs):
     """system_prompt returns API blocks now, not a string — see the docstring
     on it for why. Tests care about the words, so flatten them."""

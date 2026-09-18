@@ -92,6 +92,32 @@ def update_league(league_id: str, fields: dict[str, Any]) -> None:
             _LEAGUES[league_id].update(fields)
 
 
+def delete_league(league_id: str) -> None:
+    """What `on delete cascade` does in Postgres, by hand.
+
+    Every table that references leagues has to be listed here or demo mode
+    stops being a truthful preview — it would leave a subscriber list behind
+    that production correctly removes.
+    """
+    with _lock:
+        for key, paper in list(_PAPERS.items()):
+            if key[0] == league_id:
+                _STORAGE.pop(paper.get("storage_path") or "", None)
+                del _PAPERS[key]
+
+        # Not magic_links: those are keyed by email and belong to the person,
+        # not the league, in both stores.
+        for store in (_LORE, _SUBSCRIBERS):
+            for key, row in list(store.items()):
+                if row.get("league_id") == league_id:
+                    del store[key]
+
+        for key in [k for k in _MANAGERS if k[0] == league_id]:
+            del _MANAGERS[key]
+
+        _LEAGUES.pop(league_id, None)
+
+
 # ---------------------------------------------------------------------------
 # Lore
 # ---------------------------------------------------------------------------

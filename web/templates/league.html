@@ -215,6 +215,27 @@
     </form>
 </section>
 
+<section class="card card-danger">
+    <h2 class="card-title">Delete this league</h2>
+    <p class="card-sub">
+        Every edition, the lore, the people, your subscriber list, this link.
+        The published papers come down too &mdash; anyone you've sent one to
+        gets a dead link. There's no undo and we don't keep a copy.
+        <br /><br />
+        Type <strong>{{ league.league_name }}</strong> below if that's what you
+        want.
+    </p>
+    <form method="post" action="/l/{{ league.admin_token }}/delete"
+          class="inline-form">
+        <label class="field">
+            <span class="field-label">League name</span>
+            <input type="text" name="confirm" required autocomplete="off"
+                   placeholder="{{ league.league_name }}" />
+        </label>
+        <button type="submit" class="btn btn-quiet">Delete it</button>
+    </form>
+</section>
+
 <section class="card">
     <h2 class="card-title">Past editions</h2>
     {% if papers %}

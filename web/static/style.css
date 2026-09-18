@@ -274,6 +274,11 @@ textarea { resize: vertical; }
 
 .empty { color: var(--muted); font-style: italic; margin-bottom: 18px; }
 
+/* The one card on the page you can't undo. It should not look like the
+   others — somebody scrolling past needs to see it coming. */
+.card-danger { border-color: var(--red); }
+.card-danger .card-title { color: var(--red); }
+
 /* ---------- the people in the league ---------- */
 
 .manager-list {

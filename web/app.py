@@ -1173,6 +1173,37 @@ def rotate_admin_token(token: str):
         f"bookmark+this+page.", status_code=303)
 
 
+@app.post("/l/{token}/delete")
+def delete_league(request: Request, token: str, confirm: str = Form("")):
+    """Remove a league and everything it ever printed.
+
+    Gated on typing the league's name rather than on a browser confirm(). The
+    manage link gets pasted into group chats and left open in tabs; a single
+    mis-click should not be able to take down a season's archive, and a dialog
+    is one mis-click. Typing the name is the smallest thing that cannot happen
+    by accident.
+
+    The papers are world-readable at URLs people have already shared, so this
+    genuinely has to remove them rather than hide the league — a delete that
+    leaves the editions up is not a delete.
+    """
+    league = _require_league(token)
+
+    wanted = (league.get("league_name") or "").strip().lower()
+    if confirm.strip().lower() != wanted:
+        return RedirectResponse(
+            f"/l/{token}?error=That+didn't+match+the+league+name,+so+"
+            f"nothing+was+deleted.", status_code=303)
+
+    db.delete_league(league["id"])
+
+    return _render(request, "message.html",
+                   heading="It's gone",
+                   body=f"{paper_name_for(league)} and every edition of it have "
+                        f"been deleted. The manage link no longer works.",
+                   link_url="/", link_label="Start another one")
+
+
 @app.post("/l/{token}/email")
 def save_owner_email(token: str, email: str = Form(...)):
     """Commissioner asks us to email them their manage link.

@@ -164,6 +164,32 @@ def update_league(league_id: str, fields: dict[str, Any]) -> None:
     client().table("leagues").update(fields).eq("id", league_id).execute()
 
 
+def delete_league(league_id: str) -> None:
+    """Remove a league and everything hanging off it.
+
+    lore, newspapers, subscribers, magic_links and managers all declare
+    `on delete cascade` against this row, so one delete takes the lot. The
+    published HTML in the bucket does not cascade — storage knows nothing about
+    Postgres — so it is removed first, while the rows that say where it lives
+    still exist.
+
+    Storage is best-effort on purpose. An orphaned HTML file is a few kilobytes
+    nobody can find a link to; a league that refuses to delete because the
+    bucket hiccuped is a commissioner stuck with a league they asked to be rid
+    of. The database delete is the one that has to happen.
+    """
+    try:
+        paths = [p["storage_path"] for p in list_papers(league_id)
+                 if p.get("storage_path")]
+        if paths:
+            client().storage.from_(BUCKET).remove(paths)
+    except Exception as exc:  # noqa: BLE001 — see the note above
+        print(f"[delete] league {league_id}: storage not cleaned: "
+              f"{type(exc).__name__}: {exc}", flush=True)
+
+    client().table("leagues").delete().eq("id", league_id).execute()
+
+
 # ---------------------------------------------------------------------------
 # Lore — the thing that makes one league's paper unlike another's
 # ---------------------------------------------------------------------------
