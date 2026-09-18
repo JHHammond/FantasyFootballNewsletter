@@ -4474,3 +4474,38 @@ def test_the_same_event_with_one_byte_changed_is_rejected(client, monkeypatch):
 
     assert r.status_code == 400
     assert demo_db.user_by_id(user["id"])["plan"] == "free"
+
+
+def test_opening_checkout_is_rate_limited(client, monkeypatch):
+    """This route creates a Stripe CUSTOMER the first time each account uses
+    it, and Stripe's own card-testing guidance names "limit the number of
+    customers created by a single IP" as a mitigation. Stripe defends its own
+    checkout page; it does not defend this route."""
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRICE_ID", "price_test")
+    _signup(client)
+
+    seen = []
+    monkeypatch.setattr(webapp.billing, "checkout_url",
+                        lambda *a, **k: seen.append(1) or "https://stripe.test/c")
+
+    for _ in range(webapp.CHECKOUTS_PER_HOUR + 4):
+        client.post("/billing/checkout", follow_redirects=False)
+
+    assert len(seen) <= webapp.CHECKOUTS_PER_HOUR, (
+        f"reached Stripe {len(seen)} times")
+
+
+def test_a_rate_limited_checkout_says_nothing_was_charged(client, monkeypatch):
+    """The one sentence somebody needs when a payment page refuses them."""
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRICE_ID", "price_test")
+    _signup(client)
+    monkeypatch.setattr(webapp.billing, "checkout_url",
+                        lambda *a, **k: "https://stripe.test/c")
+
+    last = None
+    for _ in range(webapp.CHECKOUTS_PER_HOUR + 2):
+        last = client.post("/billing/checkout", follow_redirects=False)
+
+    assert "charged" in last.headers["location"]

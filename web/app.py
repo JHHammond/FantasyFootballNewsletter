@@ -313,6 +313,19 @@ LEAGUE_CREATES_PER_HOUR = 5
 SUBSCRIBES_PER_HOUR = 20
 RECOVERIES_PER_HOUR = 5
 UPLOADS_PER_HOUR = 30               # per IP
+
+#: Opening Stripe's checkout page. Low, because a person subscribes roughly
+#: once, and because this route CREATES A STRIPE CUSTOMER the first time each
+#: account uses it.
+#:
+#: Stripe's own card-testing guidance names "limit the number of customers
+#: that can be created by a single IP address" as a specific mitigation, and
+#: an unbounded endpoint that mints customer records is the shape they are
+#: describing. Checkout itself is well defended — Stripe applies rate limits,
+#: CAPTCHAs and its own models to the hosted page — but that defends THEIR
+#: page, not this route.
+CHECKOUTS_PER_HOUR = 8              # per IP
+CHECKOUTS_PER_USER_PER_DAY = 12
 UPLOADS_PER_LEAGUE_PER_DAY = 60     # per league
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
@@ -968,6 +981,16 @@ def billing_checkout(request: Request):
     if plans.is_paid(user):
         return RedirectResponse("/account?notice=You're+already+subscribed.",
                                 status_code=303)
+
+    # Two keys, the same reasoning as generation: the IP is a claim, the
+    # account id is a fact. Somebody who can present any IP they like still
+    # cannot spin up customers faster than one account is allowed to.
+    if (_rate_limited(f"checkout:{_client_ip(request)}", CHECKOUTS_PER_HOUR)
+            or _rate_limited(f"checkout-user:{user['id']}",
+                             CHECKOUTS_PER_USER_PER_DAY, window=DAY)):
+        return RedirectResponse(
+            "/account?error=That's+a+few+attempts+already.+Give+it+a+few+"
+            "minutes,+and+nothing+has+been+charged.", status_code=303)
 
     try:
         url = billing.checkout_url(db, user, public_base_url())
