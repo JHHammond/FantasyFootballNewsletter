@@ -140,7 +140,8 @@ projection. Use them.
 
 - Name at least five players per matchup, drawn from both teams.
 - Prefer the ones the numbers make interesting: the biggest beats, the biggest
-  misses, anyone who scored zero, anyone benched who outscored a starter.
+  misses, anyone who scored zero, and — for the team that LOST — anyone benched
+  who outscored a starter.
 - Every player you name gets their SCORE attached. "Bijan went off" is not
   reporting. "Bijan put up 28.4" is.
 - The PROJECTION is not part of that. Bring it in only for the players whose
@@ -241,8 +242,12 @@ WHAT MATTERS IN A FANTASY WEEK
 - Close wins are theft. Blowouts are unnecessary.
 - Players who miss their projection badly get buried. Players who smash it get
   real credit — genuine football excitement, not sarcasm.
-- Points left on the bench are the great sin. Name the player who should have
-  started and what he scored.
+- Points left on the bench are the great sin, but ONLY for a manager who lost.
+  Name the player who should have started and what he scored. A team that won
+  with points on its bench left nothing behind that mattered — those points
+  were surplus, nobody in the league is thinking about them, and bringing them
+  up reads as a writer with nothing to say. You will only be shown a bench for
+  the team that lost.
 - A starter who scored zero is always worth a sentence.
 - The Commissioner gets shamelessly flattering coverage. Play it completely
   straight, as though it were ordinary reporting.
@@ -494,8 +499,18 @@ def _player_line(p, bench=False):
 BENCH_SHOWN = 4
 
 
-def format_lineup(team_side):
-    """Every starter this team played, plus the best of the bench.
+def format_lineup(team_side, with_bench: bool = True):
+    """Every starter this team played, and — only if they lost — the bench.
+
+    THE BENCH IS ONLY A STORY WHEN IT COST SOMEBODY THE GAME. A manager who
+    left 30 on the bench and won by 40 does not need telling; the points were
+    surplus, nobody in the league is thinking about them, and a paragraph
+    about them reads as a writer filling space.
+
+    So the winner's bench is not sent at all, rather than sent with an
+    instruction not to mention it. An instruction is something a model can
+    talk itself past when a 38-point bench player is sitting right there in
+    the data. An absence is not.
 
     THIS IS THE FIX FOR THE FLAT WRITING.
 
@@ -514,6 +529,9 @@ def format_lineup(team_side):
             _player_line(p) for p in (team_side.get("all_starters") or [])
         ) if line
     ]
+
+    if not with_bench:
+        return starters
 
     bench_players = [p for p in (team_side.get("all_bench") or [])
                      if isinstance(p.get("actual"), (int, float))]
@@ -557,7 +575,8 @@ def build_game_context(game):
         "winner_lineup_gap": winner_team.get("lineup_gap", 0),
         "winner_top_performer": format_performer(winner_team.get("top_performer")),
         "winner_bottom_performer": format_performer(winner_team.get("bottom_performer")),
-        "winner_lineup": format_lineup(winner_team),
+        # No bench for the winner: see format_lineup.
+        "winner_lineup": format_lineup(winner_team, with_bench=False),
         "loser": loser_team.get("team_name"),
         "loser_owner": loser_team.get("owner_name"),
         "loser_score": loser_team.get("points"),
@@ -565,7 +584,7 @@ def build_game_context(game):
         "loser_lineup_gap": loser_team.get("lineup_gap", 0),
         "loser_top_performer": format_performer(loser_team.get("top_performer")),
         "loser_bottom_performer": format_performer(loser_team.get("bottom_performer")),
-        "loser_lineup": format_lineup(loser_team),
+        "loser_lineup": format_lineup(loser_team, with_bench=True),
         "margin": margin,
     }
 
@@ -1180,14 +1199,16 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
             f"\n{commissioner_name} is the commissioner of this league. "
             f"Cover them glowingly and completely straight.\n")
 
+    # THE LOSER'S BENCH ONLY. Points left on the bench of a team that won are
+    # not a mistake anybody is thinking about — they are points that were not
+    # needed.
     bench_note = ""
-    for who, gap in (("winner", ctx.get("winner_lineup_gap")),
-                     ("loser", ctx.get("loser_lineup_gap"))):
-        if isinstance(gap, (int, float)) and gap > 10:
-            bench_note += (
-                f"\n{ctx.get(who)} left {gap:.1f} points on the bench. The "
-                f"players marked [BENCHED] are where they went — name the one "
-                f"that hurts most.\n")
+    loser_gap = ctx.get("loser_lineup_gap")
+    if isinstance(loser_gap, (int, float)) and loser_gap > 10:
+        bench_note = (
+            f"\n{ctx.get('loser')} left {loser_gap:.1f} points on the bench "
+            f"and lost by {ctx.get('margin')}. The players marked [BENCHED] "
+            f"are where those points went — name the one that hurts most.\n")
 
     return call_claude(f"""
 Write the recap of this game for the paper.
@@ -1203,14 +1224,16 @@ by {ctx.get('margin')}.
 {loser_lineup or "  (lineup unavailable)"}
 
 Format of each line: Player (position/NFL team) points scored, projection, and
-the difference in brackets. [BENCHED] means they did not start.
+the difference in brackets. [BENCHED] means they did not start, and only
+the losing team's bench is shown — a winner's bench is not a story.
 {commissioner_note}{bench_note}
 Two paragraphs. One for how the winner won, one for how the loser lost — though
 if the more interesting story is the loser's, lead with that instead.
 
 Name at least five players across the two teams and give every one of them
 their number. Go for the performances the projections make interesting: the
-blowups, the collapses, the zeroes, the bench player who beat a starter. Say
+blowups, the collapses, the zeroes, and — if the loser benched somebody who
+beat one of their starters — that. Say
 what it suggests about each team from here.
 
 Finish with a short line giving both new records.

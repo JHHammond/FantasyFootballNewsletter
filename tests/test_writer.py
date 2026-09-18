@@ -54,7 +54,12 @@ _WINNER_STARTERS = [
             injury_status="Questionable"),
     _player("Cam Little", "K", "JAX", 11.0, 8.0),
 ]
-_WINNER_BENCH = [
+#: The BENCH BELONGS TO THE LOSER, and that is the whole point of the
+#: fixture. Points left on the bench of a team that won are points that were
+#: not needed; the paper is only interested in the bench that cost somebody
+#: the game. The fixture used to have this the other way round, which is why
+#: three tests had to change when the rule did.
+_LOSER_BENCH = [
     _player("Chuba Hubbard", "RB", "CAR", 23.7, 12.0),
     _player("A Backup", "WR", "LV", 3.1, 9.0),
 ]
@@ -81,10 +86,19 @@ def _team(name, points, record, starters, bench, gap=3.2):
     }
 
 
+#: The winner has a bench TOO, and a big one. Without it, "the winner's bench
+#: never reaches the writer" passes against a version that sends it — there is
+#: nothing to send. The test only means something if there is something to
+#: leak.
+_WINNER_BENCH = [
+    _player("Unused Stud", "RB", "SF", 38.4, 11.0),
+]
+
 GAME = {
     "team_1": _team("Satan", 120.0, "2-1", _WINNER_STARTERS, _WINNER_BENCH,
-                    gap=23.7),
-    "team_2": _team("The Sommelier", 99.0, "1-2", _LOSER_STARTERS, []),
+                    gap=19.0),
+    "team_2": _team("The Sommelier", 99.0, "1-2", _LOSER_STARTERS,
+                    _LOSER_BENCH, gap=23.7),
     "winner": "Satan",
     "margin": 21.0,
 }
@@ -394,7 +408,7 @@ def test_bench_players_are_marked_as_benched(swap_client):
     """"You should have started him" needs the bench, and needs it labelled —
     an unmarked bench player reads as a starter who did fine."""
     ctx = writer.build_game_context(GAME)
-    benched = [l for l in ctx["winner_lineup"] if "[BENCHED]" in l]
+    benched = [l for l in ctx["loser_lineup"] if "[BENCHED]" in l]
     assert benched, "the bench never reached the writer"
     assert "Chuba Hubbard" in " ".join(benched)
 
@@ -1602,3 +1616,75 @@ def test_the_system_prompt_bans_the_tells():
     assert "It's not X, it's Y" in prompt
     assert "THREE OF ANYTHING" in prompt
     assert "delve" in prompt
+
+
+# ---------------------------------------------------------------------------
+# The bench is only a story if they lost
+#
+# "Only need to call out bench performance if the manager lost. If not, it is
+# not really relevant." Points left on the bench of a team that won are points
+# that were not needed, and a paragraph about them is a writer filling space.
+# ---------------------------------------------------------------------------
+
+def test_the_winners_bench_never_reaches_the_writer():
+    """Not "sent with an instruction to ignore it" — not sent. An instruction
+    is something a model can talk itself past when a 38-point bench player is
+    sitting in the data. An absence is not."""
+    ctx = writer.build_game_context(GAME)
+
+    assert not [l for l in ctx["winner_lineup"] if "[BENCHED]" in l]
+    # The winner has a 38-point bench player in the fixture, on purpose. If
+    # this assertion can pass because there was no bench to send, it is not
+    # testing anything.
+    assert "Unused Stud" not in " ".join(ctx["winner_lineup"])
+
+
+def test_the_losers_bench_still_does():
+    ctx = writer.build_game_context(GAME)
+    assert "Chuba Hubbard" in " ".join(ctx["loser_lineup"])
+
+
+def test_only_a_losing_bench_gets_pointed_at(swap_client, no_sleeping):
+    """The nudge that says "name the one that hurts most" fires for the team
+    that lost and for nobody else."""
+    seen = {}
+
+    def capture(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply()
+
+    swap_client(capture)
+    ctx = writer.build_game_context(GAME)
+    writer.generate_matchup_body(ctx)
+
+    prompt = seen["prompt"]
+    assert "left 23.7 points on the bench" in prompt
+    assert ctx["loser"] in prompt.split("left 23.7")[0][-120:]
+    assert f"{ctx['winner']} left" not in prompt
+
+
+def test_the_system_prompt_says_the_bench_rule_out_loud():
+    prompt = writer.KEVLARVILLE_SYSTEM_PROMPT
+    assert "ONLY for a manager who lost" in prompt
+
+
+def test_the_bench_award_goes_to_somebody_who_lost():
+    """A manager who left thirty on the bench and won by forty has not
+    blundered. An award for it reads as the paper inventing a grievance."""
+    import storylines
+
+    def team(name, points, gap):
+        return {"team_name": name, "owner_name": name, "points": points,
+                "record": "1-0", "lineup_gap": gap, "empty_slots": 0,
+                "all_starters": [], "all_bench": []}
+
+    games = [{
+        "team_1": team("Won Big Anyway", 180.0, 40.0),   # the biggest gap
+        "team_2": team("Lost With Points Up", 90.0, 25.0),
+        "winner": "Won Big Anyway", "margin": 90.0,
+    }]
+
+    blunder = storylines.get_weekly_storylines(games)["bench_blunder"]
+
+    assert blunder["team_name"] == "Lost With Points Up", (
+        "the award went to a team that won by ninety")

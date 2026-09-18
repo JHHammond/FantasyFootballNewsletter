@@ -14,7 +14,23 @@ def get_weekly_storylines(games):
     lowest_score = min(all_teams, key=lambda t: t["points"])
 
     # --- Bench blunder ---
-    bench_blunder = max(all_teams, key=lambda t: t["lineup_gap"])
+    #
+    # AMONG THE TEAMS THAT LOST. A manager who left thirty points on the bench
+    # and won by forty has not blundered — the points were surplus, and an
+    # award for it reads as the paper inventing a grievance. The award is for
+    # the manager whose bench cost them the game.
+    #
+    # Falls back to the whole league only if nobody lost, which means every
+    # game was a tie and the award is meaningless anyway.
+    losers = []
+    for game in games:
+        t1, t2 = game["team_1"], game["team_2"]
+        if game["winner"] == t1["team_name"]:
+            losers.append(t2)
+        elif game["winner"] == t2["team_name"]:
+            losers.append(t1)
+
+    bench_blunder = max(losers or all_teams, key=lambda t: t["lineup_gap"])
 
     # --- Empty lineup ---
     empty_teams = [t for t in all_teams if t["empty_slots"] > 0]

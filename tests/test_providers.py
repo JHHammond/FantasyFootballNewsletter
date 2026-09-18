@@ -330,7 +330,14 @@ def test_storylines_runs_on_compat_output(week3):
     assert summary["biggest_blowout"]["margin"] == pytest.approx(23.3)
     assert summary["highest_score"]["team_name"] == "The Commissioner"
     assert summary["lowest_score"]["points"] == pytest.approx(88.0)
-    assert summary["bench_blunder"]["lineup_gap"] == pytest.approx(18.2)
+    # The 18.2-point bench in this fixture belongs to a team that WON, so it
+    # is not the blunder any more: points left on the bench of a winner are
+    # points that were not needed. The award goes to a team that lost.
+    blunder = summary["bench_blunder"]
+    assert blunder["lineup_gap"] != pytest.approx(18.2)
+    assert blunder["team_name"] in {
+        g["team_1"]["team_name"] if g["winner"] != g["team_1"]["team_name"]
+        else g["team_2"]["team_name"] for g in games}
     assert len(summary["empty_teams"]) == 1
 
 
