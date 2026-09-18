@@ -1226,3 +1226,128 @@ def test_a_move_with_no_timestamp_keeps_its_place(monkeypatch):
         "P", (), {"get_transactions": lambda *a, **k: [undated]})())
 
     assert len(providers.load_transactions("sleeper", "1", 2026, 1)) == 1
+
+
+# ---------------------------------------------------------------------------
+# What a player actually DID
+#
+# The paper could only ever say what a week was WORTH — "24.1 against an 18.3
+# projection" — because points were the only thing being parsed. The counting
+# stats were in the same row all along and were being dropped on the floor.
+#
+# The stat IDs below were read live out of a browser and checked by
+# arithmetic; the provenance is on _TD_STATS in providers/espn.py.
+# ---------------------------------------------------------------------------
+
+def _weekly_stats(counting, *, period=2, source=0, split=1):
+    """A player carrying one weekly stat row, ESPN-shaped."""
+    return {
+        "id": 1,
+        "fullName": "Somebody",
+        "stats": [
+            # Decoys first: a season total and another week, both of which
+            # would produce a wrong answer if the filter were dropped.
+            {"statSourceId": 0, "statSplitTypeId": 0, "scoringPeriodId": 2,
+             "appliedTotal": 180.0, "stats": {"4": 19.0}},
+            {"statSourceId": 0, "statSplitTypeId": 1, "scoringPeriodId": 1,
+             "appliedTotal": 30.0, "stats": {"4": 5.0}},
+            {"statSourceId": source, "statSplitTypeId": split,
+             "scoringPeriodId": period, "appliedTotal": 20.0,
+             "stats": counting},
+        ],
+    }
+
+
+def test_the_three_verified_players_parse_to_what_they_did():
+    """The exact stat rows read out of ESPN on 18 Sep 2026, and the exact
+    football they reconcile to. If ESPN ever renumbers a stat, this is the
+    test that says so."""
+    from providers.espn import _stat_line
+
+    # Caleb Williams: 2 passing, 2 rushing, 37.3 points.
+    caleb = _stat_line(_weekly_stats({"3": 269.0, "4": 2.0, "24": 65.0,
+                                      "25": 2.0}), 2)
+    assert (caleb.pass_td, caleb.rush_td, caleb.rec_td) == (2, 2, None)
+    assert caleb.touchdowns == 4
+    assert caleb.describe() == "2 pass TD, 2 rush TD"
+
+    # Brock Purdy: 3 passing and a pick.
+    purdy = _stat_line(_weekly_stats({"3": 205.0, "4": 3.0, "20": 1.0}), 2)
+    assert purdy.pass_td == 3
+    assert purdy.interceptions == 1
+    assert purdy.describe() == "3 pass TD, 1 INT"
+
+    # Javonte Williams: one on the ground, one through the air.
+    javonte = _stat_line(_weekly_stats({"24": 41.0, "25": 1.0, "43": 1.0}), 2)
+    assert javonte.touchdowns == 2
+    assert javonte.describe() == "1 rush TD, 1 rec TD"
+
+
+def test_touchdowns_are_counted_not_measured():
+    """ESPN sends these as floats. "2.0 rush TD" in a newspaper is the kind of
+    detail that tells a reader the whole thing was generated."""
+    from providers.espn import _stat_line
+
+    line = _stat_line(_weekly_stats({"25": 2.0}), 2)
+    assert line.rush_td == 2
+    assert isinstance(line.rush_td, int)
+    assert "2 rush TD" in line.describe()
+    assert ".0" not in line.describe()
+
+
+def test_a_quiet_week_says_nothing_at_all():
+    """Zeroes arrive explicitly. Printing "0 rush TD" beside every receiver
+    would be worse than printing nothing."""
+    from providers.espn import _stat_line
+
+    from providers.models import StatLine
+
+    line = _stat_line(_weekly_stats({"4": 0.0, "25": 0.0, "43": 0.0}), 2)
+    assert line.describe() == ""
+    assert line.is_empty
+    assert line.touchdowns == 0
+    # And the zeroes are not merely filtered on the way out — they never get
+    # stored. A StatLine full of noughts would read as "we know he scored
+    # none" to anything that looks at the fields rather than the sentence.
+    assert line == StatLine()
+
+
+def test_the_season_total_is_never_mistaken_for_the_week():
+    """The decoy row in the fixture says 19 passing touchdowns, which is a
+    season. A paper reporting that for one Sunday is unrecoverable."""
+    from providers.espn import _stat_line
+
+    line = _stat_line(_weekly_stats({"4": 2.0}), 2)
+    assert line.pass_td == 2
+
+
+def test_the_projection_row_is_not_a_source_of_facts():
+    """statSourceId 1 is what ESPN GUESSED would happen. Reading touchdowns
+    off it would print predictions as results."""
+    from providers.espn import _stat_line
+
+    assert _stat_line(_weekly_stats({"4": 3.0}, source=1), 2) is None
+
+
+def test_a_provider_that_gives_no_splits_says_so(espn):
+    """None, not an empty StatLine. "We don't know" and "nothing happened"
+    are different facts, even though the paper prints both as silence."""
+    from providers.espn import _stat_line
+
+    assert _stat_line({"stats": [{"statSourceId": 0, "statSplitTypeId": 1,
+                                  "scoringPeriodId": 2,
+                                  "appliedTotal": 12.0}]}, 2) is None
+    assert _stat_line({}, 2) is None
+
+
+def test_what_a_player_did_survives_the_trip_to_the_legacy_pipeline(espn_week):
+    """models -> compat -> the dict the writer reads. A field that parses
+    correctly and is dropped on the way out is not a feature."""
+    from providers.compat import team_to_legacy
+
+    team = team_to_legacy(espn_week.team_by_id("1"))
+    by_name = {p["name"]: p for p in team["all_starters"] if p}
+
+    assert by_name["Patrick Mahomes"]["stat_note"] == "2 pass TD, 1 INT"
+    assert by_name["Patrick Mahomes"]["touchdowns"] == 2
+    assert by_name["Bijan Robinson"]["stat_note"] == "2 rush TD, 1 rec TD"

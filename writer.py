@@ -160,6 +160,13 @@ projection. Use them.
 
 - Never use the same construction twice in a paragraph. If one sentence says
   "against a projection", the next one finds another way or leaves it out.
+- Some lines carry what the player DID: "2 rush TD", "3 pass TD, 1 INT",
+  "1 rec TD, 1 FUM". Reach for these first. Football is more interesting than
+  arithmetic, and "Henry went for 24 and two touchdowns" beats any sentence
+  with the word "projection" in it. Use the count that is written down and
+  never guess at one — a line with no touchdowns on it means that player did
+  not score one, and a paper that awards a touchdown nobody scored is finished
+  in that group chat.
 - Do not name a player who is not in the data below, and never invent a stat,
   an injury, a snap count or a play. You have the box score, not the tape —
   what the numbers say is yours to interpret, what happened on the field is
@@ -437,6 +444,14 @@ def _player_line(p, bench=False):
                 bits.append("<< OVER" if gap >= 0 else "<< UNDER")
     else:
         bits.append("| no projection")
+
+    # What they actually did. Goes in AFTER the points and before the tags,
+    # because it is the concrete fact the writer should reach for instead of
+    # reaching for the projection again: "24 points and two touchdowns" is a
+    # sentence, "24.1 against an 18.3 projection" is a receipt.
+    note = p.get("stat_note")
+    if note:
+        bits.append(f"| {note}")
 
     if p.get("injury_status"):
         bits.append(f"[{p['injury_status']}]")

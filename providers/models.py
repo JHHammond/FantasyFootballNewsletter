@@ -82,6 +82,64 @@ def can_fill_slot_any(positions: Iterable[str] | None, slot: str) -> bool:
 # --------------------------------------------------------------------------
 
 @dataclass
+class StatLine:
+    """What a player actually DID, as opposed to what it was worth.
+
+    Fantasy points are a currency, and a paper written only in currency reads
+    like a receipt: "Henry scored 24.1 against an 18.3 projection". The same
+    week described in football — "24 points and two touchdowns" — is a
+    sentence somebody wants to read, and it is the thing the manager watching
+    the game already knows.
+
+    Deliberately small. Touchdowns and turnovers are what a recap reaches for;
+    yardage is available from every platform too, and was left out on purpose,
+    because a writer handed six numbers per player will recite six numbers per
+    player. That is the failure this is meant to fix, not repeat.
+
+    Every field is Optional and every provider is allowed to leave the whole
+    thing None — Sleeper's week data does not carry splits without a second
+    call. Nothing downstream may assume it is present.
+    """
+
+    pass_td: Optional[int] = None
+    rush_td: Optional[int] = None
+    rec_td: Optional[int] = None
+    interceptions: Optional[int] = None
+    fumbles_lost: Optional[int] = None
+
+    @property
+    def touchdowns(self) -> int:
+        """Every touchdown this player scored or threw."""
+        return sum(v for v in (self.pass_td, self.rush_td, self.rec_td)
+                   if isinstance(v, int))
+
+    @property
+    def is_empty(self) -> bool:
+        """Nothing here worth printing — a quiet day, or a provider that
+        doesn't supply splits. Both mean: say nothing."""
+        return not any(v for v in (self.pass_td, self.rush_td, self.rec_td,
+                                   self.interceptions, self.fumbles_lost))
+
+    def describe(self) -> str:
+        """The compact phrase that rides along in a prompt or a caption.
+
+        "2 rush TD" / "3 pass TD, 1 rush TD" / "1 rec TD, 1 FUM"
+
+        Plural-free on purpose: "2 rush TD" is how a box score reads, it is
+        one token shorter than "TDs", and it cannot be got wrong.
+        """
+        parts = []
+        for count, label in ((self.pass_td, "pass TD"),
+                             (self.rush_td, "rush TD"),
+                             (self.rec_td, "rec TD"),
+                             (self.interceptions, "INT"),
+                             (self.fumbles_lost, "FUM")):
+            if isinstance(count, int) and count > 0:
+                parts.append(f"{count} {label}")
+        return ", ".join(parts)
+
+
+@dataclass
 class PlayerLine:
     """One player's contribution to one team in one week."""
 
@@ -95,6 +153,7 @@ class PlayerLine:
     projected: Optional[float] = None
     headshot_url: Optional[str] = None
     injury_status: Optional[str] = None     # "Questionable", "Out", "IR", ...
+    stats: Optional[StatLine] = None        # touchdowns/turnovers, where known
 
     @property
     def started(self) -> bool:

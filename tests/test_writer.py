@@ -1302,3 +1302,62 @@ def test_the_writer_is_told_to_stop_reciting_the_spreadsheet():
     assert "Never use the same construction twice in a paragraph" in prompt
     # And the markers must never reach the page.
     assert "never appear in the paper" in prompt
+
+
+# ---------------------------------------------------------------------------
+# What they did, not what it was worth
+# ---------------------------------------------------------------------------
+
+def test_the_touchdowns_reach_the_line():
+    """John's spec, verbatim: "Derrick Henry did his best, scoring 24 points
+    with 2 touchdowns". The paper could not write that sentence, because
+    nothing downstream of the provider knew a touchdown had happened."""
+    line = writer._player_line({
+        "name": "Derrick Henry", "position": "RB", "nfl_team": "BAL",
+        "actual": 24.0, "projected": 18.3, "beat_projection_by": 5.7,
+        "stat_note": "2 rush TD"})
+
+    assert "scored 24.0" in line
+    assert "2 rush TD" in line
+
+
+def test_a_player_with_nothing_to_report_gets_no_empty_brackets():
+    """Most players do not score. Their line must look exactly as it did
+    before this existed, or every recap gains a column of noise."""
+    line = writer._player_line({
+        "name": "Puka Nacua", "position": "WR", "nfl_team": "LAR",
+        "actual": 12.4, "projected": 14.0, "beat_projection_by": -1.6,
+        "stat_note": ""})
+
+    assert line.endswith("missed by 1.6"), line
+
+
+def test_a_provider_that_does_not_supply_them_changes_nothing():
+    """Sleeper's week data carries no splits. That is a quieter line, not a
+    crash and not a "None"."""
+    line = writer._player_line({
+        "name": "Somebody", "position": "TE", "nfl_team": None,
+        "actual": 9.9, "projected": 11.0, "beat_projection_by": -1.1})
+
+    assert "None" not in line
+    assert line.endswith("missed by 1.1"), line
+
+
+def test_the_touchdowns_come_after_the_score_not_instead_of_it():
+    """The score is what the league is arguing about. A touchdown count is
+    colour, and colour that displaces the fact is a worse line."""
+    line = writer._player_line({
+        "name": "Caleb Williams", "position": "QB", "nfl_team": "CHI",
+        "actual": 37.3, "projected": 18.1, "beat_projection_by": 19.2,
+        "stat_note": "2 pass TD, 2 rush TD"})
+
+    assert line.index("scored 37.3") < line.index("2 pass TD")
+    # And the gap marker still lands, because a 19-point beat is still the
+    # story even when there is football to describe.
+    assert "<< OVER" in line
+
+
+def test_the_writer_is_pointed_at_the_football_first():
+    prompt = writer.KEVLARVILLE_SYSTEM_PROMPT
+    assert "2 rush TD" in prompt, "the notation is not explained to the writer"
+    assert "never guess at one" in prompt

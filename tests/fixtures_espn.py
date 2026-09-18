@@ -41,7 +41,7 @@ LEAGUE_ID = "1234567"
 
 
 def _player(pid, name, position_id, pro_team_id, actual, projected,
-            *, injury=None, eligible=None):
+            *, injury=None, eligible=None, counting=None):
     """One player as ESPN nests them: entry -> playerPoolEntry -> player."""
     # SEASON-TO-DATE FIRST, ON PURPOSE.
     #
@@ -67,11 +67,18 @@ def _player(pid, name, position_id, pro_team_id, actual, projected,
          "appliedTotal": 88.8},
     ]
     if actual is not None:
-        stats.append({
+        row = {
             "statSourceId": 0, "statSplitTypeId": 1,
             "scoringPeriodId": 2, "seasonId": SEASON,
             "appliedTotal": actual,
-        })
+        }
+        # The counting stats hang off the SAME row the points come from, keyed
+        # by ESPN's numeric stat IDs and sent as floats. Both of those are how
+        # the real payload arrives — see _TD_STATS in providers/espn.py for
+        # where the IDs were verified.
+        if counting:
+            row["stats"] = {k: float(v) for k, v in counting.items()}
+        stats.append(row)
     if projected is not None:
         stats.append({
             "statSourceId": 1, "statSplitTypeId": 1,
@@ -115,10 +122,12 @@ def _entry(pid, name, position_id, pro_team_id, slot_id, actual, projected,
 
 #: Team 1 — won week 1, wins week 2. Left a big score on the bench.
 TEAM_1_ENTRIES = [
+    # Carries counting stats, so the whole path — payload to prompt line —
+    # is exercised by the normal fixture rather than only by a unit test.
     _entry(3139477, "Patrick Mahomes", 1, 12, 0, 24.6, 21.2,
-           eligible=[0, 7, 20]),
+           eligible=[0, 7, 20], counting={"4": 2, "20": 1}),
     _entry(4362628, "Bijan Robinson", 2, 1, 2, 28.4, 19.0,
-           eligible=[2, 3, 23, 20]),
+           eligible=[2, 3, 23, 20], counting={"25": 2, "43": 1}),
     _entry(4241457, "Kenneth Walker III", 2, 26, 2, 34.1, 13.7,
            eligible=[2, 3, 23, 20]),
     _entry(4362887, "Nico Collins", 3, 34, 4, 22.0, 15.2,

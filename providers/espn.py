@@ -51,7 +51,7 @@ from .base import (
     ProviderError,
     WeekNotAvailable,
 )
-from .models import (League, Manager, Matchup, PlayerLine, Team,
+from .models import (League, Manager, Matchup, PlayerLine, StatLine, Team,
                      Transaction, TransactionPlayer, WeekData)
 
 BASE_URL = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl"
@@ -154,6 +154,69 @@ STAT_PROJECTED = 1
 
 #: statSplitTypeId 1 is a single scoring period; 0 is season-to-date.
 STAT_SPLIT_WEEKLY = 1
+
+
+#: The counting stats worth printing, by ESPN's stat ID.
+#:
+#: VERIFIED, not remembered. Read live out of a browser on 18 Sep 2026 against
+#: league 1909054258, week 1 of 2026, and checked by ARITHMETIC rather than by
+#: recognising the numbers:
+#:
+#:   Caleb Williams   37.3 = 269 pass yds x0.04 + [4]=2 x4 + 65 rush x0.1
+#:                           + [25]=2 x6                            -> 37.26
+#:   Javonte Williams 24.2 = 41 rush x0.1 + [25]=1 x6 + 31 rec x0.1
+#:                           + 5 rec x1 + [43]=1 x6                 -> 24.2
+#:   Brock Purdy      21.1 = 205 pass x0.04 + [4]=3 x4 + 29 rush x0.1
+#:                           + [20]=1 x-2                           -> 21.1
+#:
+#: Three players, three positions, three exact reconciliations against the
+#: points ESPN itself applied. A stat ID that was actually something else
+#: could not produce that.
+#:
+#: The league's own scoringSettings agrees: 4 is worth 4 points, 25 and 43 are
+#: worth 6, 20 and 72 are worth -2.
+_TD_STATS = {"4": "pass_td", "25": "rush_td", "43": "rec_td"}
+_TURNOVER_STATS = {"20": "interceptions", "72": "fumbles_lost"}
+
+
+def _stat_line(player: dict, scoring_period: int) -> Optional[StatLine]:
+    """Touchdowns and turnovers out of the week's actual stat split.
+
+    Same row `_stat_value` reads the points off, so this costs no extra
+    request — the counting stats were always in the payload and were being
+    thrown away.
+
+    Returns None rather than an empty StatLine when the row is missing, so
+    "this provider doesn't say" and "a quiet afternoon" stay distinguishable.
+    """
+    row = None
+    for entry in player.get("stats") or []:
+        if (entry.get("statSourceId") == STAT_ACTUAL
+                and entry.get("statSplitTypeId") == STAT_SPLIT_WEEKLY
+                and int(entry.get("scoringPeriodId") or -1) == int(scoring_period)):
+            row = entry
+            break
+
+    stats = (row or {}).get("stats")
+    if not isinstance(stats, dict):
+        return None
+
+    fields: dict[str, int] = {}
+    for stat_id, name in {**_TD_STATS, **_TURNOVER_STATS}.items():
+        raw = stats.get(stat_id)
+        if raw is None:
+            continue
+        try:
+            # ESPN sends these as floats ("4": 3.0). A player cannot score
+            # 2.5 touchdowns, and "2.5 rush TD" in a newspaper is a bug
+            # anybody would spot.
+            value = int(round(float(raw)))
+        except (TypeError, ValueError):
+            continue
+        if value:
+            fields[name] = value
+
+    return StatLine(**fields) if fields else StatLine()
 
 
 def _scoring_type(settings: dict) -> str:
@@ -551,6 +614,7 @@ class ESPNProvider(FantasyProvider):
             projected=_stat_value(player, week, STAT_PROJECTED),
             headshot_url=_headshot(player_id, player.get("defaultPositionId")),
             injury_status=_injury(player.get("injuryStatus")),
+            stats=_stat_line(player, week),
         )
 
     # -- records -----------------------------------------------------------

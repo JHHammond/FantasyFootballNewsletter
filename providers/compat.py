@@ -46,6 +46,12 @@ def _performer(player: Optional[PlayerLine]) -> Optional[dict[str, Any]]:
         "nfl_team": player.nfl_team,
         "headshot_url": player.headshot_url,
         "injury_status": player.injury_status,
+
+        # What the player DID, where the platform says. "" when it doesn't,
+        # and "" for a quiet week — the writer treats both the same way, by
+        # saying nothing, so they don't need telling apart down here.
+        "stat_note": player.stats.describe() if player.stats else "",
+        "touchdowns": player.stats.touchdowns if player.stats else None,
     }
 
 
