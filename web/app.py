@@ -65,7 +65,7 @@ import plans  # noqa: E402
 import printing  # noqa: E402
 import themes  # noqa: E402
 
-from . import auth, billing, emailer, images, legal, slugs  # noqa: E402
+from . import auth, billing, emailer, images, legal, oauth, slugs  # noqa: E402
 from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
     WriterError,
@@ -222,6 +222,9 @@ templates.env.globals["price_text"] = plans.PRICE_TEXT
 # called, so a deployment that configures Stripe does not need a restart to
 # start showing the buttons, and a test can set them per-case.
 templates.env.globals["billing_enabled"] = billing.configured
+# Same reasoning: a callable, so a deployment that adds Google
+# credentials shows the button without a code change.
+templates.env.globals["google_enabled"] = oauth.configured
 
 
 # ---------------------------------------------------------------------------
@@ -950,6 +953,134 @@ def login(request: Request, email: str = Form(...), password: str = Form(...),
     return _set_session(RedirectResponse(destination, status_code=303), user["id"])
 
 
+# ---------------------------------------------------------------------------
+# Sign in with Google
+#
+# The session model does not change: these two routes end by calling
+# _set_session with a user id, exactly as a password login does. Everything
+# downstream keys off users.id and never learns how somebody proved who they
+# were.
+# ---------------------------------------------------------------------------
+
+@app.get("/auth/google")
+def google_start(request: Request):
+    """Send somebody to Google, remembering that we did.
+
+    The state is signed with this app's own secret and stored in a cookie.
+    Both have to come back and agree, which is what makes the callback ours:
+    without it, the callback is a way to log a person into an account they do
+    not own by sending them a link.
+    """
+    if not oauth.configured():
+        raise HTTPException(status_code=404)
+    if current_user(request):
+        return RedirectResponse("/account", status_code=303)
+
+    if _rate_limited(f"oauth:{_client_ip(request)}", LOGINS_PER_IP_PER_HOUR):
+        return RedirectResponse(
+            "/login?error=Too+many+attempts+from+here.+Try+again+later.",
+            status_code=303)
+
+    state = oauth.new_state()
+    try:
+        destination = oauth.consent_url(state, public_base_url())
+    except oauth.OAuthError as exc:
+        print(f"[oauth] cannot start sign-in: {exc}", flush=True)
+        return RedirectResponse(
+            "/login?error=Google+sign-in+isn't+available+right+now.",
+            status_code=303)
+
+    response = RedirectResponse(destination, status_code=303)
+    response.set_cookie(oauth.STATE_COOKIE, auth.sign_value(state),
+                        **auth.state_cookie_kwargs())
+    return response
+
+
+@app.get("/auth/google/callback")
+def google_callback(request: Request, code: str = "", state: str = "",
+                    error: str = ""):
+    if not oauth.configured():
+        raise HTTPException(status_code=404)
+
+    def refuse(message: str):
+        # The state cookie is spent either way. Leaving a used one around is
+        # one more thing that can be replayed.
+        response = RedirectResponse(f"/login?error={quote(message)}",
+                                    status_code=303)
+        response.delete_cookie(oauth.STATE_COOKIE, path="/")
+        return response
+
+    if error:
+        # The ordinary case: somebody pressed cancel on the consent screen.
+        return refuse("No problem — you can sign in with a password instead.")
+
+    # THE STATE CHECK, which is the security of this endpoint.
+    issued = auth.read_signed_value(request.cookies.get(oauth.STATE_COOKIE, ""))
+    if not issued or not state or not hmac.compare_digest(issued, state):
+        return refuse("That sign-in link didn't check out. Try again from "
+                      "the top.")
+    if not oauth.state_is_fresh(issued):
+        return refuse("That sign-in took too long. Try again.")
+
+    try:
+        identity = oauth.identity_from_code(code, public_base_url())
+    except oauth.OAuthError as exc:
+        return refuse(str(exc))
+
+    user, is_new = _account_for_google(identity)
+    if user is None:
+        return refuse(
+            "There's already an account with that email address. Sign in "
+            "with your password, and you can link Google afterwards.")
+
+    db.update_user(user["id"], {"last_login_at": "now()"})
+
+    # Somewhere useful: a brand-new account has no papers to look at.
+    response = RedirectResponse("/connect" if is_new else "/account",
+                                status_code=303)
+    response.delete_cookie(oauth.STATE_COOKIE, path="/")
+    return _set_session(response, user["id"])
+
+
+def _account_for_google(identity) -> tuple[dict | None, bool]:
+    """Which account this Google identity belongs to. (user, is_new)
+
+    THREE CASES, and the middle one is the whole reason this function exists.
+
+    1. We have seen this `sub` before. That is the same person; sign them in.
+       Matched on sub rather than email because people change their address
+       and Google keeps the same sub.
+
+    2. There is a password account with this email address. Linking is only
+       safe when GOOGLE HAS VERIFIED the address — otherwise an identity
+       provider asserting an address it never checked becomes a way into
+       somebody else's account. Google does verify, and says so in
+       `email_verified`; that claim is checked, not assumed. If it is false,
+       nothing is linked and the person is sent to the password form.
+
+    3. Nobody has that address. New account, no password, ever.
+    """
+    existing = db.user_by_google_sub(identity.sub)
+    if existing:
+        return existing, False
+
+    by_email = db.user_by_email(identity.email)
+    if by_email:
+        if not identity.email_verified:
+            print(f"[oauth] refused to link an unverified address to "
+                  f"{by_email['id']}", flush=True)
+            return None, False
+        db.link_google(by_email["id"], identity.sub, identity.email)
+        return db.user_by_id(by_email["id"]), False
+
+    created = db.create_google_user(identity.email, identity.sub,
+                                    identity.name)
+    if not created:
+        # Lost a race with another signup on the same address.
+        return None, False
+    return created, True
+
+
 @app.post("/logout")
 def logout():
     response = RedirectResponse("/", status_code=303)
@@ -1096,7 +1227,15 @@ def forgot(request: Request, email: str = Form(...)):
     if address and not _rate_limited(f"reset:{address}",
                                      RESETS_PER_ACCOUNT_PER_DAY, window=DAY):
         user = db.user_by_email(address)
-        if user:
+        # An account that has no password cannot have one reset. Mailing a
+        # reset link to somebody who signed up with Google sends them to a
+        # form for a credential they have never had, and the page they land
+        # on cannot explain why. They are told what they actually did
+        # instead — and the response to THIS page stays identical either way,
+        # so it still reveals nothing about which addresses have accounts.
+        if user and not user.get("password_hash"):
+            emailer.send_google_account_reminder(address)
+        elif user:
             token = slugs.admin_token()
             expires = datetime.now(timezone.utc) + timedelta(
                 minutes=MAGIC_LINK_TTL_MINUTES)

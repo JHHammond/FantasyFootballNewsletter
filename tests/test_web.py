@@ -4528,3 +4528,296 @@ def test_the_manage_page_is_in_the_order_somebody_uses_it(client, league):
     assert len(seen) == len(order), (
         f"a section is missing: {[t for t in order if t not in body]}")
     assert seen == sorted(seen), "the manage page sections are out of order"
+
+
+# ===========================================================================
+# Sign in with Google
+#
+# The session model is unchanged: these routes end by handing a user id to
+# _set_session, exactly as a password login does. What is new is everything
+# that has to be true before they do.
+# ===========================================================================
+
+from web import auth, oauth  # noqa: E402
+
+
+@pytest.fixture
+def google_on(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-secret")
+    monkeypatch.setenv("SESSION_SECRET", "a-fixed-secret-for-tests")
+
+
+def _google_says(monkeypatch, sub="google-sub-1", email="new@example.com",
+                 verified=True, name="A Person"):
+    """Stand in for the whole exchange-and-verify round trip."""
+    identity = oauth.GoogleIdentity(sub=sub, email=email,
+                                    email_verified=verified, name=name)
+    monkeypatch.setattr(webapp.oauth, "identity_from_code",
+                        lambda code, base: identity)
+    return identity
+
+
+def _start(client):
+    """Press the button, and keep the state cookie the way a browser would."""
+    r = client.get("/auth/google", follow_redirects=False)
+    return r
+
+
+# --- the button itself -----------------------------------------------------
+
+def test_the_button_is_absent_and_the_routes_404_without_credentials(
+        client, monkeypatch):
+    """Same posture as Stripe: a half-configured deploy shows nothing rather
+    than a button that fails."""
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
+
+    assert "/auth/google" not in client.get("/login").text
+    assert client.get("/auth/google", follow_redirects=False).status_code == 404
+    assert client.get("/auth/google/callback").status_code == 404
+
+
+def test_the_button_appears_once_it_is_configured(client, google_on):
+    assert "/auth/google" in client.get("/login").text
+    assert "/auth/google" in client.get("/signup").text
+
+
+def test_starting_sends_you_to_google_with_a_state(client, google_on):
+    r = _start(client)
+
+    assert r.status_code == 303
+    assert r.headers["location"].startswith(oauth.AUTH_ENDPOINT)
+    assert "state=" in r.headers["location"]
+    assert oauth.STATE_COOKIE in r.cookies or r.cookies.get(oauth.STATE_COOKIE)
+
+
+# --- the state check, which is the security of the callback ----------------
+
+def test_a_callback_with_no_state_signs_nobody_in(client, google_on,
+                                                  monkeypatch):
+    """Anybody can hit this URL with any query string. Without the state
+    check it is a way to log somebody into an account they do not own, by
+    sending them a link."""
+    _google_says(monkeypatch)
+
+    r = client.get("/auth/google/callback?code=whatever",
+                   follow_redirects=False)
+
+    assert r.status_code == 303
+    assert "/login?error=" in r.headers["location"]
+    assert not demo_db._USERS
+
+
+def test_a_forged_state_signs_nobody_in(client, google_on, monkeypatch):
+    """A state this server never issued, presented with a matching cookie the
+    attacker also wrote. The signature is what tells them apart."""
+    import time as time_mod
+
+    _google_says(monkeypatch)
+    # The forged state must look FRESH, or the freshness check rejects it and
+    # this test passes without the signature check existing at all. It did
+    # exactly that the first time it was written.
+    forged = f"forged-but-current.{int(time_mod.time())}"
+    client.cookies.set(oauth.STATE_COOKIE, f"{forged}.not-a-real-signature")
+
+    r = client.get(f"/auth/google/callback?code=x&state={forged}",
+                   follow_redirects=False)
+
+    assert "/login?error=" in r.headers["location"]
+    assert not demo_db._USERS
+
+
+def test_a_real_state_from_a_different_attempt_is_refused(client, google_on,
+                                                          monkeypatch):
+    """Correctly signed, but not the state THIS browser was given."""
+    _google_says(monkeypatch)
+    _start(client)
+    other = auth.sign_value(oauth.new_state())
+
+    r = client.get(
+        f"/auth/google/callback?code=x&state={other.rsplit('.', 1)[0]}",
+        follow_redirects=False)
+
+    assert "/login?error=" in r.headers["location"]
+    assert not demo_db._USERS
+
+
+def test_a_stale_sign_in_is_refused(client, google_on, monkeypatch):
+    """A correctly signed state from last month is still a state somebody
+    could have lifted off a shared machine."""
+    import time as time_mod
+    old = f"{'x' * 22}.{int(time_mod.time()) - oauth.STATE_MAX_AGE - 60}"
+    _google_says(monkeypatch)
+    client.cookies.set(oauth.STATE_COOKIE, auth.sign_value(old))
+
+    r = client.get(f"/auth/google/callback?code=x&state={old}",
+                   follow_redirects=False)
+
+    assert "/login?error=" in r.headers["location"]
+    assert not demo_db._USERS
+
+
+def _complete(client, monkeypatch, **google):
+    """A full, honest sign-in."""
+    _google_says(monkeypatch, **google)
+    start = _start(client)
+    state = start.headers["location"].split("state=")[1].split("&")[0]
+    from urllib.parse import unquote
+    return client.get(
+        f"/auth/google/callback?code=good-code&state={unquote(state)}",
+        follow_redirects=False)
+
+
+# --- what happens when it all checks out -----------------------------------
+
+def test_a_new_person_gets_an_account_with_no_password(client, google_on,
+                                                        monkeypatch):
+    r = _complete(client, monkeypatch, email="brand-new@example.com")
+
+    assert r.status_code == 303
+    assert r.headers["location"] == "/connect"
+
+    user = demo_db.user_by_email("brand-new@example.com")
+    assert user is not None
+    assert user["password_hash"] is None, "a Google account has no password"
+    assert user["google_sub"] == "google-sub-1"
+
+
+def test_coming_back_signs_you_into_the_same_account(client, google_on,
+                                                     monkeypatch):
+    _complete(client, monkeypatch, email="repeat@example.com")
+    first = demo_db.user_by_email("repeat@example.com")
+
+    # Signed out, coming back another day. Without this the second /auth/google
+    # sees a live session and bounces to /account, and the test measures
+    # nothing.
+    client.cookies.clear()
+
+    # Same person, same sub — but Google now reports a changed address, which
+    # is exactly why the join key is the sub and not the email.
+    r = _complete(client, monkeypatch, email="changed@example.com",
+                  sub="google-sub-1")
+
+    assert r.headers["location"] == "/account"
+    assert len(demo_db._USERS) == 1
+    assert demo_db.user_by_id(first["id"]) is not None
+
+
+# --- linking, which is where this feature gets people hacked ---------------
+
+def test_a_verified_address_links_to_the_existing_password_account(
+        client, google_on, monkeypatch):
+    _signup(client, email="both@example.com")
+    existing = demo_db.user_by_email("both@example.com")
+    client.cookies.clear()
+
+    _complete(client, monkeypatch, email="both@example.com", verified=True)
+
+    assert len(demo_db._USERS) == 1, "a second account was created"
+    linked = demo_db.user_by_id(existing["id"])
+    assert linked["google_sub"] == "google-sub-1"
+    # And the password still works, because linking adds a way in rather than
+    # replacing one.
+    assert linked["password_hash"]
+
+
+def test_an_unverified_address_links_to_nothing(client, google_on,
+                                                monkeypatch):
+    """THE ONE THAT MATTERS. An identity provider asserting an address it
+    never checked must not be a way into somebody else's account."""
+    _signup(client, email="victim@example.com")
+    victim = demo_db.user_by_email("victim@example.com")
+    client.cookies.clear()
+
+    r = _complete(client, monkeypatch, email="victim@example.com",
+                  verified=False, sub="attacker-sub")
+
+    assert "/login?error=" in r.headers["location"]
+    assert demo_db.user_by_id(victim["id"])["google_sub"] is None
+    assert len(demo_db._USERS) == 1, "an account was created for the attacker"
+
+
+def test_the_refusal_does_not_hand_over_the_session(client, google_on,
+                                                    monkeypatch):
+    """A refused link must not also, quietly, log anybody in."""
+    _signup(client, email="victim2@example.com")
+    client.cookies.clear()
+
+    _complete(client, monkeypatch, email="victim2@example.com",
+              verified=False, sub="attacker-sub")
+
+    assert client.get("/account", follow_redirects=False).status_code == 401
+
+
+# --- the password-reset edge ----------------------------------------------
+
+def test_a_google_account_is_not_offered_a_password_reset(client, google_on,
+                                                          monkeypatch,
+                                                          sent_emails):
+    """A reset link would take them to a form for a credential they have
+    never had, and that page cannot explain why."""
+    _complete(client, monkeypatch, email="googler@example.com")
+    client.cookies.clear()
+
+    client.post("/forgot", data={"email": "googler@example.com"},
+                follow_redirects=False)
+
+    assert len(sent_emails) == 1
+    assert "google" in sent_emails[0]["subject"].lower()
+    assert "reset" not in sent_emails[0]["subject"].lower()
+
+
+def test_the_forgot_page_still_says_the_same_thing_either_way(
+        client, google_on, monkeypatch, sent_emails):
+    """Whatever it mails, the PAGE must not reveal which addresses have
+    accounts, or which kind."""
+    _complete(client, monkeypatch, email="googler2@example.com")
+    client.cookies.clear()
+
+    google = client.post("/forgot", data={"email": "googler2@example.com"},
+                         follow_redirects=False)
+    nobody = client.post("/forgot", data={"email": "nobody@example.com"},
+                         follow_redirects=False)
+
+    assert google.headers["location"] == nobody.headers["location"]
+
+
+def test_a_google_account_cannot_be_logged_into_with_a_password(
+        client, google_on, monkeypatch):
+    """password_hash is null. Nothing must treat that as "any password will
+    do"."""
+    _complete(client, monkeypatch, email="nopass@example.com")
+    client.cookies.clear()
+
+    r = client.post("/login", data={"email": "nopass@example.com",
+                                    "password": "any-guess-at-all"},
+                    follow_redirects=False)
+    assert r.status_code == 200          # back to the form, not signed in
+    assert client.get("/account", follow_redirects=False).status_code == 401
+
+
+# --- the claims parser -----------------------------------------------------
+
+def test_only_an_unambiguous_true_counts_as_verified():
+    """Google sends a real boolean, but this claim has been a string in some
+    flows and absent in others. Anything that is not clearly true is false —
+    the whole point of the field is to be what we refuse to guess about."""
+    def verified_for(value):
+        claims = {"sub": "s", "email": "a@b.com", "email_verified": value}
+        return oauth.identity_from_claims(claims).email_verified
+
+    assert verified_for(True) is True
+    assert verified_for("true") is True
+    for falsey in (False, "false", None, "", 0, "yes", "1"):
+        assert verified_for(falsey) is False, falsey
+
+
+def test_claims_without_a_subject_are_refused():
+    with pytest.raises(oauth.OAuthError):
+        oauth.identity_from_claims({"email": "a@b.com"})
+
+
+def test_claims_without_an_email_are_refused():
+    with pytest.raises(oauth.OAuthError):
+        oauth.identity_from_claims({"sub": "s"})

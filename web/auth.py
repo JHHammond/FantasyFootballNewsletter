@@ -272,3 +272,46 @@ def cookie_kwargs() -> dict:
         "max_age": SESSION_MAX_AGE,
         "path": "/",
     }
+
+
+# ---------------------------------------------------------------------------
+# Signing something that is not a session
+#
+# The OAuth `state` parameter needs exactly what a session cookie needs — a
+# value this server can later prove it issued — and it would be a mistake to
+# invent a second way of doing that. Same secret, same HMAC, different payload.
+# ---------------------------------------------------------------------------
+
+def sign_value(payload: str) -> str:
+    """A value with its signature attached."""
+    return f"{payload}.{_sign(payload)}"
+
+
+def read_signed_value(signed: str) -> Optional[str]:
+    """The payload, or None if this server did not issue it.
+
+    compare_digest rather than ==, for the same reason verify_password uses
+    it: == stops at the first differing byte, and that timing is measurable.
+    """
+    raw = (signed or "").strip()
+    if "." not in raw:
+        return None
+    payload, _, signature = raw.rpartition(".")
+    if not payload or not signature:
+        return None
+    if not hmac.compare_digest(signature, _sign(payload)):
+        return None
+    return payload
+
+
+def state_cookie_kwargs() -> dict:
+    """Flags for the short-lived OAuth state cookie.
+
+    Lax rather than strict, and that is load-bearing: Google returns the
+    person by a top-level GET navigation from accounts.google.com. Lax sends
+    cookies on those; strict does not, so a strict cookie would make every
+    sign-in fail with a state mismatch and look like an attack.
+    """
+    kwargs = cookie_kwargs()
+    kwargs["max_age"] = 15 * 60
+    return kwargs

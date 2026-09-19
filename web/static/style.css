@@ -1111,3 +1111,19 @@ textarea { resize: vertical; }
 }
 
 .plan-list .lock { margin-left: 0; margin-right: 9px; }
+
+/* Continue with Google. White with a grey border is what Google's own
+   branding guidance asks for, and it is also the thing people recognise
+   without reading — a green button with a G on it reads as ours, not theirs. */
+.google-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    background: #fff;
+    border-color: var(--line);
+    color: var(--ink);
+}
+
+.google-btn:hover { background: #f5f5f5; color: var(--ink); }

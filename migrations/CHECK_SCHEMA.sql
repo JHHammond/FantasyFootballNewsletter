@@ -52,7 +52,9 @@ with expected(ordering, migration, kind, obj, col, note) as (
     (13, '013_managers', 'table', 'managers', null,
          'per-person lore and real names. Papers keep printing handles without it'),
     (14, '014_plans', 'column', 'users', 'plan',
-         'the paywall. Everyone is on the free tier and no payment can be recorded')
+         'the paywall. Everyone is on the free tier and no payment can be recorded'),
+    (15, '015_google', 'column', 'users', 'google_sub',
+         'Sign in with Google. The button 500s on the last step without it')
 )
 select
     e.migration,

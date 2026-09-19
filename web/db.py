@@ -700,6 +700,53 @@ def user_by_email(email: str) -> Optional[dict[str, Any]]:
     return res.data[0] if res.data else None
 
 
+# --- Google sign-in ---------------------------------------------------------
+#
+# The lookup is by SUB, never by email. See migrations/015_google.sql.
+
+def user_by_google_sub(sub: str) -> Optional[dict[str, Any]]:
+    if not sub:
+        return None
+    res = (client().table("users").select("*")
+           .eq("google_sub", sub).limit(1).execute())
+    return res.data[0] if res.data else None
+
+
+def create_google_user(email: str, sub: str,
+                       name: str = "") -> Optional[dict[str, Any]]:
+    """An account with no password, ever.
+
+    password_hash is left null, which migration 015 exists to permit. None
+    comes back if the address is somehow taken between the caller's check and
+    this insert — the unique index settles that race rather than a
+    check-then-insert here, same as create_user.
+    """
+    try:
+        res = client().table("users").insert({
+            "email": email.strip().lower(),
+            "google_sub": sub,
+            "google_email": email.strip().lower(),
+            "google_linked_at": "now()",
+            "verified_at": "now()",
+        }).execute()
+    except Exception:  # noqa: BLE001 — unique violation is the expected case
+        return None
+    return res.data[0] if res.data else None
+
+
+def link_google(user_id: str, sub: str, email: str) -> None:
+    """Attach a Google identity to an account that already exists.
+
+    Only ever called after the caller has established that Google VERIFIED
+    this address. There is no code path that links on an address alone.
+    """
+    client().table("users").update({
+        "google_sub": sub,
+        "google_email": (email or "").strip().lower(),
+        "google_linked_at": "now()",
+    }).eq("id", user_id).execute()
+
+
 def user_by_id(user_id: str) -> Optional[dict[str, Any]]:
     if not user_id:
         return None

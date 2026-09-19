@@ -281,3 +281,25 @@ def send_account_exists(to: str) -> SendResult:
      Forgotten your password? <a href="{base}/forgot">Reset it here</a>.
      If this wasn&rsquo;t you, nothing has changed and you can ignore this.</p>"""
     return _send(to, "You already have an account", _shell(body))
+
+
+def send_google_account_reminder(to: str) -> SendResult:
+    """Sent when somebody asks to reset a password they have never had.
+
+    An account created through Google has no password, so a reset link would
+    take them to a form for a credential that does not exist. The reset page
+    itself cannot say so — it deliberately gives the same answer to every
+    address, or it becomes a way to test which ones are registered here — so
+    the explanation goes to the inbox that owns the address.
+    """
+    _, _, base, _ = _config()
+    body = f"""
+  <h1 style="font-size:22px;margin:0 0 14px;">Use the Google button</h1>
+  <p>Somebody just asked to reset the password on this address. There isn&rsquo;t
+     one to reset &mdash; this account signs in with Google.</p>
+  <p style="margin:24px 0;">
+    <a href="{base}/login" style="{_BUTTON}">Sign in with Google</a>
+  </p>
+  <p style="font-size:13px;color:#6b6050;">
+     If this wasn&rsquo;t you, nothing has changed and you can ignore this.</p>"""
+    return _send(to, "Use the Google button to sign in", _shell(body))

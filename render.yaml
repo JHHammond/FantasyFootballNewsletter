@@ -94,6 +94,35 @@ services:
                            # CLI one into production means every real event is
                            # rejected with a 400 and every subscriber pays
                            # while staying on the free tier.
+      - key: GOOGLE_CLIENT_ID
+        sync: false        # ...apps.googleusercontent.com, from Google Cloud
+                           # console -> APIs & Services -> Credentials ->
+                           # OAuth 2.0 Client ID (type: Web application).
+                           #
+                           # Unset means no Google button and routes that 404,
+                           # with password sign-in untouched. Same posture as
+                           # Stripe: a half-configured deploy shows nothing
+                           # rather than a button that fails.
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false        # From the same screen. Never reaches a browser:
+                           # the authorization code is exchanged server-side,
+                           # which is what stops a code lifted from somebody's
+                           # address bar being enough to sign in as them.
+                           #
+                           # THE AUTHORIZED REDIRECT URI must be registered in
+                           # that console as, exactly:
+                           #
+                           #   https://<your domain>/auth/google/callback
+                           #
+                           # Character for character — scheme, host, path, no
+                           # trailing slash. A mismatch is refused by Google
+                           # before the person ever reaches this app, and the
+                           # error page says "redirect_uri_mismatch" and
+                           # nothing else. Same class of trap as pasting a
+                           # Stripe product id where a price id belongs.
+                           #
+                           # The consent screen wants a privacy policy and a
+                           # terms URL. They are /privacy and /terms.
       - key: PUBLISHER_TOKEN
         sync: false        # opens /publisher/<value>, where the weekly
                            # classifieds page is made.

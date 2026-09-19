@@ -425,6 +425,10 @@ def create_user(email: str, password_hash: str) -> Optional[dict[str, Any]]:
         _USERS[uid] = {
             "id": uid, "email": email, "password_hash": password_hash,
             "created_at": _now(), "last_login_at": None, "verified_at": None,
+            # Migration 015: a password account has no Google identity. The
+            # key must be PRESENT and null rather than absent, or code that
+            # reads it gets a KeyError in production and None in demo mode.
+            "google_sub": None, "google_email": None, "google_linked_at": None,
             # Migration 014's defaults, so demo mode is on the free tier from
             # the moment an account exists rather than from the first webhook.
             "plan": "free", "plan_status": None,
@@ -442,6 +446,48 @@ def user_by_email(email: str) -> Optional[dict[str, Any]]:
 def user_by_id(user_id: str) -> Optional[dict[str, Any]]:
     found = _USERS.get(user_id)
     return dict(found) if found else None
+
+
+# --- Google sign-in, mirroring db.py ----------------------------------------
+
+def user_by_google_sub(sub: str) -> Optional[dict[str, Any]]:
+    if not sub:
+        return None
+    return next((dict(u) for u in _USERS.values()
+                 if u.get("google_sub") == sub), None)
+
+
+def create_google_user(email: str, sub: str,
+                       name: str = "") -> Optional[dict[str, Any]]:
+    email = (email or "").strip().lower()
+    with _lock:
+        if any(u["email"] == email for u in _USERS.values()):
+            return None
+        if any(u.get("google_sub") == sub for u in _USERS.values()):
+            return None
+        uid = str(uuid4())
+        _USERS[uid] = {
+            "id": uid, "email": email,
+            # No password, which is the entire point of migration 015.
+            "password_hash": None,
+            "google_sub": sub, "google_email": email,
+            "google_linked_at": _now(),
+            "created_at": _now(), "last_login_at": None,
+            "verified_at": _now(),
+            "plan": "free", "plan_status": None,
+            "stripe_customer_id": None, "stripe_subscription_id": None,
+            "plan_renews_at": None, "plan_updated_at": None,
+        }
+        return dict(_USERS[uid])
+
+
+def link_google(user_id: str, sub: str, email: str) -> None:
+    with _lock:
+        row = _USERS.get(user_id)
+        if row:
+            row["google_sub"] = sub
+            row["google_email"] = (email or "").strip().lower()
+            row["google_linked_at"] = _now()
 
 
 def update_user(user_id: str, fields: dict[str, Any]) -> None:
