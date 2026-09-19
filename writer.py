@@ -1249,6 +1249,7 @@ def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
     highest = summary.get("highest_score", {})
     lowest = summary.get("lowest_score", {})
     bench = summary.get("bench_blunder", {})
+    benched_player = summary.get("bench_blunder_player")
     upset = summary.get("upset", {})
     jerry = summary.get("jerry_jones", {})
 
@@ -1263,6 +1264,9 @@ def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
         "bench_blunder_team": bench.get("team_name", ""),
         "bench_blunder_owner": bench.get("owner_name", ""),
         "bench_blunder_gap": bench.get("lineup_gap", 0),
+        # The player, which is what the award is actually about.
+        "bench_blunder_player": (benched_player or {}).get("name", ""),
+        "bench_blunder_points": (benched_player or {}).get("actual", 0) or 0,
         "upset_winner": upset.get("winner", "") if upset else "",
         "upset_margin": upset.get("margin", 0) if upset else 0,
         "jerry_jones_team": jerry.get("team_name", "") if jerry else "",
@@ -1282,9 +1286,14 @@ league's own running joke and the readers already know them. Do NOT explain
 who the namesake is, and do NOT state which NFL team anybody plays for. Write
 about what happened in THIS league THIS week.
 
-1. GARDNER MINSHEW AWARD — most points left on the bench.
-   Winner: {context['bench_blunder_team']} ({context['bench_blunder_owner']})
-   with {context['bench_blunder_gap']:.1f} points left on the bench.
+1. GARDNER MINSHEW AWARD — the single best player left on a bench.
+   Winner: {context['bench_blunder_team']} ({context['bench_blunder_owner']}),
+   who benched {context['bench_blunder_player'] or 'somebody'} for
+   {context['bench_blunder_points']:.1f} points and lost.
+   Name that player. The award is about him, not about a total.
+   If that score is small, the joke is that this was the worst anybody in the
+   league managed — not that it was a catastrophe. Do not manufacture outrage
+   over a number that does not deserve it.
 
 2. JOE BURROW AWARD — did everything right and still lost.
    Winner: {context['lowest_score_team']} ({context['lowest_score_owner']})
@@ -1326,7 +1335,13 @@ Data: {_compact(context)}
     except Exception:
         # Fallback if JSON parsing fails
         return [
-            {"title": "GARDNER MINSHEW AWARD", "body": f"{context['bench_blunder_team']} left {context['bench_blunder_gap']:.1f} points on the bench. Unacceptable."},
+            {"title": "GARDNER MINSHEW AWARD", "body": (
+                f"{context['bench_blunder_team']} benched "
+                f"{context['bench_blunder_player']} for "
+                f"{context['bench_blunder_points']:.1f} points, and lost."
+                if context['bench_blunder_player'] else
+                f"{context['bench_blunder_team']} left "
+                f"{context['bench_blunder_gap']:.1f} points on the bench.")},
             {"title": "JOE BURROW AWARD", "body": f"{context['lowest_score_team']} put up {context['lowest_score']:.1f} points. Joe Burrow weeps."},
             {"title": "KYLE PITTS AWARD", "body": f"{context['highest_score_team']} dropped {context['highest_score']:.1f}. Courage rewarded."},
         ]

@@ -30,7 +30,32 @@ def get_weekly_storylines(games):
         elif game["winner"] == t2["team_name"]:
             losers.append(t1)
 
-    bench_blunder = max(losers or all_teams, key=lambda t: t["lineup_gap"])
+    # THE AWARD IS ABOUT ONE PLAYER, NOT A TOTAL.
+    #
+    # It used to go to the biggest lineup GAP, which is an optimizer's number:
+    # the sum of everything a perfect lineup would have gained. That is a real
+    # measurement and it is not what the award is. Nobody in a league says "he
+    # left 31.4 aggregate points on his bench" — they say "he benched Bijan".
+    # A manager can top the gap table with four mildly wrong calls while
+    # somebody else sat a 38-point running back, and the second one is the
+    # story every single time.
+    #
+    # So: the highest-scoring individual bench player, among the teams that
+    # lost.
+    benched = []
+    for team in (losers or all_teams):
+        for player in team.get("all_bench") or []:
+            if player and isinstance(player.get("actual"), (int, float)):
+                benched.append((player, team))
+
+    if benched:
+        bench_blunder_player, bench_blunder = max(
+            benched, key=lambda pair: pair[0]["actual"])
+    else:
+        # No bench data at all — some providers do not supply one. Fall back
+        # to the gap so the award still has a recipient.
+        bench_blunder = max(losers or all_teams, key=lambda t: t["lineup_gap"])
+        bench_blunder_player = None
 
     # --- Empty lineup ---
     empty_teams = [t for t in all_teams if t["empty_slots"] > 0]
@@ -116,6 +141,7 @@ def get_weekly_storylines(games):
         "highest_score": highest_score,
         "lowest_score": lowest_score,
         "bench_blunder": bench_blunder,
+        "bench_blunder_player": bench_blunder_player,
         "empty_teams": empty_teams,
         "upset": upset,
         "fraud": fraud,

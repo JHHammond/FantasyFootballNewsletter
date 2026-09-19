@@ -4509,3 +4509,22 @@ def test_a_rate_limited_checkout_says_nothing_was_charged(client, monkeypatch):
         last = client.post("/billing/checkout", follow_redirects=False)
 
     assert "charged" in last.headers["location"]
+
+
+def test_the_manage_page_is_in_the_order_somebody_uses_it(client, league):
+    """Make it, then look at what you made, then tune it.
+
+    Past editions used to sit near the bottom, below the delete button, which
+    put the thing a commissioner opens the page for behind everything they
+    configure once and never touch again. Pinned here because section order is
+    the kind of thing a later edit reshuffles without noticing.
+    """
+    body = client.get("/l/secret-admin-token").text
+
+    order = ["Send this to your league", "Make this week", "Past editions",
+             "in the league", "The lore", "Settings"]
+    seen = [body.index(title) for title in order if title in body]
+
+    assert len(seen) == len(order), (
+        f"a section is missing: {[t for t in order if t not in body]}")
+    assert seen == sorted(seen), "the manage page sections are out of order"

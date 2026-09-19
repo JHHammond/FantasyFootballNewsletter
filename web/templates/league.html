@@ -111,6 +111,47 @@
 </section>
 
 <section class="card">
+    <h2 class="card-title">Past editions</h2>
+    {% if papers %}
+    <p class="card-sub">
+        {% if total_reads %}
+        <strong>{{ total_reads }}</strong> {{ 'read' if total_reads == 1 else 'reads' }}
+        across every edition.
+        {% else %}
+        Read counts appear here once people start opening them.
+        {% endif %}
+    </p>
+    <ul class="paper-list">
+        {% for p in papers %}
+        <li class="paper-row">
+            <div>
+                <div class="paper-week">Week {{ p.week }}</div>
+                <div class="paper-meta">
+                    {{ p.season }} season
+                    {% if p.view_count %}
+                    &middot; {{ p.view_count }} {{ 'read' if p.view_count == 1 else 'reads' }}
+                    {% endif %}
+                    {% set used = [(p.generation_count or 1) - 1, 0]|max %}
+                    {% if used %}
+                    &middot; regenerated {{ used }} of {{ regenerations_per_week }}
+                    {% endif %}
+                </div>
+            </div>
+            <div class="paper-row-actions">
+                <a class="btn btn-sm"
+                   href="/l/{{ league.admin_token }}/live-edit/{{ p.week }}">Edit</a>
+                <a class="btn btn-sm"
+                   href="/l/{{ league.admin_token }}/published/{{ p.week }}">Read</a>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">Nothing yet. Generate one up top.</p>
+    {% endif %}
+</section>
+
+<section class="card">
     <h2 class="card-title">Who's in the league</h2>
     <p class="card-sub">
         {{ league.provider|provider_name }} only tells us people's usernames, so that's
@@ -235,47 +276,6 @@
         </label>
         <button type="submit" class="btn btn-quiet">Delete it</button>
     </form>
-</section>
-
-<section class="card">
-    <h2 class="card-title">Past editions</h2>
-    {% if papers %}
-    <p class="card-sub">
-        {% if total_reads %}
-        <strong>{{ total_reads }}</strong> {{ 'read' if total_reads == 1 else 'reads' }}
-        across every edition.
-        {% else %}
-        Read counts appear here once people start opening them.
-        {% endif %}
-    </p>
-    <ul class="paper-list">
-        {% for p in papers %}
-        <li class="paper-row">
-            <div>
-                <div class="paper-week">Week {{ p.week }}</div>
-                <div class="paper-meta">
-                    {{ p.season }} season
-                    {% if p.view_count %}
-                    &middot; {{ p.view_count }} {{ 'read' if p.view_count == 1 else 'reads' }}
-                    {% endif %}
-                    {% set used = [(p.generation_count or 1) - 1, 0]|max %}
-                    {% if used %}
-                    &middot; regenerated {{ used }} of {{ regenerations_per_week }}
-                    {% endif %}
-                </div>
-            </div>
-            <div class="paper-row-actions">
-                <a class="btn btn-sm"
-                   href="/l/{{ league.admin_token }}/live-edit/{{ p.week }}">Edit</a>
-                <a class="btn btn-sm"
-                   href="/l/{{ league.admin_token }}/published/{{ p.week }}">Read</a>
-            </div>
-        </li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">Nothing yet. Generate one up top.</p>
-    {% endif %}
 </section>
 
 <section class="card">

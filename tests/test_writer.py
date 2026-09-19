@@ -1688,3 +1688,121 @@ def test_the_bench_award_goes_to_somebody_who_lost():
 
     assert blunder["team_name"] == "Lost With Points Up", (
         "the award went to a team that won by ninety")
+
+
+# ---------------------------------------------------------------------------
+# The Gardner Minshew award is about a PLAYER
+#
+# "Whoever left the player with the most points on the bench. Not the most
+# points overall." The old rule used the lineup GAP, which is an optimizer's
+# number — the sum of everything a perfect lineup would have gained. Nobody in
+# a league says "he left 31.4 aggregate points on his bench". They say "he
+# benched Bijan".
+# ---------------------------------------------------------------------------
+
+def _bench_week():
+    """Two losers. One has the bigger TOTAL, the other has the bigger PLAYER.
+
+    Spread's four mediocre calls add up to 34 — more than Sat A Stud's 30 —
+    so whichever number the award uses, it picks a different manager. That is
+    the only fixture shape that can tell the two rules apart.
+    """
+    def team(name, points, gap, bench):
+        return {"team_name": name, "owner_name": name, "points": points,
+                "record": "0-1", "lineup_gap": gap, "empty_slots": 0,
+                "all_starters": [], "all_bench": [
+                    {"name": n, "position": "RB", "actual": p,
+                     "projected": 8.0, "beat_projection_by": p - 8.0}
+                    for n, p in bench]}
+
+    return [
+        {"team_1": team("Winner One", 150.0, 0.0, []),
+         "team_2": team("Spread It Around", 100.0, 34.0,
+                        [("Four", 9.0), ("Mediocre", 9.0),
+                         ("Calls", 8.0), ("Adding Up", 8.0)]),
+         "winner": "Winner One", "margin": 50.0},
+        {"team_1": team("Winner Two", 150.0, 0.0, []),
+         "team_2": team("Sat A Stud", 100.0, 30.0, [("Bijan Robinson", 30.0)]),
+         "winner": "Winner Two", "margin": 50.0},
+    ]
+
+
+def test_the_award_goes_to_the_biggest_benched_player_not_the_biggest_total():
+    import storylines
+
+    summary = storylines.get_weekly_storylines(_bench_week())
+
+    assert summary["bench_blunder"]["team_name"] == "Sat A Stud", (
+        "the award went on aggregate points, which is an optimizer's number "
+        "and not what anybody in a league means")
+    assert summary["bench_blunder_player"]["name"] == "Bijan Robinson"
+    assert summary["bench_blunder_player"]["actual"] == 30.0
+
+
+def test_the_benched_player_is_named_in_the_award_prompt(swap_client,
+                                                        no_sleeping):
+    """The whole point. An award about a player that never names the player is
+    the version we already had."""
+    import storylines
+
+    seen = {}
+
+    def capture(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply("[]")
+
+    swap_client(capture)
+    writer.generate_awards(storylines.get_weekly_storylines(_bench_week()))
+
+    assert "Bijan Robinson" in seen["prompt"]
+    assert "30.0" in seen["prompt"]
+
+
+def test_a_winners_bench_still_cannot_win_this_award():
+    """Both rules at once: the best benched player, among the teams that
+    lost."""
+    import storylines
+
+    games = _bench_week()
+    # Give the WINNER the best benched player in the league by a distance.
+    games[0]["team_1"]["all_bench"] = [
+        {"name": "Irrelevant Monster", "position": "WR", "actual": 99.0,
+         "projected": 10.0, "beat_projection_by": 89.0}]
+
+    summary = storylines.get_weekly_storylines(games)
+
+    assert summary["bench_blunder_player"]["name"] == "Bijan Robinson"
+
+
+def test_no_bench_data_still_produces_an_award():
+    """Some providers do not supply a bench. The award still needs somebody,
+    and the gap is the only thing left to rank on."""
+    import storylines
+
+    def bare(name, gap):
+        return {"team_name": name, "owner_name": name, "points": 100.0,
+                "record": "0-1", "lineup_gap": gap, "empty_slots": 0,
+                "all_starters": [], "all_bench": []}
+
+    summary = storylines.get_weekly_storylines([
+        {"team_1": bare("Won", 0.0), "team_2": bare("Lost", 12.0),
+         "winner": "Won", "margin": 10.0}])
+
+    assert summary["bench_blunder"]["team_name"] == "Lost"
+    assert summary["bench_blunder_player"] is None
+
+
+def test_a_tiny_benched_score_is_not_written_up_as_a_catastrophe(swap_client,
+                                                                 no_sleeping):
+    """A week where the best benched player scored 2 points is a week where
+    nobody blundered. The award still runs; the prompt says not to pretend."""
+    seen = {}
+
+    def capture(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply("[]")
+
+    swap_client(capture)
+    writer.generate_awards(SUMMARY)
+
+    assert "Do not manufacture outrage" in seen["prompt"]
