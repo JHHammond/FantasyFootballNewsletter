@@ -3,94 +3,95 @@
 
 {% block title %}Set up {{ paper_name }}{% endblock %}
 
+{#
+   Setup as three pop-up steps, one at a time: the people, the league, the
+   paper. The last button saves everything and writes the first paper.
+
+   One form, not three: every step posts together, so nothing is lost if
+   somebody goes back, and the server saves it all in one place. Without
+   JavaScript all three steps simply show, stacked, and the form still works.
+#}
 {% block content %}
-<header class="page-head">
-    <div class="eyebrow">{{ league.league_name }} &middot; {{ league.season }}</div>
-    <h1 class="page-title">Tell us about your league</h1>
-    <p class="hero-sub" style="margin:12px 0 0;text-align:left;">
-        We already pulled your rosters, scores and scoring settings from
-        {{ league.provider|provider_name }}. What it can't tell us is why your league is
-        funny. That's this page. Takes a minute, and you can change any of it later.
-    </p>
-</header>
+<div class="wizard-backdrop">
+<form method="post" action="/l/{{ league.admin_token }}/setup"
+      class="wizard" id="wizard"
+      {% if latest_week %}data-generating{% endif %}>
 
-<form method="post" action="/l/{{ league.admin_token }}/setup">
-    <section class="card">
-        <h2 class="card-title">What kind of league</h2>
-        <p class="card-sub">
-            Changes what the paper can even talk about. In a dynasty league a bad
-            trade haunts someone for years. In a redraft league it doesn't exist.
-        </p>
-        <div class="radio-row">
-            <label class="radio-card">
-                <input type="radio" name="format" value="redraft" checked />
-                <span><strong>Redraft</strong><em>Fresh draft every year</em></span>
-            </label>
-            <label class="radio-card">
-                <input type="radio" name="format" value="keeper" />
-                <span><strong>Keeper</strong><em>Hold a few guys each year</em></span>
-            </label>
-            <label class="radio-card">
-                <input type="radio" name="format" value="dynasty" />
-                <span><strong>Dynasty</strong><em>Full rosters carry over</em></span>
-            </label>
-        </div>
-    </section>
+    <div class="wizard-head">
+        <div class="eyebrow">{{ league.league_name }} &middot; {{ league.season }}</div>
+        <ol class="wizard-progress" aria-label="Setup steps">
+            <li data-dot="1">Leaguemates</li>
+            <li data-dot="2">Your league</li>
+            <li data-dot="3">The paper</li>
+        </ol>
+    </div>
 
-    <section class="card">
-        <h2 class="card-title">How mean should it be</h2>
-        <p class="card-sub">
-            The default is pretty savage. If your boss or your wife is in the
-            league, maybe dial it back.
+    {# ---------------------------------------------------------------- 1 #}
+    <section class="wizard-step" data-step="1">
+        <h1 class="wizard-title">Tell us about your leaguemates</h1>
+        <p class="wizard-sub">
+            A name the league actually uses, and anything the paper should know.
+            Leave any of it blank.
         </p>
-        <div class="radio-row">
-            <label class="radio-card">
-                <input type="radio" name="tone" value="friendly" />
-                <span><strong>Keep it light</strong><em>Ribbing, no profanity</em></span>
-            </label>
-            <label class="radio-card">
-                <input type="radio" name="tone" value="standard" checked />
-                <span><strong>Normal</strong><em>Mean but fair</em></span>
-            </label>
-            <label class="radio-card">
-                <input type="radio" name="tone" value="brutal" />
-                <span><strong>No mercy</strong><em>Nobody is safe</em></span>
-            </label>
-        </div>
-    </section>
 
-    <section class="card">
-        <h2 class="card-title">How should it look</h2>
-        <p class="card-sub">
-            Same writing either way &mdash; this is just the paper it gets set in.
-        </p>
-        <div class="theme-row">
-            {% for t in theme_choices() %}
-            {% set locked = t.key not in allowed_themes %}
-            <label class="theme-card theme-{{ t.key }}{% if locked %} locked-option{% endif %}">
-                <input type="radio" name="theme" value="{{ t.key }}"
-                       {% if locked %}disabled{% endif %}
-                       {% if t.key in allowed_themes and loop.first %}checked{% endif %} />
-                <span class="theme-sample theme-sample-{{ t.key }}">
-                    <span class="theme-sample-masthead">The Times</span>
-                    <span class="theme-sample-head">Steve Opens 1-0, Henry Underperforms</span>
-                    <span class="theme-sample-body"></span>
-                    <span class="theme-sample-body short"></span>
-                </span>
-                <span class="theme-name">
-                    {{ t.label }}{% if locked %}{{ lock(lock_reasons.themes) }}{% endif %}
-                </span>
-                <span class="theme-blurb">{{ t.blurb }}</span>
-            </label>
+        {% if managers %}
+        <ul class="manager-list">
+            {% for m in managers %}
+            <li class="manager">
+                <input type="hidden" name="handle" value="{{ m.handle }}" />
+                <label class="field">
+                    <span class="field-label">{{ m.handle }}</span>
+                    <input type="text" name="display_name" maxlength="80"
+                           value="{{ m.display_name or '' }}"
+                           placeholder="Their name" />
+                </label>
+                <textarea name="notes" rows="2" maxlength="2000"
+                          placeholder="Drafts his kicker in the seventh. Still brings up the 2022 trade."
+                          >{{ m.notes or '' }}</textarea>
+            </li>
             {% endfor %}
-        </div>
-        {% if theme_choices()|length > allowed_themes|length %}
-        {{ upgrade_note(lock_reasons.themes, billing_enabled()) }}
+        </ul>
+        {% else %}
+        <p class="empty">
+            Everyone shows up here once {{ league.provider|provider_name }} has a
+            scored week for this league. You can fill this in later from the
+            league page.
+        </p>
         {% endif %}
+
+        <div class="wizard-actions">
+            <span></span>
+            <button type="button" class="btn btn-primary" data-next>Next</button>
+        </div>
     </section>
 
-    <section class="card">
-        <h2 class="card-title">The stakes</h2>
+    {# ---------------------------------------------------------------- 2 #}
+    <section class="wizard-step" data-step="2">
+        <h1 class="wizard-title">Tell us about your league</h1>
+        <p class="wizard-sub">
+            We already pulled your rosters, scores and scoring settings from
+            {{ league.provider|provider_name }}. What it can't tell us is why
+            your league is funny.
+        </p>
+
+        <div class="wizard-block">
+            <span class="field-label">What kind of league</span>
+            <div class="radio-row">
+                <label class="radio-card">
+                    <input type="radio" name="format" value="redraft" checked />
+                    <span><strong>Redraft</strong><em>Fresh draft every year</em></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="format" value="keeper" />
+                    <span><strong>Keeper</strong><em>Hold a few guys each year</em></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="format" value="dynasty" />
+                    <span><strong>Dynasty</strong><em>Full rosters carry over</em></span>
+                </label>
+            </div>
+        </div>
+
         <div class="stack">
             <label class="field">
                 <span class="field-label">What do you play for? <span class="opt">optional</span></span>
@@ -101,9 +102,16 @@
                 <span class="field-label">Last place punishment <span class="opt">optional</span></span>
                 <input type="text" name="punishment" maxlength="300"
                        placeholder="Has to get a tattoo picked by the group chat" />
+            </label>
+            <label class="field">
+                <span class="field-label">The lore <span class="opt">one per line</span></span>
+                <textarea name="lore" rows="5" placeholder="Nick benches his best guy every single week
+Champ sold his soul and still went 6-8
+Dave has never made the playoffs and brings up 2019 constantly"></textarea>
                 <span class="field-help">
-                    If you have one, put it here. It's the funniest thing about
-                    most leagues and the paper will bring it up all season.
+                    Rivalries, running jokes, standing rules. The single biggest
+                    difference between a generic recap and one that sounds like
+                    somebody in your league wrote it.
                 </span>
             </label>
             <label class="field field-narrow">
@@ -111,28 +119,138 @@
                 <input type="number" name="founded_year" min="1980" max="2100" placeholder="2014" />
             </label>
         </div>
+
+        <div class="wizard-actions">
+            <button type="button" class="btn btn-quiet" data-back>Back</button>
+            <button type="button" class="btn btn-primary" data-next>Next</button>
+        </div>
     </section>
 
-    <section class="card">
-        <h2 class="card-title">The lore</h2>
-        <p class="card-sub">
-            One per line. Who chokes every year, who's still mad about a trade
-            from 2022, who drafted a kicker in the 8th, who talks the most trash
-            and backs it up the least. This is the single biggest difference
-            between a generic recap and one that sounds like someone in your
-            league wrote it.
+    {# ---------------------------------------------------------------- 3 #}
+    <section class="wizard-step" data-step="3">
+        <h1 class="wizard-title">How should the paper read?</h1>
+
+        <div class="wizard-block">
+            <span class="field-label">How mean should it be</span>
+            <div class="radio-row">
+                <label class="radio-card">
+                    <input type="radio" name="tone" value="friendly" />
+                    <span><strong>Keep it light</strong><em>Ribbing, no profanity</em></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="tone" value="standard" checked />
+                    <span><strong>Normal</strong><em>Mean but fair</em></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="tone" value="brutal" />
+                    <span><strong>No mercy</strong><em>Nobody is safe</em></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="wizard-block">
+            <span class="field-label">How should it look</span>
+            <div class="theme-row">
+                {% for t in theme_choices() %}
+                {% set locked = t.key not in allowed_themes %}
+                <label class="theme-card theme-{{ t.key }}{% if locked %} locked-option{% endif %}">
+                    <input type="radio" name="theme" value="{{ t.key }}"
+                           {% if locked %}disabled{% endif %}
+                           {% if t.key in allowed_themes and loop.first %}checked{% endif %} />
+                    <span class="theme-sample theme-sample-{{ t.key }}">
+                        <span class="theme-sample-masthead">The Times</span>
+                        <span class="theme-sample-head">Steve Opens 1-0, Henry Underperforms</span>
+                        <span class="theme-sample-body"></span>
+                        <span class="theme-sample-body short"></span>
+                    </span>
+                    <span class="theme-name">
+                        {{ t.label }}{% if locked %}{{ lock(lock_reasons.themes) }}{% endif %}
+                    </span>
+                    <span class="theme-blurb">{{ t.blurb }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            {% if theme_choices()|length > allowed_themes|length %}
+            {{ upgrade_note(lock_reasons.themes, billing_enabled()) }}
+            {% endif %}
+        </div>
+
+        <div class="wizard-actions">
+            <button type="button" class="btn btn-quiet" data-back>Back</button>
+            {% if latest_week %}
+            <input type="hidden" name="week" value="{{ latest_week }}" />
+            <button type="submit" name="then" value="generate" class="btn btn-primary btn-lg">
+                Generate week {{ latest_week }}&rsquo;s paper
+            </button>
+            {% else %}
+            <button type="submit" name="then" value="save" class="btn btn-primary btn-lg">
+                Save and continue
+            </button>
+            {% endif %}
+        </div>
+        {% if latest_week %}
+        <p class="wizard-foot">
+            Takes about thirty seconds.
+            <button type="submit" name="then" value="save" class="btn-link" data-no-overlay>
+                Save without generating
+            </button>
         </p>
-        <textarea name="lore" rows="6" placeholder="Nick benches his best guy every single week
-Champ sold his soul and still went 6-8
-Dave has never made the playoffs and brings up 2019 constantly"></textarea>
+        {% else %}
+        <p class="wizard-foot">
+            Your first paper can be written once a week has been played.
+        </p>
+        {% endif %}
     </section>
-
-    <div class="setup-actions">
-        <button type="submit" class="btn btn-primary btn-lg">Save and continue</button>
-    </div>
 </form>
 
 <form method="post" action="/l/{{ league.admin_token }}/skip-setup" class="setup-skip">
     <button type="submit" class="btn-link">Skip for now</button>
 </form>
+</div>
+
+<script>
+(function () {
+    var wizard = document.getElementById("wizard");
+    if (!wizard) return;
+    var steps = wizard.querySelectorAll(".wizard-step");
+    var dots = wizard.querySelectorAll("[data-dot]");
+    var current = 1;
+
+    function show(n, initial) {
+        current = Math.max(1, Math.min(n, steps.length));
+        steps.forEach(function (s) {
+            s.hidden = Number(s.dataset.step) !== current;
+        });
+        dots.forEach(function (d) {
+            var i = Number(d.dataset.dot);
+            d.classList.toggle("is-current", i === current);
+            d.classList.toggle("is-done", i < current);
+        });
+        // Not on arrival: no jump, and no phone keyboard popping up before
+        // anybody has read the step.
+        if (initial) return;
+        wizard.scrollIntoView({ block: "start", behavior: "smooth" });
+        var first = steps[current - 1].querySelector("input:not([type=hidden]), textarea");
+        if (first) first.focus({ preventScroll: true });
+    }
+
+    wizard.classList.add("is-stepped");
+    wizard.querySelectorAll("[data-next]").forEach(function (b) {
+        b.addEventListener("click", function () { show(current + 1); });
+    });
+    wizard.querySelectorAll("[data-back]").forEach(function (b) {
+        b.addEventListener("click", function () { show(current - 1); });
+    });
+    // Enter in a text box shouldn't submit the whole wizard from step one.
+    wizard.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && e.target.tagName === "INPUT" && current < steps.length) {
+            e.preventDefault();
+            show(current + 1);
+        }
+    });
+    show(1, true);
+})();
+</script>
+
+{% include "_generating.html" %}
 {% endblock %}

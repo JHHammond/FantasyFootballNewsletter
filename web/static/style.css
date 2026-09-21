@@ -1338,3 +1338,73 @@ html.is-generating, html.is-generating body { overflow: hidden; }
 
 /* the link under the homepage specimen to a full sample paper */
 .specimen-link { text-align: center; margin-top: 10px; font-weight: 600; }
+
+/* ---------- setup, as three pop-up steps ---------- */
+
+.wizard-backdrop { padding: 8px 0 40px; }
+.wizard {
+    max-width: 680px;
+    margin: 0 auto;
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+    padding: 26px 28px 22px;
+}
+.wizard-head { margin-bottom: 14px; }
+.wizard-progress {
+    display: flex;
+    gap: 6px;
+    list-style: none;
+    padding: 0;
+    margin: 10px 0 0;
+    counter-reset: step;
+}
+.wizard-progress li {
+    flex: 1;
+    font-family: "Barlow Condensed", sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-top: 4px solid var(--line);
+    padding-top: 6px;
+    counter-increment: step;
+}
+.wizard-progress li::before { content: counter(step) ". "; }
+.wizard-progress li.is-done { border-top-color: var(--green); color: var(--ink-2); }
+.wizard-progress li.is-current { border-top-color: var(--ink); color: var(--ink); }
+.wizard-title {
+    font-family: "Playfair Display", serif;
+    font-weight: 900;
+    font-size: 30px;
+    line-height: 1.1;
+    margin: 6px 0 8px;
+}
+.wizard-sub { color: var(--ink-2); margin: 0 0 18px; }
+.wizard-block { margin-bottom: 20px; }
+.wizard-block > .field-label { display: block; margin-bottom: 8px; }
+.wizard-step + .wizard-step { margin-top: 36px; }
+.wizard.is-stepped .wizard-step + .wizard-step { margin-top: 0; }
+.wizard-step[hidden] { display: none; }
+.wizard-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+}
+.wizard-foot {
+    text-align: right;
+    font-size: 13px;
+    color: var(--muted);
+    margin: 10px 0 0;
+}
+.wizard-backdrop .setup-skip { text-align: center; margin-top: 14px; }
+@media (max-width: 560px) {
+    .wizard { padding: 20px 16px 18px; }
+    .wizard-title { font-size: 25px; }
+    .wizard-progress li { font-size: 11px; }
+}

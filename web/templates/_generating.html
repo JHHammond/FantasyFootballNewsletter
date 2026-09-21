@@ -149,7 +149,9 @@
     }
 
     document.querySelectorAll("form[data-generating]").forEach(function (form) {
-        form.addEventListener("submit", function () {
+        form.addEventListener("submit", function (event) {
+            // A form can have a quiet button too ("Save without generating").
+            if (event.submitter && event.submitter.hasAttribute("data-no-overlay")) return;
             // Once, and only once. Disabling the button is what actually
             // stops the double press; the overlay just makes it obvious.
             var button = form.querySelector("button[type=submit]");

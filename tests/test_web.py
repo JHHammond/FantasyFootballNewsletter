@@ -5192,3 +5192,86 @@ def test_the_extras_are_editable_in_place():
     assert out["letter"]["signed"] == "Will"
     assert out["obituary"] == {"player": "Jacobs", "body": "new obit"}
     assert out["lines"][0]["pick"] == "new pick"
+
+
+# ---------------------------------------------------------------------------
+# Setup as a three-step pop-up that ends by writing the first paper
+# ---------------------------------------------------------------------------
+
+def _with_weeks(monkeypatch, weeks=(1, 2, 3)):
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=weeks))
+    monkeypatch.setattr(webapp, "managers_for_page",
+                        lambda db_, lg, w: [{"handle": "carsoncale", "display_name": "",
+                                             "notes": ""},
+                                            {"handle": "WillDavidson10",
+                                             "display_name": "Will", "notes": ""}])
+
+
+def test_setup_is_three_steps_ending_in_generate(client, league, monkeypatch):
+    _with_weeks(monkeypatch)
+    html = client.get("/l/secret-admin-token/setup").text
+    for step in ('data-step="1"', 'data-step="2"', 'data-step="3"'):
+        assert step in html
+    assert "Tell us about your leaguemates" in html
+    assert 'name="handle" value="carsoncale"' in html
+    assert 'value="Will"' in html
+    assert 'name="week" value="3"' in html
+    assert "Generate week 3" in html
+    assert 'data-generating' in html            # the football overlay
+
+
+def test_setup_before_any_week_is_played_saves_instead(client, league, monkeypatch):
+    _with_weeks(monkeypatch, weeks=())
+    html = client.get("/l/secret-admin-token/setup").text
+    assert "Generate week" not in html
+    assert 'value="save"' in html
+    wizard_tag = html.split('id="wizard"', 1)[1].split(">", 1)[0]
+    assert "data-generating" not in wizard_tag, "no overlay when nothing is generated"
+
+
+def test_the_last_step_saves_everything_and_writes_the_paper(client, league, monkeypatch):
+    demo_db.remember_managers(league["id"], ["carsoncale"])
+    made = []
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: made.append((lg["id"], wk)))
+    r = client.post("/l/secret-admin-token/setup", data={
+        "handle": ["carsoncale"], "display_name": ["Carson"], "notes": ["Always wins"],
+        "format": "dynasty", "punishment": "Tattoo", "lore": "Steve chokes",
+        "tone": "brutal", "then": "generate", "week": "3"}, follow_redirects=False)
+
+    assert made == [(league["id"], 3)]
+    assert r.headers["location"] == "/l/secret-admin-token/published/3"
+    saved = demo_db._LEAGUES[league["id"]]
+    assert saved["format"] == "dynasty" and saved["tone"] == "brutal"
+    assert saved["punishment"] == "Tattoo"
+    person = next(m for m in demo_db.get_managers(league["id"]) if m["handle"] == "carsoncale")
+    assert person["display_name"] == "Carson" and person["notes"] == "Always wins"
+    assert any(e["entry"] == "Steve chokes" for e in demo_db.get_lore(league["id"]))
+
+
+def test_save_without_generating_goes_to_the_league_page(client, league, monkeypatch):
+    made = []
+    monkeypatch.setattr(webapp, "generate_and_store", lambda *a: made.append(a))
+    r = client.post("/l/secret-admin-token/setup",
+                    data={"then": "save", "week": "3"}, follow_redirects=False)
+    assert made == []
+    assert r.headers["location"] == "/l/secret-admin-token?new=1"
+
+
+def test_generating_from_setup_goes_through_the_same_limits(client, league, monkeypatch):
+    """Not a side door around the regeneration allowance."""
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: demo_db.save_paper(
+                            lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
+    for _ in range(PAID_ALLOWANCE + 1):
+        _generate(client, week=3)
+    r = client.post("/l/secret-admin-token/setup",
+                    data={"then": "generate", "week": "3"}, follow_redirects=False)
+    assert "used+all" in r.headers["location"]
+
+
+def test_a_mangled_people_step_does_not_lose_the_rest(client, league):
+    client.post("/l/secret-admin-token/setup", data={
+        "handle": ["a", "b"], "display_name": ["only one"], "notes": [],
+        "format": "keeper"})
+    assert demo_db._LEAGUES[league["id"]]["format"] == "keeper"

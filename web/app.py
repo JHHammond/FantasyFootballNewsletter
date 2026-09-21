@@ -1509,17 +1509,25 @@ def save_managers(token: str,
     """
     league = _require_league(token)
 
-    if not (len(handle) == len(display_name) == len(notes)):
+    if not _save_managers(league, handle, display_name, notes):
         return RedirectResponse(
             f"/l/{token}?error=Something+went+wrong+saving+that.+"
             f"Try+again.", status_code=303)
 
+    return RedirectResponse(f"/l/{token}?notice=Saved.", status_code=303)
+
+
+def _save_managers(league: dict, handle: list, display_name: list,
+                   notes: list) -> bool:
+    """Write the per-person boxes. False, and nothing written, if the three
+    positional lists disagree in length — see save_managers."""
+    if not (len(handle) == len(display_name) == len(notes)):
+        return False
     for who, name, note in zip(handle, display_name, notes):
         who = (who or "").strip()
         if who:
             db.save_manager(league["id"], who, name, note)
-
-    return RedirectResponse(f"/l/{token}?notice=Saved.", status_code=303)
+    return True
 
 
 @app.post("/l/{token}/settings")
@@ -1701,16 +1709,34 @@ def use_season(token: str, platform_league_id: str = Form(...), season: int = Fo
 # for those again would be a form for no reason.
 # ---------------------------------------------------------------------------
 
+def _playable_weeks(league: dict) -> list[int]:
+    """Weeks the platform has results for. Empty on any failure — setup
+    still works without them, it just can't offer to generate yet."""
+    try:
+        return list(get_provider(league["provider"]).available_weeks(
+            league["platform_league_id"], league["season"]) or [])
+    except Exception as exc:  # noqa: BLE001
+        print(f"[setup] couldn't list weeks: {type(exc).__name__}: {exc}",
+              flush=True)
+        return []
+
+
 @app.get("/l/{token}/setup", response_class=HTMLResponse)
 def setup_form(request: Request, token: str):
+    """Three steps, one at a time: the people, the league, the paper — and
+    the last button writes the first paper."""
     league = _require_league(token)
+    weeks = _playable_weeks(league)
     return _render(request, "setup.html",
                    league=league, paper_name=paper_name_for(league),
-                   plan=league_plan(league))
+                   plan=league_plan(league),
+                   managers=managers_for_page(db, league, weeks),
+                   latest_week=max(weeks) if weeks else None)
 
 
 @app.post("/l/{token}/setup")
 def save_setup(
+    request: Request,
     token: str,
     format: str = Form("redraft"),
     tone: str = Form("standard"),
@@ -1719,8 +1745,18 @@ def save_setup(
     stakes: str = Form(""),
     punishment: str = Form(""),
     lore: str = Form(""),
+    handle: list[str] = Form([]),
+    display_name: list[str] = Form([]),
+    notes: list[str] = Form([]),
+    then: str = Form(""),
+    week: str = Form(""),
 ):
     league = _require_league(token)
+
+    # The leaguemates step. A mismatch writes nothing and carries on: losing
+    # the people boxes is not a reason to lose the rest of the setup.
+    if handle:
+        _save_managers(league, handle, display_name, notes)
 
     year = None
     if founded_year.strip().isdigit():
@@ -1750,6 +1786,12 @@ def save_setup(
             db.add_lore(league["id"], entry[:500])
             added += 1
 
+    # "Generate my paper" — straight on to the first paper, through the same
+    # door as the manage page's Generate button.
+    if then == "generate" and week.strip().isdigit():
+        fresh = _require_league(token)
+        return _generate_response(request, fresh, int(week.strip()))
+
     return RedirectResponse(f"/l/{token}?new=1", status_code=303)
 
 
@@ -1771,6 +1813,18 @@ def skip_setup(token: str):
 def generate(request: Request, token: str, week: int = Form(...),
              confirm_overwrite: str = Form("")):
     league = _require_league(token)
+    return _generate_response(request, league, week, confirm_overwrite)
+
+
+def _generate_response(request: Request, league: dict, week: int,
+                       confirm_overwrite: str = ""):
+    """Every check, the generation itself, and where to send the browser.
+
+    Shared by the Generate button on the manage page and the last step of
+    setup, so a new league's first paper goes through exactly the same rate
+    limits, spend ceilings and plan rules as every other paper.
+    """
+    token = league["admin_token"]
     owner = league_owner(league)
 
     if _rate_limited(f"gen:{_client_ip(request)}", GENERATIONS_PER_HOUR):
