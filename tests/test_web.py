@@ -4821,3 +4821,40 @@ def test_claims_without_a_subject_are_refused():
 def test_claims_without_an_email_are_refused():
     with pytest.raises(oauth.OAuthError):
         oauth.identity_from_claims({"sub": "s"})
+
+
+# ---------------------------------------------------------------------------
+# The generating overlay
+# ---------------------------------------------------------------------------
+
+def _manage_with_weeks(client, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok())
+    return client.get("/l/secret-admin-token").text
+
+
+def test_generate_form_is_wired_to_the_overlay(client, league, monkeypatch):
+    html = _manage_with_weeks(client, monkeypatch)
+    form = html[html.index('action="/l/secret-admin-token/generate"'):]
+    assert "data-generating" in form[:form.index(">")]
+    assert 'id="generating"' in html
+
+
+def test_overlay_is_hidden_until_submit(client, league, monkeypatch):
+    html = _manage_with_weeks(client, monkeypatch)
+    tag = html[html.index('id="generating"'):]
+    assert "hidden" in tag[:tag.index(">")]
+
+
+def test_overlay_cycles_real_steps_and_warns_against_refresh(client, league, monkeypatch):
+    html = _manage_with_weeks(client, monkeypatch)
+    assert "Checking the projections" in html
+    assert "don't refresh" in html
+    # the back-button case: a restored page must not look mid-generation
+    assert 'addEventListener("pageshow"' in html
+
+
+def test_overlay_respects_reduced_motion():
+    css = (Path(__file__).resolve().parent.parent / "web" / "static" / "style.css").read_text()
+    blocks = [b[:b.index("}\n}")] for b in css.split("prefers-reduced-motion")[1:]]
+    assert any(".laces" in b and ".football" in b and "animation: none" in b
+               for b in blocks)

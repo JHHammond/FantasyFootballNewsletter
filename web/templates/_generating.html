@@ -1,0 +1,173 @@
+{#
+   The thirty seconds.
+
+   Generating a paper takes about half a minute, and until now the page did
+   nothing while it happened: the button went dead, the tab spun, and a
+   commissioner who has never used the site before had no way to tell a paper
+   being written from a site that had hung. People in that position either
+   leave or press the button again — and a second press can spend a
+   regeneration.
+
+   This covers the page the moment the form is submitted and stays until the
+   server's answer arrives, at which point the browser navigates away and the
+   overlay goes with the page. No polling, no background job: the POST is
+   still an ordinary POST, which means every existing error path (out of
+   regenerations, presses busy, an edited paper) still lands exactly where it
+   did. The overlay only ever covers a request that is already in flight.
+
+   Attach it to a form with data-generating.
+#}
+<div class="generating" id="generating" hidden
+     role="status" aria-live="polite" aria-busy="true">
+    <div class="generating-inner">
+
+        {#
+           A football in a spiral: rotating about its LONG axis, which is what
+           a spiral actually is. Faked in 2D by sliding the laces across the
+           ball and squashing them at the edges, so they appear to wrap round
+           and disappear behind it. A flat 2D rotation would read as a ball
+           tumbling end over end — a wobbly duck, which is the opposite joke.
+        #}
+        <svg class="football" viewBox="0 0 220 120" width="220" height="120"
+             aria-hidden="true">
+            <defs>
+                <clipPath id="ball-clip">
+                    <path d="M18 60 C 50 8, 170 8, 202 60 C 170 112, 50 112, 18 60 Z"/>
+                </clipPath>
+                <linearGradient id="ball-shade" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0"   stop-color="#9a5a2f"/>
+                    <stop offset="0.45" stop-color="#7a4020"/>
+                    <stop offset="1"   stop-color="#4f2812"/>
+                </linearGradient>
+            </defs>
+
+            {# motion lines, trailing behind #}
+            <g class="football-trail" stroke="currentColor" stroke-width="4"
+               stroke-linecap="round">
+                <line x1="-60" y1="42" x2="-18" y2="42"/>
+                <line x1="-78" y1="60" x2="-22" y2="60"/>
+                <line x1="-60" y1="78" x2="-18" y2="78"/>
+            </g>
+
+            <path d="M18 60 C 50 8, 170 8, 202 60 C 170 112, 50 112, 18 60 Z"
+                  fill="url(#ball-shade)" stroke="#2b1609" stroke-width="3"/>
+
+            {# everything that should appear to rotate lives inside the clip #}
+            <g clip-path="url(#ball-clip)">
+                <g class="football-spin">
+                    <g class="laces">
+                        <rect x="72" y="52" width="76" height="6" rx="3" fill="#f5efe2"/>
+                        <rect x="80"  y="44" width="5" height="22" rx="2.5" fill="#f5efe2"/>
+                        <rect x="94"  y="44" width="5" height="22" rx="2.5" fill="#f5efe2"/>
+                        <rect x="108" y="44" width="5" height="22" rx="2.5" fill="#f5efe2"/>
+                        <rect x="122" y="44" width="5" height="22" rx="2.5" fill="#f5efe2"/>
+                        <rect x="136" y="44" width="5" height="22" rx="2.5" fill="#f5efe2"/>
+                    </g>
+                </g>
+                {# a highlight that stays put while the laces move under it
+                   is most of what sells the rotation #}
+                <path d="M40 40 C 80 18, 140 18, 180 40" fill="none"
+                      stroke="#ffffff" stroke-opacity="0.18" stroke-width="10"
+                      stroke-linecap="round"/>
+            </g>
+
+            {# the stripes near each tip #}
+            <path d="M44 30 C 40 50, 40 70, 44 90" fill="none" stroke="#f5efe2"
+                  stroke-width="5" stroke-linecap="round" opacity="0.9"/>
+            <path d="M176 30 C 180 50, 180 70, 176 90" fill="none" stroke="#f5efe2"
+                  stroke-width="5" stroke-linecap="round" opacity="0.9"/>
+        </svg>
+
+        <p class="generating-title">Writing this week&rsquo;s paper</p>
+        <p class="generating-step" id="generating-step">Pulling the box scores&hellip;</p>
+        <p class="generating-note" id="generating-note">
+            Usually about thirty seconds. Keep this tab open.
+        </p>
+    </div>
+</div>
+
+<script>
+(function () {
+    // Roughly the order the work actually happens in, so the words are not
+    // inventing a process — just narrating the real one at a guess of speed.
+    var STEPS = [
+        "Pulling the box scores…",
+        "Checking the projections…",
+        "Counting the touchdowns…",
+        "Finding who left points on the bench…",
+        "Reading the league lore…",
+        "Deciding who gets the Minshew…",
+        "Writing the game stories…",
+        "Arguing with the editor…",
+        "Writing the headlines…",
+        "Setting the type…",
+        "Running it past legal…",
+        "Warming up the presses…",
+    ];
+    var STEP_MS = 2600;
+    var SLOW_AFTER_MS = 45000;
+
+    var overlay = document.getElementById("generating");
+    var step = document.getElementById("generating-step");
+    var note = document.getElementById("generating-note");
+    if (!overlay || !step) return;
+
+    var timer = null, slow = null;
+
+    function show() {
+        overlay.hidden = false;
+        document.documentElement.classList.add("is-generating");
+        var i = 0;
+        step.textContent = STEPS[0];
+        timer = setInterval(function () {
+            step.classList.add("is-swapping");
+            setTimeout(function () {
+                // Stop on the last line rather than looping back to "pulling
+                // the box scores" at second 31, which would read as starting
+                // over.
+                i = Math.min(i + 1, STEPS.length - 1);
+                step.textContent = STEPS[i];
+                step.classList.remove("is-swapping");
+            }, 220);
+        }, STEP_MS);
+
+        // A long week, or a slow API. Say so plainly and — the part that
+        // matters — tell them not to refresh: a refresh re-sends the form and
+        // can spend another regeneration on the same paper.
+        slow = setTimeout(function () {
+            note.textContent = "Taking longer than usual. It's still going " +
+                "— please don't refresh, or it may start again.";
+            note.classList.add("is-slow");
+        }, SLOW_AFTER_MS);
+    }
+
+    function hide() {
+        overlay.hidden = true;
+        document.documentElement.classList.remove("is-generating");
+        clearInterval(timer);
+        clearTimeout(slow);
+    }
+
+    document.querySelectorAll("form[data-generating]").forEach(function (form) {
+        form.addEventListener("submit", function () {
+            // Once, and only once. Disabling the button is what actually
+            // stops the double press; the overlay just makes it obvious.
+            var button = form.querySelector("button[type=submit]");
+            if (button) button.disabled = true;
+            show();
+        });
+    });
+
+    // Back button. Browsers restore the previous page from memory with its
+    // DOM exactly as it was left — overlay showing, button disabled — so a
+    // commissioner who backs out of a finished paper would land on a page
+    // that looks mid-generation forever.
+    window.addEventListener("pageshow", function (event) {
+        if (event.persisted) {
+            hide();
+            document.querySelectorAll("form[data-generating] button[type=submit]")
+                .forEach(function (b) { b.disabled = false; });
+        }
+    });
+})();
+</script>

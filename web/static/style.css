@@ -1127,3 +1127,118 @@ textarea { resize: vertical; }
 }
 
 .google-btn:hover { background: #f5f5f5; color: var(--ink); }
+
+/* ---------- generating ----------
+   Covers the page for the thirty seconds a paper takes to write. See
+   templates/_generating.html for why it exists at all. */
+
+.generating {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(242, 237, 227, 0.97);   /* --cream, nearly opaque */
+    text-align: center;
+}
+
+/* `hidden` has to win over the display:flex above, or the overlay is on
+   screen from the moment the page loads. */
+.generating[hidden] { display: none; }
+
+/* Nothing behind it should scroll while it is up. */
+html.is-generating, html.is-generating body { overflow: hidden; }
+
+.generating-inner { max-width: 420px; }
+
+.generating-title {
+    margin-top: 26px;
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 26px;
+    font-weight: 900;
+    line-height: 1.15;
+}
+
+.generating-step {
+    margin-top: 10px;
+    min-height: 1.6em;     /* no jump when a longer line replaces a shorter */
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--green);
+    transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.generating-step.is-swapping {
+    opacity: 0;
+    transform: translateY(4px);
+}
+
+.generating-note {
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.generating-note.is-slow { color: var(--ink-2); }
+
+/* --- the ball ---------------------------------------------------------- */
+
+.football {
+    overflow: visible;           /* the motion lines sit outside the viewBox */
+    color: var(--muted);
+    animation: football-flight 1.6s ease-in-out infinite;
+    transform-origin: 50% 50%;
+}
+
+/* A thrown ball rises and falls a little and noses up and down with it. Not
+   a rotation — the spin is in the laces. */
+@keyframes football-flight {
+    0%, 100% { transform: translateY(0)    rotate(-14deg); }
+    50%      { transform: translateY(-9px) rotate(-10deg); }
+}
+
+/* THE SPIRAL. The laces slide across the face of the ball and fade at each
+   edge, so they read as wrapping round the back and coming over the top
+   again. Squashed about their own centre (fill-box), not the SVG's corner,
+   or the squash drags them toward the left tip. */
+.laces {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: laces-spin 0.62s linear infinite;
+}
+
+@keyframes laces-spin {
+    /* The laces cross the front of the ball in the first half of the turn and
+       spend the second half round the back, out of sight. One set, not two:
+       a real ball never shows you both sides at once. */
+    0%   { transform: translateX(-118px) scaleX(0.4); opacity: 0; }
+    12%  { opacity: 1; }
+    25%  { transform: translateX(0)      scaleX(1);   opacity: 1; }
+    38%  { opacity: 1; }
+    50%  { transform: translateX(118px)  scaleX(0.4); opacity: 0; }
+    100% { transform: translateX(118px)  scaleX(0.4); opacity: 0; }
+}
+
+.football-trail line {
+    animation: trail 0.62s linear infinite;
+}
+.football-trail line:nth-child(2) { animation-delay: -0.2s; }
+.football-trail line:nth-child(3) { animation-delay: -0.4s; }
+
+@keyframes trail {
+    0%   { opacity: 0.1; transform: translateX(10px); }
+    50%  { opacity: 0.7; }
+    100% { opacity: 0.1; transform: translateX(-10px); }
+}
+
+/* Somebody who has asked their system for less motion gets a still ball and
+   the words. The words are the useful part anyway. */
+@media (prefers-reduced-motion: reduce) {
+    .football, .laces, .football-trail line { animation: none; }
+    .generating-step { transition: none; }
+}

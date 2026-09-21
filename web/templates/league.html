@@ -65,7 +65,8 @@
     <h2 class="card-title">Make this week's paper</h2>
     {% if weeks %}
     <p class="card-sub">Run it once Monday&rsquo;s game is over and the week is final. Takes about 30 seconds.</p>
-    <form method="post" action="/l/{{ league.admin_token }}/generate" class="inline-form">
+    <form method="post" action="/l/{{ league.admin_token }}/generate" class="inline-form"
+          data-generating>
         <label class="field field-narrow">
             <span class="field-label">Week</span>
             <select name="week">
@@ -350,4 +351,5 @@
         <button type="submit" class="btn">Save</button>
     </form>
 </section>
+{% include "_generating.html" %}
 {% endblock %}
