@@ -631,7 +631,7 @@ def build_weekly_awards(summary):
 #: issue — the way a real paper's standing features do.
 AWARD_DESCRIPTORS = {
     "GARDNER MINSHEW AWARD": "Best player left on a losing bench",
-    "JOE BURROW AWARD": "Did everything right and still lost",
+    "JOE BURROW AWARD": "Highest score that still lost",
     "KYLE PITTS AWARD": "The boldest start that paid off",
     "JERRY JONES AWARD": "Worst manager of the week",
 }
@@ -639,7 +639,7 @@ AWARD_DESCRIPTORS = {
 #: Which of the week's teams each award is about, for its avatar.
 AWARD_SUBJECTS = {
     "GARDNER MINSHEW AWARD": "bench_blunder",
-    "JOE BURROW AWARD": "lowest_score",
+    "JOE BURROW AWARD": "best_loser",
     "KYLE PITTS AWARD": "highest_score",
     "JERRY JONES AWARD": "jerry_jones",
 }

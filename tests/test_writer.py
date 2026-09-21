@@ -768,8 +768,7 @@ def test_the_mechanical_calls_are_on_the_cheap_model():
     awards and fraud_watch used to be in this list and are not any more; see
     test_the_sections_that_judge_stay_on_the_big_model for what they did.
     """
-    for task in ("game_teasers", "classifieds", "awards",
-                 "matchup_headline_0", "matchup_headline_3"):
+    for task in ("game_teasers", "classifieds", "awards"):
         assert writer.model_for(task) == writer.SMALL_MODEL, (
             f"{task} is still on the expensive model")
 
@@ -778,7 +777,7 @@ def test_a_numbered_task_is_routed_like_its_family():
     """Per-game tasks arrive as matchup_body_3, not matchup_body. A lookup
     that misses the suffix sends every per-game call to the default, which is
     silently correct for the body and silently expensive for the headline."""
-    assert writer.model_for("matchup_headline_11") == writer.SMALL_MODEL
+    assert writer.model_for("classifieds_11") == writer.SMALL_MODEL
     assert writer.model_for("matchup_body_11") == writer.MODEL
     # A task that merely ends in a word, not a number, is left alone.
     assert writer.model_for("classifieds") == writer.SMALL_MODEL
@@ -1996,3 +1995,129 @@ def test_the_pull_quote_is_written_by_the_big_model():
     """It is now invented comedy, not a sentence lifted from finished prose —
     the one job on the old cheap list that is actually writing."""
     assert writer.model_for("pull_quote") == writer.MODEL
+
+
+# ---------------------------------------------------------------------------
+# The Joe Burrow award: the highest score that lost (John, 21 Sep)
+# ---------------------------------------------------------------------------
+
+def _bteam(name, points):
+    return {"team_name": name, "owner_name": name.lower(), "points": points,
+            "record": "0-0", "lineup_gap": 0.0, "empty_slots": 0,
+            "all_bench": []}
+
+
+def _bgame(a, b):
+    winner = a if a["points"] > b["points"] else b
+    return {"team_1": a, "team_2": b, "winner": winner["team_name"],
+            "margin": round(abs(a["points"] - b["points"]), 2)}
+
+
+def test_joe_burrow_goes_to_the_highest_score_that_lost():
+    import storylines
+    games = [
+        _bgame(_bteam("Carson", 189.4), _bteam("Will", 139.6)),   # Will lost with 139.6
+        _bgame(_bteam("Henry", 150.0), _bteam("Steve", 148.2)),   # Steve lost with 148.2
+        _bgame(_bteam("Mark", 120.0), _bteam("Low", 71.3)),       # lowest score overall
+    ]
+    summary = storylines.get_weekly_storylines(games)
+    assert summary["best_loser"]["team_name"] == "Steve"
+    assert summary["best_loser_game"]["winner"] == "Henry"
+    assert summary["lowest_score"]["team_name"] == "Low"   # unchanged, used elsewhere
+
+
+def test_the_awards_prompt_names_the_best_loser_not_the_lowest(swap_client, no_sleeping):
+    import storylines
+    games = [_bgame(_bteam("Henry", 150.0), _bteam("Steve", 148.2)),
+             _bgame(_bteam("Mark", 120.0), _bteam("Low", 71.3))]
+    summary = storylines.get_weekly_storylines(games)
+    seen = {}
+
+    def behaviour(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply("[]")
+    swap_client(behaviour)
+    writer.generate_awards(summary)
+
+    burrow = seen["prompt"].split("JOE BURROW AWARD", 1)[1].split("3. KYLE PITTS", 1)[0]
+    assert "Steve" in burrow and "148.2" in burrow and "Henry" in burrow
+    assert "Low" not in burrow
+
+
+# ---------------------------------------------------------------------------
+# Headlines, written from the finished story (21 Sep)
+#
+# "CARSON DEMOLISHES WILL BY FIFTY, HENRY UNSTOPPABLE": two headlines stapled
+# together, and "Henry" (Derrick Henry) reads as a person in the league.
+# ---------------------------------------------------------------------------
+
+def test_each_game_headline_is_written_from_its_own_finished_recap(swap_client, no_sleeping):
+    prompts = []
+
+    def behaviour(kwargs):
+        prompt = kwargs["messages"][0]["content"]
+        prompts.append(prompt)
+        if "Write the recap of this game" in prompt:
+            return _reply("UNIQUE-RECAP-MARKER. Walker went for 34.1.")
+        return _reply("x")
+
+    swap_client(behaviour)
+    writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY)
+
+    headline_prompts = [p for p in prompts if "Write the headline for this game" in p]
+    assert headline_prompts, "no game headline was written"
+    assert all("UNIQUE-RECAP-MARKER" in p for p in headline_prompts)
+
+
+def test_the_front_headline_is_written_from_the_lead_story(swap_client, no_sleeping):
+    prompts = []
+
+    def behaviour(kwargs):
+        prompt = kwargs["messages"][0]["content"]
+        prompts.append(prompt)
+        if "lead story" in prompt.lower() and "FRONT PAGE headline" not in prompt:
+            return _reply("LEAD-MARKER. The week belonged to Walker.")
+        return _reply("x")
+
+    swap_client(behaviour)
+    writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY)
+    front = [p for p in prompts if "FRONT PAGE headline" in p]
+    assert front and "LEAD-MARKER" in front[0]
+
+
+def test_headlines_are_told_the_league_names_and_the_rules(swap_client, no_sleeping):
+    seen = {}
+
+    def behaviour(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply("CARSON BURIES WILL")
+    swap_client(behaviour)
+    ctx = writer.build_game_context(GAME)
+    writer.generate_matchup_headline(ctx, body="Story.", names=["Henry", "Carson"])
+    assert "Henry, Carson" in seen["prompt"]
+    assert "Not two headlines" in seen["prompt"]
+
+
+def test_headlines_are_on_the_main_model():
+    assert writer.model_for("headline") == writer.MODEL
+    assert writer.model_for("matchup_headline_3") == writer.MODEL
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ('"Carson buries Will by fifty."', "CARSON BURIES WILL BY FIFTY"),
+    ("Headline: Steve scores 148 and still loses", "STEVE SCORES 148 AND STILL LOSES"),
+    ("STEVE LOSES\n\n(I chose this because...)", "STEVE LOSES"),
+    ("", ""),
+    (" ".join(["word"] * 20), ""),
+])
+def test_headlines_are_cleaned(raw, expected):
+    assert writer.clean_headline(raw) == expected
+
+
+def test_no_prompt_names_another_leagues_paper(swap_client, no_sleeping):
+    """The front headline and the awards both said 'Kevlarville Times' — the
+    developer's own league — in every league's paper prompt."""
+    prompts = []
+    swap_client(lambda kwargs: prompts.append(kwargs["messages"][0]["content"]) or _reply("x"))
+    writer.generate_full_newspaper_content("The Other Gazette", 3, GAMES, SUMMARY)
+    assert not any("Kevlarville" in p for p in prompts)

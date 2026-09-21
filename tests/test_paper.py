@@ -314,3 +314,9 @@ def test_the_awards_get_the_right_teams_avatar():
     assert newspaper.award_avatar("GARDNER MINSHEW AWARD", summary) == "bench.png"
     assert newspaper.award_avatar("Jerry Jones Award", summary) == "jerry.png"
     assert newspaper.award_avatar("Top Dawg", summary) is None
+
+
+def test_the_joe_burrow_avatar_is_the_best_losers():
+    summary = {"best_loser": {"avatar_url": "steve.png"},
+               "lowest_score": {"avatar_url": "low.png"}}
+    assert newspaper.award_avatar("JOE BURROW AWARD", summary) == "steve.png"

@@ -77,8 +77,13 @@ def model_for(task: str) -> str:
     stripped before the set is consulted.
     """
     name = task.rsplit("_", 1)[0] if task.rsplit("_", 1)[-1].isdigit() else task
-    if name == "matchup_headline":
-        return SMALL_MODEL
+    # Headlines came OFF the cheap model on 21 Sep. "A headline is eight words
+    # with the score already in them" undersold it: it is the first thing
+    # anybody reads, and the cheap one printed things like "CARSON DEMOLISHES
+    # WILL BY FIFTY, HENRY UNSTOPPABLE" — two headlines stapled together, the
+    # second about a player whose surname is also a manager's name. They are
+    # now written from the finished story, and eight words is not where the
+    # money goes.
     return SMALL_MODEL if name in SMALL_MODEL_TASKS else MODEL
 
 KEVLARVILLE_SYSTEM_PROMPT = """
@@ -1101,30 +1106,91 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
     raise CallFailed(f"gave up after {attempts} attempts") from last
 
 
-def generate_headline(summary, week, league_name, commissioner_name="", inside_jokes="", system=None, model=None):
-    context = {
-        "week": week,
-        "league_name": league_name,
-        "commissioner_name": commissioner_name,
-        "closest_game_margin": summary.get("closest_game", {}).get("margin", 0),
-        "closest_game_winner": summary.get("closest_game", {}).get("winner", ""),
-        "biggest_blowout_margin": summary.get("biggest_blowout", {}).get("margin", 0),
-        "biggest_blowout_winner": summary.get("biggest_blowout", {}).get("winner", ""),
-        "highest_score_team": summary.get("highest_score", {}).get("team_name", ""),
-        "highest_score": summary.get("highest_score", {}).get("points", 0),
-        "lowest_score_team": summary.get("lowest_score", {}).get("team_name", ""),
-        "lowest_score": summary.get("lowest_score", {}).get("points", 0),
-        "inside_jokes": inside_jokes,
-    }
+HEADLINE_RULES = """
+HOW A HEADLINE WORKS
+- It says what happened in the story below, in one idea: somebody did
+  something. A subject and a verb. Not two headlines joined by a comma.
+- Every fact in it is in the story. Nothing the story doesn't say.
+- A reader who hasn't read the story yet must understand it on first read.
+  A pun is fine only if it lands without the story; if it needs explaining,
+  write it straight.
+- Managers by the names the story uses for them. Players by surname — BUT if
+  a player's surname is also the name of anybody in this league ({names}),
+  use the player's full name, or the reader thinks it means their friend.
+- 5 to 10 words. A number is good if it is the point (a score, a margin).
+- No quotation marks, no full stop at the end, no emoji, no hashtags.
 
-    prompt = f"""
-Write a single HEADLINE for this week's Kevlarville Times newspaper edition.
-It should be ALL CAPS, punchy, dramatic, and funny — like a tabloid front page.
-Max 10 words. Just the headline text, nothing else.
+NO:  CARSON DEMOLISHES WILL BY FIFTY, HENRY UNSTOPPABLE
+     (two headlines at once, and "Henry" reads as a league member)
+NO:  SWIFT JUSTICE ON THE GRIDIRON
+     (a pun that says nothing about who won)
+YES: CARSON'S THREE RUNNING BACKS BURY WILL BY FIFTY
+YES: STEVE SCORES 148 AND STILL LOSES
+YES: WILL BENCHES 45 POINTS AND LOSES BY 50
 
-Week data: {_compact(context)}
+Reply with the headline only.
 """
-    return call_claude(prompt, max_tokens=60, system=system, model=model)
+
+
+#: Longest headline accepted as-is. Past this it is a sentence, and the
+#: plain fallback reads better than a paragraph in 44-point type.
+HEADLINE_MAX_WORDS = 14
+
+
+def clean_headline(text):
+    """One line, no wrapping quotes or trailing full stop, in capitals.
+
+    Capitals in code rather than by instruction: the model mostly complies,
+    and "mostly" is what puts one sentence-case headline in a front page of
+    capitals.
+    """
+    line = next((l for l in (text or "").splitlines() if l.strip()), "")
+    line = re.sub(r"^(?:headline\s*:\s*)", "", line.strip(), flags=re.I)
+    line = line.strip().strip('"\u201c\u201d\'*').rstrip(".").strip()
+    if not line or len(line.split()) > HEADLINE_MAX_WORDS:
+        return ""
+    return line.upper()
+
+
+def league_names(game_contexts):
+    """Everybody in the league, as the paper names them."""
+    names = []
+    for ctx in game_contexts:
+        for key in ("winner", "loser", "winner_owner", "loser_owner"):
+            n = (ctx.get(key) or "").strip()
+            if n and n not in names:
+                names.append(n)
+    return names
+
+
+def generate_headline(summary, week, league_name, commissioner_name="",
+                      inside_jokes="", system=None, model=None,
+                      lead_story="", names=()):
+    """The front page. Written from the finished lead story when there is
+    one, so the biggest type on the page agrees with the first paragraph."""
+    if lead_story:
+        source = f"The lead story it sits over:\n\n{lead_story.strip()}"
+    else:
+        source = ("This week, in numbers: " + _compact({
+            "biggest_blowout_winner": summary.get("biggest_blowout", {}).get("winner", ""),
+            "biggest_blowout_margin": summary.get("biggest_blowout", {}).get("margin", 0),
+            "closest_game_winner": summary.get("closest_game", {}).get("winner", ""),
+            "closest_game_margin": summary.get("closest_game", {}).get("margin", 0),
+            "highest_score_team": summary.get("highest_score", {}).get("team_name", ""),
+            "highest_score": summary.get("highest_score", {}).get("points", 0),
+            "lowest_score_team": summary.get("lowest_score", {}).get("team_name", ""),
+            "lowest_score": summary.get("lowest_score", {}).get("points", 0),
+        }))
+
+    raw = call_claude(f"""
+Write the FRONT PAGE headline for week {week} of {league_name}'s paper. It is
+about the whole week, so it names the one thing the league will be talking
+about.
+
+{source}
+{HEADLINE_RULES.format(names=", ".join(names) or "none given")}""",
+        max_tokens=400, system=system, model=model)
+    return clean_headline(raw)
 
 
 #: How many of the week's biggest performances are named in the lead.
@@ -1278,18 +1344,32 @@ _HEADLINE_FIELDS = (
 )
 
 
-def generate_matchup_headline(game_context, commissioner_name="", inside_jokes="", system=None, model=None):
-    slim = {k: game_context[k] for k in _HEADLINE_FIELDS if k in game_context}
-    prompt = f"""
-Write a MATCHUP HEADLINE for this game. ALL CAPS. Max 8 words.
-Be creative — reference the score, the margin, and any relevant drama.
-Just the headline text, nothing else.
+def generate_matchup_headline(game_context, commissioner_name="",
+                              inside_jokes="", system=None, model=None,
+                              body="", names=()):
+    """One game's headline, written from its finished recap.
 
-Game data: {_compact(slim)}
-Commissioner: {commissioner_name}
-Inside jokes: {inside_jokes}
-"""
-    return call_claude(prompt, max_tokens=60, system=system, model=model)
+    It used to be written at the same moment as the recap, from the raw
+    numbers, by a different model — so the headline and the story under it
+    were two separate reads of the same box score and regularly disagreed
+    about what the game was about.
+    """
+    ctx = game_context
+    if body:
+        source = f"The story it sits over:\n\n{body.strip()}"
+    else:
+        slim = {k: ctx[k] for k in _HEADLINE_FIELDS if k in ctx}
+        source = f"The game: {_compact(slim)}"
+
+    raw = call_claude(f"""
+Write the headline for this game story.
+{ctx.get('winner')} beat {ctx.get('loser')} \
+{ctx.get('winner_score')} to {ctx.get('loser_score')}.
+
+{source}
+{HEADLINE_RULES.format(names=", ".join(names) or "none given")}""",
+        max_tokens=400, system=system, model=model)
+    return clean_headline(raw)
 
 
 def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", system=None, model=None):
@@ -1368,6 +1448,8 @@ def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
     benched_player = summary.get("bench_blunder_player")
     upset = summary.get("upset", {})
     jerry = summary.get("jerry_jones", {})
+    best_loser = summary.get("best_loser") or {}
+    best_loser_game = summary.get("best_loser_game") or {}
 
     context = {
         "commissioner_name": commissioner_name,
@@ -1383,6 +1465,11 @@ def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
         # The player, which is what the award is actually about.
         "bench_blunder_player": (benched_player or {}).get("name", ""),
         "bench_blunder_points": (benched_player or {}).get("actual", 0) or 0,
+        "best_loser_team": best_loser.get("team_name", ""),
+        "best_loser_owner": best_loser.get("owner_name", ""),
+        "best_loser_score": best_loser.get("points", 0) or 0,
+        "best_loser_beaten_by": best_loser_game.get("winner", ""),
+        "best_loser_margin": best_loser_game.get("margin", 0) or 0,
         "upset_winner": upset.get("winner", "") if upset else "",
         "upset_margin": upset.get("margin", 0) if upset else 0,
         "jerry_jones_team": jerry.get("team_name", "") if jerry else "",
@@ -1393,7 +1480,7 @@ def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
     }
 
     prompt = f"""
-Write FOUR WEEKLY AWARDS for this week's Kevlarville Times.
+Write FOUR WEEKLY AWARDS for this week's paper.
 Each award needs: a title, and 2-3 sentences of body text.
 Do not use any markdown formatting. Plain prose only.
 
@@ -1411,9 +1498,12 @@ about what happened in THIS league THIS week.
    league managed — not that it was a catastrophe. Do not manufacture outrage
    over a number that does not deserve it.
 
-2. JOE BURROW AWARD — did everything right and still lost.
-   Winner: {context['lowest_score_team']} ({context['lowest_score_owner']})
-   with only {context['lowest_score']:.1f} points.
+2. JOE BURROW AWARD — did everything right and still lost. The highest
+   score of the week that lost.
+   Winner: {context['best_loser_team']} ({context['best_loser_owner']}),
+   who scored {context['best_loser_score']:.1f} and lost anyway to
+   {context['best_loser_beaten_by']} by {context['best_loser_margin']:.1f}.
+   Sympathetic, not mocking: this manager did their job.
 
 3. KYLE PITTS AWARD — boldest correct starting decision. Courage and ball
    knowledge, not simply the highest score.
@@ -1458,7 +1548,10 @@ Data: {_compact(context)}
                 if context['bench_blunder_player'] else
                 f"{context['bench_blunder_team']} left "
                 f"{context['bench_blunder_gap']:.1f} points on the bench.")},
-            {"title": "JOE BURROW AWARD", "body": f"{context['lowest_score_team']} put up {context['lowest_score']:.1f} points. Joe Burrow weeps."},
+            {"title": "JOE BURROW AWARD", "body": (
+                f"{context['best_loser_team']} scored "
+                f"{context['best_loser_score']:.1f} and still lost to "
+                f"{context['best_loser_beaten_by']}.")},
             {"title": "KYLE PITTS AWARD", "body": f"{context['highest_score_team']} dropped {context['highest_score']:.1f}. Courage rewarded."},
         ]
 
@@ -1634,7 +1727,7 @@ def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=
     }
 
     prompt = f"""
-Write the FRAUD WATCH for the Kevlarville Times.
+Write the FRAUD WATCH for this week's paper.
 3-4 sentences. This is a football-specific roast of the worst-performing team this week.
 Attack their roster decisions, their players' performances, their snap counts, their coaching.
 Be specific — name the players who let them down, cite actual football failures.
@@ -1792,8 +1885,10 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # Define all tasks as (key, callable) pairs
     tasks = {}
 
-    # Top-level tasks
-    tasks["headline"] = lambda: generate_headline(summary, week, league_name, commissioner_name, inside_jokes, sys_prompt, model_for("headline"))
+    names = league_names([gc["ctx"] for gc in game_contexts])
+
+    # Top-level tasks. The front headline is NOT here: it is written after
+    # the lead story, from it — see the second wave below.
     tasks["lead_story"] = lambda: generate_lead_story(
         summary, week, league_name, commissioner_name, inside_jokes,
         sys_prompt, model_for("lead_story"), games=games)
@@ -1842,7 +1937,6 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # Per-game tasks — headline and body for each game
     for i, game_data in enumerate(game_contexts):
         ctx = game_data["ctx"]
-        tasks[f"matchup_headline_{i}"] = lambda c=ctx, k=f"matchup_headline_{i}": generate_matchup_headline(c, commissioner_name, inside_jokes, sys_prompt, model_for(k))
         tasks[f"matchup_body_{i}"] = lambda c=ctx, k=f"matchup_body_{i}": generate_matchup_body(c, commissioner_name, inside_jokes, sys_prompt, model_for(k))
 
     results = {}
@@ -1892,7 +1986,10 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     total_calls = len(tasks)
     remaining = dict(tasks)
 
-    warm = "headline"
+    # The warm-up call has to be on the MAIN model — the cache is per model —
+    # and it used to be the headline, which is now written last. fraud_watch
+    # is the smallest main-model call left.
+    warm = "fraud_watch"
     if warm in remaining:
         record(warm, remaining.pop(warm))
 
@@ -1901,6 +1998,30 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                    for key, fn in remaining.items()]
         for future in as_completed(futures):
             future.result()   # record() already swallowed anything worth it
+
+    # SECOND WAVE: the headlines, each written from the story it sits over.
+    # All of them at once, and they are short, so this adds a couple of
+    # seconds to a thirty-second wait — the price of a headline that agrees
+    # with its story.
+    headline_tasks = {
+        "headline": lambda: generate_headline(
+            summary, week, league_name, commissioner_name, inside_jokes,
+            sys_prompt, model_for("headline"),
+            lead_story=results.get("lead_story") or "", names=names),
+    }
+    for i, game_data in enumerate(game_contexts):
+        headline_tasks[f"matchup_headline_{i}"] = (
+            lambda c=game_data["ctx"], i=i: generate_matchup_headline(
+                c, commissioner_name, inside_jokes, sys_prompt,
+                model_for(f"matchup_headline_{i}"),
+                body=results.get(f"matchup_body_{i}") or "", names=names))
+    total_calls += len(headline_tasks)
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        futures = [executor.submit(record, key, fn)
+                   for key, fn in headline_tasks.items()]
+        for future in as_completed(futures):
+            future.result()
 
     # Fail loudly on wholesale failure rather than quietly shipping a paper
     # made entirely of fallback strings.

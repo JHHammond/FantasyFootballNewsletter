@@ -57,6 +57,24 @@ def get_weekly_storylines(games):
         bench_blunder = max(losers or all_teams, key=lambda t: t["lineup_gap"])
         bench_blunder_player = None
 
+    # --- Best loser (the Joe Burrow award) ---
+    #
+    # "Did everything right and still lost" — the highest score that lost. It
+    # used to go to the week's LOWEST score, which is the opposite person: the
+    # manager who did everything wrong. Kept with the game it lost, because
+    # the joke is who beat them and by how little.
+    best_loser, best_loser_game = None, None
+    for game in games:
+        t1, t2 = game["team_1"], game["team_2"]
+        if game["winner"] == t1["team_name"]:
+            loser = t2
+        elif game["winner"] == t2["team_name"]:
+            loser = t1
+        else:
+            continue
+        if best_loser is None or loser["points"] > best_loser["points"]:
+            best_loser, best_loser_game = loser, game
+
     # --- Empty lineup ---
     empty_teams = [t for t in all_teams if t["empty_slots"] > 0]
 
@@ -140,6 +158,8 @@ def get_weekly_storylines(games):
         "biggest_blowout": biggest_blowout,
         "highest_score": highest_score,
         "lowest_score": lowest_score,
+        "best_loser": best_loser,
+        "best_loser_game": best_loser_game,
         "bench_blunder": bench_blunder,
         "bench_blunder_player": bench_blunder_player,
         "empty_teams": empty_teams,
