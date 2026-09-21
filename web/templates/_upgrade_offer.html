@@ -1,0 +1,54 @@
+{#
+   The offer, straight after signing up.
+
+   Shown once: the signup routes redirect to ?welcome=1, and "Maybe later"
+   strips that from the address bar so a reload does not bring it back. The
+   decision to show it is made on the server (see _offer_upgrade in app.py):
+   free plan, signed in, and Stripe configured, or it never renders at all.
+#}
+<dialog class="offer" id="upgrade-offer" aria-labelledby="offer-title">
+    <div class="offer-eyebrow">Welcome to the Desk</div>
+    <h2 class="offer-title" id="offer-title">Get the whole paper for {{ price_text }}</h2>
+    <p class="offer-sub">
+        Free gets you one league in the tabloid look. Upgrading gets you:
+    </p>
+    <ul class="offer-list">
+        <li>Broadsheet and Gameday looks, not just the tabloid</li>
+        <li>As many leagues as you run</li>
+        <li>Three redos a week on every paper instead of two</li>
+        <li>Your own photos in the paper</li>
+        <li>It writes and emails itself to the league every Tuesday</li>
+    </ul>
+    <form method="post" action="/billing/checkout">
+        <button type="submit" class="btn btn-primary offer-cta">
+            Upgrade &mdash; {{ price_text }}
+        </button>
+    </form>
+    <p class="offer-fine">Cancel any time from your account page.</p>
+    <button type="button" class="offer-later" id="offer-later">Maybe later</button>
+</dialog>
+<script>
+(function () {
+    var offer = document.getElementById("upgrade-offer");
+    if (!offer || typeof offer.showModal !== "function") return;
+
+    function forget() {
+        // So a reload, or a back button to this page, doesn't ask again.
+        try {
+            var url = new URL(window.location.href);
+            url.searchParams.delete("welcome");
+            history.replaceState(null, "", url.pathname + url.search + url.hash);
+        } catch (e) {}
+    }
+
+    document.getElementById("offer-later").addEventListener("click", function () {
+        offer.close();
+    });
+    offer.addEventListener("close", forget);
+    // A click on the dimmed backdrop lands on the dialog element itself.
+    offer.addEventListener("click", function (e) {
+        if (e.target === offer) offer.close();
+    });
+    offer.showModal();
+})();
+</script>

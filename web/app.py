@@ -465,7 +465,27 @@ def _render(request: Request, template: str, **context) -> HTMLResponse:
         t["key"] for t in themes.choices()
         if plans.allows_theme(context["plan"], t["key"])
     ])
+    # The header's plan link is about the person looking, never the league's
+    # owner, so it cannot come from `plan` above.
+    context.setdefault("viewer_paid", plans.is_paid(context.get("user")))
+    context.setdefault("offer_upgrade", _offer_upgrade(request, context.get("user")))
     return templates.TemplateResponse(request, template, context)
+
+
+def _offer_upgrade(request: Request, user: dict | None) -> bool:
+    """Show the upgrade pop-up on this page?
+
+    Only straight after signing up (the ?welcome=1 the signup routes redirect
+    to), only to somebody on the free plan, and only when checkout can actually
+    take their money. It is decided from the VIEWER's own plan, never from a
+    league owner's, because the button subscribes whoever presses it.
+
+    The query parameter being forgeable does not matter: all it can do is show
+    a free account an offer it could have found on its own account page.
+    """
+    if request.query_params.get("welcome") != "1" or not user:
+        return False
+    return plans.billing_enabled() and not plans.is_paid(user)
 
 
 def league_owner(league: dict | None) -> dict | None:
@@ -896,7 +916,8 @@ def signup(request: Request, email: str = Form(...), password: str = Form(...),
 
     # Straight on to the next thing rather than an empty shelf. Signing up is
     # not the goal; having a paper is.
-    response = RedirectResponse("/connect", status_code=303)
+    # ?welcome=1 is what raises the upgrade offer, once, on arrival.
+    response = RedirectResponse("/connect?welcome=1", status_code=303)
     return _set_session(response, user["id"])
 
 
@@ -1036,7 +1057,7 @@ def google_callback(request: Request, code: str = "", state: str = "",
     db.update_user(user["id"], {"last_login_at": "now()"})
 
     # Somewhere useful: a brand-new account has no papers to look at.
-    response = RedirectResponse("/connect" if is_new else "/account",
+    response = RedirectResponse("/connect?welcome=1" if is_new else "/account",
                                 status_code=303)
     response.delete_cookie(oauth.STATE_COOKIE, path="/")
     return _set_session(response, user["id"])

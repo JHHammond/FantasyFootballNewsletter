@@ -2840,7 +2840,7 @@ def test_signing_up_signs_you_in(client):
     r = _signup(client)
     assert r.status_code == 303
     # Straight to connecting a league. Signing up was never the goal.
-    assert r.headers["location"] == "/connect"
+    assert r.headers["location"] == "/connect?welcome=1"
     assert client.get("/account").status_code == 200
 
 
@@ -4676,7 +4676,7 @@ def test_a_new_person_gets_an_account_with_no_password(client, google_on,
     r = _complete(client, monkeypatch, email="brand-new@example.com")
 
     assert r.status_code == 303
-    assert r.headers["location"] == "/connect"
+    assert r.headers["location"] == "/connect?welcome=1"
 
     user = demo_db.user_by_email("brand-new@example.com")
     assert user is not None
@@ -4858,3 +4858,121 @@ def test_overlay_respects_reduced_motion():
     blocks = [b[:b.index("}\n}")] for b in css.split("prefers-reduced-motion")[1:]]
     assert any(".laces" in b and ".football" in b and "animation: none" in b
                for b in blocks)
+
+
+# ---------------------------------------------------------------------------
+# Staff accounts, the plan link, and the offer after signup
+# ---------------------------------------------------------------------------
+
+def _billing_on(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRICE_ID", "price_test")
+
+
+def test_staff_is_its_own_plan_and_stripe_status_cannot_demote_it():
+    import plans
+    staff = {"plan": "staff", "plan_status": "canceled"}
+    assert plans.plan_for(staff).key == plans.STAFF
+    assert plans.is_paid(staff)
+    assert (plans.plan_for(staff).regenerations_per_week
+            > plans.PLANS[plans.PAID].regenerations_per_week)
+
+
+def test_a_staff_owner_can_regenerate_past_the_paid_allowance(client, league, monkeypatch):
+    demo_db.set_plan(league["user_id"], plan="staff")
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: demo_db.save_paper(
+                            lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
+    for _ in range(PAID_ALLOWANCE + 3):
+        r = _generate(client)
+        assert "used+all" not in r.headers.get("location", ""), r.headers
+    paper = demo_db.get_paper(league["id"], league["season"], 1)
+    assert webapp.regenerations_used(paper) == PAID_ALLOWANCE + 2
+
+
+def test_a_paid_owner_is_still_stopped_at_the_paid_allowance(client, league, monkeypatch):
+    """The other side of the staff test: without it, a staff plan that
+    accidentally applied to everybody would pass."""
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: demo_db.save_paper(
+                            lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
+    for _ in range(PAID_ALLOWANCE + 1):
+        _generate(client)
+    assert "used+all" in _generate(client).headers["location"]
+
+
+def test_the_webhook_leaves_a_staff_account_alone():
+    from web import billing
+    user = demo_db.create_user("staff@example.com", "x")
+    demo_db.set_plan(user["id"], plan="staff")
+    demo_db.remember_stripe_customer(user["id"], "cus_staff")
+    billing.apply_subscription(demo_db, {"customer": "cus_staff",
+                                         "status": "canceled", "id": "sub_s"})
+    assert demo_db.user_by_id(user["id"])["plan"] == "staff"
+
+
+def test_signup_raises_the_upgrade_offer(client, monkeypatch):
+    _billing_on(monkeypatch)
+    _signup(client)
+    html = client.get("/connect?welcome=1").text
+    assert 'id="upgrade-offer"' in html
+    assert 'action="/billing/checkout"' in html
+    assert "Maybe later" in html
+
+
+def test_the_offer_is_only_shown_on_arrival(client, monkeypatch):
+    _billing_on(monkeypatch)
+    _signup(client)
+    assert 'id="upgrade-offer"' not in client.get("/connect").text
+
+
+def test_no_offer_when_checkout_cannot_take_money(client, monkeypatch):
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("STRIPE_PRICE_ID", raising=False)
+    _signup(client)
+    assert 'id="upgrade-offer"' not in client.get("/connect?welcome=1").text
+
+
+def test_no_offer_to_somebody_already_paying(client, monkeypatch):
+    _billing_on(monkeypatch)
+    _signup(client)
+    demo_db.set_plan(demo_db.user_by_email("john@example.com")["id"],
+                     plan="paid", status="active")
+    assert 'id="upgrade-offer"' not in client.get("/connect?welcome=1").text
+
+
+def test_the_header_says_upgrade_to_free_accounts_and_plan_to_paid(client):
+    _signup(client)
+    html = client.get("/account").text
+    assert 'class="nav-upgrade" href="/account#plan"' in html
+    demo_db.set_plan(demo_db.user_by_email("john@example.com")["id"],
+                     plan="paid", status="active")
+    html = client.get("/account").text
+    assert "nav-upgrade" not in html
+    assert '<a href="/account#plan">Your plan</a>' in html
+
+
+def test_the_plan_card_is_first_on_the_account_page(client):
+    _signup(client)
+    html = client.get("/account").text
+    assert html.index('id="plan"') < html.index("Start a new paper")
+
+
+def test_free_manage_page_points_at_the_upgrade(client, free_league, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok())
+    html = client.get("/l/free-admin-token").text
+    assert 'class="plan-note"' in html
+
+
+def test_paid_manage_page_does_not_nag(client, league, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok())
+    assert 'class="plan-note"' not in client.get("/l/secret-admin-token").text
+
+
+def test_the_header_is_about_the_viewer_not_the_leagues_owner(client, league, monkeypatch):
+    """A free account holding the manage link to somebody else's paid league
+    still gets the upgrade link: the button subscribes whoever presses it."""
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok())
+    _signup(client)
+    html = client.get("/l/secret-admin-token").text
+    assert 'class="nav-upgrade"' in html

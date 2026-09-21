@@ -16,34 +16,19 @@
     <h1 class="page-title">Your papers</h1>
 </div>
 
-<section class="card">
-    {% if leagues %}
-    <ul class="paper-list">
-        {% for league in leagues %}
-        <li class="paper-row">
-            <div>
-                <div class="paper-week">{{ league.paper_name or league.league_name }}</div>
-                <div class="paper-meta">{{ league.league_name }} &middot; {{ league.season }} season</div>
-            </div>
-            <div class="paper-row-actions">
-                <a class="btn btn-sm" href="/l/{{ league.admin_token }}">Manage</a>
-                <a class="btn btn-sm" href="/p/{{ league.public_slug }}">Read</a>
-            </div>
-        </li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">No papers yet.</p>
-    {% endif %}
-    <a class="btn btn-primary" href="/connect">Start a new paper</a>
-</section>
-
-<section class="card">
+<section class="card" id="plan">
     <h2 class="card-title">
         Your plan &mdash; {{ plan.label }}
     </h2>
 
-    {% if plan.key == 'paid' %}
+    {% if plan.key == 'staff' %}
+    <p class="card-sub">
+        Everything on, and {{ plan.regenerations_per_week }} redos a week on
+        each paper so you can test as much as you need. Set by hand in the
+        database; nothing is billed.
+    </p>
+
+    {% elif plan.key == 'paid' %}
     <p class="card-sub">
         Every look, as many leagues as you like, three redos a week, your own
         photos in the paper, and it can send itself every Tuesday.
@@ -86,6 +71,29 @@
     {% endif %}
     {% endif %}
 </section>
+
+<section class="card">
+    {% if leagues %}
+    <ul class="paper-list">
+        {% for league in leagues %}
+        <li class="paper-row">
+            <div>
+                <div class="paper-week">{{ league.paper_name or league.league_name }}</div>
+                <div class="paper-meta">{{ league.league_name }} &middot; {{ league.season }} season</div>
+            </div>
+            <div class="paper-row-actions">
+                <a class="btn btn-sm" href="/l/{{ league.admin_token }}">Manage</a>
+                <a class="btn btn-sm" href="/p/{{ league.public_slug }}">Read</a>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No papers yet.</p>
+    {% endif %}
+    <a class="btn btn-primary" href="/connect">Start a new paper</a>
+</section>
+
 
 <section class="card">
     <h2 class="card-title">Already made a paper before signing up?</h2>

@@ -1242,3 +1242,82 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     .football, .laces, .football-trail line { animation: none; }
     .generating-step { transition: none; }
 }
+
+/* ---------- plan: nav link, manage-page note, the signup offer ---------- */
+
+.masthead-nav a.nav-upgrade {
+    color: var(--green);
+    font-weight: 700;
+    border-bottom: 2px solid var(--gold);
+}
+
+.plan-note {
+    margin-top: 12px;
+    font-size: 14px;
+    color: var(--muted);
+}
+.plan-note a { font-weight: 600; }
+
+.offer {
+    /* The page's reset zeroes every margin, and a modal <dialog> is centred
+       by margin:auto — without this it sticks to the top-left corner. */
+    margin: auto;
+    inset: 0;
+    width: min(460px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+    border: 2px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    padding: 32px 30px 18px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+    text-align: center;
+}
+.offer::backdrop { background: rgba(20, 16, 10, 0.55); }
+.offer-eyebrow {
+    font-family: "Barlow Condensed", sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 13px;
+    color: var(--muted);
+}
+.offer-title {
+    font-family: "Playfair Display", serif;
+    font-weight: 900;
+    font-size: 30px;
+    line-height: 1.1;
+    margin: 8px 0 12px;
+}
+.offer-sub { margin: 0 0 14px; }
+.offer-list {
+    text-align: left;
+    margin: 0 auto 22px;
+    padding-left: 0;
+    list-style: none;
+    max-width: 360px;
+}
+.offer-list li {
+    padding: 7px 0 7px 26px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    position: relative;
+}
+.offer-list li::before {
+    content: "\2713";
+    position: absolute;
+    left: 4px;
+    font-weight: 700;
+    color: var(--green);
+}
+.offer-cta { width: 100%; font-size: 18px; padding: 14px 18px; }
+.offer-fine { font-size: 13px; color: var(--muted); margin: 10px 0 14px; }
+.offer-later {
+    background: none;
+    border: 0;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: underline;
+    cursor: pointer;
+}

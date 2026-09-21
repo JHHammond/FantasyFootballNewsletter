@@ -22,6 +22,11 @@
             {% block nav %}{% endblock %}
             {% if user %}
             <a href="/account">Your papers</a>
+            {% if viewer_paid %}
+            <a href="/account#plan">Your plan</a>
+            {% else %}
+            <a class="nav-upgrade" href="/account#plan">Upgrade</a>
+            {% endif %}
             <form method="post" action="/logout" class="nav-form">
                 <button type="submit" class="nav-link">Sign out</button>
             </form>
@@ -43,5 +48,6 @@
             <a href="/terms">Terms</a>
         </nav>
     </footer>
+    {% if offer_upgrade %}{% include "_upgrade_offer.html" %}{% endif %}
 </body>
 </html>

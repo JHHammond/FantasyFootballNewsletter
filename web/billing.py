@@ -265,6 +265,12 @@ def apply_subscription(db, subscription) -> str:
     if not user:
         return "no matching account"
 
+    # Staff is set by hand in the database and Stripe has no say in it. A
+    # cancelled test subscription on a staff account must not quietly put the
+    # person testing the site back on two regenerations a week.
+    if (user.get("plan") or "").strip().lower() == plans.STAFF:
+        return f"{user['id']} is staff; left alone"
+
     status = str(_field(subscription, "status", "")).lower()
     paid = status in plans.ACTIVE_STATUSES
 

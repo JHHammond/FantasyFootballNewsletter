@@ -84,6 +84,12 @@
         &mdash; after that, edit it by hand instead, which costs nothing and
         changes as much as you like.
     </p>
+    {% if plan.key == 'free' %}
+    <p class="plan-note">
+        Free plan &middot; {{ regenerations_per_week }} redos a week.
+        <a href="/account#plan">Upgrade for three, every look, and your own photos &rarr;</a>
+    </p>
+    {% endif %}
     {% elif earlier_season %}
     <p class="card-sub">
         Your {{ league.season }} season hasn't been played yet &mdash; if you

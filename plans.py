@@ -35,6 +35,17 @@ from typing import Any, Optional
 FREE = "free"
 PAID = "paid"
 
+#: The site's own people. Never sold and never reachable from Stripe: the only
+#: way onto it is somebody with database access typing
+#:
+#:     update users set plan = 'staff' where email = '...';
+#:
+#: It exists because testing the paper means generating the same week over and
+#: over, and the paid allowance of three runs out before lunch. Not an env var
+#: of email addresses, on purpose: signup does not verify email, so a list of
+#: addresses would hand unlimited generation to whoever registered one first.
+STAFF = "staff"
+
 #: What it costs, in one place, for the pricing page and every upgrade prompt.
 PRICE_TEXT = "$4.99 a month"
 PRICE_SHORT = "$4.99/mo"
@@ -89,6 +100,18 @@ PLANS: dict[str, Plan] = {
         auto_send=True,
         photo_uploads=True,
     ),
+    STAFF: Plan(
+        key=STAFF,
+        label="Staff",
+        # Not infinite, because every generation is a real Anthropic call and
+        # a loop in somebody's testing should still hit a wall. A hundred a
+        # week is more than anybody testing by hand will ever press.
+        regenerations_per_week=100,
+        leagues=None,
+        themes=None,
+        auto_send=True,
+        photo_uploads=True,
+    ),
 }
 
 
@@ -113,6 +136,10 @@ def plan_for(user: Optional[dict[str, Any]]) -> Plan:
     if not user:
         return PLANS[FREE]
 
+    # Checked before the Stripe status, because staff has none and needs none.
+    if (user.get("plan") or FREE).strip().lower() == STAFF:
+        return PLANS[STAFF]
+
     if (user.get("plan") or FREE).strip().lower() != PAID:
         return PLANS[FREE]
 
@@ -126,7 +153,9 @@ def plan_for(user: Optional[dict[str, Any]]) -> Plan:
 
 
 def is_paid(user: Optional[dict[str, Any]]) -> bool:
-    return plan_for(user).key == PAID
+    """Has everything the paid plan has — which staff does, so nobody on staff
+    is ever shown an upgrade button or sent to checkout."""
+    return plan_for(user).key in (PAID, STAFF)
 
 
 # ---------------------------------------------------------------------------
