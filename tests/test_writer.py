@@ -2121,3 +2121,86 @@ def test_no_prompt_names_another_leagues_paper(swap_client, no_sleeping):
     swap_client(lambda kwargs: prompts.append(kwargs["messages"][0]["content"]) or _reply("x"))
     writer.generate_full_newspaper_content("The Other Gazette", 3, GAMES, SUMMARY)
     assert not any("Kevlarville" in p for p in prompts)
+
+
+# ---------------------------------------------------------------------------
+# The extras: letter, obituary, lines
+# ---------------------------------------------------------------------------
+
+_LOW = {"lowest_score": {"team_name": "Wasteland", "owner_name": "Will",
+                         "points": 71.3, "lineup_gap": 22.0,
+                         "bottom_performer": {"name": "Etienne", "actual": 2.1}}}
+
+
+def test_the_letter_is_signed_by_the_lowest_scorer_only(swap_client, no_sleeping):
+    swap_client(lambda _k: _reply(
+        "LETTER: Dear Editor, I have been robbed.\nIt continues here.\n"
+        "REPLY: Start better players.\nSIGNED: Bill Belichick"))
+    out = writer.generate_letter(_LOW)
+    assert out["signed"] == "Will"
+    assert out["body"] == "Dear Editor, I have been robbed. It continues here."
+    assert out["reply"] == "Start better players."
+
+
+def test_the_letter_prompt_carries_the_week(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("LETTER: x"))
+    writer.generate_letter(_LOW)
+    assert "71.3" in seen["p"] and "Etienne" in seen["p"] and "22.0" in seen["p"]
+
+
+def test_no_letter_line_means_no_letter(swap_client, no_sleeping):
+    swap_client(lambda _k: _reply("I would rather not."))
+    assert writer.generate_letter(_LOW) == {}
+
+
+def test_the_obituary_is_about_the_fantasy_week_not_the_man(swap_client, no_sleeping):
+    seen = {}
+
+    def behaviour(k):
+        seen["p"] = k["messages"][0]["content"]
+        return _reply("Josh Jacobs' fantasy week passed away Sunday.")
+    swap_client(behaviour)
+    out = writer.generate_obituary({"name": "Josh Jacobs", "points": 2.1,
+                                    "projected": 18.4, "manager": "Will"})
+    assert out["player"] == "Josh Jacobs" and out["body"]
+    assert "not the man" in seen["p"]
+    assert "Nothing about real death" in seen["p"]
+
+
+def test_line_picks_line_up_with_the_board_and_survive_gaps(swap_client, no_sleeping):
+    lines = [{"favorite": "A", "favorite_manager": "a", "underdog": "B",
+              "underdog_manager": "b", "spread": 7.5, "pickem": False},
+             {"favorite": "C", "favorite_manager": "c", "underdog": "D",
+              "underdog_manager": "d", "spread": 0.5, "pickem": True}]
+    swap_client(lambda _k: _reply("1. A covers easily.\n(some chatter)"))
+    out = writer.generate_line_picks(lines)
+    assert out[0]["pick"] == "A covers easily."
+    assert out[1]["pick"] == ""
+    assert out[1]["spread"] == 0.5
+
+
+def test_the_extras_reach_the_finished_paper(swap_client, no_sleeping):
+    swap_client(lambda _k: _reply("LETTER: Dear Editor.\nREPLY: No."))
+    lines = [{"favorite": "A", "favorite_manager": "a", "underdog": "B",
+              "underdog_manager": "b", "spread": 7.5, "pickem": False}]
+    paper = writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY,
+        bust={"name": "Jacobs", "points": 2.1, "projected": 18.4, "manager": "W"},
+        lines=lines)
+    assert paper["obituary"]["player"] == "Jacobs"
+    assert paper["lines"][0]["favorite"] == "A"
+    assert "letter" in paper
+
+
+def test_the_lines_still_print_when_the_picks_call_fails(swap_client, no_sleeping):
+    def behaviour(k):
+        if "betting lines" in k["messages"][0]["content"]:
+            raise _connection_error()
+        return _reply("x")
+    swap_client(behaviour)
+    lines = [{"favorite": "A", "favorite_manager": "a", "underdog": "B",
+              "underdog_manager": "b", "spread": 7.5, "pickem": False}]
+    paper = writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY, lines=lines)
+    assert paper["lines"] == [dict(lines[0], pick="")]

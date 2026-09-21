@@ -26,6 +26,7 @@ from providers import (  # noqa: E402
     week_to_legacy_games,
 )
 from storylines import get_weekly_storylines  # noqa: E402
+import history  # noqa: E402
 from writer import WriterError, generate_full_newspaper_content  # noqa: E402
 
 
@@ -371,6 +372,45 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
     return render_html(edition, theme=league.get("theme"))
 
 
+def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
+    """Streaks, rematches and last week's paper for the writer, plus next
+    week's betting lines. Every part is optional: a failure anywhere here
+    costs the paper an extra, never the paper."""
+    provider, lid, season = (league["provider"], league["platform_league_id"],
+                             league["season"])
+    out = {"briefing": "", "lines": []}
+    try:
+        def fetch(w):
+            return this_week if w == week else load_week(
+                provider, lid, season, w, with_optimizer=False)
+        results = history.load_season(fetch, week)
+
+        last_paper = None
+        if week > 1:
+            try:
+                row = db.get_paper(league["id"], season, week - 1)
+                last_paper = (row or {}).get("ai_cache") or None
+            except Exception:  # noqa: BLE001
+                last_paper = None
+
+        pairs = [(str(m.teams[0].team_id), str(m.teams[1].team_id))
+                 for m in this_week.matchups]
+        out["briefing"] = history.previously_on(results, week, pairs, last_paper)
+
+        try:
+            upcoming = load_week(provider, lid, season, week + 1,
+                                 with_optimizer=False)
+            out["lines"] = history.betting_lines(
+                upcoming, history.team_histories(results, week))
+        except Exception as exc:  # noqa: BLE001 — season over, or not posted
+            print(f"[history] no lines for week {week + 1}: "
+                  f"{type(exc).__name__}: {exc}", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[history] season briefing skipped: {type(exc).__name__}: {exc}",
+              flush=True)
+    return out
+
+
 def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
     """Fetch, write with Claude, render, upload, record.
 
@@ -397,6 +437,15 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         {m["handle"]: m["team_name"] for m in directory},
     )
 
+    season_so_far = _season_briefing(db, league, week, week_data)
+    if season_so_far["briefing"]:
+        league_context = (
+            "THE SEASON SO FAR. Use a fact from here only when it makes a "
+            "story better — a streak, a rematch, somebody repeating last "
+            "week's mistake. Never recite it, never list records.\n"
+            + season_so_far["briefing"]
+            + ("\n\n" + league_context if league_context else ""))
+
     ai_content = generate_full_newspaper_content(
         league_name=paper_name,
         week=week,
@@ -405,6 +454,8 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         commissioner_name=league.get("commissioner_name") or "",
         inside_jokes=league_context,
         tone=league.get("tone") or "standard",
+        bust=history.biggest_bust(week_data),
+        lines=season_so_far["lines"],
     )
 
     return render_and_store(db, league, week, ai_content)

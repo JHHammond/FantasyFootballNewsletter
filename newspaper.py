@@ -685,6 +685,78 @@ def render_awards_html(awards, editable=False):
     return "\n".join(cards)
 
 
+def render_letters_and_obituary(letter, obituary, editable=False):
+    """Letters to the Editor and the Obituaries, side by side.
+
+    Nothing at all when neither was written, rather than two empty boxes.
+    """
+    cards = []
+    if letter and letter.get("body"):
+        reply = (f'<p class="letter-reply"><strong>Editor:</strong> '
+                 f'<span{ed("letter_reply", editable)}>{html_escape(letter.get("reply") or "")}</span></p>'
+                 if letter.get("reply") else "")
+        signed = html_escape(letter.get("signed") or "")
+        team = html_escape(letter.get("team") or "")
+        cards.append(f"""
+        <div class="award-card extra-card">
+            <div class="award-title">Letters to the Editor</div>
+            <div class="extra-body">
+                <p{ed("letter_body", editable)}>{html_escape(letter["body"])}</p>
+                <p class="letter-sign">&mdash; {signed}{f", {team}" if team and team != signed else ""}</p>
+                {reply}
+            </div>
+        </div>""")
+    if obituary and obituary.get("body"):
+        who = html_escape(obituary.get("player") or "")
+        pts = obituary.get("points")
+        proj = obituary.get("projected")
+        dates = ""
+        if isinstance(pts, (int, float)):
+            dates = (f"Projected {proj:.1f} &ndash; Scored {pts:.1f}"
+                     if isinstance(proj, (int, float)) else f"Scored {pts:.1f}")
+        cards.append(f"""
+        <div class="award-card extra-card">
+            <div class="award-title">Obituaries</div>
+            <div class="obit-name">{who}&rsquo;s fantasy week</div>
+            <div class="award-desc">{dates}</div>
+            <div class="extra-body"><p{ed("obituary_body", editable)}>{html_escape(obituary["body"])}</p></div>
+        </div>""")
+    if not cards:
+        return ""
+    return f"""
+        <div class="full-section">
+            <div class="section-title-full">Letters &amp; Obituaries</div>
+            <div class="awards-grid-full">{"".join(cards)}</div>
+        </div>"""
+
+
+def render_lines(lines, editable=False):
+    """Next week's board. Made-up lines, and the paper's pick for each."""
+    rows = []
+    for i, l in enumerate(lines or []):
+        fav, dog = html_escape(l.get("favorite") or ""), html_escape(l.get("underdog") or "")
+        if not fav or not dog:
+            continue
+        spread = ("PICK&rsquo;EM" if l.get("pickem")
+                  else f"&minus;{float(l.get('spread') or 0):g}")
+        total = l.get("total")
+        ou = f'<span class="line-total">O/U {float(total):g}</span>' if total else ""
+        pick = html_escape(l.get("pick") or "")
+        rows.append(f"""
+            <div class="line-row">
+                <div class="line-match"><strong>{fav}</strong> <span class="line-spread">{spread}</span> vs {dog} {ou}</div>
+                {f'<div class="line-pick"{ed(f"line_pick_{i}", editable)}>{pick}</div>' if pick else ""}
+            </div>""")
+    if not rows:
+        return ""
+    return f"""
+        <div class="full-section">
+            <div class="section-title-full">Next Week&rsquo;s Lines</div>
+            <div class="section-note lines-note">Made up from the projections. The Desk takes no bets.</div>
+            <div class="lines-board">{"".join(rows)}</div>
+        </div>"""
+
+
 def render_standings_html(standings):
     rows = []
 
@@ -1497,6 +1569,10 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             editable=editable,
         ),
         "awards_html": awards_html,
+        "extras_html": render_letters_and_obituary(
+            (ai_content or {}).get("letter"), (ai_content or {}).get("obituary"),
+            editable=editable),
+        "lines_html": render_lines((ai_content or {}).get("lines"), editable=editable),
         "standings_html": render_standings_html(build_standings(matchups)),
         "top_scorers_html": build_top_scorers(matchups),
         "week_ticker_html": build_week_ticker(summary),
@@ -2278,6 +2354,18 @@ def render_html(edition, theme=None):
             padding-bottom: 4px;
         }}
 
+        .extra-body {{ font-size: 15px; line-height: 1.6; }}
+        .extra-body p {{ margin: 0 0 8px; }}
+        .letter-sign {{ font-style: italic; text-align: right; }}
+        .letter-reply {{ font-size: 14px; border-top: 1px solid #ddd; padding-top: 8px; }}
+        .obit-name {{ font-weight: 700; font-size: 17px; margin-bottom: 2px; }}
+        .lines-board {{ padding: 4px 0; }}
+        .line-row {{ padding: 9px 0; border-bottom: 1px solid #ddd; }}
+        .line-match {{ font-size: 16px; }}
+        .line-spread {{ font-weight: 700; color: #c40000; }}
+        .line-total {{ font-size: 13px; opacity: 0.7; margin-left: 6px; }}
+        .line-pick {{ font-style: italic; font-size: 14px; margin-top: 3px; }}
+
         .award-desc {{
             font-size: 12px;
             font-style: italic;
@@ -2617,6 +2705,9 @@ def render_html(edition, theme=None):
             </div>
         </div>
 
+        <!-- LETTERS + OBITUARY — nothing at all when neither was written -->
+        {edition.get('extras_html', '')}
+
         <!-- POWER RANKINGS — full width dramatic section -->
         <div class="full-section rankings-section">
             <div class="section-title-full">Power Rankings</div>
@@ -2624,6 +2715,9 @@ def render_html(edition, theme=None):
                 {edition['power_rankings_html']}
             </div>
         </div>
+
+        <!-- NEXT WEEK'S LINES -->
+        {edition.get('lines_html', '')}
 
         <!-- TRANSACTIONS — renders nothing at all on platforms that have no
              feed, rather than printing an empty heading. -->

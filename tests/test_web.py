@@ -5178,3 +5178,17 @@ def test_a_manage_link_is_never_used_as_the_sample(monkeypatch):
     finally:
         monkeypatch.delenv("SAMPLE_PAPER_URL")
         importlib.reload(webapp)
+
+
+def test_the_extras_are_editable_in_place():
+    ai = {"letter": {"body": "old", "reply": "r", "signed": "Will"},
+          "obituary": {"player": "Jacobs", "body": "old"},
+          "lines": [{"favorite": "A", "underdog": "B", "pick": "old"}]}
+    out = webapp._apply_inline_edits(ai, {
+        "letter_body": "<script>x</script>new letter", "obituary_body": "new obit",
+        "line_pick_0": "new pick", "line_pick_9": "ignored"}, {})
+    assert out["letter"]["body"].endswith("new letter")
+    assert "<script>" not in out["letter"]["body"]
+    assert out["letter"]["signed"] == "Will"
+    assert out["obituary"] == {"player": "Jacobs", "body": "new obit"}
+    assert out["lines"][0]["pick"] == "new pick"

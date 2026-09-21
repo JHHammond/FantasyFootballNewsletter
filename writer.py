@@ -1848,9 +1848,137 @@ Inside jokes: {inside_jokes}
         return [f"{ctx['winner']} def. {ctx['loser']}" for ctx in game_contexts]
 
 
+# ---------------------------------------------------------------------------
+# The extras: a letter to the editor, an obituary, next week's lines
+# ---------------------------------------------------------------------------
+
+def _parse_labelled(raw, labels):
+    """LABEL: value lines out of a reply. Values may run onto later lines."""
+    out, current = {}, None
+    for line in (raw or "").splitlines():
+        head, sep, rest = line.partition(":")
+        key = head.strip().upper()
+        if sep and key in labels:
+            current = key
+            out[key] = rest.strip()
+        elif sep and head.strip().isupper() and len(head.strip()) <= 20:
+            current = None          # a label we didn't ask for: drop it
+        elif current and line.strip():
+            out[current] = (out[current] + " " + line.strip()).strip()
+    return {k: v.strip().strip('"\u201c\u201d') for k, v in out.items()}
+
+
+def generate_letter(summary, commissioner_name="", inside_jokes="",
+                    system=None, model=None):
+    """An angry letter to the editor from the week's lowest scorer, and the
+    editor's one-line reply. Signed by that manager and nobody else."""
+    low = summary.get("lowest_score") or {}
+    manager = (low.get("owner_name") or low.get("team_name") or "").strip()
+    if not manager:
+        return {}
+
+    facts = [f"{manager} ({low.get('team_name', '')}) scored "
+             f"{float(low.get('points') or 0):.1f}, the lowest in the league this week."]
+    worst = low.get("bottom_performer") or {}
+    if isinstance(worst, dict) and worst.get("name"):
+        facts.append(f"Their biggest letdown: {worst['name']}, who scored "
+                     f"{float(worst.get('actual') or worst.get('points') or 0):.1f}.")
+    gap = low.get("lineup_gap")
+    if isinstance(gap, (int, float)) and gap > 10:
+        facts.append(f"They left {gap:.1f} points on the bench.")
+
+    raw = call_claude(f"""
+Write a LETTER TO THE EDITOR for this week's paper, from {manager}, furious
+about their week. Everybody knows it's made up. It should read like a real
+angry letter to a local paper: formal, wounded, blaming everyone but
+themselves, and specific about the week below. Then a one-line reply from
+the editor — dry, and not on their side.
+
+{chr(10).join(facts)}
+
+60 to 110 words for the letter. The reply is one sentence.
+Do not invent players, injuries or plays that are not above.
+
+Reply in exactly this form and nothing else:
+LETTER: the letter, as one paragraph
+REPLY: the editor's reply
+""", max_tokens=1200, system=system, model=model, avoid_tells=True)
+
+    parts = _parse_labelled(raw, {"LETTER", "REPLY"})
+    if not parts.get("LETTER"):
+        return {}
+    return {"body": parts["LETTER"], "reply": parts.get("REPLY", ""),
+            "signed": manager, "team": low.get("team_name", "")}
+
+
+def generate_obituary(bust, system=None, model=None):
+    """A mock death notice — for a player's FANTASY WEEK, never the man."""
+    if not bust or not bust.get("name"):
+        return {}
+
+    proj = bust.get("projected")
+    facts = [f"{bust['name']} ({bust.get('position', '')}) scored "
+             f"{bust.get('points', 0):.1f} for {bust.get('manager', '')}."]
+    if isinstance(proj, (int, float)):
+        facts.append(f"He was projected for {proj:.1f}.")
+    if bust.get("stat_note"):
+        facts.append(f"What he did: {bust['stat_note']}.")
+
+    raw = call_claude(f"""
+Write a mock OBITUARY for this player's fantasy week — his fantasy value,
+not the man. Newspaper obituary style: "passed away Sunday afternoon",
+"is survived by", "in lieu of flowers". Survived by the manager who started
+him. Deadpan and affectionate, the way people joke at a wake.
+
+{chr(10).join(facts)}
+
+Hard rules: this is about a fantasy score only. Nothing about real death,
+illness, real injuries, family or anything off the field. No invented plays
+or stats beyond the above. 60 to 100 words, one paragraph, no title.
+""", max_tokens=1200, system=system, model=model, avoid_tells=True)
+
+    body = (raw or "").strip()
+    if not body:
+        return {}
+    return {"player": bust["name"], "points": bust.get("points"),
+            "projected": proj, "manager": bust.get("manager", ""),
+            "body": body}
+
+
+def generate_line_picks(lines, system=None, model=None):
+    """One cocky sentence per game on next week's board, in order."""
+    if not lines:
+        return lines or []
+    board = "\n".join(
+        f"{i + 1}. {l['favorite']} ({l['favorite_manager']}) favoured by "
+        f"{l['spread']:g} over {l['underdog']} ({l['underdog_manager']})"
+        + (" — basically a coin flip" if l.get("pickem") else "")
+        for i, l in enumerate(lines))
+
+    raw = call_claude(f"""
+Next week's games, with the paper's made-up betting lines:
+
+{board}
+
+For each game, write the paper's pick: one short, confident sentence (under
+20 words) taking a side. Sometimes back the underdog. It can reference how
+these teams have looked this season if you know it. No real betting advice,
+no odds maths.
+
+Reply with one line per game, numbered the same way, and nothing else.
+""", max_tokens=1200, system=system, model=model)
+
+    picks = {}
+    for line in (raw or "").splitlines():
+        head, _, rest = line.strip().partition(".")
+        if head.strip().isdigit() and rest.strip():
+            picks[int(head) - 1] = rest.strip()
+    return [{**l, "pick": picks.get(i, "")} for i, l in enumerate(lines)]
+
+
 def generate_full_newspaper_content(league_name, week, games, summary,
                                      commissioner_name="", inside_jokes="",
-                                     tone="standard"):
+                                     tone="standard", bust=None, lines=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -1883,9 +2011,19 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         })
 
     # Define all tasks as (key, callable) pairs
-    tasks = {}
 
     names = league_names([gc["ctx"] for gc in game_contexts])
+
+    # The extras. Each only when there is something to write it about.
+    tasks = {}
+    tasks["letter"] = lambda: generate_letter(
+        summary, commissioner_name, inside_jokes, sys_prompt, model_for("letter"))
+    if bust:
+        tasks["obituary"] = lambda: generate_obituary(
+            bust, sys_prompt, model_for("obituary"))
+    if lines:
+        tasks["lines"] = lambda: generate_line_picks(
+            lines, sys_prompt, model_for("lines"))
 
     # Top-level tasks. The front headline is NOT here: it is written after
     # the lead story, from it — see the second wave below.
@@ -2094,6 +2232,11 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         # attribution travels beside it rather than inside it.
         "pull_quote": _pull_quote_part(results.get("pull_quote"), "quote"),
         "pull_quote_by": _pull_quote_part(results.get("pull_quote"), "by"),
+        "letter": results.get("letter") or {},
+        "obituary": results.get("obituary") or {},
+        # The lines are numbers first and prose second: if the picks call
+        # failed, the board still prints, just without the paper's picks.
+        "lines": results.get("lines") or [dict(l, pick="") for l in (lines or [])],
     }
 
 

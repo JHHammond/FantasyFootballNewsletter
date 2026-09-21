@@ -320,3 +320,32 @@ def test_the_joe_burrow_avatar_is_the_best_losers():
     summary = {"best_loser": {"avatar_url": "steve.png"},
                "lowest_score": {"avatar_url": "low.png"}}
     assert newspaper.award_avatar("JOE BURROW AWARD", summary) == "steve.png"
+
+
+# --- letters, obituary, lines --------------------------------------------------
+
+def test_letters_and_obituary_render_escaped_and_signed():
+    html = newspaper.render_letters_and_obituary(
+        {"body": "Dear Editor, <b>no</b>.", "reply": "Start better players.",
+         "signed": "Will", "team": "Wasteland"},
+        {"player": "Josh Jacobs", "points": 2.1, "projected": 18.4,
+         "body": "Passed away Sunday."})
+    assert "Letters to the Editor" in html and "Obituaries" in html
+    assert "&mdash; Will, Wasteland" in html
+    assert "<b>no</b>" not in html
+    assert "Projected 18.4 &ndash; Scored 2.1" in html
+
+
+def test_no_extras_means_no_section():
+    assert newspaper.render_letters_and_obituary({}, {}) == ""
+
+
+def test_the_lines_board():
+    html = newspaper.render_lines([
+        {"favorite": "Carson", "underdog": "Will", "spread": 7.5, "total": 245.5,
+         "pickem": False, "pick": "Carson covers."},
+        {"favorite": "A", "underdog": "B", "spread": 0.5, "pickem": True, "pick": ""}])
+    assert "Next Week&rsquo;s Lines" in html
+    assert "&minus;7.5" in html and "O/U 245.5" in html and "Carson covers." in html
+    assert "PICK&rsquo;EM" in html
+    assert newspaper.render_lines([]) == ""

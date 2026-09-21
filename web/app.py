@@ -2073,6 +2073,26 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
         if key in edits:
             edited[key] = clean_html(edits[key])
 
+    # The extras. Plain text: they render escaped, inside fixed markup.
+    if "letter_body" in edits or "letter_reply" in edits:
+        letter = dict(ai.get("letter") or {})
+        if "letter_body" in edits:
+            letter["body"] = clean_text(edits["letter_body"], 1200)
+        if "letter_reply" in edits:
+            letter["reply"] = clean_text(edits["letter_reply"], 300)
+        edited["letter"] = letter
+    if "obituary_body" in edits:
+        edited["obituary"] = dict(ai.get("obituary") or {},
+                                  body=clean_text(edits["obituary_body"], 1200))
+    line_edits = {k: v for k, v in edits.items() if k.startswith("line_pick_")}
+    if line_edits:
+        lines = [dict(l) for l in (ai.get("lines") or [])]
+        for key, raw in line_edits.items():
+            idx = key[len("line_pick_"):]
+            if idx.isdigit() and int(idx) < len(lines):
+                lines[int(idx)]["pick"] = clean_text(raw, 200)
+        edited["lines"] = lines
+
     matchups = [dict(m) for m in (ai.get("matchup_content") or [])]
     awards = [dict(a) for a in (ai.get("awards") or [])]
     rankings = dict(ai.get("power_rankings_comments") or {})
