@@ -413,9 +413,19 @@ def test_bench_players_are_marked_as_benched(swap_client):
     assert "Chuba Hubbard" in " ".join(benched)
 
 
-def test_injury_status_survives_into_the_prompt():
-    ctx = writer.build_game_context(GAME)
-    assert any("Questionable" in line for line in ctx["winner_lineup"])
+def test_injury_status_is_kept_where_it_explains_a_zero():
+    line = writer._player_line({"name": "Hurt Guy", "actual": 0.0,
+                                "projected": 12.0, "injury_status": "Out"})
+    assert "[Out]" in line
+
+
+def test_injury_status_is_dropped_for_anybody_who_scored():
+    """Production, week 1: ESPN reports the status as of today, so a paper
+    written on Tuesday said Caleb Williams 'went off for 37.3 while listed
+    Out'. Anybody with points played."""
+    line = writer._player_line({"name": "Caleb Williams", "actual": 37.3,
+                                "projected": 19.0, "injury_status": "Out"})
+    assert "Out" not in line
 
 
 def test_a_missing_lineup_does_not_crash_the_context():
@@ -521,11 +531,53 @@ def test_unparseable_classifieds_fall_back_to_the_house_ads(swap_client,
     assert writer.generate_classifieds(SUMMARY, [writer.build_game_context(GAME)]) == []
 
 
-def test_the_pull_quote_is_written_not_sliced(swap_client, no_sleeping):
-    swap_client(lambda _k: _reply('"Kyler Murray put up 0.7 and it was over."'))
-    quote = writer.generate_pull_quote([writer.build_game_context(GAME)])
-    assert quote == "Kyler Murray put up 0.7 and it was over."
-    assert not quote.endswith("...")
+def _pq_names():
+    ctx = writer.build_game_context(GAME)
+    return ctx, (ctx.get("winner_owner") or ctx["winner"]), (ctx.get("loser_owner") or ctx["loser"])
+
+
+def test_the_pull_quote_is_a_managers_quote_with_attribution(swap_client, no_sleeping):
+    """John: 'it should be a quote from the coach about something he did in
+    the locker room or something funny. Right now, it's pretty generic.'"""
+    ctx, winner, loser = _pq_names()
+    swap_client(lambda _k: _reply(
+        f'QUOTE: "We had a plan. The plan was Kyler Murray. We are revisiting the plan."\nBY: {loser}'))
+    out = writer.generate_pull_quote([ctx])
+    assert out == {"quote": "We had a plan. The plan was Kyler Murray. We are revisiting the plan.",
+                   "by": loser}
+
+
+def test_the_pull_quote_prompt_asks_for_a_locker_room_quote(swap_client, no_sleeping):
+    ctx, winner, loser = _pq_names()
+    seen = {}
+
+    def behaviour(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply(f"QUOTE: Fine.\nBY: {winner}")
+    swap_client(behaviour)
+    writer.generate_pull_quote([ctx])
+    assert "locker room" in seen["prompt"]
+    assert winner in seen["prompt"] and loser in seen["prompt"]
+
+
+def test_a_quote_is_never_credited_to_somebody_outside_the_game(swap_client, no_sleeping):
+    ctx, winner, loser = _pq_names()
+    swap_client(lambda _k: _reply("QUOTE: I blame the refs.\nBY: Bill Belichick"))
+    assert writer.generate_pull_quote([ctx])["by"] == loser
+
+
+def test_no_quote_line_means_no_pull_quote(swap_client, no_sleeping):
+    ctx, *_ = _pq_names()
+    swap_client(lambda _k: _reply("Kyler Murray put up 0.7 and it was over."))
+    assert writer.generate_pull_quote([ctx]) == {}
+
+
+def test_the_finished_paper_carries_quote_and_speaker_separately():
+    assert writer._pull_quote_part({"quote": "Q", "by": "B"}, "quote") == "Q"
+    assert writer._pull_quote_part({"quote": "Q", "by": "B"}, "by") == "B"
+    # an older string-shaped value still works
+    assert writer._pull_quote_part("Q", "quote") == "Q"
+    assert writer._pull_quote_part("Q", "by") == ""
 
 
 def test_both_reach_the_finished_paper(swap_client, no_sleeping):
@@ -536,6 +588,7 @@ def test_both_reach_the_finished_paper(swap_client, no_sleeping):
         "The Kevlarville Times", 3, GAMES, SUMMARY)
     assert "classifieds" in paper
     assert "pull_quote" in paper
+    assert "pull_quote_by" in paper
 
 
 # ---------------------------------------------------------------------------
@@ -715,7 +768,7 @@ def test_the_mechanical_calls_are_on_the_cheap_model():
     awards and fraud_watch used to be in this list and are not any more; see
     test_the_sections_that_judge_stay_on_the_big_model for what they did.
     """
-    for task in ("game_teasers", "classifieds", "pull_quote", "awards",
+    for task in ("game_teasers", "classifieds", "awards",
                  "matchup_headline_0", "matchup_headline_3"):
         assert writer.model_for(task) == writer.SMALL_MODEL, (
             f"{task} is still on the expensive model")
@@ -1468,7 +1521,8 @@ def test_the_recap_call_has_room_to_think_before_it_writes():
 
     source = inspect.getsource(writer.generate_matchup_body)
     assert "max_tokens=900" not in source
-    assert "max_tokens=1600" in source
+    assert "max_tokens=1600" not in source, (
+        "1600 is the budget that printed a recap ending 'most te'")
 
 
 # ---------------------------------------------------------------------------
@@ -1806,3 +1860,139 @@ def test_a_tiny_benched_score_is_not_written_up_as_a_catastrophe(swap_client,
     writer.generate_awards(SUMMARY)
 
     assert "Do not manufacture outrage" in seen["prompt"]
+
+
+# ---------------------------------------------------------------------------
+# A recap cut off mid-word
+#
+# Production: a lead recap ended "three running backs combining for more than
+# most te". The response had a text block, so nothing noticed; stop_reason
+# said max_tokens.
+# ---------------------------------------------------------------------------
+
+def _cut_off(text="Henry ran for 35.3. Swift added 32.4, combining for more than most te"):
+    msg = _message(_Thinking(), _Text(text))
+    msg.stop_reason = "max_tokens"
+    return msg
+
+
+def test_a_cut_off_response_is_retried_with_more_room(swap_client, no_sleeping):
+    budgets = []
+
+    def behaviour(kwargs):
+        budgets.append(kwargs["max_tokens"])
+        if len(budgets) == 1:
+            return _cut_off()
+        return _message(_Text("Henry ran for 35.3 and Swift added 32.4."))
+
+    swap_client(behaviour)
+    out = writer.call_claude("write the recap", max_tokens=1000)
+    assert out == "Henry ran for 35.3 and Swift added 32.4."
+    assert budgets == [1000, 2000]
+
+
+def test_cut_off_at_the_ceiling_ends_on_the_last_whole_sentence(swap_client,
+                                                                no_sleeping):
+    swap_client(lambda kwargs: _cut_off())
+    out = writer.call_claude("write", max_tokens=writer.MAX_OUTPUT_TOKENS)
+    assert out == "Henry ran for 35.3."
+
+
+def test_trimming_never_cuts_at_a_decimal_point():
+    assert writer.trim_to_last_sentence("Henry ran for 35.3 and Swift for 32") == ""
+    assert (writer.trim_to_last_sentence('He said "done." Then 12.5 more')
+            == 'He said "done."')
+
+
+def test_the_recap_and_lead_budgets_leave_room_for_thinking():
+    import inspect
+    for fn in (writer.generate_matchup_body, writer.generate_lead_story):
+        src = inspect.getsource(fn)
+        budget = int(re.search(r"max_tokens=(\d+)", src).group(1))
+        assert budget >= 2400, (fn.__name__, budget)
+
+
+# ---------------------------------------------------------------------------
+# The tells
+# ---------------------------------------------------------------------------
+
+#: Straight out of a printed paper.
+_PRINTED = ("Caleb Williams went off for 37.3. That should have been enough. "
+            "It wasn't, because the RB room was a wasteland. LAC Defense "
+            "scored 1.0 point, which is not a typo. Henry ran for 35.3.")
+
+
+@pytest.mark.parametrize("sentence", [
+    "It's not a slump, it's a lifestyle.",
+    "This isn't a rebuild. It's a demolition.",
+    "That wasn't bad luck — it was a choice.",
+    "Not just a loss, but a statement.",
+    "He lost not because of the bench but because of the kicker.",
+])
+def test_the_banned_constructions_are_caught(sentence):
+    assert writer.find_ai_tells(sentence), sentence
+
+
+def test_the_printed_examples_are_caught():
+    found = writer.find_ai_tells(_PRINTED)
+    assert any("not a typo" in f for f in found)
+    assert any("should have been enough" in f for f in found)
+
+
+@pytest.mark.parametrize("sentence", [
+    "Henry ran for 35.3 and Swift added 32.4.",
+    "Etienne did not score. Will started him anyway.",
+    "It was over by halftime.",
+    "That is the third straight week Will has lost by forty.",
+    "Brooks isn't on the roster anymore.",
+])
+def test_ordinary_sentences_are_not_flagged(sentence):
+    assert writer.find_ai_tells(sentence) == [], sentence
+
+
+def test_a_tell_gets_one_redraft_pointed_at_the_sentence(swap_client, no_sleeping):
+    prompts = []
+
+    def behaviour(kwargs):
+        prompts.append(kwargs["messages"][0]["content"])
+        if len(prompts) == 1:
+            return _message(_Text(_PRINTED))
+        return _message(_Text("Caleb Williams went for 37.3 and it was not enough."))
+
+    swap_client(behaviour)
+    out = writer.call_claude("write the recap", max_tokens=3000, avoid_tells=True)
+    assert out == "Caleb Williams went for 37.3 and it was not enough."
+    assert len(prompts) == 2
+    assert "not a typo" in prompts[1]
+
+
+def test_the_redraft_happens_once_only(swap_client, no_sleeping):
+    calls = []
+
+    def behaviour(kwargs):
+        calls.append(1)
+        return _message(_Text(_PRINTED))
+
+    swap_client(behaviour)
+    out = writer.call_claude("write", max_tokens=3000, avoid_tells=True)
+    assert out == _PRINTED
+    assert len(calls) == 2
+
+
+def test_short_calls_are_not_redrafted(swap_client, no_sleeping):
+    calls = []
+    swap_client(lambda kwargs: calls.append(1) or _message(_Text(_PRINTED)))
+    writer.call_claude("write", max_tokens=60)
+    assert len(calls) == 1
+
+
+def test_the_long_prose_calls_ask_for_the_check():
+    import inspect
+    for fn in (writer.generate_matchup_body, writer.generate_lead_story):
+        assert "avoid_tells=True" in inspect.getsource(fn), fn.__name__
+
+
+def test_the_pull_quote_is_written_by_the_big_model():
+    """It is now invented comedy, not a sentence lifted from finished prose —
+    the one job on the old cheap list that is actually writing."""
+    assert writer.model_for("pull_quote") == writer.MODEL

@@ -1335,3 +1335,6 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     cursor: pointer;
 }
 .offer .upgrade-alt { text-align: center; }
+
+/* the link under the homepage specimen to a full sample paper */
+.specimen-link { text-align: center; margin-top: 10px; font-weight: 600; }

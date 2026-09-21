@@ -3,6 +3,7 @@ from datetime import datetime
 import json
 import random
 import re
+from html import escape as html_escape
 import markdown
 
 from ads import (CLASSIFIEDS_CSS, PUBLISHER_PAGE_CSS, SUBSCRIBE_CSS,
@@ -622,6 +623,41 @@ def build_weekly_awards(summary):
     return awards
 
 
+#: One line under each award's name saying what it is for. The names are the
+#: league's running joke and stay unexplained; what the award is FOR is not a
+#: joke, and without it a reader who is not already in on it sees
+#: "GARDNER MINSHEW AWARD" over a sentence about a bench and has no idea why.
+#: Fixed text rather than written each week, so it reads the same every
+#: issue — the way a real paper's standing features do.
+AWARD_DESCRIPTORS = {
+    "GARDNER MINSHEW AWARD": "Best player left on a losing bench",
+    "JOE BURROW AWARD": "Did everything right and still lost",
+    "KYLE PITTS AWARD": "The boldest start that paid off",
+    "JERRY JONES AWARD": "Worst manager of the week",
+}
+
+#: Which of the week's teams each award is about, for its avatar.
+AWARD_SUBJECTS = {
+    "GARDNER MINSHEW AWARD": "bench_blunder",
+    "JOE BURROW AWARD": "lowest_score",
+    "KYLE PITTS AWARD": "highest_score",
+    "JERRY JONES AWARD": "jerry_jones",
+}
+
+
+def _award_key(title):
+    return re.sub(r"\s+", " ", str(title or "")).strip().upper()
+
+
+def award_descriptor(title):
+    return AWARD_DESCRIPTORS.get(_award_key(title), "")
+
+
+def award_avatar(title, summary):
+    subject = (summary or {}).get(AWARD_SUBJECTS.get(_award_key(title), ""))
+    return get_team_avatar(subject) if subject else None
+
+
 def render_avatar_img(url, alt):
     if not url:
         return ""
@@ -633,9 +669,12 @@ def render_awards_html(awards, editable=False):
 
     for i, award in enumerate(awards):
         avatar = render_avatar_img(award.get("avatar"), award["title"])
+        desc = award_descriptor(award["title"])
+        desc_html = f'<div class="award-desc">{desc}</div>' if desc else ""
         cards.append(f"""
         <div class="award-card">
             <div class="award-title"{ed(f"award_title_{i}", editable)}>{award['title']}</div>
+            {desc_html}
             <div class="award-body">
                 {avatar}
                 <span{ed(f"award_body_{i}", editable)}>{award['body']}</span>
@@ -800,7 +839,7 @@ CLASSIFIEDS_AFTER_BLOCKS = 3
 
 def render_matchup_stories_html(stories, editable=False, images=None,
                                 auto_photos=None, pull_quote=None,
-                                interleave=""):
+                                interleave="", pull_quote_by=None):
     """
     Render game stories in a varied newspaper layout:
     - Story 0: LEAD — full width, large headline, photo floated right, pull quote
@@ -830,9 +869,16 @@ def render_matchup_stories_html(stories, editable=False, images=None,
                                           auto=auto_photos.get(i))
 
             quote = build_pull_quote(body, pull_quote)
+            # Attributed when the writer supplied a speaker. Only when the
+            # chosen quote is the one printed, so the fallback — a sentence
+            # lifted from the recap — is never credited to a manager.
+            by = (str(pull_quote_by).strip()
+                  if pull_quote_by and pull_quote and quote else "")
+            by_html = (f'<div class="pull-quote-by">&mdash; {html_escape(by)}, '
+                       f'after the game</div>') if by else ""
             pull_html = (
                 f'<div class="pull-quote"{ed("pull_quote", editable)}>'
-                f'&ldquo;{quote}&rdquo;</div>'
+                f'&ldquo;{quote}&rdquo;</div>{by_html}'
             ) if quote else ""
 
             html_parts.append(f'''
@@ -1296,7 +1342,8 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             merged_awards.append({
                 "title": award["title"],
                 "body": md(award["body"]) if award.get("body") else "",
-                "avatar": old_avatar_map.get(award["title"]),
+                "avatar": (award_avatar(award["title"], summary)
+                           or old_avatar_map.get(award["title"])),
             })
         awards_html = render_awards_html(merged_awards, editable=editable)
     else:
@@ -1343,6 +1390,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             stories, editable=editable, images=images,
             auto_photos=auto_photos,
             pull_quote=(ai_content or {}).get("pull_quote"),
+            pull_quote_by=(ai_content or {}).get("pull_quote_by"),
             interleave=publisher_page)
     else:
         stories = build_matchup_stories(matchups)
@@ -1350,6 +1398,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             stories, editable=editable, images=images,
             auto_photos=auto_photos,
             pull_quote=(ai_content or {}).get("pull_quote"),
+            pull_quote_by=(ai_content or {}).get("pull_quote_by"),
             interleave=publisher_page)
 
     # The front page hero used to fall back to a random bundled meme. Those are
@@ -2186,6 +2235,13 @@ def render_html(edition, theme=None):
         }}
 
         /* ── PULL QUOTE ── */
+        .pull-quote-by {{
+            font-size: 13px;
+            font-style: normal;
+            color: #555;
+            padding: 4px 0 0 20px;
+        }}
+
         .pull-quote {{
             font-size: 18px;
             font-style: italic;
@@ -2220,6 +2276,13 @@ def render_html(edition, theme=None):
             margin-bottom: 6px;
             border-bottom: 1px solid #ddd;
             padding-bottom: 4px;
+        }}
+
+        .award-desc {{
+            font-size: 12px;
+            font-style: italic;
+            color: #555;
+            margin: -2px 0 6px;
         }}
 
         .award-body {{

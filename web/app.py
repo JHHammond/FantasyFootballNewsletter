@@ -570,6 +570,12 @@ def _implemented_providers():
 #: they've read a sentence of it is the largest avoidable drop-off on the site.
 #: Generate one good paper, then put its public URL here.
 SAMPLE_PAPER_URL = os.getenv("SAMPLE_PAPER_URL", "").strip()
+# Only a reader link. A manage link (/l/...) pasted here by mistake would put
+# edit-and-delete access to that league on the front page of the site.
+if "/l/" in SAMPLE_PAPER_URL:
+    print("!! SAMPLE_PAPER_URL looks like a MANAGE link (/l/...). Not showing "
+          "it. Use the reader link, /p/...", flush=True)
+    SAMPLE_PAPER_URL = ""
 
 
 # ---------------------------------------------------------------------------

@@ -262,3 +262,55 @@ def test_the_fallback_power_ranking_comments_are_not_all_the_same():
         f"every team in week 1 got the same comment: {comments[0]!r}")
     # The best team and the worst team must not read the same.
     assert comments[0] != comments[-1]
+
+
+# --- the pull quote's speaker, and the awards' descriptors -------------------
+
+def _lead_html(**kw):
+    story = {"headline": "H", "subhead": "S", "body": ("<p>Henry ran for 35.3 and the game was settled before the late window opened. "
+                     "Swift added 32.4 on top of that, which nobody on the other side could match. "
+                     "Will started Etienne, who scored 14.8 and was the best thing on that roster.</p>"),
+             "genre": "COMEDY", "winner_name": "A", "loser_name": "B",
+             "winner_score": 1.0, "loser_score": 0.0, "winner_avatar": None,
+             "loser_avatar": None, "margin": 1.0, "winner_record": "1-0",
+             "loser_record": "0-1"}
+    return newspaper.render_matchup_stories_html([story], **kw)
+
+
+def test_a_managers_quote_is_credited_to_them():
+    html = _lead_html(pull_quote="We had a plan. The plan was Kyler Murray.",
+                      pull_quote_by="WillDavidson10")
+    assert "WillDavidson10, after the game" in html
+
+
+def test_a_quote_lifted_from_the_recap_is_never_credited_to_anybody():
+    html = _lead_html(pull_quote=None, pull_quote_by="WillDavidson10")
+    assert 'class="pull-quote"' in html, "the fallback quote should still print"
+    assert "after the game" not in html
+
+
+def test_the_speaker_is_escaped():
+    html = _lead_html(pull_quote="We had a plan. The plan was Kyler Murray.",
+                      pull_quote_by="<script>x</script>")
+    assert "<script>x" not in html
+
+
+def test_each_named_award_says_what_it_is_for():
+    """Without it, 'GARDNER MINSHEW AWARD' over a sentence about a bench means
+    nothing to anybody not already in on the joke."""
+    html = newspaper.render_awards_html([
+        {"title": "GARDNER MINSHEW AWARD", "body": "x"},
+        {"title": "Joe Burrow Award", "body": "x"},
+        {"title": "KYLE PITTS AWARD", "body": "x"},
+        {"title": "JERRY JONES AWARD", "body": "x"},
+    ])
+    for desc in newspaper.AWARD_DESCRIPTORS.values():
+        assert desc in html
+
+
+def test_the_awards_get_the_right_teams_avatar():
+    summary = {"bench_blunder": {"avatar_url": "bench.png"},
+               "jerry_jones": {"avatar_url": "jerry.png"}}
+    assert newspaper.award_avatar("GARDNER MINSHEW AWARD", summary) == "bench.png"
+    assert newspaper.award_avatar("Jerry Jones Award", summary) == "jerry.png"
+    assert newspaper.award_avatar("Top Dawg", summary) is None

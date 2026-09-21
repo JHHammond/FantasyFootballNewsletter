@@ -5157,3 +5157,24 @@ def test_any_other_stripe_error_is_a_message_not_a_500(client, monkeypatch,
                     follow_redirects=False)
     assert r.status_code == 303
     assert "Nothing+was+charged" in r.headers["location"]
+
+
+def test_the_homepage_links_the_sample_paper_when_there_is_one(client, monkeypatch):
+    monkeypatch.setattr(webapp, "SAMPLE_PAPER_URL", "/p/sample-1234")
+    assert 'href="/p/sample-1234"' in client.get("/").text
+
+
+def test_no_sample_link_when_none_is_set(client, monkeypatch):
+    monkeypatch.setattr(webapp, "SAMPLE_PAPER_URL", "")
+    assert "Read a whole paper" not in client.get("/").text
+
+
+def test_a_manage_link_is_never_used_as_the_sample(monkeypatch):
+    import importlib
+    monkeypatch.setenv("SAMPLE_PAPER_URL", "https://commissionersdesk.com/l/secret-token")
+    fresh = importlib.reload(webapp)
+    try:
+        assert fresh.SAMPLE_PAPER_URL == ""
+    finally:
+        monkeypatch.delenv("SAMPLE_PAPER_URL")
+        importlib.reload(webapp)

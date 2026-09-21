@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import threading
@@ -65,7 +66,6 @@ SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 SMALL_MODEL_TASKS = frozenset({
     "game_teasers",
     "classifieds",
-    "pull_quote",
     "awards",
 })
 
@@ -216,8 +216,10 @@ for the same handful of moves. A reader cannot say why a paragraph feels
 machine-made, but they can feel it instantly, and the moment they do, the paper
 stops being their league's paper. These are banned outright:
 
-- "It's not X, it's Y." Also "this isn't X. It's Y." and "not just X, but Y."
-  Say the thing you mean. The reversal adds nothing but a drumroll.
+- "It's not X, it's Y." Also "this isn't X. It's Y.", "not just X, but Y",
+  "not because X, but because Y", and the two-sentence version: "That should
+  have been enough. It wasn't." Also "which is not a typo". Say the thing you
+  mean. The reversal adds nothing but a drumroll.
 - THREE OF ANYTHING. Three adjectives, three examples, three clauses building
   to a flourish. "The lineup was bad, the bench was worse, and the season is
   over" is the single most recognisable sentence a model writes. Use two, or
@@ -486,7 +488,12 @@ def _player_line(p, bench=False):
     if note:
         bits.append(f"| {note}")
 
-    if p.get("injury_status"):
+    # INJURY TAGS ONLY WHERE THEY EXPLAIN A ZERO. The platform reports the
+    # status as it is NOW, not as it was on game day — so a paper written on
+    # Tuesday tagged a quarterback who scored 37.3 as [Out], and the recap
+    # marvelled at a player who "went off while listed Out". Anybody who
+    # scored played; the tag on them is either stale or irrelevant.
+    if p.get("injury_status") and not actual:
         bits.append(f"[{p['injury_status']}]")
     if bench:
         bits.append("[BENCHED]")
@@ -795,7 +802,7 @@ _MAX_BACKOFF = 20.0
 #: paper can legitimately need more (the longest is a two-paragraph recap,
 #: about 500 tokens of prose), small enough that a call failing for some other
 #: reason cannot quietly become an expensive one.
-MAX_OUTPUT_TOKENS = 2400
+MAX_OUTPUT_TOKENS = 4800
 
 
 def _backoff(attempt: int, exc) -> float:
@@ -885,8 +892,73 @@ def _looks_like_a_model_problem(exc) -> bool:
     return "model" in text
 
 
+# ---------------------------------------------------------------------------
+# Cut-off text, and the moves that give a model away
+# ---------------------------------------------------------------------------
+
+_SENTENCE_END = re.compile(r"""[.!?]["'\u201d\u2019)]?(?=\s|$)""")
+
+
+def trim_to_last_sentence(text: str) -> str:
+    """Everything up to the last complete sentence.
+
+    A decimal point is not a sentence end — "scored 35.3" has a full stop
+    followed by a digit, not by a space — so a recap is never cut to
+    "Henry ran for 35." on a number.
+    """
+    text = (text or "").rstrip()
+    ends = [m.end() for m in _SENTENCE_END.finditer(text)]
+    return text[:ends[-1]].rstrip() if ends else ""
+
+
+#: The contrast-and-reveal constructions, as they actually turned up in
+#: printed papers. Each is a regex over one sentence or a sentence pair.
+_TELL_PATTERNS = [
+    # it's not X, it's Y / this isn't X. It's Y / that wasn't X — it was Y
+    r"\b(?:it|this|that)(?:'s| is| was|\u2019s)? ?(?:not|n't|n\u2019t)\b[^.!?]{0,90}"
+    r"[,;:.\u2014-]\s*(?:it|this|that)(?:'s|\u2019s| is| was)\b",
+    r"\b(?:isn't|wasn't|isn\u2019t|wasn\u2019t)\b[^.!?]{0,90}[.;\u2014-]\s*"
+    r"(?:It|This|That)(?:'s|\u2019s| is| was)\b",
+    # not just X, but Y
+    r"\bnot (?:just|only|merely)\b[^.!?]{0,90}\bbut\b",
+    # not because X, but because Y
+    r"\bnot because\b[^.!?]{0,90}\bbecause\b",
+    # the set-up-and-knock-down: "That should have been enough. It wasn't."
+    r"\b(?:should|would|could) have been enough\.\s*It (?:wasn't|was not|wasn\u2019t)",
+    # "which is not a typo" / "that's not a typo"
+    r"\bnot a typo\b",
+]
+_TELLS = [re.compile(p, re.IGNORECASE) for p in _TELL_PATTERNS]
+
+
+def find_ai_tells(text: str) -> list[str]:
+    """The sentences in `text` that use a banned construction."""
+    found = []
+    sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z\"'\u201c])", text or "")
+    # Pairs too, because "X isn't Y. It's Z." spans two sentences.
+    windows = sentences + [a + " " + b for a, b in zip(sentences, sentences[1:])]
+    for window in windows:
+        if any(t.search(window) for t in _TELLS):
+            snippet = window.strip()
+            if not any(snippet in f or f in snippet for f in found):
+                found.append(snippet)
+    return found
+
+
+def redraft_instruction(tells: list[str]) -> str:
+    quoted = "\n".join(f"  - {t}" for t in tells[:4])
+    return f"""
+
+A previous draft of this used constructions this paper does not print:
+{quoted}
+Write it again from scratch. State each point directly. No "it's not X, it's
+Y", no "isn't X. It's Y", no "not just X but Y", no setting something up to
+knock it down ("should have been enough. It wasn't"), no "not a typo".
+"""
+
+
 def call_claude(prompt, max_tokens=400, system=None, attempts=3,
-                model=None):
+                model=None, avoid_tells=False):
     """Make a single call to the Claude API and return the text response.
 
     `system` is passed explicitly rather than read from a module global because
@@ -925,6 +997,30 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
             _record_usage(model or MODEL, message)
             text = first_text_block(message)
 
+            # CUT OFF MID-WORD. A response that ran out of budget AFTER it
+            # started writing still has a text block, so first_text_block is
+            # happy with it — and the paper printed a recap ending "combining
+            # for more than most te". Thinking and prose share one budget, so
+            # a model that reasons longer than usual eats the room the prose
+            # was counting on. More room first; if there is no more to give,
+            # end on the last whole sentence rather than half a word.
+            if getattr(message, "stop_reason", None) == "max_tokens":
+                if max_tokens < MAX_OUTPUT_TOKENS:
+                    bigger = min(max_tokens * 2, MAX_OUTPUT_TOKENS)
+                    print(f"[writer] !! a response was cut off at "
+                          f"{max_tokens} tokens mid-sentence. Retrying with "
+                          f"{bigger}.", flush=True)
+                    return call_claude(prompt, max_tokens=bigger,
+                                       system=system, attempts=attempts,
+                                       model=model, avoid_tells=avoid_tells)
+                trimmed = trim_to_last_sentence(text)
+                print(f"[writer] !! still cut off at the {max_tokens}-token "
+                      f"ceiling; printing up to the last full sentence "
+                      f"({len(trimmed)} of {len(text)} chars).", flush=True)
+                if not trimmed:
+                    raise CallFailed("cut off before a single full sentence")
+                text = trimmed
+
             # A section that failed is a section with a fallback. A section
             # that printed the model's homework is a section nobody can trust
             # again, so this is treated as a failure rather than as content.
@@ -932,6 +1028,24 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
                 print(f"[writer] !! a response began by asking for data "
                       f"rather than writing: {text[:80]!r}", flush=True)
                 raise CallFailed()
+
+            # THE TELLS. The prompt bans "it's not X, it's Y" and friends,
+            # and the model still reaches for them now and then — it is the
+            # most-practised move it has. One redraft, pointed at the exact
+            # sentence, costs a second call only on the papers that need it.
+            # A second offence is printed: a paper is better late-ish with one
+            # tic than missing a story.
+            if avoid_tells:
+                tells = find_ai_tells(text)
+                if tells:
+                    print(f"[writer] !! redrafting to remove "
+                          f"{len(tells)} tell(s): {tells[0][:80]!r}",
+                          flush=True)
+                    redraft = call_claude(
+                        prompt + redraft_instruction(tells),
+                        max_tokens=max_tokens, system=system,
+                        attempts=attempts, model=model, avoid_tells=False)
+                    return redraft or text
 
             return text
         except NoRoomToWrite as exc:
@@ -947,7 +1061,8 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
                   f"budget thinking and never wrote anything. Retrying with "
                   f"{bigger}.", flush=True)
             return call_claude(prompt, max_tokens=bigger, system=system,
-                               attempts=attempts, model=model)
+                               attempts=attempts, model=model,
+                               avoid_tells=avoid_tells)
         except anthropic.APIStatusError as exc:
             # A MODEL THIS ACCOUNT CANNOT USE.
             #
@@ -1144,7 +1259,8 @@ One paragraph, flowing prose, no bullets and no headings.
 
 Week data: {_compact(context)}
 """
-    return call_claude(prompt, max_tokens=1200, system=system, model=model)
+    return call_claude(prompt, max_tokens=2400, system=system, model=model,
+                       avoid_tells=True)
 
 
 #: What a headline actually needs. Everything else in a game context is two
@@ -1242,7 +1358,7 @@ Write only what the numbers support. No invented injuries, plays, snap counts
 or quotes. Plain prose — no markdown, no bullets, no headers.
 
 {f"Things this league would want referenced if they fit: {inside_jokes}" if inside_jokes else ""}
-""", max_tokens=1600, system=system, model=model)
+""", max_tokens=3000, system=system, model=model, avoid_tells=True)
 
 
 def generate_awards(summary, commissioner_name="", inside_jokes="", system=None, model=None):
@@ -1348,41 +1464,82 @@ Data: {_compact(context)}
 
 
 def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=None):
-    """The one line blown up in large type beside the lead story.
+    """The line blown up beside the lead story: a quote from a manager.
 
-    Previously this was not written at all: newspaper.py sliced the lead
-    recap on "." and printed fragment two with an ellipsis, which is how the
-    Week 1 paper ran "Justin Jefferson (best receiver in football) put up 31..."
-    as its featured line. Half a sentence, cut mid-number.
+    It used to be a sentence summarising the lead game, which is the same
+    thing the headline and the first paragraph already say — three ways of
+    saying one score. John's ask: make it what a coach says in the locker
+    room. The whole paper is a comedy, everyone reading it knows the quote is
+    made up, and a manager "saying" something in character is a joke the
+    recap cannot make, because the recap is not allowed to invent quotes.
 
-    A pull quote is the second thing anybody reads. It should be chosen.
+    Returns {"quote": ..., "by": ...}, `by` being one of the two managers in
+    the lead game — never a name the model made up.
     """
     if not game_contexts:
-        return ""
+        return {}
 
     ctx = game_contexts[0]
+    names = {side: (ctx.get(f"{side}_owner") or ctx.get(side) or "").strip()
+             for side in ("winner", "loser")}
+    if not all(names.values()):
+        return {}
+
     facts = [
-        f"{ctx['winner']} beat {ctx['loser']} "
-        f"{ctx['winner_score']:.0f}-{ctx['loser_score']:.0f}"
+        f"{names['winner']} beat {names['loser']} "
+        f"{ctx['winner_score']:.1f} to {ctx['loser_score']:.1f}."
     ]
     for side in ("winner", "loser"):
         for role in ("top_performer", "bottom_performer"):
             p = ctx.get(f"{side}_{role}") or {}
             if p.get("name"):
-                facts.append(f"{ctx[side]}: {p['name']} {p.get('actual') or 0:.1f}"
-                             f" (proj {p.get('projected') or 0:.1f})")
+                facts.append(f"{names[side]} started {p['name']}, who scored "
+                             f"{p.get('actual') or 0:.1f}.")
+    gap = ctx.get("loser_lineup_gap")
+    if isinstance(gap, (int, float)) and gap > 10:
+        facts.append(f"{names['loser']} left {gap:.1f} points on the bench.")
 
-    quote = call_claude(f"""
-Write ONE sentence to print in large type beside the lead story.
+    commissioner_line = ""
+    if commissioner_name and commissioner_name in names.values():
+        commissioner_line = (f"\n{commissioner_name} is the commissioner; if "
+                             f"you quote them, they sound statesmanlike.\n")
+
+    raw = call_claude(f"""
+Make up ONE thing a manager in this game said to reporters in the locker room
+afterwards. It runs in large type beside the lead story, like a real paper's
+pull quote.
 
 {chr(10).join(facts)}
+{commissioner_line}
+Everyone reading knows the quote is invented, so it has to be funny: in
+character for how that manager's week went, and about something specific
+above — a player, a score, a benching. Deadpan beats wacky. The best ones
+sound like a coach at a podium who doesn't realise what they just admitted,
+or a line about a player that is obviously a dig.
 
-It has to stand alone — someone reading only this sentence should get the
-week. Name a player or a manager and carry a number. Between 8 and 22 words.
-No quotation marks, no markdown, no trailing ellipsis. Just the sentence.
-""", max_tokens=120, system=system, model=model)
+Usually the loser has the better line. Pick whoever is funnier.
+First person, 8 to 25 words, no hashtags, no emoji.
 
-    return (quote or "").strip().strip('"“”')
+Reply with exactly two lines and nothing else:
+QUOTE: what they said, without quotation marks
+BY: {names['winner']} or {names['loser']}, exactly as written
+""", max_tokens=400, system=system, model=model)
+
+    quote, by = "", ""
+    for line in (raw or "").splitlines():
+        head, _, rest = line.partition(":")
+        if head.strip().upper() == "QUOTE":
+            quote = rest.strip().strip('"\u201c\u201d')
+        elif head.strip().upper() == "BY":
+            by = rest.strip()
+    if not quote:
+        return {}
+
+    # Only ever one of the two people in the game. Anything else — a player,
+    # a made-up coach, a name spelled differently — becomes the loser, whose
+    # quote it most likely was.
+    matched = next((n for n in names.values() if n.lower() == by.lower()), None)
+    return {"quote": quote, "by": matched or names["loser"]}
 
 
 def generate_classifieds(summary, game_contexts, commissioner_name="",
@@ -1812,8 +1969,17 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         "fraud_watch": results.get("fraud_watch") or "No fraud detected.",
         "power_rankings_comments": results.get("power_rankings_comments") or {},
         "classifieds": results.get("classifieds") or [],
-        "pull_quote": results.get("pull_quote") or "",
+        # Older callers and edits treat the pull quote as a string, so the
+        # attribution travels beside it rather than inside it.
+        "pull_quote": _pull_quote_part(results.get("pull_quote"), "quote"),
+        "pull_quote_by": _pull_quote_part(results.get("pull_quote"), "by"),
     }
+
+
+def _pull_quote_part(value, part):
+    if isinstance(value, dict):
+        return value.get(part) or ""
+    return (value or "") if part == "quote" else ""
 
 
 # --- Keep generate_recap for backwards compatibility with main.py ---
