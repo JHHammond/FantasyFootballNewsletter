@@ -5018,7 +5018,10 @@ class _FakeCheckout:
 def fake_stripe(monkeypatch):
     from web import billing
     checkout = _FakeCheckout()
+    import stripe as real_stripe
     sdk = type("SDK", (), {
+        "InvalidRequestError": real_stripe.InvalidRequestError,
+        "StripeError": real_stripe.StripeError,
         "checkout": type("C", (), {"Session": checkout})(),
         "Customer": type("Cu", (), {"create": staticmethod(
             lambda **k: type("X", (), {"id": "cus_new"})())}),
@@ -5100,3 +5103,52 @@ def test_a_yearly_subscription_is_the_paid_plan_like_any_other():
     fresh = demo_db.user_by_id(user["id"])
     assert fresh["plan"] == "paid"
     assert (fresh["plan_renews_at"] or "").startswith("2027-")
+
+
+# --- switching between Stripe's live and test keys --------------------------
+
+def test_a_customer_from_the_other_mode_is_replaced_not_a_500(client, monkeypatch,
+                                                               fake_stripe):
+    """Production, 21 Sep: an account got a live-mode customer, the keys were
+    switched to test mode, and every checkout after that 500'd with "No such
+    customer ... a similar object exists in live mode"."""
+    import stripe as real_stripe
+    _season_on(monkeypatch)
+    _signup(client)
+    user = demo_db.user_by_email("john@example.com")
+    demo_db.remember_stripe_customer(user["id"], "cus_LIVEONLY")
+
+    real_create = fake_stripe.create
+
+    def create(**kwargs):
+        if kwargs["customer"] == "cus_LIVEONLY":
+            raise real_stripe.InvalidRequestError(
+                "No such customer: 'cus_LIVEONLY'; a similar object exists in "
+                "live mode", param="customer", code="resource_missing")
+        return real_create(**kwargs)
+    monkeypatch.setattr(fake_stripe, "create", create)
+
+    r = client.post("/billing/checkout", data={"term": "season"},
+                    follow_redirects=False)
+
+    assert r.headers["location"] == "https://stripe.test/c"
+    assert fake_stripe.calls[-1]["customer"] == "cus_new"
+    assert demo_db.user_by_id(user["id"])["stripe_customer_id"] == "cus_new"
+
+
+def test_any_other_stripe_error_is_a_message_not_a_500(client, monkeypatch,
+                                                       fake_stripe):
+    import stripe as real_stripe
+    _season_on(monkeypatch)
+    _signup(client)
+
+    def create(**kwargs):
+        raise real_stripe.InvalidRequestError("No such price: 'price_season'",
+                                              param="line_items[0][price]",
+                                              code="resource_missing")
+    monkeypatch.setattr(fake_stripe, "create", create)
+
+    r = client.post("/billing/checkout", data={"term": "season"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert "Nothing+was+charged" in r.headers["location"]

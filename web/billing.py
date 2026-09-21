@@ -121,6 +121,12 @@ def _customer_for(db, user: dict[str, Any]) -> str:
     return customer.id
 
 
+def _is_missing_customer(exc) -> bool:
+    """Stripe's "No such customer" — resource_missing, on the customer param."""
+    return (getattr(exc, "code", None) == "resource_missing"
+            and getattr(exc, "param", None) == "customer")
+
+
 def checkout_url(db, user: dict[str, Any], base_url: str,
                  term: str = plans.MONTHLY) -> str:
     """Where to send somebody who wants to pay.
@@ -132,20 +138,42 @@ def checkout_url(db, user: dict[str, Any], base_url: str,
     stripe_sdk = _stripe()
     base = (base_url or "").rstrip("/")
 
-    session = stripe_sdk.checkout.Session.create(
-        mode="subscription",
-        customer=_customer_for(db, user),
-        line_items=[{"price": price, "quantity": 1}],
-        success_url=f"{base}/billing/done?ok=1",
-        cancel_url=f"{base}/account?notice=No+charge+was+made.",
-        # Both, on purpose. client_reference_id is the documented way to tie a
-        # session back to your own user and rides on the session; the metadata
-        # copy is carried onto the SUBSCRIPTION, which is what later events
-        # are about. Either one alone leaves a gap.
-        client_reference_id=str(user["id"]),
-        subscription_data={"metadata": {"user_id": str(user["id"])}},
-        allow_promotion_codes=True,
-    )
+    def open_session(customer: str):
+        return stripe_sdk.checkout.Session.create(
+            mode="subscription",
+            customer=customer,
+            line_items=[{"price": price, "quantity": 1}],
+            success_url=f"{base}/billing/done?ok=1",
+            cancel_url=f"{base}/account?notice=No+charge+was+made.",
+            # Both, on purpose. client_reference_id is the documented way to
+            # tie a session back to your own user and rides on the session;
+            # the metadata copy is carried onto the SUBSCRIPTION, which is
+            # what later events are about. Either one alone leaves a gap.
+            client_reference_id=str(user["id"]),
+            subscription_data={"metadata": {"user_id": str(user["id"])}},
+            allow_promotion_codes=True,
+        )
+
+    try:
+        try:
+            session = open_session(_customer_for(db, user))
+        except stripe_sdk.InvalidRequestError as exc:
+            if not _is_missing_customer(exc):
+                raise
+            # The stored customer doesn't exist for THIS key. Almost always
+            # a switch between live and test keys: customers made under one
+            # are invisible to the other. Nothing is lost by making a fresh
+            # one — no subscription can be active on a customer Stripe says
+            # doesn't exist here — and the alternative is an account that can
+            # never check out again until somebody edits the database.
+            print(f"[billing] stored customer for {user['id']} not found "
+                  f"under this key ({exc.user_message or exc}); making a "
+                  f"new one", flush=True)
+            fresh = {**user, "stripe_customer_id": None}
+            session = open_session(_customer_for(db, fresh))
+    except stripe_sdk.StripeError as exc:
+        raise BillingError(f"{type(exc).__name__}: {exc}") from exc
+
     if not session.url:
         raise BillingError("Stripe created a session with no URL")
     return session.url
@@ -163,10 +191,14 @@ def portal_url(db, user: dict[str, Any], base_url: str) -> str:
         raise BillingError("no Stripe customer for this account")
 
     base = (base_url or "").rstrip("/")
-    session = _stripe().billing_portal.Session.create(
-        customer=customer,
-        return_url=f"{base}/account",
-    )
+    stripe_sdk = _stripe()
+    try:
+        session = stripe_sdk.billing_portal.Session.create(
+            customer=customer,
+            return_url=f"{base}/account",
+        )
+    except stripe_sdk.StripeError as exc:
+        raise BillingError(f"{type(exc).__name__}: {exc}") from exc
     return session.url
 
 
