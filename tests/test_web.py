@@ -4521,12 +4521,17 @@ def test_the_manage_page_is_in_the_order_somebody_uses_it(client, league):
     """
     body = client.get("/l/secret-admin-token").text
 
-    order = ["Send this to your league", "Make this week", "Past editions",
-             "in the league", "The lore", "Settings"]
-    seen = [body.index(title) for title in order if title in body]
+    # Matched on the heading tag, so a stray mention of "Settings" in some
+    # help text higher up can't satisfy the check by accident. Settings sits
+    # above the two housekeeping cards: it gets used; they are read once.
+    order = ["Send this to your league", "Make this week's paper",
+             "Past editions", "Who's in the league", "The lore", "Settings",
+             "Don't lose this page", "Delete this league"]
+    heads = {t: body.find(f'<h2 class="card-title">{t}</h2>') for t in order}
+    seen = [heads[t] for t in order]
 
-    assert len(seen) == len(order), (
-        f"a section is missing: {[t for t in order if t not in body]}")
+    assert all(i >= 0 for i in seen), (
+        f"a section is missing: {[t for t in order if heads[t] < 0]}")
     assert seen == sorted(seen), "the manage page sections are out of order"
 
 

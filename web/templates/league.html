@@ -239,53 +239,6 @@
 </section>
 
 <section class="card">
-    <h2 class="card-title">Don't lose this page</h2>
-    <p class="card-sub">
-        We'll email you the link so it's not just sitting in your browser history.
-        That's the only thing we use it for.
-    </p>
-    <form method="post" action="/l/{{ league.admin_token }}/email" class="inline-form">
-        <label class="field">
-            <span class="field-label">Your email</span>
-            <input type="email" name="email" required
-                   value="{{ league.owner_email or '' }}" placeholder="you@email.com" />
-        </label>
-        <button type="submit" class="btn">Email me the link</button>
-    </form>
-
-    <div class="card-divider"></div>
-    <p class="card-sub">
-        Shared your screen, or pasted this link somewhere you shouldn't have?
-        Reset it. The old link stops working straight away.
-    </p>
-    <form method="post" action="/l/{{ league.admin_token }}/rotate"
-          onsubmit="return confirm('This link will stop working and you\'ll get a new one. Continue?')">
-        <button type="submit" class="btn btn-quiet">Reset my link</button>
-    </form>
-</section>
-
-<section class="card card-danger">
-    <h2 class="card-title">Delete this league</h2>
-    <p class="card-sub">
-        Every edition, the lore, the people, your subscriber list, this link.
-        The published papers come down too &mdash; anyone you've sent one to
-        gets a dead link. There's no undo and we don't keep a copy.
-        <br /><br />
-        Type <strong>{{ league.league_name }}</strong> below if that's what you
-        want.
-    </p>
-    <form method="post" action="/l/{{ league.admin_token }}/delete"
-          class="inline-form">
-        <label class="field">
-            <span class="field-label">League name</span>
-            <input type="text" name="confirm" required autocomplete="off"
-                   placeholder="{{ league.league_name }}" />
-        </label>
-        <button type="submit" class="btn btn-quiet">Delete it</button>
-    </form>
-</section>
-
-<section class="card">
     <h2 class="card-title">Settings</h2>
     <form method="post" action="/l/{{ league.admin_token }}/settings" class="stack">
         <label class="field">
@@ -357,5 +310,53 @@
         <button type="submit" class="btn">Save</button>
     </form>
 </section>
+
+<section class="card">
+    <h2 class="card-title">Don't lose this page</h2>
+    <p class="card-sub">
+        We'll email you the link so it's not just sitting in your browser history.
+        That's the only thing we use it for.
+    </p>
+    <form method="post" action="/l/{{ league.admin_token }}/email" class="inline-form">
+        <label class="field">
+            <span class="field-label">Your email</span>
+            <input type="email" name="email" required
+                   value="{{ league.owner_email or '' }}" placeholder="you@email.com" />
+        </label>
+        <button type="submit" class="btn">Email me the link</button>
+    </form>
+
+    <div class="card-divider"></div>
+    <p class="card-sub">
+        Shared your screen, or pasted this link somewhere you shouldn't have?
+        Reset it. The old link stops working straight away.
+    </p>
+    <form method="post" action="/l/{{ league.admin_token }}/rotate"
+          onsubmit="return confirm('This link will stop working and you\'ll get a new one. Continue?')">
+        <button type="submit" class="btn btn-quiet">Reset my link</button>
+    </form>
+</section>
+
+<section class="card card-danger">
+    <h2 class="card-title">Delete this league</h2>
+    <p class="card-sub">
+        Every edition, the lore, the people, your subscriber list, this link.
+        The published papers come down too &mdash; anyone you've sent one to
+        gets a dead link. There's no undo and we don't keep a copy.
+        <br /><br />
+        Type <strong>{{ league.league_name }}</strong> below if that's what you
+        want.
+    </p>
+    <form method="post" action="/l/{{ league.admin_token }}/delete"
+          class="inline-form">
+        <label class="field">
+            <span class="field-label">League name</span>
+            <input type="text" name="confirm" required autocomplete="off"
+                   placeholder="{{ league.league_name }}" />
+        </label>
+        <button type="submit" class="btn btn-quiet">Delete it</button>
+    </form>
+</section>
+
 {% include "_generating.html" %}
 {% endblock %}
