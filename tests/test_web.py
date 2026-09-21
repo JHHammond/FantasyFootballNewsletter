@@ -4976,3 +4976,19 @@ def test_the_header_is_about_the_viewer_not_the_leagues_owner(client, league, mo
     _signup(client)
     html = client.get("/l/secret-admin-token").text
     assert 'class="nav-upgrade"' in html
+
+
+def test_the_500_log_line_names_the_actual_error(league, monkeypatch, capsys):
+    """It used to print "NoneType: None", because the handler runs after the
+    except block has closed. The one line in the logs has to say what broke."""
+    def boom(*a, **k):
+        raise ZeroDivisionError("the real cause")
+    monkeypatch.setattr(demo_db, "save_manager", boom)
+    c = TestClient(webapp.app, raise_server_exceptions=False)
+    r = c.post("/l/secret-admin-token/managers",
+               data={"handle": "steve", "display_name": "", "notes": ""})
+    assert r.status_code == 500
+    out = capsys.readouterr()
+    logged = out.out + out.err
+    assert "ZeroDivisionError: the real cause" in logged
+    assert "NoneType: None" not in logged

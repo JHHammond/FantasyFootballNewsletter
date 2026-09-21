@@ -2790,8 +2790,12 @@ def server_error(request: Request, exc: Exception):
     pointing whoever hits this at somewhere useful.
     """
     import traceback
-    print("UNHANDLED ERROR on", request.url.path, flush=True)
-    traceback.print_exc()
+    # From `exc`, not print_exc(): Starlette calls this handler AFTER the
+    # except block has finished, so print_exc() finds no exception in flight
+    # and prints "NoneType: None" — which is exactly what the logs showed.
+    print(f"UNHANDLED ERROR on {request.url.path}: "
+          f"{type(exc).__name__}: {exc}", flush=True)
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
 
     return templates.TemplateResponse(
         request, "error.html",
