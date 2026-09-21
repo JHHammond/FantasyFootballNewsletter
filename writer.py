@@ -1911,38 +1911,54 @@ REPLY: the editor's reply
             "signed": manager, "team": low.get("team_name", "")}
 
 
-def generate_obituary(bust, system=None, model=None):
-    """A mock death notice — for a player's FANTASY WEEK, never the man."""
-    if not bust or not bust.get("name"):
-        return {}
+def generate_obituaries(dead, system=None, model=None):
+    """Mock death notices for the week's lowest-scoring starters — for each
+    player's FANTASY WEEK, never the man. One call, all of them."""
+    dead = [d for d in (dead or []) if d.get("name")]
+    if not dead:
+        return []
 
-    proj = bust.get("projected")
-    facts = [f"{bust['name']} ({bust.get('position', '')}) scored "
-             f"{bust.get('points', 0):.1f} for {bust.get('manager', '')}."]
-    if isinstance(proj, (int, float)):
-        facts.append(f"He was projected for {proj:.1f}.")
-    if bust.get("stat_note"):
-        facts.append(f"What he did: {bust['stat_note']}.")
+    rows = []
+    for i, d in enumerate(dead):
+        proj = d.get("projected")
+        bits = [f"{i + 1}. {d['name']} ({d.get('position', '')}) scored "
+                f"{d.get('points', 0):.1f}, started by {d.get('manager', '')}"]
+        if isinstance(proj, (int, float)):
+            bits.append(f"projected {proj:.1f}")
+        if d.get("stat_note"):
+            bits.append(d["stat_note"])
+        rows.append(", ".join(bits) + ".")
 
     raw = call_claude(f"""
-Write a mock OBITUARY for this player's fantasy week — his fantasy value,
-not the man. Newspaper obituary style: "passed away Sunday afternoon",
-"is survived by", "in lieu of flowers". Survived by the manager who started
-him. Deadpan and affectionate, the way people joke at a wake.
+Write a mock OBITUARY for each of these players' fantasy weeks — the lowest
+scorers anybody in the league started. Each is for the player's fantasy
+value, not the man. Newspaper death-notice style: "passed away Sunday",
+"is survived by" the manager who started him, "in lieu of flowers". Deadpan
+and affectionate, the way people joke at a wake. Each one different — do
+not reuse a phrase across them.
 
-{chr(10).join(facts)}
+{chr(10).join(rows)}
 
 Hard rules: this is about a fantasy score only. Nothing about real death,
 illness, real injuries, family or anything off the field. No invented plays
-or stats beyond the above. 60 to 100 words, one paragraph, no title.
-""", max_tokens=1200, system=system, model=model, avoid_tells=True)
+or stats beyond the above. 30 to 55 words each.
 
-    body = (raw or "").strip()
-    if not body:
-        return {}
-    return {"player": bust["name"], "points": bust.get("points"),
-            "projected": proj, "manager": bust.get("manager", ""),
-            "body": body}
+Reply with one paragraph per player, numbered the same way, and nothing else.
+""", max_tokens=2000, system=system, model=model, avoid_tells=True)
+
+    bodies = {}
+    for line in (raw or "").splitlines():
+        head, _, rest = line.strip().partition(".")
+        if head.strip().isdigit() and rest.strip():
+            bodies[int(head) - 1] = rest.strip()
+
+    out = []
+    for i, d in enumerate(dead):
+        if bodies.get(i):
+            out.append({"player": d["name"], "points": d.get("points"),
+                        "projected": d.get("projected"),
+                        "manager": d.get("manager", ""), "body": bodies[i]})
+    return out
 
 
 def generate_line_picks(lines, system=None, model=None):
@@ -1978,7 +1994,8 @@ Reply with one line per game, numbered the same way, and nothing else.
 
 def generate_full_newspaper_content(league_name, week, games, summary,
                                      commissioner_name="", inside_jokes="",
-                                     tone="standard", bust=None, lines=None):
+                                     tone="standard", obituaries=None,
+                                     lines=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -2018,9 +2035,9 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     tasks = {}
     tasks["letter"] = lambda: generate_letter(
         summary, commissioner_name, inside_jokes, sys_prompt, model_for("letter"))
-    if bust:
-        tasks["obituary"] = lambda: generate_obituary(
-            bust, sys_prompt, model_for("obituary"))
+    if obituaries:
+        tasks["obituaries"] = lambda: generate_obituaries(
+            obituaries, sys_prompt, model_for("obituaries"))
     if lines:
         tasks["lines"] = lambda: generate_line_picks(
             lines, sys_prompt, model_for("lines"))
@@ -2233,7 +2250,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         "pull_quote": _pull_quote_part(results.get("pull_quote"), "quote"),
         "pull_quote_by": _pull_quote_part(results.get("pull_quote"), "by"),
         "letter": results.get("letter") or {},
-        "obituary": results.get("obituary") or {},
+        "obituaries": results.get("obituaries") or [],
         # The lines are numbers first and prose second: if the picks call
         # failed, the board still prints, just without the paper's picks.
         "lines": results.get("lines") or [dict(l, pick="") for l in (lines or [])],

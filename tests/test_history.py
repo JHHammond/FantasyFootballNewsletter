@@ -165,3 +165,27 @@ def test_the_briefing_never_breaks_generation(monkeypatch):
               "season": 2026}
     out = generate._season_briefing(demo_db, league, 3, W3)
     assert out["lines"] == []
+
+
+def test_obituaries_are_the_lowest_scoring_starters():
+    """John: the lowest-scoring players that were in active lineups."""
+    wk = _week(3, (_team("a", 50, [_player("Jacobs", 2.1, 18.4),
+                                   _player("DefA", -3.0, 6.0, "DEF"),
+                                   _player("KickA", 1.0, 8.0, "K"),
+                                   _player("Waddle", 1.2, 9.0, "WR")]),
+                   _team("b", 60, [_player("Henry", 35.3, 16.0),
+                                   _player("Pitts", 0.0, 9.0, "TE"),
+                                   _player("Swift", 4.0, 12.0)])))
+    names = [d["name"] for d in history.lowest_starters(wk)]
+    # at most one kicker/defence, then the lowest scores in order
+    assert names == ["DefA", "Pitts", "Waddle", "Jacobs"]
+
+
+def test_the_promo_comes_from_the_environment(monkeypatch):
+    from web import generate
+    monkeypatch.delenv("PRIZEPICKS_CODE", raising=False)
+    assert generate.promo_settings() is None
+    monkeypatch.setenv("PRIZEPICKS_CODE", "JOHNH")
+    monkeypatch.setenv("PRIZEPICKS_IMAGE_URL", "https://cdn/x.png")
+    assert generate.promo_settings() == {"code": "JOHNH", "image_url": "https://cdn/x.png",
+                                         "link": ""}

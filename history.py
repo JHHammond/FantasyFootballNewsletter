@@ -269,8 +269,49 @@ def format_line(line: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# The obituary: the week's biggest bust
+# The obituaries: the week's lowest-scoring starters
 # ---------------------------------------------------------------------------
+
+#: How many obituaries run. The back page's left column is laid out for four.
+OBITUARY_COUNT = 4
+
+_KICK_AND_DEF = {"K", "DEF", "DST", "D/ST"}
+
+
+def lowest_starters(week_data, n: int = OBITUARY_COUNT) -> list[dict]:
+    """The N lowest scores from players who were in a starting lineup.
+
+    John's rule: the obituaries are the lowest scorers who actually started.
+    At most ONE kicker or defence among them, because a defence at -3 is an
+    ordinary Sunday and a column of four defences is not a joke anybody gets.
+    """
+    starters = []
+    for m in getattr(week_data, "matchups", []) or []:
+        for team in m.teams:
+            for p in team.lineup:
+                if p.player_id:
+                    starters.append((p, team))
+    starters.sort(key=lambda pt: (float(pt[0].points or 0), pt[0].name))
+
+    picked, special = [], 0
+    for p, team in starters:
+        if (p.position or "").upper() in _KICK_AND_DEF:
+            if special:
+                continue
+            special += 1
+        picked.append({
+            "name": p.name,
+            "position": p.position,
+            "points": round(float(p.points or 0), 1),
+            "projected": p.projected,
+            "manager": team.manager.display_name,
+            "team": team.team_name,
+            "stat_note": p.stats.describe() if p.stats else "",
+        })
+        if len(picked) >= n:
+            break
+    return picked
+
 
 def biggest_bust(week_data) -> Optional[dict]:
     """The starter who missed his projection by the most, league-wide.

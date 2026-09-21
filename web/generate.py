@@ -13,7 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 from newspaper import (  # noqa: E402
     build_edition,
@@ -296,6 +297,24 @@ def _snapshot_publisher_ads(db, ai_content: dict, season: int,
     return snapshot
 
 
+def promo_settings() -> dict | None:
+    """The PrizePicks box on the back page, from the environment.
+
+    PRIZEPICKS_CODE turns it on; without it the box isn't printed and the
+    back page closes up around it. The image is web/static/promo/prizepicks.png
+    if that file exists (or PRIZEPICKS_IMAGE_URL), served from this site with
+    an absolute URL, because papers are stored and read somewhere else.
+    """
+    code = os.getenv("PRIZEPICKS_CODE", "").strip()
+    if not code:
+        return None
+    image = os.getenv("PRIZEPICKS_IMAGE_URL", "").strip()
+    if not image and (ROOT / "web" / "static" / "promo" / "prizepicks.png").exists():
+        image = f"{public_base_url()}/static/promo/prizepicks.png"
+    return {"code": code[:40], "image_url": image,
+            "link": os.getenv("PRIZEPICKS_LINK", "").strip()}
+
+
 def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
                      *, is_edit: bool = False) -> dict[str, Any]:
     """Render a paper from existing prose and store it.
@@ -325,6 +344,7 @@ def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
         # object that gets stored, or it would be taken fresh every render and
         # freeze nothing.
         publisher_ads=_snapshot_publisher_ads(db, ai_content, season, week),
+        promo=promo_settings(),
     )
     edition["paper_name"] = paper_name
     html = render_html(edition, theme=league.get("theme"))
@@ -367,6 +387,7 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
         # are actually publishing. It carries no edit hooks — it is not theirs
         # to edit — and this render is never stored, so nothing is frozen here.
         publisher_ads=_snapshot_publisher_ads(db, dict(ai_content), season, week),
+        promo=promo_settings(),
     )
     edition["paper_name"] = paper_name
     return render_html(edition, theme=league.get("theme"))
@@ -454,7 +475,7 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         commissioner_name=league.get("commissioner_name") or "",
         inside_jokes=league_context,
         tone=league.get("tone") or "standard",
-        bust=history.biggest_bust(week_data),
+        obituaries=history.lowest_starters(week_data),
         lines=season_so_far["lines"],
     )
 

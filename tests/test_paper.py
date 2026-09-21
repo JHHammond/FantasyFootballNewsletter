@@ -322,30 +322,57 @@ def test_the_joe_burrow_avatar_is_the_best_losers():
     assert newspaper.award_avatar("JOE BURROW AWARD", summary) == "steve.png"
 
 
-# --- letters, obituary, lines --------------------------------------------------
+# --- letters, and the back page (John's sketch) -------------------------------
 
-def test_letters_and_obituary_render_escaped_and_signed():
-    html = newspaper.render_letters_and_obituary(
-        {"body": "Dear Editor, <b>no</b>.", "reply": "Start better players.",
-         "signed": "Will", "team": "Wasteland"},
-        {"player": "Josh Jacobs", "points": 2.1, "projected": 18.4,
-         "body": "Passed away Sunday."})
-    assert "Letters to the Editor" in html and "Obituaries" in html
+_OBITS = [{"player": f"Player {i}", "points": float(i), "projected": 12.0,
+           "body": f"Obit {i} <b>x</b>."} for i in range(4)]
+_LINES = [{"favorite": "Carson", "underdog": "Will", "spread": 7.5, "total": 245.5,
+           "pickem": False, "pick": "Carson covers."},
+          {"favorite": "A", "underdog": "B", "spread": 0.5, "pickem": True, "pick": ""}]
+_PROMO = {"code": "JOHNH", "image_url": "https://x/p.png", "link": ""}
+
+
+def test_the_letter_renders_escaped_and_signed():
+    html = newspaper.render_letter({"body": "Dear Editor, <b>no</b>.",
+                                    "reply": "Start better players.",
+                                    "signed": "Will", "team": "Wasteland"})
+    assert "Letters to the Editor" in html
     assert "&mdash; Will, Wasteland" in html
     assert "<b>no</b>" not in html
-    assert "Projected 18.4 &ndash; Scored 2.1" in html
+    assert newspaper.render_letter({}) == ""
 
 
-def test_no_extras_means_no_section():
-    assert newspaper.render_letters_and_obituary({}, {}) == ""
+def test_the_back_page_follows_the_sketch():
+    html = newspaper.render_back_page(_OBITS, _PROMO, _LINES, transactions=None)
+    # obituaries down the left, promo and preview across the top
+    assert "'obit promo preview'" in html
+    assert html.index("Obituaries") < html.index("PrizePicks") < html.index("Next Week")
+    assert html.count('class="obit"') == 4
+    assert "<b>x</b>" not in html
+    assert "Projected 12.0 &ndash; Scored 0.0" in html
+    assert "&minus;7.5" in html and "O/U 245.5" in html and "PICK&rsquo;EM" in html
 
 
-def test_the_lines_board():
-    html = newspaper.render_lines([
-        {"favorite": "Carson", "underdog": "Will", "spread": 7.5, "total": 245.5,
-         "pickem": False, "pick": "Carson covers."},
-        {"favorite": "A", "underdog": "B", "spread": 0.5, "pickem": True, "pick": ""}])
-    assert "Next Week&rsquo;s Lines" in html
-    assert "&minus;7.5" in html and "O/U 245.5" in html and "Carson covers." in html
-    assert "PICK&rsquo;EM" in html
-    assert newspaper.render_lines([]) == ""
+def test_the_promo_always_carries_its_small_print():
+    html = newspaper.render_back_page([], _PROMO, [], None)
+    assert "JOHNH" in html
+    assert "referral bonus" in html and "1-800-GAMBLER" in html
+    assert "21+" in html and "Not available in all states" in html
+
+
+def test_no_promo_code_means_no_promo_box_and_no_hole():
+    html = newspaper.render_back_page(_OBITS, {"code": ""}, _LINES, None)
+    assert "PrizePicks" not in html
+    assert "'obit preview preview'" in html
+
+
+def test_transactions_run_along_the_bottom():
+    from unittest import mock
+    with mock.patch.object(newspaper, "render_transactions_html", lambda t, e: "<p>WIRE</p>"):
+        html = newspaper.render_back_page(_OBITS, _PROMO, _LINES, transactions=[1])
+    assert "'obit tx tx'" in html
+    assert html.index("Next Week") < html.index("Transactions")
+
+
+def test_an_empty_back_page_prints_nothing():
+    assert newspaper.render_back_page([], None, [], None) == ""

@@ -685,53 +685,77 @@ def render_awards_html(awards, editable=False):
     return "\n".join(cards)
 
 
-def render_letters_and_obituary(letter, obituary, editable=False):
-    """Letters to the Editor and the Obituaries, side by side.
-
-    Nothing at all when neither was written, rather than two empty boxes.
-    """
-    cards = []
-    if letter and letter.get("body"):
-        reply = (f'<p class="letter-reply"><strong>Editor:</strong> '
-                 f'<span{ed("letter_reply", editable)}>{html_escape(letter.get("reply") or "")}</span></p>'
-                 if letter.get("reply") else "")
-        signed = html_escape(letter.get("signed") or "")
-        team = html_escape(letter.get("team") or "")
-        cards.append(f"""
-        <div class="award-card extra-card">
-            <div class="award-title">Letters to the Editor</div>
-            <div class="extra-body">
+def render_letter(letter, editable=False):
+    """Letters to the Editor. Nothing at all without a letter."""
+    if not letter or not letter.get("body"):
+        return ""
+    reply = (f'<p class="letter-reply"><strong>Editor:</strong> '
+             f'<span{ed("letter_reply", editable)}>{html_escape(letter.get("reply") or "")}</span></p>'
+             if letter.get("reply") else "")
+    signed = html_escape(letter.get("signed") or "")
+    team = html_escape(letter.get("team") or "")
+    return f"""
+        <div class="full-section">
+            <div class="section-title-full">Letters to the Editor</div>
+            <div class="letter">
                 <p{ed("letter_body", editable)}>{html_escape(letter["body"])}</p>
                 <p class="letter-sign">&mdash; {signed}{f", {team}" if team and team != signed else ""}</p>
                 {reply}
             </div>
-        </div>""")
-    if obituary and obituary.get("body"):
-        who = html_escape(obituary.get("player") or "")
-        pts = obituary.get("points")
-        proj = obituary.get("projected")
+        </div>"""
+
+
+def _obituary_items(obituaries, editable=False):
+    items = []
+    for i, o in enumerate(obituaries or []):
+        if not o.get("body"):
+            continue
+        pts, proj = o.get("points"), o.get("projected")
         dates = ""
         if isinstance(pts, (int, float)):
             dates = (f"Projected {proj:.1f} &ndash; Scored {pts:.1f}"
                      if isinstance(proj, (int, float)) else f"Scored {pts:.1f}")
-        cards.append(f"""
-        <div class="award-card extra-card">
-            <div class="award-title">Obituaries</div>
-            <div class="obit-name">{who}&rsquo;s fantasy week</div>
-            <div class="award-desc">{dates}</div>
-            <div class="extra-body"><p{ed("obituary_body", editable)}>{html_escape(obituary["body"])}</p></div>
-        </div>""")
-    if not cards:
+        items.append(f"""
+            <div class="obit">
+                <div class="obit-name">{html_escape(o.get("player") or "")}</div>
+                <div class="obit-dates">{dates}</div>
+                <p{ed(f"obituary_body_{i}", editable)}>{html_escape(o["body"])}</p>
+            </div>""")
+    return "".join(items)
+
+
+#: The disclosure that has to sit with the code. A referral bonus is a
+#: material connection, and PrizePicks is real-money play with an age limit
+#: and state restrictions — so the small print is not optional.
+PROMO_SMALL_PRINT = ("We get a referral bonus if you sign up with our code. "
+                     "Must be 18+ (21+ in some states). Not available in all "
+                     "states. Gambling problem? Call 1-800-GAMBLER.")
+
+
+def _promo_box(promo):
+    code = html_escape((promo or {}).get("code") or "")
+    if not code:
         return ""
+    image = (promo or {}).get("image_url") or ""
+    link = (promo or {}).get("link") or ""
+    img = (f'<img class="promo-image" src="{html_escape(image)}" '
+           f'alt="PrizePicks" />') if image else ""
+    code_html = f'<div class="promo-code">{code}</div>'
+    if link:
+        code_html = (f'<a class="promo-link" href="{html_escape(link)}" '
+                     f'target="_blank" rel="sponsored noopener">{code_html}</a>')
     return f"""
-        <div class="full-section">
-            <div class="section-title-full">Letters &amp; Obituaries</div>
-            <div class="awards-grid-full">{"".join(cards)}</div>
-        </div>"""
+            <div class="bp-label">PrizePicks</div>
+            {img}
+            <p class="promo-pitch">Running this paper doesn&rsquo;t make us
+            much. If you play PrizePicks, signing up with our code helps keep
+            the presses running.</p>
+            <div class="promo-code-label">Use code</div>
+            {code_html}
+            <p class="promo-small">{PROMO_SMALL_PRINT}</p>"""
 
 
-def render_lines(lines, editable=False):
-    """Next week's board. Made-up lines, and the paper's pick for each."""
+def _lines_items(lines, editable=False):
     rows = []
     for i, l in enumerate(lines or []):
         fav, dog = html_escape(l.get("favorite") or ""), html_escape(l.get("underdog") or "")
@@ -747,13 +771,70 @@ def render_lines(lines, editable=False):
                 <div class="line-match"><strong>{fav}</strong> <span class="line-spread">{spread}</span> vs {dog} {ou}</div>
                 {f'<div class="line-pick"{ed(f"line_pick_{i}", editable)}>{pick}</div>' if pick else ""}
             </div>""")
-    if not rows:
+    return "".join(rows)
+
+
+def render_back_page(obituaries=None, promo=None, lines=None,
+                     transactions=None, editable=False):
+    """The back page, laid out to John's sketch:
+
+        +------------+--------------+----------------------+
+        | OBITUARIES | PRIZEPICKS   | NEXT WEEK'S PREVIEW  |
+        |            |    CODE      |                      |
+        |            +--------------+----------------------+
+        |            |          TRANSACTIONS               |
+        +------------+-------------------------------------+
+
+    Any box with nothing in it is left out and its neighbours take the room,
+    so a league with no transactions feed, or a deployment with no promo
+    code, still gets a page with no holes in it. Nothing at all if every box
+    is empty.
+    """
+    obits = _obituary_items(obituaries, editable)
+    promo_html = _promo_box(promo)
+    lines_html = _lines_items(lines, editable)
+    wire = render_transactions_html(transactions, editable) if transactions else ""
+
+    top = []
+    if promo_html:
+        right = " has-right" if lines_html else ""
+        top.append(("promo", f'<div class="bp-promo{right}">{promo_html}</div>'))
+    if lines_html:
+        top.append(("preview", f"""<div class="bp-preview">
+            <div class="bp-label">Next Week&rsquo;s Preview</div>
+            <div class="bp-note">Lines made up from the projections. The Desk takes no bets.</div>
+            {lines_html}</div>"""))
+    if not (obits or top or wire):
         return ""
+
+    # Grid areas, built from what is actually there.
+    right_top = [name for name, _ in top]
+    if len(right_top) == 1:
+        right_top = right_top * 2
+    rows = []
+    if right_top:
+        rows.append(right_top)
+    if wire:
+        rows.append(["tx", "tx"])
+    if not rows:
+        rows = [["obit", "obit"]]
+    # Single-quoted CSS strings: the whole thing sits inside a double-quoted
+    # style attribute, and a double quote here ends the attribute.
+    areas = " ".join(
+        "'" + " ".join((["obit"] if obits else []) + r) + "'" for r in rows)
+    cols = "1fr 1.3fr 1.3fr" if obits else "1fr 1fr"
+
+    parts = []
+    if obits:
+        parts.append(f'<div class="bp-obits"><div class="bp-label">Obituaries</div>{obits}</div>')
+    parts.extend(html for _, html in top)
+    if wire:
+        parts.append(f'<div class="bp-tx"><div class="bp-label">Transactions</div>'
+                     f'<div class="wire">{wire}</div></div>')
+
     return f"""
-        <div class="full-section">
-            <div class="section-title-full">Next Week&rsquo;s Lines</div>
-            <div class="section-note lines-note">Made up from the projections. The Desk takes no bets.</div>
-            <div class="lines-board">{"".join(rows)}</div>
+        <div class="back-page" style="grid-template-columns:{cols};grid-template-areas:{areas};">
+            {"".join(parts)}
         </div>"""
 
 
@@ -1346,7 +1427,8 @@ def build_week_ticker(summary):
 def build_edition(league_name, week, summary, matchups, power_rankings,
                   ai_content=None, ads=None, subscribe_slug=None,
                   transactions=None, publisher_ads=None,
-                  editable=False, canonical_url=None, canonical_base=None):
+                  editable=False, canonical_url=None, canonical_base=None,
+                  promo=None):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
 
@@ -1569,10 +1651,13 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             editable=editable,
         ),
         "awards_html": awards_html,
-        "extras_html": render_letters_and_obituary(
-            (ai_content or {}).get("letter"), (ai_content or {}).get("obituary"),
+        "extras_html": render_letter((ai_content or {}).get("letter"), editable=editable),
+        "back_page_html": render_back_page(
+            obituaries=(ai_content or {}).get("obituaries"),
+            promo=promo,
+            lines=(ai_content or {}).get("lines"),
+            transactions=transactions,
             editable=editable),
-        "lines_html": render_lines((ai_content or {}).get("lines"), editable=editable),
         "standings_html": render_standings_html(build_standings(matchups)),
         "top_scorers_html": build_top_scorers(matchups),
         "week_ticker_html": build_week_ticker(summary),
@@ -1587,7 +1672,9 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             hero_entry, "hero", editable,
             "display:block;margin:0 auto 14px;border:1px solid #ccc;", 100,
             auto=None if hero_entry else auto_hero),
-        "transactions_block": _transactions_block(transactions, editable),
+        # Transactions now live on the back page, beside the promo and the
+        # lines. Kept as a key so older templates that ask for it get "".
+        "transactions_block": "",
         "classifieds_html": render_classifieds(
             ads if ads is not None
             else ads_from_content((ai_content or {}).get("classifieds")),
@@ -2354,11 +2441,51 @@ def render_html(edition, theme=None):
             padding-bottom: 4px;
         }}
 
-        .extra-body {{ font-size: 15px; line-height: 1.6; }}
-        .extra-body p {{ margin: 0 0 8px; }}
+        .letter {{ font-size: 16px; line-height: 1.65; max-width: 760px; margin: 0 auto; padding: 8px 0; }}
+        .letter p {{ margin: 0 0 8px; }}
         .letter-sign {{ font-style: italic; text-align: right; }}
         .letter-reply {{ font-size: 14px; border-top: 1px solid #ddd; padding-top: 8px; }}
-        .obit-name {{ font-weight: 700; font-size: 17px; margin-bottom: 2px; }}
+
+        /* ── BACK PAGE ── obits | promo | preview, transactions ── */
+        .back-page {{
+            display: grid;
+            margin: 28px 36px 0;
+            border-top: 4px solid #111;
+            border-bottom: 4px solid #111;
+        }}
+        .back-page > div {{ padding: 14px 16px; min-width: 0; }}
+        .bp-obits {{ grid-area: obit; border-right: 3px solid #111; }}
+        .bp-promo {{ grid-area: promo; text-align: center; }}
+        .bp-promo.has-right {{ border-right: 3px solid #111; }}
+        .bp-preview {{ grid-area: preview; }}
+        .bp-tx {{ grid-area: tx; border-top: 3px solid #111; }}
+        .bp-label {{
+            font-size: 14px; font-weight: 800; letter-spacing: 2px;
+            text-transform: uppercase; color: #c40000;
+            border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 10px;
+        }}
+        .bp-note {{ font-size: 12px; font-style: italic; opacity: 0.7; margin-bottom: 4px; }}
+        .obit {{ padding: 10px 0; border-bottom: 2px solid #111; }}
+        .obit:last-child {{ border-bottom: 0; }}
+        .obit p {{ margin: 4px 0 0; font-size: 14px; line-height: 1.5; }}
+        .obit-name {{ font-weight: 700; font-size: 16px; }}
+        .obit-dates {{ font-size: 12px; font-style: italic; opacity: 0.75; }}
+        .promo-image {{ display: block; max-width: 100%; max-height: 160px; margin: 0 auto 10px; }}
+        .promo-pitch {{ font-size: 14px; line-height: 1.5; margin: 0 0 12px; }}
+        .promo-code-label {{ font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.7; }}
+        .promo-code {{
+            display: inline-block; font-size: 30px; font-weight: 900; letter-spacing: 3px;
+            border: 3px dashed #111; padding: 6px 16px; margin: 4px 0 12px;
+            max-width: 100%; overflow-wrap: anywhere;
+        }}
+        .promo-link {{ color: inherit; text-decoration: none; }}
+        .promo-small {{ font-size: 10.5px; line-height: 1.4; opacity: 0.75; margin: 0; }}
+        @media (max-width: 760px) {{
+            .back-page {{ display: block; margin: 20px 16px 0; }}
+            .back-page > div {{ border-right: 0 !important; border-top: 3px solid #111; }}
+            .back-page > div:first-child {{ border-top: 0; }}
+        }}
+
         .lines-board {{ padding: 4px 0; }}
         .line-row {{ padding: 9px 0; border-bottom: 1px solid #ddd; }}
         .line-match {{ font-size: 16px; }}
@@ -2705,7 +2832,7 @@ def render_html(edition, theme=None):
             </div>
         </div>
 
-        <!-- LETTERS + OBITUARY — nothing at all when neither was written -->
+        <!-- LETTERS TO THE EDITOR — nothing at all without a letter -->
         {edition.get('extras_html', '')}
 
         <!-- POWER RANKINGS — full width dramatic section -->
@@ -2716,8 +2843,8 @@ def render_html(edition, theme=None):
             </div>
         </div>
 
-        <!-- NEXT WEEK'S LINES -->
-        {edition.get('lines_html', '')}
+        <!-- THE BACK PAGE: obituaries | promo | next week, transactions -->
+        {edition.get('back_page_html', '')}
 
         <!-- TRANSACTIONS — renders nothing at all on platforms that have no
              feed, rather than printing an empty heading. -->

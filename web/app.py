@@ -2135,9 +2135,14 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
         if "letter_reply" in edits:
             letter["reply"] = clean_text(edits["letter_reply"], 300)
         edited["letter"] = letter
-    if "obituary_body" in edits:
-        edited["obituary"] = dict(ai.get("obituary") or {},
-                                  body=clean_text(edits["obituary_body"], 1200))
+    obit_edits = {k: v for k, v in edits.items() if k.startswith("obituary_body_")}
+    if obit_edits:
+        obits = [dict(o) for o in (ai.get("obituaries") or [])]
+        for key, raw in obit_edits.items():
+            idx = key[len("obituary_body_"):]
+            if idx.isdigit() and int(idx) < len(obits):
+                obits[int(idx)]["body"] = clean_text(raw, 800)
+        edited["obituaries"] = obits
     line_edits = {k: v for k, v in edits.items() if k.startswith("line_pick_")}
     if line_edits:
         lines = [dict(l) for l in (ai.get("lines") or [])]

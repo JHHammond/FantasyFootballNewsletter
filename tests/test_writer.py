@@ -2154,18 +2154,22 @@ def test_no_letter_line_means_no_letter(swap_client, no_sleeping):
     assert writer.generate_letter(_LOW) == {}
 
 
-def test_the_obituary_is_about_the_fantasy_week_not_the_man(swap_client, no_sleeping):
+def test_obituaries_are_about_the_fantasy_week_not_the_man(swap_client, no_sleeping):
     seen = {}
 
     def behaviour(k):
         seen["p"] = k["messages"][0]["content"]
-        return _reply("Josh Jacobs' fantasy week passed away Sunday.")
+        return _reply("1. Jacobs' fantasy week passed away Sunday.\n"
+                      "(aside)\n3. Waddle's week is survived by Will.")
     swap_client(behaviour)
-    out = writer.generate_obituary({"name": "Josh Jacobs", "points": 2.1,
-                                    "projected": 18.4, "manager": "Will"})
-    assert out["player"] == "Josh Jacobs" and out["body"]
-    assert "not the man" in seen["p"]
-    assert "Nothing about real death" in seen["p"]
+    dead = [{"name": "Josh Jacobs", "points": 2.1, "projected": 18.4, "manager": "Will"},
+            {"name": "Nobody", "points": 1.0, "manager": "Will"},
+            {"name": "Waddle", "points": 1.2, "manager": "Will"}]
+    out = writer.generate_obituaries(dead)
+    assert [o["player"] for o in out] == ["Josh Jacobs", "Waddle"]
+    assert out[1]["body"].startswith("Waddle's week")
+    assert "not the man" in seen["p"] and "Nothing about real death" in seen["p"]
+    assert "Josh Jacobs" in seen["p"] and "18.4" in seen["p"]
 
 
 def test_line_picks_line_up_with_the_board_and_survive_gaps(swap_client, no_sleeping):
@@ -2186,9 +2190,9 @@ def test_the_extras_reach_the_finished_paper(swap_client, no_sleeping):
               "underdog_manager": "b", "spread": 7.5, "pickem": False}]
     paper = writer.generate_full_newspaper_content(
         "The Kevlarville Times", 3, GAMES, SUMMARY,
-        bust={"name": "Jacobs", "points": 2.1, "projected": 18.4, "manager": "W"},
+        obituaries=[{"name": "Jacobs", "points": 2.1, "projected": 18.4, "manager": "W"}],
         lines=lines)
-    assert paper["obituary"]["player"] == "Jacobs"
+    assert "obituaries" in paper
     assert paper["lines"][0]["favorite"] == "A"
     assert "letter" in paper
 
