@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
+import httpx
 from supabase import Client, create_client
 
 BUCKET = "newspapers"
@@ -93,8 +94,77 @@ def client() -> Client:
                 f"not the publishable one."
             )
 
-        _client = create_client(url, key)
+        _client = _create(url, key)
     return _client
+
+
+# ---------------------------------------------------------------------------
+# The connection underneath
+#
+# THE BUG THIS FIXES: "httpcore.RemoteProtocolError: Server disconnected",
+# raised from the Supabase client, turning a lore save into the "That didn't
+# work" page. supabase-py opens ONE long-lived HTTP/2 connection and sends
+# everything down it. Supabase's edge closes connections that sit idle, and
+# the client doesn't notice until it tries to use one — so the first request
+# after a quiet spell failed. Saving the lore sends one update per person, so
+# that page was the one most likely to hit it.
+#
+# Two changes:
+#   HTTP/1.1, with idle connections dropped after 20 seconds, before the other
+#   end gives up on them. The pool checks a connection is still open before
+#   reusing it, which HTTP/2's single shared stream does not.
+#
+#   One retry, for requests that are safe to send twice (reads, updates,
+#   deletes), when the connection dies before an answer comes back. Not for
+#   POST: an insert or a rate-limit claim that DID land would count twice.
+# ---------------------------------------------------------------------------
+
+#: Methods where sending the same request again changes nothing.
+_RETRYABLE_METHODS = frozenset({"GET", "HEAD", "PATCH", "PUT", "DELETE"})
+
+#: The connection went away under us, rather than the server answering no.
+_STALE_CONNECTION_ERRORS = (httpx.RemoteProtocolError, httpx.ReadError,
+                            httpx.WriteError)
+
+
+class _RetryStaleConnection(httpx.HTTPTransport):
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        try:
+            return super().handle_request(request)
+        except _STALE_CONNECTION_ERRORS as exc:
+            if request.method not in _RETRYABLE_METHODS:
+                raise
+            print(f"[db] {type(exc).__name__} on {request.method} "
+                  f"{request.url.path}; retrying once on a fresh connection",
+                  flush=True)
+            return super().handle_request(request)
+
+
+def _http_client() -> httpx.Client:
+    return httpx.Client(
+        transport=_RetryStaleConnection(
+            http2=False,
+            limits=httpx.Limits(max_connections=20,
+                                max_keepalive_connections=10,
+                                keepalive_expiry=20),
+        ),
+        # Generous on reads: generation uploads the whole paper to storage.
+        timeout=httpx.Timeout(60.0, connect=10.0),
+        follow_redirects=True,
+    )
+
+
+def _create(url: str, key: str) -> Client:
+    try:
+        from supabase.lib.client_options import SyncClientOptions
+        options = SyncClientOptions(httpx_client=_http_client())
+    except (ImportError, TypeError):  # pragma: no cover - old supabase-py
+        # A version too old to accept a client falls back to its own. The
+        # retry is lost, nothing else is.
+        print("[db] this supabase-py can't take a custom HTTP client; "
+              "upgrade it (requirements.txt pins >=2.28)", flush=True)
+        return create_client(url, key)
+    return create_client(url, key, options=options)
 
 
 # ---------------------------------------------------------------------------
