@@ -4992,3 +4992,111 @@ def test_the_500_log_line_names_the_actual_error(league, monkeypatch, capsys):
     logged = out.out + out.err
     assert "ZeroDivisionError: the real cause" in logged
     assert "NoneType: None" not in logged
+
+
+# ---------------------------------------------------------------------------
+# The season pass: a second price for the same paid plan
+# ---------------------------------------------------------------------------
+
+def _season_on(monkeypatch):
+    _billing_on(monkeypatch)
+    monkeypatch.setenv("STRIPE_SEASON_PRICE_ID", "price_season")
+
+
+class _FakeCheckout:
+    """Stands in for stripe.checkout.Session and records what it was asked."""
+
+    def __init__(self):
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return type("S", (), {"url": "https://stripe.test/c"})()
+
+
+@pytest.fixture
+def fake_stripe(monkeypatch):
+    from web import billing
+    checkout = _FakeCheckout()
+    sdk = type("SDK", (), {
+        "checkout": type("C", (), {"Session": checkout})(),
+        "Customer": type("Cu", (), {"create": staticmethod(
+            lambda **k: type("X", (), {"id": "cus_new"})())}),
+    })()
+    monkeypatch.setattr(billing, "_stripe", lambda: sdk)
+    return checkout
+
+
+@pytest.mark.parametrize("term,price", [("season", "price_season"),
+                                        ("monthly", "price_test")])
+def test_each_term_checks_out_at_its_own_price(client, monkeypatch, fake_stripe,
+                                               term, price):
+    _season_on(monkeypatch)
+    _signup(client)
+    r = client.post("/billing/checkout", data={"term": term},
+                    follow_redirects=False)
+    assert r.headers["location"] == "https://stripe.test/c"
+    assert fake_stripe.calls[-1]["line_items"] == [{"price": price, "quantity": 1}]
+    assert fake_stripe.calls[-1]["mode"] == "subscription"
+
+
+def test_no_term_means_monthly(client, monkeypatch, fake_stripe):
+    """Older pages, and anything cached, post no term at all."""
+    _season_on(monkeypatch)
+    _signup(client)
+    client.post("/billing/checkout", follow_redirects=False)
+    assert fake_stripe.calls[-1]["line_items"][0]["price"] == "price_test"
+
+
+def test_a_season_pass_is_refused_when_it_is_not_set_up(client, monkeypatch, fake_stripe):
+    _billing_on(monkeypatch)
+    monkeypatch.delenv("STRIPE_SEASON_PRICE_ID", raising=False)
+    _signup(client)
+    r = client.post("/billing/checkout", data={"term": "season"},
+                    follow_redirects=False)
+    assert "isn't+available" in r.headers["location"]
+    assert fake_stripe.calls == []
+
+
+def test_a_made_up_term_is_refused(client, monkeypatch, fake_stripe):
+    _season_on(monkeypatch)
+    _signup(client)
+    r = client.post("/billing/checkout", data={"term": "lifetime"},
+                    follow_redirects=False)
+    assert "isn't+available" in r.headers["location"]
+    assert fake_stripe.calls == []
+
+
+def test_the_season_pass_leads_when_it_exists(client, monkeypatch):
+    _season_on(monkeypatch)
+    _signup(client)
+    for path in ("/account", "/connect?welcome=1"):
+        html = client.get(path).text
+        assert 'name="term" value="season"' in html, path
+        assert html.index('value="season"') < html.index('value="monthly"'), path
+        assert "$19.99" in html
+
+
+def test_monthly_only_when_there_is_no_season_price(client, monkeypatch):
+    _billing_on(monkeypatch)
+    monkeypatch.delenv("STRIPE_SEASON_PRICE_ID", raising=False)
+    _signup(client)
+    html = client.get("/account").text
+    assert 'value="season"' not in html
+    assert 'name="term" value="monthly"' in html
+    assert "$19.99" not in html
+
+
+def test_a_yearly_subscription_is_the_paid_plan_like_any_other():
+    """The webhook never asks which price was bought."""
+    from web import billing
+    user = demo_db.create_user("season@example.com", "x")
+    demo_db.remember_stripe_customer(user["id"], "cus_season")
+    billing.apply_subscription(demo_db, {
+        "customer": "cus_season", "status": "active", "id": "sub_y",
+        "items": {"data": [{"price": {"id": "price_season",
+                                      "recurring": {"interval": "year"}},
+                            "current_period_end": 1820000000}]}})
+    fresh = demo_db.user_by_id(user["id"])
+    assert fresh["plan"] == "paid"
+    assert (fresh["plan_renews_at"] or "").startswith("2027-")

@@ -50,6 +50,15 @@ STAFF = "staff"
 PRICE_TEXT = "$4.99 a month"
 PRICE_SHORT = "$4.99/mo"
 
+#: The season pass: the same paid plan, billed once a year. A yearly Stripe
+#: subscription, so it renews on its own and cancels the same way the monthly
+#: one does. It runs twelve months from the day it is bought, not to a fixed
+#: date: anchoring renewals to, say, 15 August would make Stripe prorate the
+#: first charge, and "Season pass $19.99" that charges $17.43 is a support
+#: email. Both prices unlock exactly the same plan.
+SEASON_PRICE_TEXT = "$19.99 a season"
+SEASON_PRICE_SHORT = "$19.99/yr"
+
 
 @dataclass(frozen=True)
 class Plan:
@@ -209,3 +218,15 @@ def billing_enabled() -> bool:
     that 500s.
     """
     return bool(os.getenv("STRIPE_SECRET_KEY") and os.getenv("STRIPE_PRICE_ID"))
+
+
+#: What a checkout can be for. Anything else posted at the form is refused.
+MONTHLY = "monthly"
+SEASON = "season"
+TERMS = (MONTHLY, SEASON)
+
+
+def season_pass_enabled() -> bool:
+    """Whether the yearly price is set up too. Optional: without it the site
+    simply offers the monthly plan, as it did before the pass existed."""
+    return billing_enabled() and bool(os.getenv("STRIPE_SEASON_PRICE_ID"))

@@ -75,6 +75,10 @@ services:
                            # The PRICE id, not the product id — a product id
                            # (prod_...) is rejected by Checkout with an error
                            # that does not say which of the two it wanted.
+      - key: STRIPE_SEASON_PRICE_ID
+        sync: false        # price_... for the $19.99/YEAR recurring price, on
+                           # the same product. Optional: unset, the site offers
+                           # only the monthly plan.
       - key: STRIPE_WEBHOOK_SECRET
         sync: false        # whsec_... from the webhook endpoint you create in
                            # the Stripe dashboard, pointed at

@@ -67,3 +67,31 @@
     {% if billing_on %}<a href="/account">See the plan</a>.{% endif %}
 </p>
 {% endmacro %}
+
+{#
+   The buy buttons, in one place, so the account page and the signup offer
+   can't drift apart. With the season pass configured it leads, because it
+   is the better deal for anybody playing the whole season; the monthly plan
+   sits under it as the smaller choice. Without it, just the monthly button.
+#}
+{% macro upgrade_buttons(cta_class="") %}
+{% if season_pass_enabled() %}
+<form method="post" action="/billing/checkout">
+    <input type="hidden" name="term" value="season" />
+    <button type="submit" class="btn btn-primary {{ cta_class }}">
+        Season pass &mdash; {{ season_price_text }}
+    </button>
+</form>
+<form method="post" action="/billing/checkout" class="upgrade-alt">
+    <input type="hidden" name="term" value="monthly" />
+    <button type="submit" class="btn-link">or {{ price_text }}</button>
+</form>
+{% else %}
+<form method="post" action="/billing/checkout">
+    <input type="hidden" name="term" value="monthly" />
+    <button type="submit" class="btn btn-primary {{ cta_class }}">
+        Upgrade &mdash; {{ price_text }}
+    </button>
+</form>
+{% endif %}
+{% endmacro %}

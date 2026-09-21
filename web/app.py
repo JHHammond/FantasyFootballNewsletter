@@ -218,6 +218,8 @@ templates.env.filters["provider_name"] = provider_name
 # has to restate the price.
 templates.env.globals["lock_reasons"] = plans.LOCK_REASONS
 templates.env.globals["price_text"] = plans.PRICE_TEXT
+templates.env.globals["season_price_text"] = plans.SEASON_PRICE_TEXT
+templates.env.globals["season_pass_enabled"] = plans.season_pass_enabled
 # A callable, not a value: the environment variables are read when it is
 # called, so a deployment that configures Stripe does not need a restart to
 # start showing the buttons, and a test can set them per-case.
@@ -1127,8 +1129,14 @@ def account(request: Request, welcome: int = 0, notice: str = "",
 # ---------------------------------------------------------------------------
 
 @app.post("/billing/checkout")
-def billing_checkout(request: Request):
+def billing_checkout(request: Request, term: str = Form(plans.MONTHLY)):
     user = _require_user(request)
+
+    if term not in plans.TERMS or (
+            term == plans.SEASON and not plans.season_pass_enabled()):
+        return RedirectResponse(
+            "/account?error=That+plan+isn't+available.+Nothing+was+charged.",
+            status_code=303)
 
     if plans.is_paid(user):
         return RedirectResponse("/account?notice=You're+already+subscribed.",
@@ -1145,7 +1153,7 @@ def billing_checkout(request: Request):
             "minutes,+and+nothing+has+been+charged.", status_code=303)
 
     try:
-        url = billing.checkout_url(db, user, public_base_url())
+        url = billing.checkout_url(db, user, public_base_url(), term=term)
     except billing.BillingError as exc:
         print(f"[billing] checkout failed for {user['id']}: {exc}", flush=True)
         return RedirectResponse(

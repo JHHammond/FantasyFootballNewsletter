@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import lock %}
+{% from "_macros.html" import lock, upgrade_buttons %}
 {% block title %}Your papers{% endblock %}
 
 {% block content %}
@@ -57,14 +57,11 @@
         <li>{{ lock(lock_reasons.auto_send) }} It writes and sends itself every Tuesday</li>
     </ul>
     {% if billing_enabled() %}
-    <form method="post" action="/billing/checkout">
-        <button type="submit" class="btn btn-primary">
-            Upgrade &mdash; {{ price_text }}
-        </button>
-    </form>
+    {{ upgrade_buttons() }}
     <p class="field-help" style="margin-top:10px;">
-        Cancel any time, from this page. Nothing you&rsquo;ve already made goes
-        away if you do.
+        {% if season_pass_enabled() %}The season pass is billed once a year
+        and renews on the day you bought it. {% endif %}Cancel any time, from
+        this page. Nothing you&rsquo;ve already made goes away if you do.
     </p>
     {% else %}
     <p class="field-help">Paid plans aren&rsquo;t switched on yet.</p>

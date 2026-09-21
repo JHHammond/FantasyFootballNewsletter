@@ -68,10 +68,18 @@ def _stripe():
     return stripe_sdk
 
 
-def price_id() -> str:
-    value = os.getenv("STRIPE_PRICE_ID")
+#: Which environment variable holds the Stripe price for each term.
+_PRICE_ENV = {plans.MONTHLY: "STRIPE_PRICE_ID",
+              plans.SEASON: "STRIPE_SEASON_PRICE_ID"}
+
+
+def price_id(term: str = plans.MONTHLY) -> str:
+    name = _PRICE_ENV.get(term)
+    if not name:
+        raise BillingError(f"unknown term {term!r}")
+    value = os.getenv(name)
     if not value:
-        raise NotConfigured("STRIPE_PRICE_ID is not set")
+        raise NotConfigured(f"{name} is not set")
     return value
 
 
@@ -113,15 +121,21 @@ def _customer_for(db, user: dict[str, Any]) -> str:
     return customer.id
 
 
-def checkout_url(db, user: dict[str, Any], base_url: str) -> str:
-    """Where to send somebody who wants to pay."""
+def checkout_url(db, user: dict[str, Any], base_url: str,
+                 term: str = plans.MONTHLY) -> str:
+    """Where to send somebody who wants to pay.
+
+    The term only picks the price. The webhook never asks which one was
+    bought: an active subscription is the paid plan either way.
+    """
+    price = price_id(term)
     stripe_sdk = _stripe()
     base = (base_url or "").rstrip("/")
 
     session = stripe_sdk.checkout.Session.create(
         mode="subscription",
         customer=_customer_for(db, user),
-        line_items=[{"price": price_id(), "quantity": 1}],
+        line_items=[{"price": price, "quantity": 1}],
         success_url=f"{base}/billing/done?ok=1",
         cancel_url=f"{base}/account?notice=No+charge+was+made.",
         # Both, on purpose. client_reference_id is the documented way to tie a
@@ -200,6 +214,13 @@ def _field(obj, name, default=None):
     matched. A webhook that no-ops on a shape it did not expect is the exact
     failure that loses a paying customer without anybody noticing.
     """
+    # A plain dict first, by key. getattr on a dict finds its METHODS: a
+    # subscription's "items" field comes back as dict.items, the period end
+    # reads as missing, and the renewal date is silently never stored.
+    if isinstance(obj, dict):
+        value = obj.get(name)
+        return default if value is None else value
+
     value = getattr(obj, name, None)
     if value is None and hasattr(obj, "get"):
         try:

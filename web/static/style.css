@@ -1321,3 +1321,17 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     text-decoration: underline;
     cursor: pointer;
 }
+
+/* the smaller "or $4.99 a month" under the season pass */
+.upgrade-alt { margin-top: 8px; }
+.btn-link {
+    background: none;
+    border: 0;
+    padding: 4px 2px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--ink-2);
+    text-decoration: underline;
+    cursor: pointer;
+}
+.offer .upgrade-alt { text-align: center; }

@@ -6,9 +6,10 @@
    decision to show it is made on the server (see _offer_upgrade in app.py):
    free plan, signed in, and Stripe configured, or it never renders at all.
 #}
+{% from "_macros.html" import upgrade_buttons %}
 <dialog class="offer" id="upgrade-offer" aria-labelledby="offer-title">
     <div class="offer-eyebrow">Welcome to the Desk</div>
-    <h2 class="offer-title" id="offer-title">Get the whole paper for {{ price_text }}</h2>
+    <h2 class="offer-title" id="offer-title">Get the whole paper for {{ season_price_text if season_pass_enabled() else price_text }}</h2>
     <p class="offer-sub">
         Free gets you one league in the tabloid look. Upgrading gets you:
     </p>
@@ -19,12 +20,10 @@
         <li>Your own photos in the paper</li>
         <li>It writes and emails itself to the league every Tuesday</li>
     </ul>
-    <form method="post" action="/billing/checkout">
-        <button type="submit" class="btn btn-primary offer-cta">
-            Upgrade &mdash; {{ price_text }}
-        </button>
-    </form>
-    <p class="offer-fine">Cancel any time from your account page.</p>
+    {{ upgrade_buttons("offer-cta") }}
+    <p class="offer-fine">
+        {% if season_pass_enabled() %}The pass renews once a year. {% endif %}Cancel any time from your account page.
+    </p>
     <button type="button" class="offer-later" id="offer-later">Maybe later</button>
 </dialog>
 <script>
