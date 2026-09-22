@@ -2274,3 +2274,33 @@ def test_custom_awards_reach_the_awards_prompt_and_get_their_labels(swap_client,
 
 def test_a_manual_award_with_no_winner_is_left_out(swap_client, no_sleeping):
     assert writer._custom_award_lines([{"name": "X", "mode": "manual"}], "") == []
+
+
+def test_a_commissioners_letter_replaces_the_lead_and_feeds_the_headline(
+        swap_client, no_sleeping):
+    """His words, as typed: the lead is never written or redrafted, and the
+    front headline is written from the letter, like any other lead."""
+    prompts = []
+
+    def behaviour(kwargs):
+        prompts.append(kwargs["messages"][0]["content"])
+        return _reply()
+
+    swap_client(behaviour)
+    letter = "Gentlemen. I remain undefeated and you remain cowards."
+    paper = writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY, commissioner_letter=letter)
+
+    assert paper["lead_story"] == letter
+    assert paper["lead_by_commissioner"] is True
+    assert not any("LEAD STORY" in p for p in prompts), "the lead was still written"
+    assert any("remain cowards" in p for p in prompts), "headline never saw the letter"
+
+
+def test_no_letter_is_an_ordinary_paper(swap_client, no_sleeping):
+    prompts = []
+    swap_client(lambda kw: prompts.append(kw["messages"][0]["content"]) or _reply())
+    paper = writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY, commissioner_letter="   ")
+    assert paper["lead_by_commissioner"] is False
+    assert any("LEAD STORY" in p for p in prompts)

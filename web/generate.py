@@ -510,8 +510,43 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
     return out
 
 
-def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
+MAX_LETTER_CHARS = 6000
+
+
+def letter_to_html(text: str) -> str:
+    """The commissioner's letter, as safe paragraphs.
+
+    Escaped, then one paragraph per blank-line-separated block, with single
+    line breaks kept — people type letters with line breaks and expect them.
+    """
+    import html
+    import re
+    text = (text or "").strip()[:MAX_LETTER_CHARS].replace("\r\n", "\n")
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+    return "".join(
+        "<p>" + "<br>".join(html.escape(line.strip()) for line in b.split("\n")) + "</p>"
+        for b in blocks)
+
+
+def letter_from_html(value: str) -> str:
+    """letter_to_html, backwards: paragraphs to blank lines, <br> to line
+    breaks, every other tag dropped and entities decoded."""
+    import html
+    import re
+    text = re.sub(r"(?i)<br\s*/?>", "\n", value or "")
+    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def generate_and_store(db, league: dict[str, Any], week: int,
+                       letter: str = "") -> dict[str, Any]:
     """Fetch, write with Claude, render, upload, record.
+
+    `letter` is the commissioner's own front-page story, if he wrote one.
+    It is printed exactly as typed in place of the written lead.
 
     Raises ProviderError if the platform can't give us the week.
     """
@@ -560,7 +595,15 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         lines=season_so_far["lines"],
         memories=season_so_far["memories"],
         custom_awards=_custom_awards_for_writer(db, league, directory),
+        commissioner_letter=letter,
     )
+
+    # Stored as HTML, like an edited story: escaped here, once, so what he
+    # typed can never be read as markup, and the editor handles it exactly
+    # the way it handles every other story.
+    if ai_content.get("lead_by_commissioner"):
+        ai_content["lead_story"] = letter_to_html(ai_content["lead_story"])
+        ai_content["lead_signed"] = (league.get("commissioner_name") or "").strip()
 
     # Frozen into the paper, like the lines: an edit or re-render next month
     # must show the trend as it stood when this week was written.

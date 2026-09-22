@@ -2055,7 +2055,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      commissioner_name="", inside_jokes="",
                                      tone="standard", obituaries=None,
                                      lines=None, memories=None,
-                                     custom_awards=None):
+                                     custom_awards=None,
+                                     commissioner_letter=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -2103,9 +2104,15 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     # Top-level tasks. The front headline is NOT here: it is written after
     # the lead story, from it — see the second wave below.
-    tasks["lead_story"] = lambda: generate_lead_story(
-        summary, week, league_name, commissioner_name, inside_jokes,
-        sys_prompt, model_for("lead_story"), games=games)
+    #
+    # A letter from the commissioner replaces the lead story outright: his
+    # words, printed as typed, never sent through the writer. The front
+    # headline is still written — from the letter, like any other lead.
+    letter = (commissioner_letter or "").strip()
+    if not letter:
+        tasks["lead_story"] = lambda: generate_lead_story(
+            summary, week, league_name, commissioner_name, inside_jokes,
+            sys_prompt, model_for("lead_story"), games=games)
     games_brief = "\n".join(
         f"{gc['ctx']['winner']} beat {gc['ctx']['loser']} "
         f"{gc['ctx']['winner_score']}-{gc['ctx']['loser_score']}. "
@@ -2224,6 +2231,9 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         for future in as_completed(futures):
             future.result()   # record() already swallowed anything worth it
 
+    if letter:
+        results["lead_story"] = letter
+
     # SECOND WAVE: the headlines, each written from the story it sits over.
     # All of them at once, and they are short, so this adds a couple of
     # seconds to a thirty-second wait — the price of a headline that agrees
@@ -2310,6 +2320,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     return {
         "headline": results.get("headline") or f"{league_name} — Week {week}",
         "lead_story": results.get("lead_story") or "Another week in the books.",
+        # Printed under "From the desk of the Commissioner", as typed.
+        "lead_by_commissioner": bool(letter),
         "matchup_content": matchup_content,
         "awards": _label_custom_awards(results.get("awards") or [], custom_awards),
         "fraud_watch": results.get("fraud_watch") or "No fraud detected.",

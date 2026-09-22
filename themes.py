@@ -159,6 +159,16 @@ body { background: #f4f2ed !important; }
 /* The tabloid's red is doing all the shouting. A broadsheet doesn't shout. */
 .ranking-card-rank { color: #111 !important; }
 
+/* The newer sections: ink, not red. */
+:root { --accent: #111; }
+.bp-label, .letter-kicker {
+    font-family: "Libre Franklin", sans-serif !important;
+    font-weight: 600 !important;
+    letter-spacing: 2.6px !important;
+}
+.letter-kicker { font-size: 11px !important; border-bottom-width: 1px !important; }
+.line-bar { background: #e4e0d6 !important; }
+
 .fraud-callout {
     background: #f2efe8 !important;
     border: 1px solid #111 !important;
@@ -231,6 +241,56 @@ GAMEDAY_FONTS = (
 )
 
 GAMEDAY_CSS = """
+/* The newer sections take the broadcast green. */
+:root { --accent: #16f04e; }
+
+/* Everything that was drawn light-on-paper for the tabloid. */
+.dateline-bar span:nth-child(2) { color: #e8ecf2 !important; }
+.ticker-stat { background: #1c2028 !important; border-color: #2b313c !important; }
+.rankings-section { background: #0f1216 !important; }
+table.stats th { background: #0f1216 !important; color: #8d9bad !important; }
+.story-scorebar { background: #0f1216 !important; border-color: #2b313c !important; }
+.story-team-name { color: #ffffff !important; }
+.story-team-meta, .award-desc, .section-note { color: #8d9bad !important; }
+.story-margin { color: #16f04e !important; }
+
+/* The commissioner's letter. */
+.letter-kicker {
+    font-family: "Barlow Condensed", sans-serif !important;
+    font-weight: 800 !important;
+    letter-spacing: 3px !important;
+}
+.letter-sign { color: #ccd5e0 !important; }
+
+/* The back page: obituaries, the promo, the lines, transactions. */
+.back-page { border-color: #16f04e !important; border-width: 2px 0 !important; }
+.bp-obits, .bp-promo.has-right, .bp-tx, .obit, .bp-label, .line-card, .line-row {
+    border-color: #2b313c !important;
+}
+.bp-label {
+    font-family: "Barlow Condensed", sans-serif !important;
+    font-weight: 800 !important;
+    letter-spacing: 3px !important;
+}
+.back-page { font-family: "Inter", system-ui, sans-serif !important; }
+.obit-name, .lt-name {
+    color: #ffffff !important;
+    font-family: "Barlow Condensed", sans-serif !important;
+    font-weight: 800 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.obit p, .promo-pitch { color: #ccd5e0 !important; }
+.promo-code { border-color: #16f04e !important; color: #ffffff !important;
+              font-family: "Anton", sans-serif !important; font-weight: 400 !important; }
+.line-big { font-family: "Anton", sans-serif !important; font-weight: 400 !important; }
+.lt-avatar { border-color: #8d9bad !important; }
+.lt-initial { background: #1c2028 !important; color: #ffffff !important; }
+.line-bar { background: #2b313c !important; }
+.line-chip { border-color: #8d9bad !important; color: #ccd5e0 !important; }
+.line-tag { background: #e8ecf2 !important; color: #0b0d10 !important; border-color: #e8ecf2 !important; }
+.line-tag.coin { background: #c8a200 !important; color: #111 !important; border-color: #c8a200 !important; }
+
 /* standings trend lines: light ink on the dark page */
 .spark { color: #e9edf2 !important; }
 .spark-now { fill: #16f04e !important; }

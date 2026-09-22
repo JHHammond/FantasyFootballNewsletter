@@ -1421,3 +1421,45 @@ html.is-generating, html.is-generating body { overflow: hidden; }
 .award-row-actions { display: flex; gap: 14px; align-items: center; margin-top: 8px; }
 .award-add summary { cursor: pointer; font-weight: 700; margin: 6px 0 10px; }
 @media (max-width: 560px) { .award-row-fields { grid-template-columns: 1fr; } }
+
+/* ---------- the commissioner's letter, asked before generating ---------- */
+.letter-prompt {
+    width: min(600px, calc(100vw - 32px));
+    position: fixed;
+}
+.letter-prompt .offer-title { font-size: 26px; }
+.letter-prompt textarea {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 190px;
+    resize: vertical;
+    text-align: left;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 16px;
+    line-height: 1.55;
+    padding: 12px 14px;
+    border: 1.5px solid var(--ink);
+    background: #fff;
+    color: var(--ink);
+}
+.letter-prompt textarea:focus { outline: 3px solid var(--gold); outline-offset: 1px; }
+.letter-count {
+    font-size: 12.5px;
+    color: var(--muted);
+    text-align: right;
+    margin: 6px 0 14px;
+}
+.letter-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: none;
+    border: 0;
+    font-size: 26px;
+    line-height: 1;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 4px 8px;
+}
+.letter-close:hover { color: var(--ink); }

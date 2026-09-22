@@ -584,6 +584,29 @@ GAMEDAY_PRINT_CSS = """
         border-bottom: 2px solid #0a7d2c !important;
     }
     .week-ticker * { color: #111 !important; }
+
+    /* The newer sections, which the dark theme draws light-on-dark. */
+    :root { --accent: #0a7d2c; }
+    .ticker-stat, .rankings-section, table.stats th, .story-scorebar, .lt-initial {
+        background: #fff !important;
+        color: #111 !important;
+        border-color: #bbb !important;
+    }
+    .dateline-bar span:nth-child(2) { color: #222 !important; }
+    .story-team-name, .obit-name, .lt-name, .promo-code, .letter-sign,
+    .obit p, .promo-pitch { color: #111 !important; }
+    .story-team-meta, .award-desc, .section-note { color: #555 !important; }
+    .story-margin { color: #0a7d2c !important; }
+    .back-page { border-color: #0a7d2c !important; }
+    .bp-obits, .bp-promo.has-right, .bp-tx, .obit, .bp-label, .line-card,
+    .line-row { border-color: #bbb !important; }
+    .promo-code { border-color: #0a7d2c !important; }
+    .line-bar { background: #ddd !important; }
+    .line-chip { border-color: #555 !important; color: #333 !important; }
+    .line-tag { background: #111 !important; color: #fff !important; border-color: #111 !important; }
+    .line-tag.coin { background: #c8a200 !important; color: #111 !important; }
+    .spark { color: #111 !important; }
+    .spark-now { fill: #0a7d2c !important; }
 }
 """
 

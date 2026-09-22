@@ -69,7 +69,9 @@ from . import auth, billing, emailer, images, legal, oauth, slugs  # noqa: E402
 from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
     WriterError,
+    MAX_LETTER_CHARS,
     generate_and_store,
+    letter_from_html,
     managers_for_page,
     paper_name_for,
     public_base_url,
@@ -1830,6 +1832,7 @@ def save_setup(
     display_name: list[str] = Form([]),
     notes: list[str] = Form([]),
     then: str = Form(""),
+    letter: str = Form(""),
     week: str = Form(""),
 ):
     league = _require_league(token)
@@ -1871,7 +1874,8 @@ def save_setup(
     # door as the manage page's Generate button.
     if then == "generate" and week.strip().isdigit():
         fresh = _require_league(token)
-        return _generate_response(request, fresh, int(week.strip()))
+        return _generate_response(request, fresh, int(week.strip()),
+                                  letter=letter.strip()[:MAX_LETTER_CHARS])
 
     return RedirectResponse(f"/l/{token}?new=1", status_code=303)
 
@@ -1900,13 +1904,14 @@ def skip_setup(request: Request, token: str, week: str = Form("")):
 
 @app.post("/l/{token}/generate")
 def generate(request: Request, token: str, week: int = Form(...),
-             confirm_overwrite: str = Form("")):
+             confirm_overwrite: str = Form(""), letter: str = Form("")):
     league = _require_league(token)
-    return _generate_response(request, league, week, confirm_overwrite)
+    return _generate_response(request, league, week, confirm_overwrite,
+                              letter=letter.strip()[:MAX_LETTER_CHARS])
 
 
 def _generate_response(request: Request, league: dict, week: int,
-                       confirm_overwrite: str = ""):
+                       confirm_overwrite: str = "", letter: str = ""):
     """Every check, the generation itself, and where to send the browser.
 
     Shared by the Generate button on the manage page and the last step of
@@ -1992,7 +1997,7 @@ def _generate_response(request: Request, league: dict, week: int,
             f"Give+it+a+minute+and+hit+generate+again.",
             status_code=303)
     try:
-        generate_and_store(db, league, week)
+        generate_and_store(db, league, week, letter=letter)
     except ProviderError as exc:
         return RedirectResponse(f"/l/{token}?error={exc}", status_code=303)
     except WriterError as exc:
@@ -2028,6 +2033,23 @@ def _generate_response(request: Request, league: dict, week: int,
     # Show them the paper. Waiting thirty seconds and being handed a URL to
     # click is a bad payoff for the one moment the product actually delivers.
     return RedirectResponse(f"/l/{token}/published/{week}", status_code=303)
+
+
+@app.get("/l/{token}/letter/{week}")
+def letter_for_week(token: str, week: int):
+    """The commissioner's letter already in a week's paper, as plain text.
+
+    For the pop-up before a regeneration, so a redo doesn't make him type it
+    again. Read back from the paper as it stands now, so a letter he has
+    since fixed in the editor comes back fixed.
+    """
+    league = _require_league(token)
+    paper = db.get_paper(league["id"], league["season"], week) or {}
+    cache = paper.get("ai_cache") or {}
+    text = ""
+    if cache.get("lead_by_commissioner"):
+        text = letter_from_html(cache.get("lead_story") or "")
+    return JSONResponse({"letter": text})
 
 
 @app.get("/l/{token}/published/{week}", response_class=HTMLResponse)

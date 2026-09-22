@@ -66,7 +66,7 @@
     {% if weeks %}
     <p class="card-sub">Run it once Monday&rsquo;s game is over and the week is final. Takes about 30 seconds.</p>
     <form method="post" action="/l/{{ league.admin_token }}/generate" class="inline-form"
-          data-generating>
+          data-generating data-letter-prompt>
         <label class="field field-narrow">
             <span class="field-label">Week</span>
             <select name="week">
@@ -358,5 +358,6 @@
     </form>
 </section>
 
+{% include "_letter_prompt.html" %}
 {% include "_generating.html" %}
 {% endblock %}

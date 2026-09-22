@@ -1,0 +1,113 @@
+{#
+   "Would you like to add a letter from the desk of the commissioner?"
+
+   Asked every time a paper is about to be written. Whatever he types becomes
+   the front-page story, printed exactly as typed, and the headline is written
+   from it. "No thanks" writes the paper the usual way.
+
+   Attach it to a form with data-letter-prompt, and include this BEFORE
+   _generating.html: the listener here runs in the capture phase and holds
+   the submit back until he has chosen, then re-sends it with requestSubmit
+   so the loading screen still starts. Without <dialog> support the form
+   simply submits as it always did.
+#}
+<dialog class="offer letter-prompt" id="letter-prompt" aria-labelledby="letter-title">
+    <button type="button" class="letter-close" id="letter-close" aria-label="Cancel">&times;</button>
+    <div class="offer-eyebrow">Before the presses run</div>
+    <h2 class="offer-title" id="letter-title">Would you like to add a letter from the desk of the commissioner?</h2>
+    <p class="offer-sub">
+        This will be the front page story. Call out your leaguemates. Brag
+        about your team. We don&rsquo;t care, it&rsquo;s your call.
+    </p>
+    <textarea id="letter-text" rows="9" maxlength="6000"
+              aria-label="Your letter"
+              placeholder="Gentlemen.
+
+Three weeks in and I am the only one of you who can set a lineup..."></textarea>
+    <p class="letter-count"><span id="letter-count">0</span> / 6,000 &middot; Printed exactly as you type it.</p>
+    <button type="button" class="btn btn-primary offer-cta" id="letter-use" disabled>
+        Put it on the front page
+    </button>
+    <button type="button" class="offer-later" id="letter-skip">No thanks, write it for me</button>
+</dialog>
+<script>
+(function () {
+    var dlg = document.getElementById("letter-prompt");
+    if (!dlg || typeof dlg.showModal !== "function") return;
+    var text = document.getElementById("letter-text");
+    var count = document.getElementById("letter-count");
+    var useBtn = document.getElementById("letter-use");
+    var BASE = "/l/{{ league.admin_token }}/letter/";
+    var pending = null;
+
+    function update() {
+        count.textContent = text.value.length.toLocaleString();
+        useBtn.disabled = !text.value.trim();
+    }
+    text.addEventListener("input", update);
+
+    document.querySelectorAll("form[data-letter-prompt]").forEach(function (form) {
+        form.addEventListener("submit", function (event) {
+            if (form.dataset.letterDone === "1") return;
+            // A quiet button on the same form ("Save" rather than "Generate").
+            if (event.submitter && event.submitter.hasAttribute("data-no-overlay")) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            pending = { form: form, submitter: event.submitter };
+            text.value = "";
+            update();
+            dlg.showModal();
+            // A redo of a week that already has his letter: bring it back
+            // rather than make him type it again.
+            var week = form.querySelector("[name=week]");
+            if (week && week.value) {
+                fetch(BASE + encodeURIComponent(week.value), { credentials: "same-origin" })
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .then(function (d) {
+                        if (d && d.letter && !text.value) { text.value = d.letter; update(); }
+                    })
+                    .catch(function () {});
+            }
+        }, true);
+    });
+
+    function go(letter) {
+        if (!pending) return;
+        var form = pending.form, submitter = pending.submitter;
+        pending = null;
+        var input = form.querySelector("input[name=letter]");
+        if (!input) {
+            input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "letter";
+            form.appendChild(input);
+        }
+        input.value = letter;
+        form.dataset.letterDone = "1";
+        dlg.close();
+        if (typeof form.requestSubmit === "function") {
+            // The same button, so name=value pairs like then=generate survive.
+            form.requestSubmit(submitter && submitter.form === form ? submitter : undefined);
+        } else {
+            form.submit();
+        }
+    }
+
+    useBtn.addEventListener("click", function () { go(text.value.trim()); });
+    document.getElementById("letter-skip").addEventListener("click", function () { go(""); });
+    // The x, Escape, or a click on the backdrop: nothing gets written.
+    function cancel() { pending = null; dlg.close(); }
+    document.getElementById("letter-close").addEventListener("click", cancel);
+    dlg.addEventListener("click", function (e) { if (e.target === dlg) cancel(); });
+    dlg.addEventListener("cancel", function () { pending = null; });
+
+    // Back button from the finished paper restores this page from memory,
+    // flag and all; the next Generate should ask again.
+    window.addEventListener("pageshow", function (event) {
+        if (!event.persisted) return;
+        document.querySelectorAll("form[data-letter-prompt]").forEach(function (f) {
+            delete f.dataset.letterDone;
+        });
+    });
+})();
+</script>

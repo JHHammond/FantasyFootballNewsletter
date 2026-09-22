@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime
+import html as _html
 import json
 import random
 import re
@@ -1575,7 +1576,19 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
 
     # --- Lead story ---
     edition_subtitle = ""
-    if ai_content and ai_content.get("lead_story"):
+    lead_kicker = lead_sign = ""
+    if ai_content and ai_content.get("lead_by_commissioner") and ai_content.get("lead_story"):
+        # The commissioner's own letter. Already safe HTML (generate.py
+        # escapes it; the editor sanitises edits), and printed as he wrote
+        # it — none of the clean-up below is aimed at him.
+        lead_story = md(ai_content["lead_story"])
+        lead_kicker = ('<div class="letter-kicker">From the desk of the '
+                       'Commissioner</div>')
+        signed = _html.escape((ai_content.get("lead_signed") or "").strip())
+        lead_sign = ('<div class="letter-sign">&mdash; '
+                     + (f"{signed}, Commissioner" if signed else "The Commissioner")
+                     + '</div>')
+    elif ai_content and ai_content.get("lead_story"):
         import re
         raw_lead = clean_ai_text(ai_content["lead_story"])
         # Strip "KEVLARVILLE TIMES — WEEK N" style header lines
@@ -1755,6 +1768,8 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         "headline": headline,
         "subheadline": build_subheadline(summary),
         "lead_story": lead_story,
+        "lead_kicker": lead_kicker,
+        "lead_sign": lead_sign,
         "hero_html": hero_html,
         "front_left_html": front_left_html,
         "matchup_stories_html": matchup_stories_html,
@@ -1917,6 +1932,11 @@ def render_html(edition, theme=None):
         {SUBSCRIBE_CSS}
         * {{ box-sizing: border-box; }}
 
+        /* The colour the newer sections (the commissioner's letter, the back
+           page, the lines, the trend dots) are drawn in. Each theme sets its
+           own, so a section added later can't arrive in the wrong colour. */
+        :root {{ --accent: #c40000; }}
+
         body {{
             margin: 0;
             background: #f0ece4;
@@ -2059,6 +2079,25 @@ def render_html(edition, theme=None):
             font-size: 14px;
             line-height: 1.65;
             column-count: 1;
+        }}
+
+        /* The commissioner's own letter, when he wrote one. */
+        .letter-kicker {{
+            font-family: "Barlow Condensed", "Helvetica Neue", Arial, sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--accent);
+            border-bottom: 2px solid currentColor;
+            padding-bottom: 4px;
+            margin: 4px 0 12px;
+        }}
+        .letter-sign {{
+            font-style: italic;
+            font-size: 16px;
+            text-align: right;
+            margin: 10px 0 4px;
         }}
 
         .lead-story h1 {{
@@ -2561,10 +2600,6 @@ def render_html(edition, theme=None):
             padding-bottom: 4px;
         }}
 
-        .letter {{ font-size: 16px; line-height: 1.65; max-width: 760px; margin: 0 auto; padding: 8px 0; }}
-        .letter p {{ margin: 0 0 8px; }}
-        .letter-sign {{ font-style: italic; text-align: right; }}
-        .letter-reply {{ font-size: 14px; border-top: 1px solid #ddd; padding-top: 8px; }}
 
         /* ── BACK PAGE ── obits | promo | preview, transactions ── */
         .back-page {{
@@ -2581,7 +2616,7 @@ def render_html(edition, theme=None):
         .bp-tx {{ grid-area: tx; border-top: 3px solid #111; }}
         .bp-label {{
             font-size: 14px; font-weight: 800; letter-spacing: 2px;
-            text-transform: uppercase; color: #c40000;
+            text-transform: uppercase; color: var(--accent);
             border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 10px;
         }}
         .bp-note {{ font-size: 12px; font-style: italic; opacity: 0.7; margin-bottom: 4px; }}
@@ -2601,6 +2636,11 @@ def render_html(edition, theme=None):
         }}
         .promo-link {{ color: inherit; text-decoration: none; }}
         .promo-small {{ font-size: 10.5px; line-height: 1.4; opacity: 0.75; margin: 0; }}
+        @media (max-width: 600px) {{
+            /* A long code at 30px wraps its last character onto a line of
+               its own. Smaller and tighter, it stays one word. */
+            .promo-code {{ font-size: 22px; letter-spacing: 1px; padding: 6px 10px; }}
+        }}
         @media (max-width: 760px) {{
             .back-page {{ display: block; margin: 20px 16px 0; }}
             .back-page > div {{ border-right: 0 !important; border-top: 3px solid #111; }}
@@ -2616,10 +2656,10 @@ def render_html(edition, theme=None):
                        font-weight: 800; font-size: 16px; background: #f1ece2; }}
         .lt-name {{ font-weight: 700; font-size: 13.5px; margin-top: 3px; overflow-wrap: anywhere; }}
         .lt-proj {{ font-size: 11px; opacity: 0.65; }}
-        .line-team.fav .lt-avatar {{ border-color: #c40000; }}
-        .line-big {{ font-size: 30px; font-weight: 900; color: #c40000; letter-spacing: -0.5px; line-height: 1; }}
+        .line-team.fav .lt-avatar {{ border-color: var(--accent); }}
+        .line-big {{ font-size: 30px; font-weight: 900; color: var(--accent); letter-spacing: -0.5px; line-height: 1; }}
         .line-bar {{ height: 7px; background: #d9d4ca; margin: 8px 0 6px; display: flex; }}
-        .line-bar span {{ display: block; height: 100%; background: #c40000; }}
+        .line-bar span {{ display: block; height: 100%; background: var(--accent); }}
         .line-foot {{ display: flex; flex-wrap: wrap; gap: 6px; }}
         .line-chip, .line-tag {{
             font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
@@ -2630,14 +2670,14 @@ def render_html(edition, theme=None):
         .lines-board {{ padding: 4px 0; }}
         .line-row {{ padding: 9px 0; border-bottom: 1px solid #ddd; }}
         .line-match {{ font-size: 16px; }}
-        .line-spread {{ font-weight: 700; color: #c40000; }}
+        .line-spread {{ font-weight: 700; color: var(--accent); }}
         .line-total {{ font-size: 13px; opacity: 0.7; margin-left: 6px; }}
         .line-pick {{ font-style: italic; font-size: 14px; margin-top: 3px; }}
 
         .trend-cell {{ padding: 2px 2px !important; width: 48px; }}
         td.nowrap, table.stats th {{ white-space: nowrap; }}
         .spark {{ display: block; color: #111; overflow: visible; }}
-        .spark-now {{ fill: #c40000; }}
+        .spark-now {{ fill: var(--accent); }}
         .trend-th {{ font-size: 10px; }}
 
         .award-desc {{
@@ -2915,7 +2955,9 @@ def render_html(edition, theme=None):
             <div class="front-col-center">
                 {edition['hero_image_html']}
                 {edition['hero_html']}
-                <div class="lead-story"{edition['ed_lead']}>{edition['lead_story']}</div>
+                {edition.get('lead_kicker', '')}
+                <div class="lead-story{' is-letter' if edition.get('lead_kicker') else ''}"{edition['ed_lead']}>{edition['lead_story']}</div>
+                {edition.get('lead_sign', '')}
             </div>
 
             <!-- RIGHT COL: Standings + stats -->

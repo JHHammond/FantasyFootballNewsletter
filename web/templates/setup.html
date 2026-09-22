@@ -15,7 +15,7 @@
 <div class="wizard-backdrop">
 <form method="post" action="/l/{{ league.admin_token }}/setup"
       class="wizard" id="wizard"
-      {% if latest_week %}data-generating{% endif %}>
+      {% if latest_week %}data-generating data-letter-prompt{% endif %}>
 
     <div class="wizard-head">
         <div class="eyebrow">{{ league.league_name }} &middot; {{ league.season }}</div>
@@ -251,5 +251,6 @@ Dave has never made the playoffs and brings up 2019 constantly"></textarea>
 })();
 </script>
 
+{% include "_letter_prompt.html" %}
 {% include "_generating.html" %}
 {% endblock %}

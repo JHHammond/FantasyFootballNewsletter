@@ -216,7 +216,7 @@ def test_manage_warns_to_bookmark_only_when_there_is_no_account(client, league):
 def test_skipping_setup_still_writes_the_first_paper(client, league, monkeypatch):
     made = []
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: made.append(wk))
+                        lambda db_, lg, wk, **_k: made.append(wk))
     r = client.post("/l/secret-admin-token/skip-setup", data={"week": "3"},
                     follow_redirects=False)
     assert made == [3]
@@ -613,7 +613,7 @@ def test_setup_requires_the_token(client, league):
 
 def test_generate_redirects_to_the_published_paper(client, league, monkeypatch):
     """Waiting 30 seconds and being handed a URL to click is a bad payoff."""
-    def fake_generate(db_, lg, week):
+    def fake_generate(db_, lg, week, **_k):
         db_.upload_paper(lg["public_slug"], lg["season"], week, "<h1>PAPER</h1>")
         db_.save_paper(lg["id"], week, lg["season"], "p", "u", {})
         return {}
@@ -1410,7 +1410,7 @@ def test_regenerating_an_edited_week_is_allowed_when_confirmed(client, league, p
                                                                no_rerender, monkeypatch):
     ran = []
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: ran.append(wk))
+                        lambda db_, lg, wk, **_k: ran.append(wk))
     client.post("/l/secret-admin-token/edit/1", data={"headline": "NEW"})
 
     client.post("/l/secret-admin-token/generate",
@@ -1422,7 +1422,7 @@ def test_regenerating_an_unedited_week_needs_no_confirmation(client, league, pap
                                                              monkeypatch):
     ran = []
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: ran.append(wk))
+                        lambda db_, lg, wk, **_k: ran.append(wk))
     client.post("/l/secret-admin-token/generate", data={"week": 1})
     assert ran == [1]
 
@@ -3562,7 +3562,7 @@ def test_the_first_generation_is_not_a_regeneration(client, league, monkeypatch)
         None, demo_db.user_by_email("owner@example.com")) == PAID_ALLOWANCE
 
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: demo_db.save_paper(
+                        lambda db_, lg, wk, **_k: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
     _generate(client)
 
@@ -3588,7 +3588,7 @@ def test_editing_never_spends_a_regeneration(client, league):
 def test_the_allowance_runs_out_after_three(client, league, monkeypatch):
     calls = {"n": 0}
 
-    def fake(db_, lg, wk):
+    def fake(db_, lg, wk, **_k):
         calls["n"] += 1
         demo_db.save_paper(lg["id"], wk, lg["season"], "p", "u", {"headline": "x"})
 
@@ -3610,7 +3610,7 @@ def test_running_out_points_at_editing_rather_than_just_refusing(client, league,
     """Editing is free, unlimited, and changes more than a regeneration would.
     Someone who has run out should be told that, not just told no."""
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: demo_db.save_paper(
+                        lambda db_, lg, wk, **_k: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
     for _ in range(PAID_ALLOWANCE + 1):
         _generate(client)
@@ -3622,7 +3622,7 @@ def test_running_out_points_at_editing_rather_than_just_refusing(client, league,
 def test_the_allowance_is_per_week_not_per_league(client, league, monkeypatch):
     """Week 3 being spent must not stop week 4 from being written at all."""
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: demo_db.save_paper(
+                        lambda db_, lg, wk, **_k: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
 
     for _ in range(PAID_ALLOWANCE + 1):
@@ -3648,7 +3648,7 @@ def test_the_remaining_count_is_on_the_week_picker(client, league, monkeypatch):
     attached to the week you are about to pick."""
     monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=(1, 2, 3)))
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: demo_db.save_paper(
+                        lambda db_, lg, wk, **_k: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
     _generate(client)
     _generate(client)   # one redo spent
@@ -4163,7 +4163,7 @@ def test_the_free_allowance_is_smaller_and_still_works(client, free_league,
                                                        monkeypatch):
     """Free is not crippled, it is smaller. Two redos still happen."""
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: demo_db.save_paper(
+                        lambda db_, lg, wk, **_k: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
 
     free = plans.regenerations_per_week(plans.PLANS[plans.FREE])
@@ -4183,7 +4183,7 @@ def test_running_out_only_mentions_paying_to_somebody_it_would_help(
     """Telling a paying customer who has used all three that they could pay
     for more is the most irritating sentence a product can print."""
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: demo_db.save_paper(
+                        lambda db_, lg, wk, **_k: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
 
     def spend(token, times):
@@ -4907,7 +4907,7 @@ def test_staff_is_its_own_plan_and_stripe_status_cannot_demote_it():
 def test_a_staff_owner_can_regenerate_past_the_paid_allowance(client, league, monkeypatch):
     demo_db.set_plan(league["user_id"], plan="staff")
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: demo_db.save_paper(
+                        lambda db_, lg, wk, **_k: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
     for _ in range(PAID_ALLOWANCE + 3):
         r = _generate(client)
@@ -4920,7 +4920,7 @@ def test_a_paid_owner_is_still_stopped_at_the_paid_allowance(client, league, mon
     """The other side of the staff test: without it, a staff plan that
     accidentally applied to everybody would pass."""
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: demo_db.save_paper(
+                        lambda db_, lg, wk, **_k: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
     for _ in range(PAID_ALLOWANCE + 1):
         _generate(client)
@@ -5256,7 +5256,7 @@ def test_the_last_step_saves_everything_and_writes_the_paper(client, league, mon
     demo_db.remember_managers(league["id"], ["carsoncale"])
     made = []
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: made.append((lg["id"], wk)))
+                        lambda db_, lg, wk, **_k: made.append((lg["id"], wk)))
     r = client.post("/l/secret-admin-token/setup", data={
         "handle": ["carsoncale"], "display_name": ["Carson"], "notes": ["Always wins"],
         "format": "dynasty", "punishment": "Tattoo", "lore": "Steve chokes",
@@ -5274,7 +5274,7 @@ def test_the_last_step_saves_everything_and_writes_the_paper(client, league, mon
 
 def test_save_without_generating_goes_to_the_league_page(client, league, monkeypatch):
     made = []
-    monkeypatch.setattr(webapp, "generate_and_store", lambda *a: made.append(a))
+    monkeypatch.setattr(webapp, "generate_and_store", lambda *a, **_k: made.append(a))
     r = client.post("/l/secret-admin-token/setup",
                     data={"then": "save", "week": "3"}, follow_redirects=False)
     assert made == []
@@ -5284,7 +5284,7 @@ def test_save_without_generating_goes_to_the_league_page(client, league, monkeyp
 def test_generating_from_setup_goes_through_the_same_limits(client, league, monkeypatch):
     """Not a side door around the regeneration allowance."""
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk: demo_db.save_paper(
+                        lambda db_, lg, wk, **_k: demo_db.save_paper(
                             lg["id"], wk, lg["season"], "p", "u", {"headline": "x"}))
     for _ in range(PAID_ALLOWANCE + 1):
         _generate(client, week=3)
@@ -5386,3 +5386,98 @@ def test_published_paper_ships_the_long_pdf_button():
 
 def test_edit_view_has_no_pdf_script():
     assert "window.cdSavePdf" not in _full_paper(dict(SAMPLE_AI), editable=True)
+
+
+# --------------------------------------------------------------------------
+# A letter from the desk of the commissioner
+# --------------------------------------------------------------------------
+
+from web import generate as _gen  # noqa: E402
+
+
+def test_the_generate_button_asks_for_a_letter_first(client, league):
+    html = client.get("/l/secret-admin-token").text
+    assert "data-letter-prompt" in html
+    assert "Would you like to add a letter from the desk of the commissioner?" in html
+    assert "Brag about your team" in " ".join(html.split())
+    # Before the loading screen, or the loading screen starts while he types.
+    assert html.index('id="letter-prompt"') < html.index('id="generating"')
+
+
+def test_the_letter_reaches_the_writer(client, league, monkeypatch):
+    got = {}
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk, letter="": got.update(week=wk, letter=letter))
+    client.post("/l/secret-admin-token/generate",
+                data={"week": "3", "letter": "  Gentlemen.\n\nI am undefeated.  "},
+                follow_redirects=False)
+    assert got == {"week": 3, "letter": "Gentlemen.\n\nI am undefeated."}
+
+
+def test_no_letter_means_the_paper_writes_its_own(client, league, monkeypatch):
+    got = {}
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk, letter="": got.update(letter=letter))
+    client.post("/l/secret-admin-token/generate", data={"week": "3"},
+                follow_redirects=False)
+    assert got == {"letter": ""}
+
+
+def test_a_letter_is_capped(client, league, monkeypatch):
+    got = {}
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk, letter="": got.update(letter=letter))
+    client.post("/l/secret-admin-token/generate",
+                data={"week": "3", "letter": "x" * 20000}, follow_redirects=False)
+    assert len(got["letter"]) == _gen.MAX_LETTER_CHARS
+
+
+def test_the_setup_wizard_asks_too_and_passes_it_on(client, league, monkeypatch):
+    got = {}
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk, letter="": got.update(letter=letter))
+    client.post("/l/secret-admin-token/setup",
+                data={"then": "generate", "week": "3", "letter": "Hello league"},
+                follow_redirects=False)
+    assert got == {"letter": "Hello league"}
+
+
+def test_the_letter_is_escaped_and_kept_in_paragraphs():
+    out = _gen.letter_to_html("Gentlemen.\n\n<script>x</script> & co\nline two")
+    assert out == ("<p>Gentlemen.</p>"
+                   "<p>&lt;script&gt;x&lt;/script&gt; &amp; co<br>line two</p>")
+    # and back again, for the pop-up on a redo
+    assert _gen.letter_from_html(out) == \
+        "Gentlemen.\n\n<script>x</script> & co\nline two"
+
+
+def test_a_redo_brings_the_letter_back(client, league):
+    demo_db.save_paper(league["id"], 3, league["season"], "u", "p",
+                       {"lead_by_commissioner": True,
+                                 "lead_story": "<p>Fixed in the editor.</p><p>Two</p>"})
+    r = client.get("/l/secret-admin-token/letter/3")
+    assert r.json() == {"letter": "Fixed in the editor.\n\nTwo"}
+    assert client.get("/l/secret-admin-token/letter/9").json() == {"letter": ""}
+    assert client.get("/l/wrong-token/letter/3").status_code == 404
+
+
+def test_the_letter_prints_under_its_own_kicker_and_signature():
+    ai = dict(SAMPLE_AI, lead_story="<p>I am undefeated.</p>",
+              lead_by_commissioner=True, lead_signed="John <b>H</b>")
+    html = _full_paper(ai)
+    assert "From the desk of the Commissioner" in html
+    assert "I am undefeated." in html
+    assert "&mdash; John &lt;b&gt;H&lt;/b&gt;, Commissioner" in html
+    # an ordinary paper has neither
+    plain = _full_paper(dict(SAMPLE_AI))
+    assert 'class="letter-kicker"' not in plain.split("</style>")[-1]
+    assert 'class="letter-sign"' not in plain.split("</style>")[-1]
+
+
+def test_the_letter_survives_the_ai_text_cleanup():
+    """The AI lead goes through clean-up that turns *x* into emphasis and
+    strips header lines. None of that is aimed at the commissioner."""
+    ai = dict(SAMPLE_AI, lead_story="<p>KEVLARVILLE TIMES rules *all* of you</p>",
+              lead_by_commissioner=True)
+    html = _full_paper(ai)
+    assert "KEVLARVILLE TIMES rules *all* of you" in html
