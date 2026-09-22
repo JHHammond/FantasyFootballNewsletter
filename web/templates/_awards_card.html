@@ -1,0 +1,98 @@
+{#
+   The league's own awards. Lives on the league's manage page, next to the
+   rest of that paper's settings, and is protected the same way they are:
+   by the manage link.
+#}
+<section class="card" id="awards">
+    <h2 class="card-title">Custom awards</h2>
+    <p class="card-sub">
+        Your league&rsquo;s own awards, printed alongside the paper&rsquo;s. Either
+        you pick the winner (it stays theirs until you change it), or you
+        describe what it&rsquo;s for and the paper picks the winner each week.
+    </p>
+    {% if not awards_ready %}
+    <div class="alert alert-error">
+        Custom awards need <code>migrations/016_awards.sql</code> run in Supabase
+        first. Papers print their standing awards until then.
+    </div>
+    {% else %}
+    <div class="award-league">
+
+        {% for a in awards %}
+        <form method="post" action="/l/{{ league.admin_token }}/awards/{{ a.id }}/update" class="award-row">
+            <input type="hidden" name="mode" value="{{ a.mode }}" />
+            <div class="award-row-head">
+                <input type="text" name="name" value="{{ a.name }}" maxlength="60" class="award-name-input" aria-label="Award name" />
+                <span class="award-mode-tag">{{ 'Paper picks' if a.mode == 'auto' else 'You pick' }}</span>
+            </div>
+            {% if a.mode == 'auto' %}
+            <label class="field">
+                <span class="field-label">What it&rsquo;s for</span>
+                <input type="text" name="criteria" value="{{ a.criteria or '' }}" maxlength="300" />
+            </label>
+            {% else %}
+            <div class="award-row-fields">
+                <label class="field">
+                    <span class="field-label">This week it goes to</span>
+                    <select name="winner">
+                        <option value="">&mdash; nobody this week &mdash;</option>
+                        {% for p in award_people %}
+                        <option value="{{ p.handle }}" {% if p.handle == a.winner %}selected{% endif %}>{{ p.display_name or p.handle }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Why <span class="opt">optional</span></span>
+                    <input type="text" name="note" value="{{ a.note or '' }}" maxlength="300" placeholder="Traded Bijan for a kicker" />
+                </label>
+            </div>
+            {% endif %}
+            <div class="award-row-actions">
+                <button type="submit" class="btn btn-sm">Save</button>
+                <button type="submit" class="btn-link" formaction="/l/{{ league.admin_token }}/awards/{{ a.id }}/delete">Remove</button>
+            </div>
+        </form>
+        {% endfor %}
+
+        {% if awards|length < max_awards %}
+        <details class="award-add" {% if not awards %}open{% endif %}>
+            <summary>Add an award</summary>
+            <form method="post" action="/l/{{ league.admin_token }}/awards/add" class="stack">
+                    <label class="field">
+                    <span class="field-label">Award name</span>
+                    <input type="text" name="name" maxlength="60" placeholder="The Nick Memorial" required />
+                </label>
+                <div class="radio-row">
+                    <label class="radio-card">
+                        <input type="radio" name="mode" value="manual" checked />
+                        <span><strong>I pick the winner</strong><em>Each week, from the list</em></span>
+                    </label>
+                    <label class="radio-card">
+                        <input type="radio" name="mode" value="auto" />
+                        <span><strong>The paper picks</strong><em>Describe what it&rsquo;s for</em></span>
+                    </label>
+                </div>
+                <label class="field">
+                    <span class="field-label">What it&rsquo;s for <span class="opt">needed if the paper picks</span></span>
+                    <input type="text" name="criteria" maxlength="300" placeholder="Whoever benched their best player and lost" />
+                </label>
+                <label class="field">
+                    <span class="field-label">Winner <span class="opt">if you pick</span></span>
+                    <select name="winner">
+                        <option value="">&mdash; choose later &mdash;</option>
+                        {% for p in award_people %}
+                        <option value="{{ p.handle }}">{{ p.display_name or p.handle }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Why <span class="opt">optional</span></span>
+                    <input type="text" name="note" maxlength="300" placeholder="Traded Bijan for a kicker" />
+                </label>
+                <button type="submit" class="btn btn-primary">Add award</button>
+            </form>
+        </details>
+        {% endif %}
+    </div>
+    {% endif %}
+</section>

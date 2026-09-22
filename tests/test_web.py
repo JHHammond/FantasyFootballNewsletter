@@ -4982,7 +4982,7 @@ def test_the_plan_card_is_at_the_bottom_of_the_account_page(client):
     """John: the plan has its own tab now; the papers come first."""
     _signup(client)
     html = client.get("/account").text
-    assert html.index("Start a new paper") < html.index('id="awards"') < html.index('id="plan"')
+    assert html.index("Start a new paper") < html.index('id="plan"')
 
 
 def test_free_manage_page_points_at_the_upgrade(client, free_league, monkeypatch):
@@ -5301,62 +5301,71 @@ def test_a_mangled_people_step_does_not_lose_the_rest(client, league):
 
 
 # ---------------------------------------------------------------------------
-# Custom awards on the account page (John, 23 Sep)
+# Custom awards, on the league's own manage page (John, 23 Sep)
 # ---------------------------------------------------------------------------
 
-def _login_owner(client, monkeypatch):
-    owner = demo_db.user_by_email("owner@example.com")
-    monkeypatch.setattr(webapp, "current_user", lambda request: owner)
-    return owner
-
-
-def test_a_manual_award_round_trip(client, league, monkeypatch):
-    _login_owner(client, monkeypatch)
+def test_a_manual_award_round_trip(client, league):
     demo_db.remember_managers(league["id"], ["WillDavidson10"])
-    r = client.post("/account/awards/add", data={
-        "league_id": league["id"], "name": "The Nick Memorial", "mode": "manual",
+    r = client.post("/l/secret-admin-token/awards/add", data={
+        "name": "The Nick Memorial", "mode": "manual",
         "winner": "WillDavidson10", "note": "Traded Bijan for a kicker"},
         follow_redirects=False)
-    assert "Award+added" in r.headers["location"]
+    assert "Award%20added" in r.headers["location"]
+    assert r.headers["location"].endswith("#awards")
     [award] = demo_db.get_awards(league["id"])
     assert award["winner"] == "WillDavidson10" and award["mode"] == "manual"
 
-    html = client.get("/account").text
+    html = client.get("/l/secret-admin-token").text
+    assert 'id="awards"' in html
     assert 'value="The Nick Memorial"' in html
     assert "You pick" in html
 
-    client.post(f"/account/awards/{award['id']}/update", data={
-        "league_id": league["id"], "name": "The Nick Memorial", "mode": "manual",
-        "winner": "", "note": ""})
+    client.post(f"/l/secret-admin-token/awards/{award['id']}/update", data={
+        "name": "The Nick Memorial", "mode": "manual", "winner": "", "note": ""})
     assert demo_db.get_awards(league["id"])[0]["winner"] is None
 
-    client.post(f"/account/awards/{award['id']}/delete", data={"league_id": league["id"]})
+    client.post(f"/l/secret-admin-token/awards/{award['id']}/delete")
     assert demo_db.get_awards(league["id"]) == []
 
 
-def test_an_auto_award_needs_a_description(client, league, monkeypatch):
-    _login_owner(client, monkeypatch)
-    r = client.post("/account/awards/add", data={
-        "league_id": league["id"], "name": "Kicker King", "mode": "auto"},
-        follow_redirects=False)
-    assert "Say+what+the+award+is+for" in r.headers["location"]
+def test_awards_are_on_the_manage_page_not_the_account_page(client, league, monkeypatch):
+    owner = demo_db.user_by_email("owner@example.com")
+    monkeypatch.setattr(webapp, "current_user", lambda request: owner)
+    assert "Custom awards" not in client.get("/account").text
+    assert "Custom awards" in client.get("/l/secret-admin-token").text
+
+
+def test_an_auto_award_needs_a_description(client, league):
+    r = client.post("/l/secret-admin-token/awards/add", data={
+        "name": "Kicker King", "mode": "auto"}, follow_redirects=False)
+    assert "Say%20what%20the%20award%20is%20for" in r.headers["location"]
     assert demo_db.get_awards(league["id"]) == []
 
 
-def test_nobody_can_add_awards_to_somebody_elses_league(client, league, monkeypatch):
-    stranger = demo_db.create_user("stranger@example.com", "x")
-    monkeypatch.setattr(webapp, "current_user", lambda request: stranger)
-    r = client.post("/account/awards/add", data={
-        "league_id": league["id"], "name": "Hijack", "mode": "manual"})
+def test_nobody_without_the_link_can_touch_the_awards(client, league):
+    r = client.post("/l/wrong-token/awards/add", data={"name": "Hijack", "mode": "manual"})
     assert r.status_code == 404
     assert demo_db.get_awards(league["id"]) == []
 
 
-def test_awards_are_capped(client, league, monkeypatch):
-    _login_owner(client, monkeypatch)
+def test_an_award_cant_be_changed_through_another_leagues_link(client, league):
+    demo_db.add_award(league["id"], {"name": "Mine", "mode": "manual"})
+    [award] = demo_db.get_awards(league["id"])
+    other = demo_db.create_league(provider="sleeper", platform_league_id="999",
+                                  league_name="Other", paper_name="Other",
+                                  commissioner_name="x", season=2026,
+                                  public_slug="other-1", admin_token="other-token")
+    client.post(f"/l/other-token/awards/{award['id']}/update",
+                data={"name": "Stolen", "mode": "manual"})
+    client.post(f"/l/other-token/awards/{award['id']}/delete")
+    assert [a["name"] for a in demo_db.get_awards(league["id"])] == ["Mine"]
+    assert demo_db.get_awards(other["id"]) == []
+
+
+def test_awards_are_capped(client, league):
     for i in range(webapp.MAX_CUSTOM_AWARDS + 1):
-        client.post("/account/awards/add", data={
-            "league_id": league["id"], "name": f"A{i}", "mode": "manual"})
+        client.post("/l/secret-admin-token/awards/add", data={
+            "name": f"A{i}", "mode": "manual"})
     assert len(demo_db.get_awards(league["id"])) == webapp.MAX_CUSTOM_AWARDS
 
 
