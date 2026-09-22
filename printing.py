@@ -394,7 +394,8 @@ BASE_PRINT_CSS = """
     .story-headline-lead { margin-bottom: 4px !important; }
     .player-grid { gap: 8px !important; }
     .awards-grid-full, .awards-grid { gap: 10px !important; }
-    .rankings-grid { gap: 8px !important; }
+    .rankings-row { gap: 8px !important; }
+    .rankings-row + .rankings-row { margin-top: 8px !important; }
     .week-ticker { margin: 8px 0 0 !important; }
     .fraud-callout { margin: 10px 0 !important; padding: 10px 14px !important; }
     .player-card { padding: 6px 4px !important; }
@@ -437,7 +438,7 @@ BASE_PRINT_CSS = """
     .hero-image-wrap img { max-height: 70mm !important; }
 
     .player-grid { grid-template-columns: repeat(5, 1fr) !important; }
-    .rankings-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .rankings-row { grid-template-columns: repeat(2, 1fr) !important; }
     .classifieds-grid { grid-template-columns: repeat(2, 1fr) !important; }
 
     /* --- the footer that only exists on paper ------------------------- */

@@ -332,16 +332,6 @@ _LINES = [{"favorite": "Carson", "underdog": "Will", "spread": 7.5, "total": 245
 _PROMO = {"code": "JOHNH", "brand": "Underdog", "image_url": "https://x/p.png", "link": ""}
 
 
-def test_the_letter_renders_escaped_and_signed():
-    html = newspaper.render_letter({"body": "Dear Editor, <b>no</b>.",
-                                    "reply": "Start better players.",
-                                    "signed": "Will", "team": "Wasteland"})
-    assert "Letters to the Editor" in html
-    assert "&mdash; Will, Wasteland" in html
-    assert "<b>no</b>" not in html
-    assert newspaper.render_letter({}) == ""
-
-
 def test_the_back_page_follows_the_sketch():
     html = newspaper.render_back_page(_OBITS, _PROMO, _LINES, transactions=None)
     # obituaries down the left, promo and preview across the top
@@ -433,3 +423,24 @@ def test_the_standings_get_a_trend_column_only_when_there_are_trends():
         "teams": {"Carson": [[1, 100.0], [2, 150.0]]}})
     assert 'class="trend-cell"' in with_t and "<svg" in with_t
     assert "trend-cell" not in newspaper.render_standings_html(standings)
+
+
+def test_there_is_no_letters_section():
+    assert not hasattr(newspaper, "render_letter")
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("n,rows", [(8, [4, 4]), (10, [5, 5]), (12, [6, 6]),
+                                    (14, [5, 5, 4]), (16, [6, 5, 5]), (6, [6])])
+def test_power_rankings_rows_are_even(n, rows):
+    """John's spec for each league size."""
+    assert newspaper.ranking_row_sizes(n) == rows
+
+
+def test_power_rankings_render_in_those_rows():
+    teams = [{"team": f"T{i}"} for i in range(14)]
+    html = newspaper.build_power_rankings(teams)
+    assert html.count('class="rankings-row"') == 3
+    assert '--cols:5' in html and '--cols:4' in html

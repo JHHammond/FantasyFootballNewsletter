@@ -189,12 +189,7 @@ Dave has never made the playoffs and brings up 2019 constantly"></textarea>
             {% endif %}
         </div>
         {% if latest_week %}
-        <p class="wizard-foot">
-            Takes about thirty seconds.
-            <button type="submit" name="then" value="save" class="btn-link" data-no-overlay>
-                Save without generating
-            </button>
-        </p>
+        <p class="wizard-foot">Takes about thirty seconds.</p>
         {% else %}
         <p class="wizard-foot">
             Your first paper can be written once a week has been played.
@@ -203,8 +198,12 @@ Dave has never made the playoffs and brings up 2019 constantly"></textarea>
     </section>
 </form>
 
-<form method="post" action="/l/{{ league.admin_token }}/skip-setup" class="setup-skip">
-    <button type="submit" class="btn-link">Skip for now</button>
+<form method="post" action="/l/{{ league.admin_token }}/skip-setup" class="setup-skip"
+      {% if latest_week %}data-generating{% endif %}>
+    {% if latest_week %}<input type="hidden" name="week" value="{{ latest_week }}" />{% endif %}
+    <button type="submit" class="btn-link">
+        {% if latest_week %}Skip the questions and write my paper{% else %}Skip for now{% endif %}
+    </button>
 </form>
 </div>
 

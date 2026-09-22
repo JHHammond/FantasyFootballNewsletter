@@ -390,6 +390,7 @@ def lowest_starters(week_data, n: int = OBITUARY_COUNT) -> list[dict]:
             "projected": p.projected,
             "manager": team.manager.display_name,
             "team": team.team_name,
+            "nfl_team": p.nfl_team,
             "stat_note": p.stats.describe() if p.stats else "",
         })
         if len(picked) >= n:

@@ -685,26 +685,6 @@ def render_awards_html(awards, editable=False):
     return "\n".join(cards)
 
 
-def render_letter(letter, editable=False):
-    """Letters to the Editor. Nothing at all without a letter."""
-    if not letter or not letter.get("body"):
-        return ""
-    reply = (f'<p class="letter-reply"><strong>Editor:</strong> '
-             f'<span{ed("letter_reply", editable)}>{html_escape(letter.get("reply") or "")}</span></p>'
-             if letter.get("reply") else "")
-    signed = html_escape(letter.get("signed") or "")
-    team = html_escape(letter.get("team") or "")
-    return f"""
-        <div class="full-section">
-            <div class="section-title-full">Letters to the Editor</div>
-            <div class="letter">
-                <p{ed("letter_body", editable)}>{html_escape(letter["body"])}</p>
-                <p class="letter-sign">&mdash; {signed}{f", {team}" if team and team != signed else ""}</p>
-                {reply}
-            </div>
-        </div>"""
-
-
 def _obituary_items(obituaries, editable=False):
     items = []
     for i, o in enumerate(obituaries or []):
@@ -973,7 +953,33 @@ def build_power_rankings(power_rankings, ai_comments=None, editable=False):
             <div class="ranking-card-comment"{ed(f"ranking:{name}", editable)}>{comment}</div>
         </div>''')
 
-    return "\n".join(cards)
+    rows, start = [], 0
+    for size in ranking_row_sizes(len(cards)):
+        rows.append(f'<div class="rankings-row" style="--cols:{size}">'
+                    + "".join(cards[start:start + size]) + "</div>")
+        start += size
+    return "\n".join(rows)
+
+
+#: The widest a rankings row gets. Six cards across is the most a comment
+#: still reads at; past that the league splits into three rows.
+RANKINGS_MAX_PER_ROW = 6
+
+
+def ranking_row_sizes(n):
+    """How many cards go in each row, as evenly as possible (John's spec):
+
+        8 -> 4, 4     10 -> 5, 5     12 -> 6, 6
+        14 -> 5, 5, 4   16 -> 6, 5, 5
+
+    Fewest rows that keep every row at six or fewer, then share the cards
+    out with any extras in the top rows.
+    """
+    if n <= 0:
+        return []
+    rows = -(-n // RANKINGS_MAX_PER_ROW)
+    base, extra = divmod(n, rows)
+    return [base + (1 if i < extra else 0) for i in range(rows)]
 
 
 def get_story_genre(story):
@@ -1745,7 +1751,6 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             editable=editable,
         ),
         "awards_html": awards_html,
-        "extras_html": render_letter((ai_content or {}).get("letter"), editable=editable),
         "back_page_html": render_back_page(
             obituaries=(ai_content or {}).get("obituaries"),
             promo=promo,
@@ -2313,11 +2318,13 @@ def render_html(edition, theme=None):
             margin: 28px 0 0;
         }}
 
-        .rankings-grid {{
+        .rankings-grid {{ display: block; }}
+        .rankings-row {{
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(var(--cols, 5), 1fr);
             gap: 12px;
         }}
+        .rankings-row + .rankings-row {{ margin-top: 12px; }}
 
         .ranking-card {{
             background: #fff;
@@ -2746,7 +2753,7 @@ def render_html(edition, theme=None):
             .front-col {{ border: none !important; padding: 0 !important; margin-bottom: 16px; }}
             .awards-grid-full {{ grid-template-columns: 1fr; }}
             .awards-grid {{ grid-template-columns: 1fr; }}
-            .rankings-grid {{ grid-template-columns: repeat(2, 1fr); }}
+            .rankings-row {{ grid-template-columns: repeat(2, 1fr); }}
             .paired-stories {{ grid-template-columns: 1fr; }}
             .paper-name {{ font-size: 42px; }}
             .headline {{ font-size: 32px; }}
@@ -2769,7 +2776,7 @@ def render_html(edition, theme=None):
                 font-size: 11px;
             }}
             .player-grid {{ grid-template-columns: repeat(2, 1fr); gap: 10px; }}
-            .rankings-grid {{ grid-template-columns: 1fr; }}
+            .rankings-row {{ grid-template-columns: 1fr; }}
             .story-headline-lead {{ font-size: 26px; }}
             .story-headline-feature {{ font-size: 22px; }}
             .story-body {{ font-size: 15px; }}
@@ -2958,8 +2965,6 @@ def render_html(edition, theme=None):
             </div>
         </div>
 
-        <!-- LETTERS TO THE EDITOR — nothing at all without a letter -->
-        {edition.get('extras_html', '')}
 
         <!-- POWER RANKINGS — full width dramatic section -->
         <div class="full-section rankings-section">

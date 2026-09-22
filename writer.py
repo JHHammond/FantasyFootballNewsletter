@@ -157,7 +157,10 @@ projection. Use them.
   ("surely expected more from a first-round pick"), a late pick or a waiver
   pickup who won the week. Most weeks, most of those notes go unused.
 - Every player you name gets their SCORE attached. "Bijan went off" is not
-  reporting. "Bijan put up 28.4" is.
+  reporting. "Bijan put up 28" is.
+- ROUND PLAYER SCORES TO WHOLE NUMBERS in the prose: 28.4 is "28", 35.7 is
+  "36", 0.8 is "less than a point". It reads like a person talking. Team
+  scores and margins keep their decimal (a 1.4-point loss is the story).
 - The PROJECTION is not part of that. Bring it in only for the players whose
   line is marked << OVER or << UNDER, where the gap is the story. For everybody
   else the score on its own is the fact, and the projection is noise you are
@@ -1960,83 +1963,75 @@ def _parse_labelled(raw, labels):
     return {k: v.strip().strip('"\u201c\u201d') for k, v in out.items()}
 
 
-def generate_letter(summary, commissioner_name="", inside_jokes="",
-                    system=None, model=None):
-    """An angry letter to the editor from the week's lowest scorer, and the
-    editor's one-line reply. Signed by that manager and nobody else."""
-    low = summary.get("lowest_score") or {}
-    manager = (low.get("owner_name") or low.get("team_name") or "").strip()
-    if not manager:
-        return {}
-
-    facts = [f"{manager} ({low.get('team_name', '')}) scored "
-             f"{float(low.get('points') or 0):.1f}, the lowest in the league this week."]
-    worst = low.get("bottom_performer") or {}
-    if isinstance(worst, dict) and worst.get("name"):
-        facts.append(f"Their biggest letdown: {worst['name']}, who scored "
-                     f"{float(worst.get('actual') or worst.get('points') or 0):.1f}.")
-    gap = low.get("lineup_gap")
-    if isinstance(gap, (int, float)) and gap > 10:
-        facts.append(f"They left {gap:.1f} points on the bench.")
-
-    raw = call_claude(f"""
-Write a LETTER TO THE EDITOR for this week's paper, from {manager}, furious
-about their week. Everybody knows it's made up. It should read like a real
-angry letter to a local paper: formal, wounded, blaming everyone but
-themselves, and specific about the week below. Then a one-line reply from
-the editor — dry, and not on their side.
-
-{chr(10).join(facts)}
-
-60 to 110 words for the letter. The reply is one sentence.
-Do not invent players, injuries or plays that are not above.
-
-Reply in exactly this form and nothing else:
-LETTER: the letter, as one paragraph
-REPLY: the editor's reply
-""", max_tokens=1200, system=system, model=model, avoid_tells=True)
-
-    parts = _parse_labelled(raw, {"LETTER", "REPLY"})
-    if not parts.get("LETTER"):
-        return {}
-    return {"body": parts["LETTER"], "reply": parts.get("REPLY", ""),
-            "signed": manager, "team": low.get("team_name", "")}
+#: Where each NFL team plays at home, for the obituaries' funeral services.
+#: Keyed by every abbreviation the platforms use. Stadium names are sponsor
+#: names and change; a stale one is a small joke gone slightly off, and an
+#: unknown team simply gets no venue.
+STADIUMS = {
+    "ARI": "State Farm Stadium", "ATL": "Mercedes-Benz Stadium",
+    "BAL": "M&T Bank Stadium", "BUF": "Highmark Stadium",
+    "CAR": "Bank of America Stadium", "CHI": "Soldier Field",
+    "CIN": "Paycor Stadium", "CLE": "Huntington Bank Field",
+    "DAL": "AT&T Stadium", "DEN": "Empower Field at Mile High",
+    "DET": "Ford Field", "GB": "Lambeau Field", "HOU": "NRG Stadium",
+    "IND": "Lucas Oil Stadium", "JAX": "EverBank Stadium",
+    "JAC": "EverBank Stadium", "KC": "Arrowhead Stadium",
+    "LV": "Allegiant Stadium", "LAC": "SoFi Stadium", "LAR": "SoFi Stadium",
+    "LA": "SoFi Stadium", "MIA": "Hard Rock Stadium",
+    "MIN": "U.S. Bank Stadium", "NE": "Gillette Stadium",
+    "NO": "the Superdome", "NYG": "MetLife Stadium", "NYJ": "MetLife Stadium",
+    "PHI": "Lincoln Financial Field", "PIT": "Acrisure Stadium",
+    "SF": "Levi's Stadium", "SEA": "Lumen Field",
+    "TB": "Raymond James Stadium", "TEN": "Nissan Stadium",
+    "WAS": "Northwest Stadium", "WSH": "Northwest Stadium",
+}
 
 
 def generate_obituaries(dead, system=None, model=None):
-    """Mock death notices for the week's lowest-scoring starters — for each
-    player's FANTASY WEEK, never the man. One call, all of them."""
+    """Short, deadpan death notices for the week's lowest-scoring starters.
+
+    John's model, word for word the register wanted: "Rest in peace,
+    Ja'Marr. 3.2 points. Survived by Champ. The funeral service will be held
+    at Paycor Stadium, or in lieu of flowers, please send ridiculous trades
+    to try and fleece Champ." Short, and a joke about the MANAGER — the
+    projection lives in the little heading above, not in the body.
+    """
     dead = [d for d in (dead or []) if d.get("name")]
     if not dead:
         return []
 
     rows = []
     for i, d in enumerate(dead):
-        proj = d.get("projected")
-        bits = [f"{i + 1}. {d['name']} ({d.get('position', '')}) scored "
-                f"{d.get('points', 0):.1f}, started by {d.get('manager', '')}"]
-        if isinstance(proj, (int, float)):
-            bits.append(f"projected {proj:.1f}")
-        if d.get("stat_note"):
-            bits.append(d["stat_note"])
+        stadium = STADIUMS.get((d.get("nfl_team") or "").upper())
+        bits = [f"{i + 1}. {d['name']} ({d.get('position', '')}), "
+                f"{d.get('points', 0):.1f} points, started by {d.get('manager', '')}"]
+        if stadium:
+            bits.append(f"his team plays at {stadium}")
         rows.append(", ".join(bits) + ".")
 
     raw = call_claude(f"""
-Write a mock OBITUARY for each of these players' fantasy weeks — the lowest
-scorers anybody in the league started. Each is for the player's fantasy
-value, not the man. Newspaper death-notice style: "passed away Sunday",
-"is survived by" the manager who started him, "in lieu of flowers". Deadpan
-and affectionate, the way people joke at a wake. Each one different — do
-not reuse a phrase across them.
+Write a very short mock OBITUARY for each of these players' fantasy weeks —
+the lowest scorers anybody in the league started. This exact shape and
+length, varied every time:
+
+  Rest in peace, Ja'Marr. 3.2 points. Survived by Champ. The funeral
+  service will be held at Paycor Stadium, or in lieu of flowers, please send
+  ridiculous trade offers to try and fleece Champ.
+
+Rules:
+- First name only after "Rest in peace" (or a variation: "Gone too soon",
+  "Taken from us Sunday"). Then the score, exactly as given, alone.
+- "Survived by" the manager who started him.
+- End on one joke about that manager — a trade to fleece them, a waiver
+  claim, a lineup they will set wrong again. Use the stadium where one is
+  given for the funeral; otherwise skip the venue.
+- No projections, no real death, illness, injury or family, no stats beyond
+  the score. 25 to 45 words each. No two alike.
 
 {chr(10).join(rows)}
 
-Hard rules: this is about a fantasy score only. Nothing about real death,
-illness, real injuries, family or anything off the field. No invented plays
-or stats beyond the above. 30 to 55 words each.
-
 Reply with one paragraph per player, numbered the same way, and nothing else.
-""", max_tokens=2000, system=system, model=model, avoid_tells=True)
+""", max_tokens=1600, system=system, model=model)
 
     bodies = {}
     for line in (raw or "").splitlines():
@@ -2098,8 +2093,6 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     # The extras. Each only when there is something to write it about.
     tasks = {}
-    tasks["letter"] = lambda: generate_letter(
-        summary, commissioner_name, inside_jokes, sys_prompt, model_for("letter"))
     if obituaries:
         tasks["obituaries"] = lambda: generate_obituaries(
             obituaries, sys_prompt, model_for("obituaries"))
@@ -2312,7 +2305,6 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         "pull_quote": _pull_quote_part(results.get("pull_quote"), "quote"),
         "pull_quote_by": _pull_quote_part(results.get("pull_quote"), "by"),
         "pull_quote_team": _pull_quote_part(results.get("pull_quote"), "team"),
-        "letter": results.get("letter") or {},
         "obituaries": results.get("obituaries") or [],
         # Numbers only — John: no commentary on the previews.
         "lines": [dict(l) for l in (lines or [])],

@@ -2133,48 +2133,8 @@ _LOW = {"lowest_score": {"team_name": "Wasteland", "owner_name": "Will",
                          "bottom_performer": {"name": "Etienne", "actual": 2.1}}}
 
 
-def test_the_letter_is_signed_by_the_lowest_scorer_only(swap_client, no_sleeping):
-    swap_client(lambda _k: _reply(
-        "LETTER: Dear Editor, I have been robbed.\nIt continues here.\n"
-        "REPLY: Start better players.\nSIGNED: Bill Belichick"))
-    out = writer.generate_letter(_LOW)
-    assert out["signed"] == "Will"
-    assert out["body"] == "Dear Editor, I have been robbed. It continues here."
-    assert out["reply"] == "Start better players."
-
-
-def test_the_letter_prompt_carries_the_week(swap_client, no_sleeping):
-    seen = {}
-    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("LETTER: x"))
-    writer.generate_letter(_LOW)
-    assert "71.3" in seen["p"] and "Etienne" in seen["p"] and "22.0" in seen["p"]
-
-
-def test_no_letter_line_means_no_letter(swap_client, no_sleeping):
-    swap_client(lambda _k: _reply("I would rather not."))
-    assert writer.generate_letter(_LOW) == {}
-
-
-def test_obituaries_are_about_the_fantasy_week_not_the_man(swap_client, no_sleeping):
-    seen = {}
-
-    def behaviour(k):
-        seen["p"] = k["messages"][0]["content"]
-        return _reply("1. Jacobs' fantasy week passed away Sunday.\n"
-                      "(aside)\n3. Waddle's week is survived by Will.")
-    swap_client(behaviour)
-    dead = [{"name": "Josh Jacobs", "points": 2.1, "projected": 18.4, "manager": "Will"},
-            {"name": "Nobody", "points": 1.0, "manager": "Will"},
-            {"name": "Waddle", "points": 1.2, "manager": "Will"}]
-    out = writer.generate_obituaries(dead)
-    assert [o["player"] for o in out] == ["Josh Jacobs", "Waddle"]
-    assert out[1]["body"].startswith("Waddle's week")
-    assert "not the man" in seen["p"] and "Nothing about real death" in seen["p"]
-    assert "Josh Jacobs" in seen["p"] and "18.4" in seen["p"]
-
-
 def test_the_extras_reach_the_finished_paper(swap_client, no_sleeping):
-    swap_client(lambda _k: _reply("LETTER: Dear Editor.\nREPLY: No."))
+    swap_client(lambda _k: _reply("1. Rest in peace, Jacobs. 2.1 points."))
     lines = [{"favorite": "A", "favorite_manager": "a", "underdog": "B",
               "underdog_manager": "b", "spread": 7.5, "pickem": False}]
     paper = writer.generate_full_newspaper_content(
@@ -2183,7 +2143,7 @@ def test_the_extras_reach_the_finished_paper(swap_client, no_sleeping):
         lines=lines)
     assert "obituaries" in paper
     assert paper["lines"][0]["favorite"] == "A"
-    assert "letter" in paper
+    assert "letter" not in paper          # John cut the letters section
 
 
 
@@ -2268,3 +2228,31 @@ def test_the_writer_is_told_to_use_team_names_first():
     text = " ".join(b.get("text", "") for b in prompt) if isinstance(prompt, list) else str(prompt)
     assert "TEAM NAME most of the time" in text
     assert "handle" in text
+
+
+def test_obituaries_are_short_and_shaped_like_johns_example(swap_client, no_sleeping):
+    seen = {}
+
+    def behaviour(k):
+        seen["p"] = k["messages"][0]["content"]
+        return _reply("1. Rest in peace, Ja'Marr. 3.2 points. Survived by Champ.\n"
+                      "(aside)\n3. Gone too soon, Jaylen. 1.2 points.")
+    swap_client(behaviour)
+    dead = [{"name": "Ja'Marr Chase", "points": 3.2, "projected": 20.4,
+             "manager": "Champ", "nfl_team": "CIN"},
+            {"name": "Nobody", "points": 1.0, "manager": "Will"},
+            {"name": "Jaylen Waddle", "points": 1.2, "manager": "Will", "nfl_team": "XYZ"}]
+    out = writer.generate_obituaries(dead)
+    assert [o["player"] for o in out] == ["Ja'Marr Chase", "Jaylen Waddle"]
+    assert out[0]["projected"] == 20.4          # kept for the heading
+    p = seen["p"]
+    assert "Rest in peace" in p and "Survived by" in p
+    assert "Paycor Stadium" in p                 # stadium from the team
+    assert "No projections" in p
+    assert "20.4" not in p                       # projection never reaches the body prompt
+
+
+def test_player_scores_are_rounded_in_the_prose():
+    text = writer.system_prompt("standard", GAMES)
+    text = " ".join(b.get("text", "") for b in text) if isinstance(text, list) else str(text)
+    assert "ROUND PLAYER SCORES TO WHOLE NUMBERS" in text

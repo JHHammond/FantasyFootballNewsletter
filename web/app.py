@@ -1457,7 +1457,9 @@ def manage(
         plan=plans.plan_for(owner),
         owner=owner,
         subscriber_count=db.subscriber_count(league["id"]),
-        is_new=bool(new),
+        # The "bookmark this page" warning is only true for a league with no
+        # account behind it: an account holder can always get back in.
+        is_new=bool(new) and not league.get("user_id"),
         generated_week=generated or None,
         error=error,
         notice=notice,
@@ -1796,9 +1798,17 @@ def save_setup(
 
 
 @app.post("/l/{token}/skip-setup")
-def skip_setup(token: str):
+def skip_setup(request: Request, token: str, week: str = Form("")):
+    """Skip the questions — and still get the paper straight away.
+
+    Skipping means "don't make me fill this in", not "don't make me a
+    paper". When a week has been played the first paper starts at once,
+    through the same door as every other generation.
+    """
     league = _require_league(token)
     db.update_league(league["id"], {"setup_complete": True})
+    if week.strip().isdigit():
+        return _generate_response(request, _require_league(token), int(week.strip()))
     return RedirectResponse(f"/l/{token}?new=1", status_code=303)
 
 

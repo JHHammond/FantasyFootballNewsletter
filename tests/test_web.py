@@ -202,8 +202,22 @@ def test_bad_token_is_404_not_403(client, league):
     assert "403" not in r.text
 
 
-def test_manage_warns_to_bookmark_on_first_visit(client, league):
+def test_manage_warns_to_bookmark_only_when_there_is_no_account(client, league):
+    """An account holder can always get back in, so the warning would be
+    false for them — and it hung around after setup."""
+    assert "Bookmark this page" not in client.get("/l/secret-admin-token?new=1").text
+    demo_db._LEAGUES[league["id"]]["user_id"] = None
     assert "Bookmark this page" in client.get("/l/secret-admin-token?new=1").text
+
+
+def test_skipping_setup_still_writes_the_first_paper(client, league, monkeypatch):
+    made = []
+    monkeypatch.setattr(webapp, "generate_and_store",
+                        lambda db_, lg, wk: made.append(wk))
+    r = client.post("/l/secret-admin-token/skip-setup", data={"week": "3"},
+                    follow_redirects=False)
+    assert made == [3]
+    assert r.headers["location"].endswith("/published/3")
 
 
 def test_manage_shows_public_share_link(client, league):
