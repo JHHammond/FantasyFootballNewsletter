@@ -201,8 +201,14 @@ projection. Use them.
 - End with where both teams now stand.
 
 PEOPLE
+Call each side by its TEAM NAME most of the time — team names are chosen to be
+funny, and they are the joke the league already enjoys. Use the person's real
+name (where the people list gives one) now and then, mainly when the sentence
+is about a decision that person made. Use the platform username (the handle,
+like WillDavidson10) only when a team has no name of its own.
+
 You do not know anybody's gender. Not the managers, not the players. Refer to
-a manager by their name or their team, and to a player by their surname. Do
+a manager by their team name or their name, and to a player by their surname. Do
 not write he, she, him, her, his or hers about anyone — use their name again,
 or rewrite the sentence. "Nolan started Waddle and it cost him" becomes "Nolan
 started Waddle, and that was the week". This reads perfectly naturally and it
@@ -1161,7 +1167,7 @@ HOW A HEADLINE WORKS
 - A reader who hasn't read the story yet must understand it on first read.
   A pun is fine only if it lands without the story; if it needs explaining,
   write it straight.
-- Managers by the names the story uses for them. Players by surname — BUT if
+- Teams by their team names, the way the story does. Players by surname — BUT if
   a player's surname is also the name of anybody in this league ({names}),
   use the player's full name, or the reader thinks it means their friend.
 - 5 to 10 words. A number is good if it is the point (a score, a margin).
@@ -1714,7 +1720,11 @@ BY: {names['winner']} or {names['loser']}, exactly as written
     # a made-up coach, a name spelled differently — becomes the loser, whose
     # quote it most likely was.
     matched = next((n for n in names.values() if n.lower() == by.lower()), None)
-    return {"quote": quote, "by": matched or names["loser"]}
+    speaker = matched or names["loser"]
+    side = "winner" if speaker == names["winner"] else "loser"
+    team = (ctx.get(side) or "").strip()
+    return {"quote": quote, "by": speaker,
+            "team": team if team and team != speaker else ""}
 
 
 def generate_classifieds(summary, game_contexts, commissioner_name="",
@@ -2301,6 +2311,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         # attribution travels beside it rather than inside it.
         "pull_quote": _pull_quote_part(results.get("pull_quote"), "quote"),
         "pull_quote_by": _pull_quote_part(results.get("pull_quote"), "by"),
+        "pull_quote_team": _pull_quote_part(results.get("pull_quote"), "team"),
         "letter": results.get("letter") or {},
         "obituaries": results.get("obituaries") or [],
         # Numbers only — John: no commentary on the previews.

@@ -543,8 +543,9 @@ def test_the_pull_quote_is_a_managers_quote_with_attribution(swap_client, no_sle
     swap_client(lambda _k: _reply(
         f'QUOTE: "We had a plan. The plan was Kyler Murray. We are revisiting the plan."\nBY: {loser}'))
     out = writer.generate_pull_quote([ctx])
-    assert out == {"quote": "We had a plan. The plan was Kyler Murray. We are revisiting the plan.",
-                   "by": loser}
+    assert out["quote"] == "We had a plan. The plan was Kyler Murray. We are revisiting the plan."
+    assert out["by"] == loser
+    assert out["team"] in ("", ctx["loser"])
 
 
 def test_the_pull_quote_prompt_asks_for_a_locker_room_quote(swap_client, no_sleeping):
@@ -2259,3 +2260,11 @@ def test_recaps_are_not_told_to_end_on_the_records(swap_client, no_sleeping):
     writer.generate_matchup_body(writer.build_game_context(GAME))
     assert "Finish with a short line giving both new records" not in seen["p"]
     assert "Do not end on the two teams' records" in seen["p"]
+
+
+def test_the_writer_is_told_to_use_team_names_first():
+    """John: team names are always funnier than usernames."""
+    prompt = writer.system_prompt("standard", GAMES)
+    text = " ".join(b.get("text", "") for b in prompt) if isinstance(prompt, list) else str(prompt)
+    assert "TEAM NAME most of the time" in text
+    assert "handle" in text

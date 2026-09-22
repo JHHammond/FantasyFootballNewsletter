@@ -231,6 +231,10 @@ GAMEDAY_FONTS = (
 )
 
 GAMEDAY_CSS = """
+/* standings trend lines: light ink on the dark page */
+.spark { color: #e9edf2 !important; }
+.spark-now { fill: #16f04e !important; }
+
 /* ===== GAMEDAY ===== */
 body { background: #0b0d10 !important; color: #f2f4f7 !important; }
 .page {

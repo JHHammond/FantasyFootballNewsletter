@@ -255,3 +255,25 @@ def test_a_season_high_needs_three_earlier_games():
     results = history.results_from_weeks([W1, W2, W3, w4])
     assert "new season high" in history.matchup_memory(results, 4, "carson", "mark")
     assert "new season high" not in history.matchup_memory(RESULTS, 3, "carson", "will")
+
+
+def test_weekly_scores_share_one_scale_and_use_current_names():
+    out = history.weekly_scores(RESULTS, 3)
+    assert out["lo"] == 80 and out["hi"] == 140
+    assert out["teams"]["Team carson"] == [[1, 120.0], [2, 130.0], [3, 140.0]]
+    assert set(out["teams"]) == {"Team carson", "Team will", "Team steve", "Team mark"}
+
+
+def test_the_trend_is_frozen_into_the_paper(monkeypatch):
+    from web import generate, demo_db
+    weeks = {1: W1, 2: W2, 3: W3}
+
+    def lw(provider, lid, season, w, **k):
+        if w not in weeks:
+            raise RuntimeError("no week")
+        return weeks[w]
+    monkeypatch.setattr(generate, "load_week", lw)
+    league = {"id": "L1", "provider": "sleeper", "platform_league_id": "1",
+              "season": 2026}
+    out = generate._season_briefing(demo_db, league, 3, W3)
+    assert out["trends"]["teams"]["Team will"][-1] == [3, 139.0]

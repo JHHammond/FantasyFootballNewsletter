@@ -877,17 +877,66 @@ def render_back_page(obituaries=None, promo=None, lines=None,
         </div>"""
 
 
-def render_standings_html(standings):
+#: Sparkline geometry, in SVG units. Small enough for a table cell; the line
+#: is 2 units and the latest week gets a dot so "where are they now" reads
+#: before "how did they get here".
+SPARK_W, SPARK_H, SPARK_PAD = 46, 18, 3
+
+
+def render_sparkline(series, lo, hi, team_name=""):
+    """A team's recent weekly scores as a tiny line, on the league's scale.
+
+    Inline SVG, so it prints sharp and inherits the theme's ink through
+    currentColor. Every point carries a <title>, which is the hover tooltip on
+    screen and the text a screen reader gets. Needs two weeks to be a line.
+    """
+    pts = [(w, float(p)) for w, p in (series or [])
+           if isinstance(p, (int, float))]
+    if len(pts) < 2:
+        return ""
+    span = (hi - lo) or 1.0
+    step = (SPARK_W - 2 * SPARK_PAD) / (len(pts) - 1)
+
+    def xy(i, v):
+        x = SPARK_PAD + i * step
+        y = SPARK_PAD + (SPARK_H - 2 * SPARK_PAD) * (1 - (v - lo) / span)
+        return round(x, 1), round(y, 1)
+
+    coords = [xy(i, v) for i, (_, v) in enumerate(pts)]
+    path = " ".join(f"{x},{y}" for x, y in coords)
+    dots = "".join(
+        f'<circle cx="{x}" cy="{y}" r="6" fill="transparent">'
+        f'<title>Week {w}: {v:.1f}</title></circle>'
+        for (x, y), (w, v) in zip(coords, pts))
+    lx, ly = coords[-1]
+    label = html_escape(f"{team_name} weekly scores: " +
+                        ", ".join(f"week {w} {v:.1f}" for w, v in pts))
+    return (f'<svg class="spark" viewBox="0 0 {SPARK_W} {SPARK_H}" '
+            f'width="{SPARK_W}" height="{SPARK_H}" role="img" aria-label="{label}">'
+            f'<polyline points="{path}" fill="none" stroke="currentColor" '
+            f'stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+            f'<circle class="spark-now" cx="{lx}" cy="{ly}" r="2.6"/>'
+            f'{dots}</svg>')
+
+
+def render_standings_html(standings, trends=None):
     rows = []
+    trends = trends or {}
+    series_by_team = trends.get("teams") or {}
+    lo, hi = trends.get("lo", 0), trends.get("hi", 1)
 
     for i, team in enumerate(standings, start=1):
         avatar = render_avatar_img(team.get("avatar_url"), team["team_name"])
+        spark = render_sparkline(series_by_team.get(team["team_name"]), lo, hi,
+                                 team["team_name"]) if series_by_team else ""
+        trend_cell = f'<td class="trend-cell">{spark}</td>' if series_by_team else ""
         rows.append(f"""
         <tr>
             <td>{i}</td>
             <td class="team-cell">{avatar}<span>{team['team_name']}</span></td>
-            <td>{team['record']}</td>
-            <td>{team['points']:.1f}</td>
+            <td class="nowrap">{team['record']}</td>
+            <td class="nowrap">{team['points']:.1f}</td>
+            {trend_cell}
         </tr>
         """)
 
@@ -1031,7 +1080,8 @@ CLASSIFIEDS_AFTER_BLOCKS = 3
 
 def render_matchup_stories_html(stories, editable=False, images=None,
                                 auto_photos=None, pull_quote=None,
-                                interleave="", pull_quote_by=None):
+                                interleave="", pull_quote_by=None,
+                                pull_quote_team=None):
     """
     Render game stories in a varied newspaper layout:
     - Story 0: LEAD — full width, large headline, photo floated right, pull quote
@@ -1066,7 +1116,10 @@ def render_matchup_stories_html(stories, editable=False, images=None,
             # lifted from the recap — is never credited to a manager.
             by = (str(pull_quote_by).strip()
                   if pull_quote_by and pull_quote and quote else "")
-            by_html = (f'<div class="pull-quote-by">&mdash; {html_escape(by)}, '
+            team = (str(pull_quote_team).strip()
+                    if by and pull_quote_team else "")
+            who = f"{html_escape(by)}, {html_escape(team)}" if team else html_escape(by)
+            by_html = (f'<div class="pull-quote-by">&mdash; {who}, '
                        f'after the game</div>') if by else ""
             pull_html = (
                 f'<div class="pull-quote"{ed("pull_quote", editable)}>'
@@ -1584,6 +1637,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             auto_photos=auto_photos,
             pull_quote=(ai_content or {}).get("pull_quote"),
             pull_quote_by=(ai_content or {}).get("pull_quote_by"),
+            pull_quote_team=(ai_content or {}).get("pull_quote_team"),
             interleave=publisher_page)
     else:
         stories = build_matchup_stories(matchups)
@@ -1592,6 +1646,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             auto_photos=auto_photos,
             pull_quote=(ai_content or {}).get("pull_quote"),
             pull_quote_by=(ai_content or {}).get("pull_quote_by"),
+            pull_quote_team=(ai_content or {}).get("pull_quote_team"),
             interleave=publisher_page)
 
     # The front page hero used to fall back to a random bundled meme. Those are
@@ -1697,7 +1752,11 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             lines=(ai_content or {}).get("lines"),
             transactions=transactions,
             editable=editable),
-        "standings_html": render_standings_html(build_standings(matchups)),
+        "standings_html": render_standings_html(
+            build_standings(matchups), (ai_content or {}).get("trends")),
+        "standings_trend_th": ('<th class="trend-th">Trend</th>'
+                               if ((ai_content or {}).get("trends") or {}).get("teams")
+                               else ""),
         "top_scorers_html": build_top_scorers(matchups),
         "week_ticker_html": build_week_ticker(summary),
         "honor_roll_html": build_honor_roll_and_detention(matchups)[0],
@@ -2553,6 +2612,12 @@ def render_html(edition, theme=None):
         .line-total {{ font-size: 13px; opacity: 0.7; margin-left: 6px; }}
         .line-pick {{ font-style: italic; font-size: 14px; margin-top: 3px; }}
 
+        .trend-cell {{ padding: 2px 2px !important; width: 48px; }}
+        td.nowrap, table.stats th {{ white-space: nowrap; }}
+        .spark {{ display: block; color: #111; overflow: visible; }}
+        .spark-now {{ fill: #c40000; }}
+        .trend-th {{ font-size: 10px; }}
+
         .award-desc {{
             font-size: 12px;
             font-style: italic;
@@ -2838,6 +2903,7 @@ def render_html(edition, theme=None):
                             <th>Team</th>
                             <th>W-L</th>
                             <th>Pts</th>
+                            {edition.get('standings_trend_th', '')}
                         </tr>
                     </thead>
                     <tbody>

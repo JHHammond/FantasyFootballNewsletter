@@ -127,9 +127,10 @@ def build_manager_context(managers: list,
         return ""
 
     lines = [
-        "THE PEOPLE IN THIS LEAGUE. Use the NAME for anybody who has one — "
-        "these are real people and the handle is not what their friends call "
-        "them. The notes are standing facts about that person; bring one up "
+        "THE PEOPLE IN THIS LEAGUE. Refer to each side by its TEAM NAME most "
+        "of the time; use the person's NAME now and then, mostly for a "
+        "decision they made. Never the handle when there is a team name or a "
+        "name. The notes are standing facts about that person; bring one up "
         "when this week gives you a reason and leave it alone when it does "
         "not. Never explain a note, and never invent one."
     ]
@@ -449,7 +450,7 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
     costs the paper an extra, never the paper."""
     provider, lid, season = (league["provider"], league["platform_league_id"],
                              league["season"])
-    out = {"briefing": "", "lines": [], "memories": {}}
+    out = {"briefing": "", "lines": [], "memories": {}, "trends": {}}
     try:
         def fetch(w):
             return this_week if w == week else load_week(
@@ -466,6 +467,7 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
 
         pairs = [(str(m.teams[0].team_id), str(m.teams[1].team_id))
                  for m in this_week.matchups]
+        out["trends"] = history.weekly_scores(results, week)
         out["briefing"] = history.previously_on(results, week, pairs, last_paper)
         out["memories"] = {
             frozenset((m.teams[0].team_name, m.teams[1].team_name)):
@@ -536,5 +538,10 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         lines=season_so_far["lines"],
         memories=season_so_far["memories"],
     )
+
+    # Frozen into the paper, like the lines: an edit or re-render next month
+    # must show the trend as it stood when this week was written.
+    if season_so_far["trends"]:
+        ai_content["trends"] = season_so_far["trends"]
 
     return render_and_store(db, league, week, ai_content)

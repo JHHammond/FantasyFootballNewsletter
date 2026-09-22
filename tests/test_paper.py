@@ -401,3 +401,35 @@ def test_the_referral_graphic_is_shown_with_the_code_as_copyable_text():
     assert '<img class="promo-image" src="https://x/p.png"' in html
     assert "Code: <strong>JOHNH</strong>" in html
     assert "If you play Underdog" in html
+
+
+def test_the_quote_byline_carries_the_team_name():
+    html = _lead_html(pull_quote="We had a plan. The plan was Kyler Murray.",
+                      pull_quote_by="Will", pull_quote_team="Wasteland FC")
+    assert "Will, Wasteland FC, after the game" in html
+
+
+# --- the standings trend lines ------------------------------------------------
+
+def test_a_sparkline_is_drawn_on_the_leagues_scale_with_hover_values():
+    svg = newspaper.render_sparkline([[1, 100.0], [2, 150.0], [3, 125.0]], 100.0, 150.0, "Carson")
+    assert svg.startswith('<svg class="spark"')
+    assert "<title>Week 2: 150.0</title>" in svg
+    assert 'aria-label="Carson weekly scores: week 1 100.0' in svg
+    # top of the league's range sits at the top of the box, bottom at the bottom
+    pts = svg.split('points="')[1].split('"')[0].split()
+    ys = [float(p.split(",")[1]) for p in pts]
+    assert ys[1] == newspaper.SPARK_PAD
+    assert ys[0] == newspaper.SPARK_H - newspaper.SPARK_PAD
+
+
+def test_one_week_is_not_a_line():
+    assert newspaper.render_sparkline([[1, 100.0]], 90, 110) == ""
+
+
+def test_the_standings_get_a_trend_column_only_when_there_are_trends():
+    standings = [{"team_name": "Carson", "record": "2-0", "points": 250.0}]
+    with_t = newspaper.render_standings_html(standings, {"lo": 100, "hi": 150,
+        "teams": {"Carson": [[1, 100.0], [2, 150.0]]}})
+    assert 'class="trend-cell"' in with_t and "<svg" in with_t
+    assert "trend-cell" not in newspaper.render_standings_html(standings)

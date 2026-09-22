@@ -246,6 +246,34 @@ def matchup_memory(results: list[Result], week: int, a_id: str, b_id: str,
     return "\n".join(lines)
 
 
+#: How many weeks a standings trend line shows. Enough to see a run, few
+#: enough to fit in a table cell.
+TREND_WEEKS = 8
+
+
+def weekly_scores(results: list[Result], through_week: int,
+                  last: int = TREND_WEEKS) -> dict:
+    """Each team's recent weekly scores, for the trend lines in the standings.
+
+    Keyed by the team's CURRENT name, because that is what the standings row
+    prints. One scale for the whole league (`lo`/`hi`), so a flat line at the
+    top means the same thing on every row and teams can be compared by eye.
+    """
+    by_team: dict[str, list[Result]] = {}
+    for r in results:
+        if r.week <= through_week:
+            by_team.setdefault(r.team_id, []).append(r)
+    teams = {}
+    for rs in by_team.values():
+        rs.sort(key=lambda r: r.week)
+        recent = rs[-last:]
+        teams[rs[-1].team] = [[r.week, round(r.points, 1)] for r in recent]
+    values = [pts for series in teams.values() for _, pts in series]
+    if not values:
+        return {}
+    return {"lo": min(values), "hi": max(values), "teams": teams}
+
+
 def load_season(fetch_week: Callable[[int], Any], through_week: int) -> list[Result]:
     """Every result from week 1 to `through_week`. A week that can't be
     fetched is skipped rather than failing the paper."""
