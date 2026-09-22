@@ -652,3 +652,38 @@ def save_manager(league_id: str, handle: str,
             row["display_name"] = (display_name or "").strip()[:80] or None
             row["notes"] = (notes or "").strip()[:2000] or None
             row["updated_at"] = _now()
+
+
+# --- the league's own awards (mirrors db.py) --------------------------------
+
+_AWARDS: dict = {}
+
+
+def get_awards(league_id: str) -> list[dict[str, Any]]:
+    with _lock:
+        return [dict(a) for a in _AWARDS.values() if a["league_id"] == league_id]
+
+
+def awards_table_ready() -> bool:
+    return True
+
+
+def add_award(league_id: str, fields: dict) -> None:
+    import uuid
+    with _lock:
+        aid = str(uuid.uuid4())
+        _AWARDS[aid] = dict(fields, id=aid, league_id=league_id)
+
+
+def update_award(league_id: str, award_id: str, fields: dict) -> None:
+    with _lock:
+        row = _AWARDS.get(award_id)
+        if row and row["league_id"] == league_id:
+            row.update(fields)
+
+
+def delete_award(league_id: str, award_id: str) -> None:
+    with _lock:
+        row = _AWARDS.get(award_id)
+        if row and row["league_id"] == league_id:
+            del _AWARDS[award_id]

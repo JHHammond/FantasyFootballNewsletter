@@ -110,6 +110,10 @@ SUMMARY = {
     "biggest_blowout": GAME,
     "highest_score": {"team_name": "Satan", "points": 120.0},
     "lowest_score": {"team_name": "The Sommelier", "points": 99.0},
+    # So the awards section has a winner to write about.
+    "best_loser": {"team_name": "The Sommelier", "owner_name": "the sommelier",
+                   "points": 99.0},
+    "best_loser_game": GAME,
 }
 
 
@@ -769,7 +773,7 @@ def test_the_mechanical_calls_are_on_the_cheap_model():
     awards and fraud_watch used to be in this list and are not any more; see
     test_the_sections_that_judge_stay_on_the_big_model for what they did.
     """
-    for task in ("game_teasers", "classifieds", "awards"):
+    for task in ("game_teasers", "classifieds"):
         assert writer.model_for(task) == writer.SMALL_MODEL, (
             f"{task} is still on the expensive model")
 
@@ -1273,30 +1277,15 @@ def test_call_claude_survives_a_thinking_block_end_to_end(monkeypatch):
 
 
 def test_the_awards_do_not_explain_who_their_namesakes_are():
-    """This was diagnosed wrong once and is worth pinning.
-
-    The first ESPN paper's awards opened "Gardner Minshew is the backup QB for
-    KC" and I read it as a cheap model padding. It was not. The PROMPT said,
-    in as many words, "Always open by explaining the award: Gardner Minshew is
-    the backup QB for KC", and the model did as it was told — including
-    repeating a roster fact that had since stopped being true, because Minshew
-    plays in Arizona now.
-
-    The award NAMES stay; they are the league's own running joke. What goes is
-    the instruction to explain them and the hardcoded roster.
-    """
+    """The names are the league's joke and stay unexplained; no roster fact
+    is hardcoded (Minshew's 'backup QB for KC' went stale within a season)."""
     import inspect
-
+    titles = [t for t, _, _ in writer.STANDING_AWARDS]
+    assert titles == ["TONY SNELL WINDSPRINT AWARD", "KYLE PITTS AWARD",
+                      "NICK FOLES AWARD", "JOE BURROW AWARD"]
     source = inspect.getsource(writer.generate_awards)
-
-    assert "GARDNER MINSHEW AWARD" in source, "the namesake was removed"
-    assert "JERRY JONES AWARD" in source
-
-    assert "Always open by explaining" not in source
-    assert "backup QB for KC" not in source, (
-        "a roster fact is hardcoded into the prompt again — it will be wrong "
-        "within a season")
-    assert "Do NOT explain" in source
+    assert "Never explain who" in source
+    assert "backup QB" not in source
 
 
 def test_the_writer_is_told_not_to_remember_rosters():
@@ -1846,21 +1835,25 @@ def test_no_bench_data_still_produces_an_award():
     assert summary["bench_blunder_player"] is None
 
 
-def test_a_tiny_benched_score_is_not_written_up_as_a_catastrophe(swap_client,
-                                                                 no_sleeping):
-    """A week where the best benched player scored 2 points is a week where
-    nobody blundered. The award still runs; the prompt says not to pretend."""
+def test_the_award_winners_are_decided_before_the_writer_sees_them(swap_client,
+                                                                  no_sleeping):
+    """John's four, each with its winner already worked out."""
     seen = {}
-
-    def capture(kwargs):
-        seen["prompt"] = kwargs["messages"][0]["content"]
-        return _reply("[]")
-
-    swap_client(capture)
-    writer.generate_awards(SUMMARY)
-
-    assert "Do not manufacture outrage" in seen["prompt"]
-
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("[]"))
+    team = {"team_name": "Satan", "owner_name": "satan"}
+    pick = lambda name, pts, proj: {"player": {"name": name, "actual": pts,  # noqa: E731
+                                               "projected": proj}, "team": team}
+    summary = dict(SUMMARY, tony_snell=pick("Snell", 0.0, 8.0),
+                   kyle_pitts=pick("Pitts", 2.0, 14.0),
+                   nick_foles=pick("Foles", 31.0, 9.0))
+    writer.generate_awards(summary)
+    p = seen["p"]
+    for title in ("TONY SNELL WINDSPRINT AWARD", "KYLE PITTS AWARD",
+                  "NICK FOLES AWARD", "JOE BURROW AWARD"):
+        assert title in p, title
+    assert "the winner is decided" in p
+    assert "Snell scored 0.0" in p and "Pitts scored 2.0 (projected 14.0)" in p
+    assert "from the bench" in p
 
 # ---------------------------------------------------------------------------
 # A recap cut off mid-word
@@ -2256,3 +2249,28 @@ def test_player_scores_are_rounded_in_the_prose():
     text = writer.system_prompt("standard", GAMES)
     text = " ".join(b.get("text", "") for b in text) if isinstance(text, list) else str(text)
     assert "ROUND PLAYER SCORES TO WHOLE NUMBERS" in text
+
+
+def test_custom_awards_reach_the_awards_prompt_and_get_their_labels(swap_client, no_sleeping):
+    seen = {}
+
+    def behaviour(k):
+        seen["p"] = k["messages"][0]["content"]
+        return _reply('[{"title": "THE NICK MEMORIAL", "body": "x", "winner": "Satan"},'
+                      ' {"title": "Kicker King", "body": "y", "winner": "Satan"}]')
+    swap_client(behaviour)
+    custom = [{"name": "The Nick Memorial", "mode": "manual",
+               "winner": "Wasteland (Will)", "note": "Traded Bijan for a kicker"},
+              {"name": "Kicker King", "mode": "auto", "criteria": "most points from a kicker"}]
+    out = writer.generate_awards(SUMMARY, custom_awards=custom, games_brief="GAMES-BRIEF")
+    p = seen["p"]
+    assert 'given it to Wasteland (Will)' in p and "Traded Bijan for a kicker" in p
+    assert "most points from a kicker" in p and "GAMES-BRIEF" in p
+    labelled = writer._label_custom_awards(out, custom)
+    assert labelled[0]["title"] == "The Nick Memorial"
+    assert labelled[0]["desc"] == "Commissioner's pick"
+    assert labelled[1]["desc"] == "most points from a kicker"
+
+
+def test_a_manual_award_with_no_winner_is_left_out(swap_client, no_sleeping):
+    assert writer._custom_award_lines([{"name": "X", "mode": "manual"}], "") == []

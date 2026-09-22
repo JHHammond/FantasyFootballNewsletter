@@ -397,6 +397,28 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
     return render_html(edition, theme=league.get("theme"))
 
 
+def _custom_awards_for_writer(db, league: dict[str, Any], directory: list) -> list:
+    """The league's own awards, with a manual winner's handle turned into
+    their team name (and real name, if the commissioner gave one)."""
+    try:
+        awards = db.get_awards(league["id"])
+    except Exception:  # noqa: BLE001
+        return []
+    teams = {m["handle"]: m["team_name"] for m in directory}
+    names = {m.get("handle"): (m.get("display_name") or "").strip()
+             for m in (db.get_managers(league["id"]) or [])}
+    out = []
+    for a in awards:
+        a = dict(a)
+        handle = (a.get("winner") or "").strip()
+        if a.get("mode") == "manual" and handle:
+            team = teams.get(handle) or handle
+            person = names.get(handle)
+            a["winner"] = f"{team} ({person})" if person else team
+        out.append(a)
+    return out
+
+
 def _draft_picks(league: dict[str, Any]) -> dict:
     """Where each player went in this season's draft — redraft leagues only.
 
@@ -537,6 +559,7 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         obituaries=history.lowest_starters(week_data),
         lines=season_so_far["lines"],
         memories=season_so_far["memories"],
+        custom_awards=_custom_awards_for_writer(db, league, directory),
     )
 
     # Frozen into the paper, like the lines: an edit or re-render next month

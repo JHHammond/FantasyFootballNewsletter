@@ -66,7 +66,6 @@ SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 SMALL_MODEL_TASKS = frozenset({
     "game_teasers",
     "classifieds",
-    "awards",
 })
 
 
@@ -1532,119 +1531,123 @@ or quotes. Plain prose — no markdown, no bullets, no headers.
 """, max_tokens=3000, system=system, model=model, avoid_tells=True)
 
 
-def generate_awards(summary, commissioner_name="", inside_jokes="", system=None, model=None):
-    highest = summary.get("highest_score", {})
-    lowest = summary.get("lowest_score", {})
-    bench = summary.get("bench_blunder", {})
-    benched_player = summary.get("bench_blunder_player")
-    upset = summary.get("upset", {})
-    jerry = summary.get("jerry_jones", {})
-    best_loser = summary.get("best_loser") or {}
-    best_loser_game = summary.get("best_loser_game") or {}
-
-    context = {
-        "commissioner_name": commissioner_name,
-        "highest_score_team": highest.get("team_name", ""),
-        "highest_score_owner": highest.get("owner_name", ""),
-        "highest_score": highest.get("points", 0),
-        "lowest_score_team": lowest.get("team_name", ""),
-        "lowest_score_owner": lowest.get("owner_name", ""),
-        "lowest_score": lowest.get("points", 0),
-        "bench_blunder_team": bench.get("team_name", ""),
-        "bench_blunder_owner": bench.get("owner_name", ""),
-        "bench_blunder_gap": bench.get("lineup_gap", 0),
-        # The player, which is what the award is actually about.
-        "bench_blunder_player": (benched_player or {}).get("name", ""),
-        "bench_blunder_points": (benched_player or {}).get("actual", 0) or 0,
-        "best_loser_team": best_loser.get("team_name", ""),
-        "best_loser_owner": best_loser.get("owner_name", ""),
-        "best_loser_score": best_loser.get("points", 0) or 0,
-        "best_loser_beaten_by": best_loser_game.get("winner", ""),
-        "best_loser_margin": best_loser_game.get("margin", 0) or 0,
-        "upset_winner": upset.get("winner", "") if upset else "",
-        "upset_margin": upset.get("margin", 0) if upset else 0,
-        "jerry_jones_team": jerry.get("team_name", "") if jerry else "",
-        "jerry_jones_owner": jerry.get("owner_name", "") if jerry else "",
-        "jerry_jones_score": jerry.get("points", 0) if jerry else 0,
-        "jerry_jones_gap": jerry.get("lineup_gap", 0) if jerry else 0,
-        "inside_jokes": inside_jokes,
-    }
-
-    prompt = f"""
-Write FOUR WEEKLY AWARDS for this week's paper.
-Each award needs: a title, and 2-3 sentences of body text.
-Do not use any markdown formatting. Plain prose only.
-
-Awards to write. The NAMES are fixed and never change — they are this
-league's own running joke and the readers already know them. Do NOT explain
-who the namesake is, and do NOT state which NFL team anybody plays for. Write
-about what happened in THIS league THIS week.
-
-1. GARDNER MINSHEW AWARD — the single best player left on a bench.
-   Winner: {context['bench_blunder_team']} ({context['bench_blunder_owner']}),
-   who benched {context['bench_blunder_player'] or 'somebody'} for
-   {context['bench_blunder_points']:.1f} points and lost.
-   Name that player. The award is about him, not about a total.
-   If that score is small, the joke is that this was the worst anybody in the
-   league managed — not that it was a catastrophe. Do not manufacture outrage
-   over a number that does not deserve it.
-
-2. JOE BURROW AWARD — did everything right and still lost. The highest
-   score of the week that lost.
-   Winner: {context['best_loser_team']} ({context['best_loser_owner']}),
-   who scored {context['best_loser_score']:.1f} and lost anyway to
-   {context['best_loser_beaten_by']} by {context['best_loser_margin']:.1f}.
-   Sympathetic, not mocking: this manager did their job.
-
-3. KYLE PITTS AWARD — boldest correct starting decision. Courage and ball
-   knowledge, not simply the highest score.
-   Winner: {context['highest_score_team']} ({context['highest_score_owner']})
-   who dropped {context['highest_score']:.1f} points.
-
-4. JERRY JONES AWARD — worst manager of the week. All the talent, all the
-   resources, the worst decisions, and somehow everyone else's fault.
-   Winner: {context['jerry_jones_team']} ({context['jerry_jones_owner']})
-   who scored only {context['jerry_jones_score']:.1f} points and left
-   {context['jerry_jones_gap']:.1f} points rotting on the bench unused.
-   Be absolutely savage. No mercy.
-
-Format as JSON array like this:
-[
-  {{"title": "GARDNER MINSHEW AWARD", "body": "..."}},
-  {{"title": "JOE BURROW AWARD", "body": "..."}},
-  {{"title": "KYLE PITTS AWARD", "body": "..."}},
-  {{"title": "JERRY JONES AWARD", "body": "..."}}
+#: The standing awards: name, what it is for, and the line the league uses
+#: about it. The names are the running joke and are never explained; the
+#: "for" is printed under each one; the "voice" tells the writer the joke.
+STANDING_AWARDS = [
+    ("TONY SNELL WINDSPRINT AWARD", "The starter who did absolutely nothing",
+     "Named for the night Tony Snell played twenty minutes and recorded no "
+     "stats at all. Deadpan: he was out there. He was technically playing."),
+    ("KYLE PITTS AWARD", "Started the player who fell furthest short",
+     "\"Every year, we think it's his year. We think he'll finally put it "
+     "together. We know he won't, but we just can't help ourselves.\" It "
+     "goes to the MANAGER, for believing."),
+    ("NICK FOLES AWARD", "Best performance off the bench",
+     "The backup who could have won it all, sitting there the whole time."),
+    ("JOE BURROW AWARD", "Best performance in a loss",
+     "Always balls out; the rest of the roster always lets him down. "
+     "Sympathetic — this manager did their job."),
 ]
 
+
+def _player_bit(entry):
+    p = (entry or {}).get("player") or {}
+    t = (entry or {}).get("team") or {}
+    if not p.get("name"):
+        return None
+    proj = p.get("projected")
+    bits = f"{p['name']} scored {float(p.get('actual') or 0):.1f}"
+    if isinstance(proj, (int, float)):
+        bits += f" (projected {proj:.1f})"
+    return bits + f", for {t.get('team_name', '')} (manager {t.get('owner_name', '')})"
+
+
+def award_facts(summary):
+    """Who wins each standing award this week, as one line of fact each —
+    worked out in storylines.py, never left to the writer to decide."""
+    best_loser = summary.get("best_loser") or {}
+    game = summary.get("best_loser_game") or {}
+    burrow = None
+    if best_loser.get("team_name"):
+        burrow = (f"{best_loser['team_name']} (manager {best_loser.get('owner_name', '')}) "
+                  f"scored {float(best_loser.get('points') or 0):.1f} and lost to "
+                  f"{game.get('winner', '')} by {float(game.get('margin') or 0):.1f}")
+    return {
+        "TONY SNELL WINDSPRINT AWARD": _player_bit(summary.get("tony_snell")),
+        "KYLE PITTS AWARD": _player_bit(summary.get("kyle_pitts")),
+        "NICK FOLES AWARD": (_player_bit(summary.get("nick_foles")) or "")
+                            .replace(" scored", " scored, from the bench,") or None,
+        "JOE BURROW AWARD": burrow,
+    }
+
+
+def _custom_award_lines(custom, games_brief):
+    lines = []
+    for i, a in enumerate(custom or []):
+        name = (a.get("name") or "").strip()
+        if not name:
+            continue
+        if a.get("mode") == "manual":
+            who = (a.get("winner") or "").strip()
+            if not who:
+                continue
+            why = (a.get("note") or "").strip()
+            lines.append(f'{i + 1}. "{name}" — the commissioner has given it to '
+                         f"{who}." + (f" Their reason: {why}" if why else ""))
+        else:
+            crit = (a.get("criteria") or "").strip()
+            if crit:
+                lines.append(f'{i + 1}. "{name}" — goes to whoever this week best '
+                             f"fits: {crit}. Decide from the week below; if "
+                             f"nobody fits, say it goes unclaimed this week.")
+    return lines
+
+
+def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
+                    model=None, custom_awards=None, games_brief=""):
+    """The standing four, plus the league's own custom awards."""
+    facts = award_facts(summary)
+    standing = []
+    for title, what, voice in STANDING_AWARDS:
+        fact = facts.get(title)
+        if fact:
+            standing.append(f"- {title} ({what}). The joke: {voice}\n"
+                            f"  This week: {fact}.")
+    custom = _custom_award_lines(custom_awards, games_brief)
+    if not standing and not custom:
+        return []
+
+    prompt = f"""
+Write this week's AWARDS. For each: the title exactly as given, and a body of
+one or two sentences. Round player scores to whole numbers. Never explain who
+the award is named after. Refer to teams by their team names.
+
+THE STANDING AWARDS (the winner is decided — just write it):
+{chr(10).join(standing) or "(none this week)"}
+{("THE LEAGUE'S OWN AWARDS (write these too, using the title in quotes):" + chr(10) + chr(10).join(custom)) if custom else ""}
+{("The week, for deciding the league's own awards:" + chr(10) + games_brief) if custom and games_brief else ""}
+
+Format as a JSON array and nothing else:
+[{{"title": "TONY SNELL WINDSPRINT AWARD", "body": "...", "winner": "team name"}}, ...]
+"winner" is the team the award went to (for the league's own awards, the team
+you chose, or "" if unclaimed).
+
 Inside jokes: {inside_jokes}
-Data: {_compact(context)}
 """
-    raw = call_claude(prompt, max_tokens=900, system=system, model=model)
-
-    # Strip markdown code fences if Claude wraps in ```json
-    cleaned = raw.strip()
+    raw = call_claude(prompt, max_tokens=2400, system=system, model=model)
+    cleaned = (raw or "").strip()
     if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[-1]
-        cleaned = cleaned.rsplit("```", 1)[0].strip()
-
+        cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
     try:
-        return json.loads(cleaned)
-    except Exception:
-        # Fallback if JSON parsing fails
-        return [
-            {"title": "GARDNER MINSHEW AWARD", "body": (
-                f"{context['bench_blunder_team']} benched "
-                f"{context['bench_blunder_player']} for "
-                f"{context['bench_blunder_points']:.1f} points, and lost."
-                if context['bench_blunder_player'] else
-                f"{context['bench_blunder_team']} left "
-                f"{context['bench_blunder_gap']:.1f} points on the bench.")},
-            {"title": "JOE BURROW AWARD", "body": (
-                f"{context['best_loser_team']} scored "
-                f"{context['best_loser_score']:.1f} and still lost to "
-                f"{context['best_loser_beaten_by']}.")},
-            {"title": "KYLE PITTS AWARD", "body": f"{context['highest_score_team']} dropped {context['highest_score']:.1f}. Courage rewarded."},
-        ]
+        parsed = json.loads(cleaned)
+        out = [a for a in parsed if isinstance(a, dict) and a.get("title")]
+        if out:
+            return out
+    except Exception:  # noqa: BLE001
+        pass
+    # Fallback: the facts themselves, so the section never prints empty.
+    return [{"title": t, "body": facts[t] + "."} for t, _, _ in STANDING_AWARDS
+            if facts.get(t)]
 
 
 def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=None):
@@ -2051,7 +2054,8 @@ Reply with one paragraph per player, numbered the same way, and nothing else.
 def generate_full_newspaper_content(league_name, week, games, summary,
                                      commissioner_name="", inside_jokes="",
                                      tone="standard", obituaries=None,
-                                     lines=None, memories=None):
+                                     lines=None, memories=None,
+                                     custom_awards=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -2102,7 +2106,18 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     tasks["lead_story"] = lambda: generate_lead_story(
         summary, week, league_name, commissioner_name, inside_jokes,
         sys_prompt, model_for("lead_story"), games=games)
-    tasks["awards"] = lambda: generate_awards(summary, commissioner_name, inside_jokes, sys_prompt, model_for("awards"))
+    games_brief = "\n".join(
+        f"{gc['ctx']['winner']} beat {gc['ctx']['loser']} "
+        f"{gc['ctx']['winner_score']}-{gc['ctx']['loser_score']}. "
+        f"{gc['ctx']['winner']}: {'; '.join(gc['ctx']['winner_lineup'][:9])}. "
+        f"{gc['ctx']['loser']}: {'; '.join(gc['ctx']['loser_lineup'][:13])}."
+        for gc in game_contexts) if custom_awards else ""
+    # Only when there is an award to write — a task that returns without
+    # calling anything would count as a success and hide a total outage.
+    if any(award_facts(summary).values()) or custom_awards:
+        tasks["awards"] = lambda: generate_awards(
+            summary, commissioner_name, inside_jokes, sys_prompt, model_for("awards"),
+            custom_awards=custom_awards, games_brief=games_brief)
     tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, inside_jokes, sys_prompt, model_for("fraud_watch"))
     tasks["classifieds"] = lambda: generate_classifieds(
         summary, [gc["ctx"] for gc in game_contexts], commissioner_name,
@@ -2296,7 +2311,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         "headline": results.get("headline") or f"{league_name} — Week {week}",
         "lead_story": results.get("lead_story") or "Another week in the books.",
         "matchup_content": matchup_content,
-        "awards": results.get("awards") or [],
+        "awards": _label_custom_awards(results.get("awards") or [], custom_awards),
         "fraud_watch": results.get("fraud_watch") or "No fraud detected.",
         "power_rankings_comments": results.get("power_rankings_comments") or {},
         "classifieds": results.get("classifieds") or [],
@@ -2309,6 +2324,21 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         # Numbers only — John: no commentary on the previews.
         "lines": [dict(l) for l in (lines or [])],
     }
+
+
+def _label_custom_awards(awards, custom):
+    """Give the league's own awards their line under the name: the
+    commissioner's description, or "Commissioner's pick"."""
+    by_name = {(c.get("name") or "").strip().upper(): c for c in (custom or [])}
+    out = []
+    for a in awards:
+        c = by_name.get(str(a.get("title") or "").strip().strip('"').upper())
+        if c:
+            a = dict(a, title=c["name"].strip(), desc=(
+                "Commissioner's pick" if c.get("mode") == "manual"
+                else (c.get("criteria") or "").strip()[:90]))
+        out.append(a)
+    return out
 
 
 def _pull_quote_part(value, part):

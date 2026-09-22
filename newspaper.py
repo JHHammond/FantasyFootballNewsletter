@@ -630,18 +630,19 @@ def build_weekly_awards(summary):
 #: Fixed text rather than written each week, so it reads the same every
 #: issue — the way a real paper's standing features do.
 AWARD_DESCRIPTORS = {
-    "GARDNER MINSHEW AWARD": "Best player left on a losing bench",
-    "JOE BURROW AWARD": "Highest score that still lost",
-    "KYLE PITTS AWARD": "The boldest start that paid off",
-    "JERRY JONES AWARD": "Worst manager of the week",
+    "TONY SNELL WINDSPRINT AWARD": "The starter who did absolutely nothing",
+    "KYLE PITTS AWARD": "Started the player who fell furthest short",
+    "NICK FOLES AWARD": "Best performance off the bench",
+    "JOE BURROW AWARD": "Best performance in a loss",
 }
 
-#: Which of the week's teams each award is about, for its avatar.
+#: Which of the week's teams each award is about, for its avatar. The player
+#: awards keep {"player", "team"}; Burrow's is a team.
 AWARD_SUBJECTS = {
-    "GARDNER MINSHEW AWARD": "bench_blunder",
+    "TONY SNELL WINDSPRINT AWARD": "tony_snell",
+    "KYLE PITTS AWARD": "kyle_pitts",
+    "NICK FOLES AWARD": "nick_foles",
     "JOE BURROW AWARD": "best_loser",
-    "KYLE PITTS AWARD": "highest_score",
-    "JERRY JONES AWARD": "jerry_jones",
 }
 
 
@@ -653,9 +654,21 @@ def award_descriptor(title):
     return AWARD_DESCRIPTORS.get(_award_key(title), "")
 
 
-def award_avatar(title, summary):
+def award_avatar(title, summary, winner=None, matchups=None):
+    """The picture for an award: the subject team's avatar, or for a league's
+    own award, the avatar of the team the writer named."""
     subject = (summary or {}).get(AWARD_SUBJECTS.get(_award_key(title), ""))
-    return get_team_avatar(subject) if subject else None
+    if isinstance(subject, dict) and "team" in subject and "player" in subject:
+        subject = subject["team"]
+    if subject:
+        return get_team_avatar(subject)
+    if winner:
+        for game in matchups or []:
+            for side in ("team_1", "team_2"):
+                team = game.get(side) or {}
+                if get_team_name(team) == winner:
+                    return get_team_avatar(team)
+    return None
 
 
 def render_avatar_img(url, alt):
@@ -669,7 +682,7 @@ def render_awards_html(awards, editable=False):
 
     for i, award in enumerate(awards):
         avatar = render_avatar_img(award.get("avatar"), award["title"])
-        desc = award_descriptor(award["title"])
+        desc = award.get("desc") or award_descriptor(award["title"])
         desc_html = f'<div class="award-desc">{desc}</div>' if desc else ""
         cards.append(f"""
         <div class="award-card">
@@ -1594,8 +1607,10 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             merged_awards.append({
                 "title": award["title"],
                 "body": md(award["body"]) if award.get("body") else "",
-                "avatar": (award_avatar(award["title"], summary)
+                "avatar": (award_avatar(award["title"], summary,
+                                        award.get("winner"), matchups)
                            or old_avatar_map.get(award["title"])),
+                "desc": award.get("desc"),
             })
         awards_html = render_awards_html(merged_awards, editable=editable)
     else:

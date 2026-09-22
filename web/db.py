@@ -1075,3 +1075,42 @@ def save_manager(league_id: str, handle: str,
     # written through this, the same rule as every other scoped update here.
     (client().table("managers").update(fields)
      .eq("league_id", league_id).eq("handle", handle).execute())
+
+
+# ---------------------------------------------------------------------------
+# The league's own awards (migration 016)
+#
+# Every read fails soft to an empty list: a missing table means the paper
+# prints its standing awards and the account page says the migration is due.
+# ---------------------------------------------------------------------------
+
+def get_awards(league_id: str) -> list[dict[str, Any]]:
+    try:
+        res = (client().table("league_awards").select("*")
+               .eq("league_id", league_id).order("created_at").execute())
+        return res.data or []
+    except Exception as exc:  # noqa: BLE001
+        print(f"[awards] could not read: {type(exc).__name__}: {exc}", flush=True)
+        return []
+
+
+def awards_table_ready() -> bool:
+    try:
+        client().table("league_awards").select("id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def add_award(league_id: str, fields: dict) -> None:
+    client().table("league_awards").insert(dict(fields, league_id=league_id)).execute()
+
+
+def update_award(league_id: str, award_id: str, fields: dict) -> None:
+    (client().table("league_awards").update(dict(fields, updated_at="now()"))
+     .eq("league_id", league_id).eq("id", award_id).execute())
+
+
+def delete_award(league_id: str, award_id: str) -> None:
+    (client().table("league_awards").delete()
+     .eq("league_id", league_id).eq("id", award_id).execute())

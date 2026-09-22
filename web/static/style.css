@@ -1408,3 +1408,16 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     .wizard-title { font-size: 25px; }
     .wizard-progress li { font-size: 11px; }
 }
+
+/* ---------- custom awards on the account page ---------- */
+.award-league + .award-league { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.award-league-name { font-size: 16px; margin: 0 0 10px; }
+.award-row { border: 1px solid var(--line); background: var(--cream); padding: 12px 14px; margin-bottom: 10px; }
+.award-row-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.award-name-input { flex: 1; font-weight: 700; font-size: 16px; }
+.award-mode-tag { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+                  color: var(--muted); white-space: nowrap; }
+.award-row-fields { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+.award-row-actions { display: flex; gap: 14px; align-items: center; margin-top: 8px; }
+.award-add summary { cursor: pointer; font-weight: 700; margin: 6px 0 10px; }
+@media (max-width: 560px) { .award-row-fields { grid-template-columns: 1fr; } }

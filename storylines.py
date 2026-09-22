@@ -75,6 +75,44 @@ def get_weekly_storylines(games):
         if best_loser is None or loser["points"] > best_loser["points"]:
             best_loser, best_loser_game = loser, game
 
+    # --- The four standing awards (John, 23 Sep) -----------------------------
+    #
+    # TONY SNELL WINDSPRINT: the starter who did nothing at all — named for
+    # the night Snell played twenty minutes and recorded no stats. The starter
+    # closest to zero, so a true 0.0 always wins; ties go to whoever was
+    # projected for more, because that is the funnier nothing.
+    #
+    # KYLE PITTS: the manager who started the player who missed his
+    # projection by the most. Every year we think it's his year.
+    #
+    # NICK FOLES: the best bench performance anywhere in the league — the
+    # backup who could have won it all.
+    starters = []
+    for team in all_teams:
+        for p in team.get("all_starters") or []:
+            if isinstance(p.get("actual"), (int, float)):
+                starters.append((p, team))
+
+    tony_snell = None
+    if starters:
+        p, team = min(starters, key=lambda pt: (abs(pt[0]["actual"]),
+                                                -(pt[0].get("projected") or 0)))
+        tony_snell = {"player": p, "team": team}
+
+    kyle_pitts = None
+    missed = [(p, t) for p, t in starters
+              if isinstance(p.get("beat_projection_by"), (int, float))]
+    if missed:
+        p, team = min(missed, key=lambda pt: pt[0]["beat_projection_by"])
+        kyle_pitts = {"player": p, "team": team}
+
+    nick_foles = None
+    bench_all = [(p, t) for t in all_teams for p in (t.get("all_bench") or [])
+                 if isinstance(p.get("actual"), (int, float))]
+    if bench_all:
+        p, team = max(bench_all, key=lambda pt: pt[0]["actual"])
+        nick_foles = {"player": p, "team": team}
+
     # --- Empty lineup ---
     empty_teams = [t for t in all_teams if t["empty_slots"] > 0]
 
@@ -167,4 +205,7 @@ def get_weekly_storylines(games):
         "fraud": fraud,
         "dominance": dominance,
         "jerry_jones": jerry_jones,
+        "tony_snell": tony_snell,
+        "kyle_pitts": kyle_pitts,
+        "nick_foles": nick_foles,
     }

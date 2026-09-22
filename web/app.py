@@ -1121,9 +1121,88 @@ def logout():
 def account(request: Request, welcome: int = 0, notice: str = "",
             error: str = ""):
     user = _require_user(request)
+    leagues = db.leagues_for_user(user["id"])
+    for lg in leagues:
+        lg["awards"] = db.get_awards(lg["id"])
+        lg["people"] = db.get_managers(lg["id"])
     return _render(request, "account.html",
-                   leagues=db.leagues_for_user(user["id"]),
+                   leagues=leagues, awards_ready=db.awards_table_ready(),
+                   max_awards=MAX_CUSTOM_AWARDS,
                    welcome=bool(welcome), notice=notice, error=error)
+
+
+# ---------------------------------------------------------------------------
+# The league's own awards, managed from the account page
+# ---------------------------------------------------------------------------
+
+#: Per league. Enough for a league's running jokes; few enough that the
+#: awards section is still a section and not the whole paper.
+MAX_CUSTOM_AWARDS = 6
+
+
+def _owned_league(user: dict, league_id: str) -> dict:
+    lg = next((l for l in db.leagues_for_user(user["id"])
+               if str(l["id"]) == str(league_id)), None)
+    if not lg:
+        raise HTTPException(status_code=404, detail="Not found.")
+    return lg
+
+
+def _award_fields(name, mode, criteria, winner, note) -> dict:
+    mode = "auto" if mode == "auto" else "manual"
+    return {
+        "name": (name or "").strip()[:60],
+        "mode": mode,
+        "criteria": (criteria or "").strip()[:300] or None,
+        "winner": (winner or "").strip()[:80] or None,
+        "note": (note or "").strip()[:300] or None,
+    }
+
+
+@app.post("/account/awards/add")
+def add_custom_award(request: Request, league_id: str = Form(...),
+                     name: str = Form(""), mode: str = Form("manual"),
+                     criteria: str = Form(""), winner: str = Form(""),
+                     note: str = Form("")):
+    user = _require_user(request)
+    lg = _owned_league(user, league_id)
+    fields = _award_fields(name, mode, criteria, winner, note)
+    if not fields["name"]:
+        return RedirectResponse("/account?error=Give+the+award+a+name.#awards",
+                                status_code=303)
+    if fields["mode"] == "auto" and not fields["criteria"]:
+        return RedirectResponse("/account?error=Say+what+the+award+is+for,+"
+                                "so+the+paper+can+pick+a+winner.#awards",
+                                status_code=303)
+    if len(db.get_awards(lg["id"])) >= MAX_CUSTOM_AWARDS:
+        return RedirectResponse(f"/account?error=That's+{MAX_CUSTOM_AWARDS}+"
+                                f"already+-+remove+one+first.#awards", status_code=303)
+    db.add_award(lg["id"], fields)
+    return RedirectResponse("/account?notice=Award+added.#awards", status_code=303)
+
+
+@app.post("/account/awards/{award_id}/update")
+def update_custom_award(request: Request, award_id: str,
+                        league_id: str = Form(...), name: str = Form(""),
+                        mode: str = Form("manual"), criteria: str = Form(""),
+                        winner: str = Form(""), note: str = Form("")):
+    user = _require_user(request)
+    lg = _owned_league(user, league_id)
+    fields = _award_fields(name, mode, criteria, winner, note)
+    if not fields["name"]:
+        return RedirectResponse("/account?error=Give+the+award+a+name.#awards",
+                                status_code=303)
+    db.update_award(lg["id"], award_id, fields)
+    return RedirectResponse("/account?notice=Saved.#awards", status_code=303)
+
+
+@app.post("/account/awards/{award_id}/delete")
+def delete_custom_award(request: Request, award_id: str,
+                        league_id: str = Form(...)):
+    user = _require_user(request)
+    lg = _owned_league(user, league_id)
+    db.delete_award(lg["id"], award_id)
+    return RedirectResponse("/account?notice=Award+removed.#awards", status_code=303)
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,140 @@
     <h1 class="page-title">Your papers</h1>
 </div>
 
+
+<section class="card">
+    {% if leagues %}
+    <ul class="paper-list">
+        {% for league in leagues %}
+        <li class="paper-row">
+            <div>
+                <div class="paper-week">{{ league.paper_name or league.league_name }}</div>
+                <div class="paper-meta">{{ league.league_name }} &middot; {{ league.season }} season</div>
+            </div>
+            <div class="paper-row-actions">
+                <a class="btn btn-sm" href="/l/{{ league.admin_token }}">Manage</a>
+                <a class="btn btn-sm" href="/p/{{ league.public_slug }}">Read</a>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No papers yet.</p>
+    {% endif %}
+    <a class="btn btn-primary" href="/connect">Start a new paper</a>
+</section>
+
+
+<section class="card" id="awards">
+    <h2 class="card-title">Custom awards</h2>
+    <p class="card-sub">
+        Your league&rsquo;s own awards, printed alongside the paper&rsquo;s. Either
+        you pick the winner (it stays theirs until you change it), or you
+        describe what it&rsquo;s for and the paper picks the winner each week.
+    </p>
+    {% if not awards_ready %}
+    <div class="alert alert-error">
+        Custom awards need <code>migrations/016_awards.sql</code> run in Supabase
+        first. Papers print their standing awards until then.
+    </div>
+    {% elif not leagues %}
+    <p class="empty">Make a paper first, then give out awards here.</p>
+    {% else %}
+    {% for league in leagues %}
+    <div class="award-league">
+        {% if leagues|length > 1 %}<h3 class="award-league-name">{{ league.paper_name or league.league_name }}</h3>{% endif %}
+
+        {% for a in league.awards %}
+        <form method="post" action="/account/awards/{{ a.id }}/update" class="award-row">
+            <input type="hidden" name="league_id" value="{{ league.id }}" />
+            <input type="hidden" name="mode" value="{{ a.mode }}" />
+            <div class="award-row-head">
+                <input type="text" name="name" value="{{ a.name }}" maxlength="60" class="award-name-input" aria-label="Award name" />
+                <span class="award-mode-tag">{{ 'Paper picks' if a.mode == 'auto' else 'You pick' }}</span>
+            </div>
+            {% if a.mode == 'auto' %}
+            <label class="field">
+                <span class="field-label">What it&rsquo;s for</span>
+                <input type="text" name="criteria" value="{{ a.criteria or '' }}" maxlength="300" />
+            </label>
+            {% else %}
+            <div class="award-row-fields">
+                <label class="field">
+                    <span class="field-label">This week it goes to</span>
+                    <select name="winner">
+                        <option value="">&mdash; nobody this week &mdash;</option>
+                        {% for p in league.people %}
+                        <option value="{{ p.handle }}" {% if p.handle == a.winner %}selected{% endif %}>{{ p.display_name or p.handle }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Why <span class="opt">optional</span></span>
+                    <input type="text" name="note" value="{{ a.note or '' }}" maxlength="300" placeholder="Traded Bijan for a kicker" />
+                </label>
+            </div>
+            {% endif %}
+            <div class="award-row-actions">
+                <button type="submit" class="btn btn-sm">Save</button>
+                <button type="submit" class="btn-link" formaction="/account/awards/{{ a.id }}/delete">Remove</button>
+            </div>
+        </form>
+        {% endfor %}
+
+        {% if league.awards|length < max_awards %}
+        <details class="award-add" {% if not league.awards %}open{% endif %}>
+            <summary>Add an award</summary>
+            <form method="post" action="/account/awards/add" class="stack">
+                <input type="hidden" name="league_id" value="{{ league.id }}" />
+                <label class="field">
+                    <span class="field-label">Award name</span>
+                    <input type="text" name="name" maxlength="60" placeholder="The Nick Memorial" required />
+                </label>
+                <div class="radio-row">
+                    <label class="radio-card">
+                        <input type="radio" name="mode" value="manual" checked />
+                        <span><strong>I pick the winner</strong><em>Each week, from the list</em></span>
+                    </label>
+                    <label class="radio-card">
+                        <input type="radio" name="mode" value="auto" />
+                        <span><strong>The paper picks</strong><em>Describe what it&rsquo;s for</em></span>
+                    </label>
+                </div>
+                <label class="field">
+                    <span class="field-label">What it&rsquo;s for <span class="opt">needed if the paper picks</span></span>
+                    <input type="text" name="criteria" maxlength="300" placeholder="Whoever benched their best player and lost" />
+                </label>
+                <label class="field">
+                    <span class="field-label">Winner <span class="opt">if you pick</span></span>
+                    <select name="winner">
+                        <option value="">&mdash; choose later &mdash;</option>
+                        {% for p in league.people %}
+                        <option value="{{ p.handle }}">{{ p.display_name or p.handle }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="field">
+                    <span class="field-label">Why <span class="opt">optional</span></span>
+                    <input type="text" name="note" maxlength="300" placeholder="Traded Bijan for a kicker" />
+                </label>
+                <button type="submit" class="btn btn-primary">Add award</button>
+            </form>
+        </details>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2 class="card-title">Already made a paper before signing up?</h2>
+    <p class="card-sub">
+        Open its manage link while signed in and it joins this list
+        automatically. If you&rsquo;ve lost that link,
+        <a href="/recover">have it emailed to you</a>.
+    </p>
+</section>
+
 <section class="card" id="plan">
     <h2 class="card-title">
         Your plan &mdash; {{ plan.label }}
@@ -67,37 +201,5 @@
     <p class="field-help">Paid plans aren&rsquo;t switched on yet.</p>
     {% endif %}
     {% endif %}
-</section>
-
-<section class="card">
-    {% if leagues %}
-    <ul class="paper-list">
-        {% for league in leagues %}
-        <li class="paper-row">
-            <div>
-                <div class="paper-week">{{ league.paper_name or league.league_name }}</div>
-                <div class="paper-meta">{{ league.league_name }} &middot; {{ league.season }} season</div>
-            </div>
-            <div class="paper-row-actions">
-                <a class="btn btn-sm" href="/l/{{ league.admin_token }}">Manage</a>
-                <a class="btn btn-sm" href="/p/{{ league.public_slug }}">Read</a>
-            </div>
-        </li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">No papers yet.</p>
-    {% endif %}
-    <a class="btn btn-primary" href="/connect">Start a new paper</a>
-</section>
-
-
-<section class="card">
-    <h2 class="card-title">Already made a paper before signing up?</h2>
-    <p class="card-sub">
-        Open its manage link while signed in and it joins this list
-        automatically. If you&rsquo;ve lost that link,
-        <a href="/recover">have it emailed to you</a>.
-    </p>
 </section>
 {% endblock %}

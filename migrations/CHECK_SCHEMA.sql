@@ -54,7 +54,9 @@ with expected(ordering, migration, kind, obj, col, note) as (
     (14, '014_plans', 'column', 'users', 'plan',
          'the paywall. Everyone is on the free tier and no payment can be recorded'),
     (15, '015_google', 'column', 'users', 'google_sub',
-         'Sign in with Google. The button 500s on the last step without it')
+         'Sign in with Google. The button 500s on the last step without it'),
+    (16, '016_awards', 'table', 'league_awards', null,
+         'custom awards. The awards box says so and papers print the standing awards only')
 )
 select
     e.migration,

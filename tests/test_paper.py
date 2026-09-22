@@ -299,21 +299,23 @@ def test_each_named_award_says_what_it_is_for():
     """Without it, 'GARDNER MINSHEW AWARD' over a sentence about a bench means
     nothing to anybody not already in on the joke."""
     html = newspaper.render_awards_html([
-        {"title": "GARDNER MINSHEW AWARD", "body": "x"},
+        {"title": "TONY SNELL WINDSPRINT AWARD", "body": "x"},
         {"title": "Joe Burrow Award", "body": "x"},
         {"title": "KYLE PITTS AWARD", "body": "x"},
-        {"title": "JERRY JONES AWARD", "body": "x"},
+        {"title": "NICK FOLES AWARD", "body": "x"},
     ])
     for desc in newspaper.AWARD_DESCRIPTORS.values():
         assert desc in html
 
 
 def test_the_awards_get_the_right_teams_avatar():
-    summary = {"bench_blunder": {"avatar_url": "bench.png"},
-               "jerry_jones": {"avatar_url": "jerry.png"}}
-    assert newspaper.award_avatar("GARDNER MINSHEW AWARD", summary) == "bench.png"
-    assert newspaper.award_avatar("Jerry Jones Award", summary) == "jerry.png"
+    summary = {"nick_foles": {"player": {"name": "Foles"}, "team": {"avatar_url": "bench.png"}},
+               "best_loser": {"avatar_url": "burrow.png"}}
+    assert newspaper.award_avatar("NICK FOLES AWARD", summary) == "bench.png"
+    assert newspaper.award_avatar("Joe Burrow Award", summary) == "burrow.png"
     assert newspaper.award_avatar("Top Dawg", summary) is None
+    games = [{"team_1": {"team_name": "Wasteland", "avatar_url": "w.png"}, "team_2": {}}]
+    assert newspaper.award_avatar("The Nick Memorial", {}, "Wasteland", games) == "w.png"
 
 
 def test_the_joe_burrow_avatar_is_the_best_losers():

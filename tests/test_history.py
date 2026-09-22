@@ -277,3 +277,30 @@ def test_the_trend_is_frozen_into_the_paper(monkeypatch):
               "season": 2026}
     out = generate._season_briefing(demo_db, league, 3, W3)
     assert out["trends"]["teams"]["Team will"][-1] == [3, 139.0]
+
+
+# --- John's standing awards (storylines) ------------------------------------
+
+def _legacy_team(name, pts, starters, bench=()):
+    return {"team_name": name, "owner_name": name.lower(), "points": pts,
+            "record": "0-0", "lineup_gap": 0.0, "empty_slots": 0,
+            "all_starters": list(starters), "all_bench": list(bench)}
+
+
+def test_the_standing_award_winners():
+    import storylines
+    a = _legacy_team("A", 90, [
+        {"name": "Snell", "actual": 0.0, "projected": 9.0, "beat_projection_by": -9.0},
+        {"name": "Pitts", "actual": 3.0, "projected": 18.0, "beat_projection_by": -15.0}],
+        bench=[{"name": "Foles", "actual": 31.0}])
+    b = _legacy_team("B", 120, [
+        {"name": "Allen", "actual": 40.0, "projected": 22.0, "beat_projection_by": 18.0},
+        {"name": "Zero-ish", "actual": -1.0, "projected": 5.0, "beat_projection_by": -6.0}],
+        bench=[{"name": "Backup", "actual": 12.0}])
+    games = [{"team_1": a, "team_2": b, "winner": "B", "margin": 30.0}]
+    s = storylines.get_weekly_storylines(games)
+    assert s["tony_snell"]["player"]["name"] == "Snell"         # a true zero
+    assert s["kyle_pitts"]["player"]["name"] == "Pitts"         # biggest miss
+    assert s["kyle_pitts"]["team"]["team_name"] == "A"
+    assert s["nick_foles"]["player"]["name"] == "Foles"         # best bench anywhere
+    assert s["best_loser"]["team_name"] == "A"                  # Joe Burrow

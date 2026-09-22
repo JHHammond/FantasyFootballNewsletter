@@ -35,7 +35,7 @@ def clean_state(monkeypatch):
     for store in (demo_db._LEAGUES, demo_db._LORE, demo_db._PAPERS,
                   demo_db._STORAGE, demo_db._SUBSCRIBERS, demo_db._MAGIC_LINKS,
                   demo_db._RATE_EVENTS, demo_db._USERS,
-                  demo_db._PUBLISHER_ADS, demo_db._MANAGERS):
+                  demo_db._PUBLISHER_ADS, demo_db._MANAGERS, demo_db._AWARDS):
         store.clear()
     monkeypatch.setattr(webapp, "db", demo_db)
     yield
@@ -4971,10 +4971,11 @@ def test_the_header_says_upgrade_to_free_accounts_and_plan_to_paid(client):
     assert '<a href="/account#plan">Your plan</a>' in html
 
 
-def test_the_plan_card_is_first_on_the_account_page(client):
+def test_the_plan_card_is_at_the_bottom_of_the_account_page(client):
+    """John: the plan has its own tab now; the papers come first."""
     _signup(client)
     html = client.get("/account").text
-    assert html.index('id="plan"') < html.index("Start a new paper")
+    assert html.index("Start a new paper") < html.index('id="awards"') < html.index('id="plan"')
 
 
 def test_free_manage_page_points_at_the_upgrade(client, free_league, monkeypatch):
@@ -5290,3 +5291,63 @@ def test_a_mangled_people_step_does_not_lose_the_rest(client, league):
         "handle": ["a", "b"], "display_name": ["only one"], "notes": [],
         "format": "keeper"})
     assert demo_db._LEAGUES[league["id"]]["format"] == "keeper"
+
+
+# ---------------------------------------------------------------------------
+# Custom awards on the account page (John, 23 Sep)
+# ---------------------------------------------------------------------------
+
+def _login_owner(client, monkeypatch):
+    owner = demo_db.user_by_email("owner@example.com")
+    monkeypatch.setattr(webapp, "current_user", lambda request: owner)
+    return owner
+
+
+def test_a_manual_award_round_trip(client, league, monkeypatch):
+    _login_owner(client, monkeypatch)
+    demo_db.remember_managers(league["id"], ["WillDavidson10"])
+    r = client.post("/account/awards/add", data={
+        "league_id": league["id"], "name": "The Nick Memorial", "mode": "manual",
+        "winner": "WillDavidson10", "note": "Traded Bijan for a kicker"},
+        follow_redirects=False)
+    assert "Award+added" in r.headers["location"]
+    [award] = demo_db.get_awards(league["id"])
+    assert award["winner"] == "WillDavidson10" and award["mode"] == "manual"
+
+    html = client.get("/account").text
+    assert 'value="The Nick Memorial"' in html
+    assert "You pick" in html
+
+    client.post(f"/account/awards/{award['id']}/update", data={
+        "league_id": league["id"], "name": "The Nick Memorial", "mode": "manual",
+        "winner": "", "note": ""})
+    assert demo_db.get_awards(league["id"])[0]["winner"] is None
+
+    client.post(f"/account/awards/{award['id']}/delete", data={"league_id": league["id"]})
+    assert demo_db.get_awards(league["id"]) == []
+
+
+def test_an_auto_award_needs_a_description(client, league, monkeypatch):
+    _login_owner(client, monkeypatch)
+    r = client.post("/account/awards/add", data={
+        "league_id": league["id"], "name": "Kicker King", "mode": "auto"},
+        follow_redirects=False)
+    assert "Say+what+the+award+is+for" in r.headers["location"]
+    assert demo_db.get_awards(league["id"]) == []
+
+
+def test_nobody_can_add_awards_to_somebody_elses_league(client, league, monkeypatch):
+    stranger = demo_db.create_user("stranger@example.com", "x")
+    monkeypatch.setattr(webapp, "current_user", lambda request: stranger)
+    r = client.post("/account/awards/add", data={
+        "league_id": league["id"], "name": "Hijack", "mode": "manual"})
+    assert r.status_code == 404
+    assert demo_db.get_awards(league["id"]) == []
+
+
+def test_awards_are_capped(client, league, monkeypatch):
+    _login_owner(client, monkeypatch)
+    for i in range(webapp.MAX_CUSTOM_AWARDS + 1):
+        client.post("/account/awards/add", data={
+            "league_id": league["id"], "name": f"A{i}", "mode": "manual"})
+    assert len(demo_db.get_awards(league["id"])) == webapp.MAX_CUSTOM_AWARDS
