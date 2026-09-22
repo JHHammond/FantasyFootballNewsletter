@@ -143,10 +143,19 @@ COVERAGE — THE HARD REQUIREMENT
 You are given every player who started, with their actual points and their
 projection. Use them.
 
-- Name at least five players per matchup, drawn from both teams.
-- Prefer the ones the numbers make interesting: the biggest beats, the biggest
-  misses, anyone who scored zero, and — for the team that LOST — anyone benched
-  who outscored a starter.
+- Pick the few performances that decided the game and give those room: the
+  biggest beats, the biggest misses, anyone who scored zero, and — for the team
+  that LOST — anyone benched who outscored a starter. Do not walk through the
+  whole lineup one player at a time.
+- Vary how you cover players so it never reads like a formula. One way,
+  among others: lump two or three players who tell the same story together
+  with their combined total ("Achane, Etienne and Price combined for 32.6").
+  Use it some of the time, not every paragraph. Any combined number must come
+  from the position totals you are given — never add numbers up yourself.
+- Some lines say where a player was drafted, or that he went undrafted. Use it
+  now and then, when it IS the story — a first-rounder who put up six points
+  ("surely expected more from a first-round pick"), a late pick or a waiver
+  pickup who won the week. Most weeks, most of those notes go unused.
 - Every player you name gets their SCORE attached. "Bijan went off" is not
   reporting. "Bijan put up 28.4" is.
 - The PROJECTION is not part of that. Bring it in only for the players whose
@@ -498,6 +507,12 @@ def _player_line(p, bench=False):
     # Tuesday tagged a quarterback who scored 37.3 as [Out], and the recap
     # marvelled at a player who "went off while listed Out". Anybody who
     # scored played; the tag on them is either stale or irrelevant.
+    # Where he was drafted, only when it is the kind of fact a person would
+    # bring up — a first- or second-round pick, a late flier, or a waiver
+    # pickup who went off. Set by generate.py for redraft leagues only.
+    if p.get("draft_note"):
+        bits.append(f"| {p['draft_note']}")
+
     if p.get("injury_status") and not actual:
         bits.append(f"[{p['injury_status']}]")
     if bench:
@@ -567,6 +582,35 @@ def _compact(payload) -> str:
     return json.dumps(payload, separators=(",", ":"))
 
 
+#: Positions grouped the way people talk about a roster: "the RB room".
+_GROUPS = (("QB", ("QB",)), ("RB", ("RB",)), ("WR", ("WR",)), ("TE", ("TE",)),
+           ("K", ("K",)), ("DEF", ("DEF", "DST", "D/ST")))
+
+
+def position_totals(team_side):
+    """Each position group's combined score, with who is in it.
+
+    Precomputed rather than left to the writer, because the writer is now
+    told to lump two or three players together and give their total — and a
+    language model adding 10.6 + 14.8 + 7.2 in its head is how a paper prints
+    32.1 for a 32.6. Only groups of two or more are worth a total.
+    """
+    by_pos = {}
+    for p in team_side.get("all_starters") or []:
+        pos = (p.get("position") or "").upper()
+        if isinstance(p.get("actual"), (int, float)):
+            by_pos.setdefault(pos, []).append(p)
+    out = []
+    for label, members in _GROUPS:
+        players = [p for pos in members for p in by_pos.get(pos, [])]
+        if len(players) < 2:
+            continue
+        total = sum(float(p["actual"]) for p in players)
+        names = ", ".join(f"{p['name']} {float(p['actual']):.1f}" for p in players)
+        out.append(f"{label} {total:.1f} ({names})")
+    return " | ".join(out)
+
+
 def build_game_context(game):
     """Convert a game dict into a clean text summary for the prompt."""
     t1 = game["team_1"]
@@ -589,6 +633,7 @@ def build_game_context(game):
         "winner_bottom_performer": format_performer(winner_team.get("bottom_performer")),
         # No bench for the winner: see format_lineup.
         "winner_lineup": format_lineup(winner_team, with_bench=False),
+        "winner_groups": position_totals(winner_team),
         "loser": loser_team.get("team_name"),
         "loser_owner": loser_team.get("owner_name"),
         "loser_score": loser_team.get("points"),
@@ -597,6 +642,7 @@ def build_game_context(game):
         "loser_top_performer": format_performer(loser_team.get("top_performer")),
         "loser_bottom_performer": format_performer(loser_team.get("bottom_performer")),
         "loser_lineup": format_lineup(loser_team, with_bench=True),
+        "loser_groups": position_totals(loser_team),
         "margin": margin,
     }
 
@@ -1398,6 +1444,18 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
     # THE LOSER'S BENCH ONLY. Points left on the bench of a team that won are
     # not a mistake anybody is thinking about — they are points that were not
     # needed.
+    # What happened between these two teams, and to each of them, earlier in
+    # the season. Put in front of this game specifically — a streak buried in
+    # a league-wide list was being ignored.
+    earlier = ""
+    if ctx.get("memory"):
+        earlier = (
+            "\nEARLIER THIS SEASON, for these two teams. If one of these makes "
+            "the story better — a streak, a rematch, a repeat of last week's "
+            "mistake, last week's paper — work it in, in a clause, the way "
+            "somebody who reads the paper every week would. Skip what doesn't "
+            "help:\n" + ctx["memory"] + "\n")
+
     bench_note = ""
     loser_gap = ctx.get("loser_lineup_gap")
     if isinstance(loser_gap, (int, float)) and loser_gap > 10:
@@ -1419,6 +1477,10 @@ by {ctx.get('margin')}.
 {ctx.get('loser')} — what they started:
 {loser_lineup or "  (lineup unavailable)"}
 
+Position totals (use these for any combined number):
+  {ctx.get('winner')}: {ctx.get('winner_groups') or 'n/a'}
+  {ctx.get('loser')}: {ctx.get('loser_groups') or 'n/a'}
+
 Format of each line: Player (position/NFL team) points scored, projection, and
 the difference in brackets. [BENCHED] means they did not start, and only
 the losing team's bench is shown — a winner's bench is not a story.
@@ -1426,11 +1488,11 @@ the losing team's bench is shown — a winner's bench is not a story.
 Two paragraphs. One for how the winner won, one for how the loser lost — though
 if the more interesting story is the loser's, lead with that instead.
 
-Name at least five players across the two teams and give every one of them
-their number. Go for the performances the projections make interesting: the
-blowups, the collapses, the zeroes, and — if the loser benched somebody who
-beat one of their starters — that. Say
-what it suggests about each team from here.
+Pick the few performances that decided it and give each its number. Mix up
+how you do it — sometimes one player at a time, sometimes two or three lumped
+together with a combined total (from the position totals above; never add
+numbers up yourself). Say what it suggests about each team from here.
+{earlier}
 
 Finish with a short line giving both new records.
 
@@ -1961,41 +2023,10 @@ Reply with one paragraph per player, numbered the same way, and nothing else.
     return out
 
 
-def generate_line_picks(lines, system=None, model=None):
-    """One cocky sentence per game on next week's board, in order."""
-    if not lines:
-        return lines or []
-    board = "\n".join(
-        f"{i + 1}. {l['favorite']} ({l['favorite_manager']}) favoured by "
-        f"{l['spread']:g} over {l['underdog']} ({l['underdog_manager']})"
-        + (" — basically a coin flip" if l.get("pickem") else "")
-        for i, l in enumerate(lines))
-
-    raw = call_claude(f"""
-Next week's games, with the paper's made-up betting lines:
-
-{board}
-
-For each game, write the paper's pick: one short, confident sentence (under
-20 words) taking a side. Sometimes back the underdog. It can reference how
-these teams have looked this season if you know it. No real betting advice,
-no odds maths.
-
-Reply with one line per game, numbered the same way, and nothing else.
-""", max_tokens=1200, system=system, model=model)
-
-    picks = {}
-    for line in (raw or "").splitlines():
-        head, _, rest = line.strip().partition(".")
-        if head.strip().isdigit() and rest.strip():
-            picks[int(head) - 1] = rest.strip()
-    return [{**l, "pick": picks.get(i, "")} for i, l in enumerate(lines)]
-
-
 def generate_full_newspaper_content(league_name, week, games, summary,
                                      commissioner_name="", inside_jokes="",
                                      tone="standard", obituaries=None,
-                                     lines=None):
+                                     lines=None, memories=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -2019,6 +2050,9 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     game_contexts = []
     for game in games:
         ctx = build_game_context(game)
+        key = frozenset((game["team_1"].get("team_name"), game["team_2"].get("team_name")))
+        if memories and memories.get(key):
+            ctx["memory"] = memories[key]
         winner_avatar = game["team_1"].get("avatar_url") if game["winner"] == game["team_1"].get("team_name") else game["team_2"].get("avatar_url")
         loser_avatar = game["team_2"].get("avatar_url") if game["winner"] == game["team_1"].get("team_name") else game["team_1"].get("avatar_url")
         game_contexts.append({
@@ -2038,9 +2072,6 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     if obituaries:
         tasks["obituaries"] = lambda: generate_obituaries(
             obituaries, sys_prompt, model_for("obituaries"))
-    if lines:
-        tasks["lines"] = lambda: generate_line_picks(
-            lines, sys_prompt, model_for("lines"))
 
     # Top-level tasks. The front headline is NOT here: it is written after
     # the lead story, from it — see the second wave below.
@@ -2251,9 +2282,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         "pull_quote_by": _pull_quote_part(results.get("pull_quote"), "by"),
         "letter": results.get("letter") or {},
         "obituaries": results.get("obituaries") or [],
-        # The lines are numbers first and prose second: if the picks call
-        # failed, the board still prints, just without the paper's picks.
-        "lines": results.get("lines") or [dict(l, pick="") for l in (lines or [])],
+        # Numbers only — John: no commentary on the previews.
+        "lines": [dict(l) for l in (lines or [])],
     }
 
 

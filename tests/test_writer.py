@@ -2172,18 +2172,6 @@ def test_obituaries_are_about_the_fantasy_week_not_the_man(swap_client, no_sleep
     assert "Josh Jacobs" in seen["p"] and "18.4" in seen["p"]
 
 
-def test_line_picks_line_up_with_the_board_and_survive_gaps(swap_client, no_sleeping):
-    lines = [{"favorite": "A", "favorite_manager": "a", "underdog": "B",
-              "underdog_manager": "b", "spread": 7.5, "pickem": False},
-             {"favorite": "C", "favorite_manager": "c", "underdog": "D",
-              "underdog_manager": "d", "spread": 0.5, "pickem": True}]
-    swap_client(lambda _k: _reply("1. A covers easily.\n(some chatter)"))
-    out = writer.generate_line_picks(lines)
-    assert out[0]["pick"] == "A covers easily."
-    assert out[1]["pick"] == ""
-    assert out[1]["spread"] == 0.5
-
-
 def test_the_extras_reach_the_finished_paper(swap_client, no_sleeping):
     swap_client(lambda _k: _reply("LETTER: Dear Editor.\nREPLY: No."))
     lines = [{"favorite": "A", "favorite_manager": "a", "underdog": "B",
@@ -2197,14 +2185,56 @@ def test_the_extras_reach_the_finished_paper(swap_client, no_sleeping):
     assert "letter" in paper
 
 
-def test_the_lines_still_print_when_the_picks_call_fails(swap_client, no_sleeping):
-    def behaviour(k):
-        if "betting lines" in k["messages"][0]["content"]:
-            raise _connection_error()
-        return _reply("x")
-    swap_client(behaviour)
-    lines = [{"favorite": "A", "favorite_manager": "a", "underdog": "B",
-              "underdog_manager": "b", "spread": 7.5, "pickem": False}]
-    paper = writer.generate_full_newspaper_content(
-        "The Kevlarville Times", 3, GAMES, SUMMARY, lines=lines)
-    assert paper["lines"] == [dict(lines[0], pick="")]
+
+
+# ---------------------------------------------------------------------------
+# Fewer players, combined totals, drafts, memory (John, 22 Sep)
+# ---------------------------------------------------------------------------
+
+def test_position_totals_are_computed_not_left_to_the_writer():
+    side = {"all_starters": [
+        {"name": "Achane", "position": "RB", "actual": 10.6},
+        {"name": "Etienne", "position": "RB", "actual": 14.8},
+        {"name": "Price", "position": "RB", "actual": 7.2},
+        {"name": "Allen", "position": "QB", "actual": 37.3}]}
+    out = writer.position_totals(side)
+    assert "RB 32.6 (Achane 10.6, Etienne 14.8, Price 7.2)" in out
+    assert "QB" not in out          # one player is not a group
+
+
+def test_the_recap_prompt_offers_grouping_as_an_option_not_a_rule(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    writer.generate_matchup_body(writer.build_game_context(GAME))
+    p = seen["p"]
+    assert "Position totals" in p
+    assert "never add" in p
+    assert "Mix up" in p
+    assert "at least five players" not in p
+
+
+def test_a_draft_note_reaches_the_player_line():
+    line = writer._player_line({"name": "Bijan", "actual": 6.0, "projected": 19.0,
+                                "draft_note": "drafted round 1, #2 overall"})
+    assert "drafted round 1, #2 overall" in line
+
+
+def test_this_games_memory_is_put_in_front_of_its_recap(swap_client, no_sleeping):
+    prompts = []
+    swap_client(lambda k: prompts.append(k["messages"][0]["content"]) or _reply("x"))
+    g = GAMES[0]
+    key = frozenset((g["team_1"]["team_name"], g["team_2"]["team_name"]))
+    writer.generate_full_newspaper_content(
+        "P", 3, GAMES, SUMMARY, memories={key: "MEMORY-MARKER: lost 3 straight."})
+    recap = [p for p in prompts if "Write the recap of this game" in p]
+    assert recap and "MEMORY-MARKER" in recap[0]
+    assert "EARLIER THIS SEASON" in recap[0]
+
+
+def test_no_commentary_is_written_for_the_lines(swap_client, no_sleeping):
+    prompts = []
+    swap_client(lambda k: prompts.append(k["messages"][0]["content"]) or _reply("x"))
+    lines = [{"favorite": "A", "underdog": "B", "spread": 7.5, "pickem": False}]
+    paper = writer.generate_full_newspaper_content("P", 3, GAMES, SUMMARY, lines=lines)
+    assert not any("betting lines" in p for p in prompts)
+    assert paper["lines"] == lines

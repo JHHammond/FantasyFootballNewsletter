@@ -189,3 +189,54 @@ def test_the_promo_comes_from_the_environment(monkeypatch):
     monkeypatch.setenv("PRIZEPICKS_IMAGE_URL", "https://cdn/x.png")
     assert generate.promo_settings() == {"code": "JOHNH", "image_url": "https://cdn/x.png",
                                          "link": ""}
+
+
+def test_matchup_memory_is_about_these_two_teams_only():
+    last = {"matchup_content": [{"winner": "Team carson", "loser": "Team steve",
+                                 "headline": "CARSON ROLLS STEVE"},
+                                {"winner": "Team mark", "loser": "Team will",
+                                 "headline": "UNRELATED"}]}
+    text = history.matchup_memory(RESULTS, 3, "carson", "will", last)
+    assert "Team carson (Carson) is 3-0" in text and "won 3 straight" in text
+    assert "Team will (Will) is 0-3" in text
+    assert "already met in week 1" in text
+    assert "CARSON ROLLS STEVE" in text
+    assert "UNRELATED" in text          # will was in that game too
+    assert "Team steve (Steve)" not in text
+
+
+def test_draft_notes_only_where_they_are_worth_a_mention():
+    from web import generate
+    games = [{"team_1": {"all_starters": [
+                {"player_id": "1", "actual": 6.0}, {"player_id": "5", "actual": 9.0},
+                {"player_id": "12", "actual": 22.0}, {"player_id": "99", "actual": 24.0},
+                {"player_id": "98", "actual": 3.0}]},
+              "team_2": {}}]
+    picks = {"1": {"round": 1, "overall": 3}, "5": {"round": 5, "overall": 50},
+             "12": {"round": 12, "overall": 130}}
+    generate.annotate_draft(games, picks)
+    by_id = {p["player_id"]: p.get("draft_note") for p in games[0]["team_1"]["all_starters"]}
+    assert by_id["1"] == "drafted round 1, #3 overall"
+    assert by_id["5"] is None
+    assert by_id["12"] == "drafted round 12"
+    assert "undrafted" in by_id["99"]
+    assert by_id["98"] is None
+
+
+def test_no_draft_notes_outside_redraft_leagues():
+    from web import generate
+    assert generate._draft_picks({"format": "dynasty", "provider": "sleeper"}) == {}
+
+
+def test_sleeper_draft_picks_come_from_the_completed_draft(monkeypatch, tmp_path):
+    from providers import SleeperProvider, TTLCache
+    p = SleeperProvider(cache=TTLCache(cache_dir=tmp_path, namespace="t"))
+    calls = {
+        "/league/L/drafts": [{"draft_id": "old", "status": "pre_draft"},
+                             {"draft_id": "D", "status": "complete", "start_time": 5}],
+        "/draft/D/picks": [{"player_id": "4046", "round": 1, "pick_no": 3},
+                           {"player_id": None, "round": 2, "pick_no": 14}],
+    }
+    monkeypatch.setattr(p, "_get", lambda url, params=None: next(
+        v for k, v in calls.items() if url.endswith(k)))
+    assert p.draft_picks("L", 2026) == {"4046": {"round": 1, "overall": 3}}

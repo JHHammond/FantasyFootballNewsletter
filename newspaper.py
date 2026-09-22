@@ -755,23 +755,51 @@ def _promo_box(promo):
             <p class="promo-small">{PROMO_SMALL_PRINT}</p>"""
 
 
+def _line_side(name, avatar, points, css):
+    face = (f'<img class="lt-avatar" src="{html_escape(avatar)}" alt="" />' if avatar
+            else f'<span class="lt-avatar lt-initial">{html_escape((name or "?")[:1].upper())}</span>')
+    pts = f'<span class="lt-proj">{float(points):.1f}</span>' if isinstance(points, (int, float)) else ""
+    return (f'<div class="line-team {css}">{face}'
+            f'<span class="lt-name">{html_escape(name)}</span>{pts}</div>')
+
+
 def _lines_items(lines, editable=False):
-    rows = []
-    for i, l in enumerate(lines or []):
-        fav, dog = html_escape(l.get("favorite") or ""), html_escape(l.get("underdog") or "")
-        if not fav or not dog:
-            continue
-        spread = ("PICK&rsquo;EM" if l.get("pickem")
-                  else f"&minus;{float(l.get('spread') or 0):g}")
+    """Next week's board: two teams, a big number, and a bar.
+
+    No commentary (John's call) — the numbers are the joke. The bar is each
+    side's share of the projected total, which is exactly what the spread is
+    made of, so it shows the same thing the number says.
+    """
+    lines = [l for l in (lines or []) if l.get("favorite") and l.get("underdog")]
+    if not lines:
+        return ""
+    biggest = max((float(l.get("spread") or 0) for l in lines), default=0)
+    cards = []
+    for l in lines:
+        fav_pts, dog_pts = l.get("favorite_points"), l.get("underdog_points")
+        share = 50.0
+        if isinstance(fav_pts, (int, float)) and isinstance(dog_pts, (int, float)) and fav_pts + dog_pts > 0:
+            share = round(100 * fav_pts / (fav_pts + dog_pts), 1)
+        spread = float(l.get("spread") or 0)
+        if l.get("pickem"):
+            big, tag = "PK", '<span class="line-tag coin">Coin flip</span>'
+        else:
+            big = f"&minus;{spread:g}"
+            tag = ('<span class="line-tag">Biggest spread</span>'
+                   if spread == biggest and len(lines) > 1 else "")
         total = l.get("total")
-        ou = f'<span class="line-total">O/U {float(total):g}</span>' if total else ""
-        pick = html_escape(l.get("pick") or "")
-        rows.append(f"""
-            <div class="line-row">
-                <div class="line-match"><strong>{fav}</strong> <span class="line-spread">{spread}</span> vs {dog} {ou}</div>
-                {f'<div class="line-pick"{ed(f"line_pick_{i}", editable)}>{pick}</div>' if pick else ""}
+        ou = f'<span class="line-chip">O/U {float(total):g}</span>' if total else ""
+        cards.append(f"""
+            <div class="line-card">
+                <div class="line-teams">
+                    {_line_side(l["favorite"], l.get("favorite_avatar"), fav_pts, "fav")}
+                    <div class="line-big">{big}</div>
+                    {_line_side(l["underdog"], l.get("underdog_avatar"), dog_pts, "dog")}
+                </div>
+                <div class="line-bar"><span style="width:{share}%"></span></div>
+                <div class="line-foot">{"" if l.get("pickem") else f'<span class="line-chip fav-chip">{html_escape(l["favorite"])} favored</span>'}{ou}{tag}</div>
             </div>""")
-    return "".join(rows)
+    return "".join(cards)
 
 
 def render_back_page(obituaries=None, promo=None, lines=None,
@@ -802,7 +830,7 @@ def render_back_page(obituaries=None, promo=None, lines=None,
     if lines_html:
         top.append(("preview", f"""<div class="bp-preview">
             <div class="bp-label">Next Week&rsquo;s Preview</div>
-            <div class="bp-note">Lines made up from the projections. The Desk takes no bets.</div>
+            <div class="bp-note">Made up from the projections. The Desk takes no bets.</div>
             {lines_html}</div>"""))
     if not (obits or top or wire):
         return ""
@@ -2486,6 +2514,26 @@ def render_html(edition, theme=None):
             .back-page > div:first-child {{ border-top: 0; }}
         }}
 
+        .line-card {{ padding: 10px 0 12px; border-bottom: 1px solid #ddd; }}
+        .line-card:last-child {{ border-bottom: 0; }}
+        .line-teams {{ display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }}
+        .line-team {{ display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }}
+        .lt-avatar {{ width: 34px; height: 34px; border-radius: 50%; border: 2px solid #111; object-fit: cover; }}
+        .lt-initial {{ display: inline-flex; align-items: center; justify-content: center;
+                       font-weight: 800; font-size: 16px; background: #f1ece2; }}
+        .lt-name {{ font-weight: 700; font-size: 13.5px; margin-top: 3px; overflow-wrap: anywhere; }}
+        .lt-proj {{ font-size: 11px; opacity: 0.65; }}
+        .line-team.fav .lt-avatar {{ border-color: #c40000; }}
+        .line-big {{ font-size: 30px; font-weight: 900; color: #c40000; letter-spacing: -0.5px; line-height: 1; }}
+        .line-bar {{ height: 7px; background: #d9d4ca; margin: 8px 0 6px; display: flex; }}
+        .line-bar span {{ display: block; height: 100%; background: #c40000; }}
+        .line-foot {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+        .line-chip, .line-tag {{
+            font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+            border: 1px solid #111; padding: 2px 6px;
+        }}
+        .line-tag {{ background: #111; color: #fff; }}
+        .line-tag.coin {{ background: #c8a200; color: #111; border-color: #c8a200; }}
         .lines-board {{ padding: 4px 0; }}
         .line-row {{ padding: 9px 0; border-bottom: 1px solid #ddd; }}
         .line-match {{ font-size: 16px; }}

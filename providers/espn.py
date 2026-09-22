@@ -411,6 +411,25 @@ class ESPNProvider(FantasyProvider):
 
     # -- league ------------------------------------------------------------
 
+    def draft_picks(self, league_id: str, season: int) -> dict:
+        """The draft, from the mDraftDetail view.
+
+        draftDetail.picks carries playerId, roundId and overallPickNumber.
+        Keeper picks are included as ESPN reports them. NOT VERIFIED against a
+        live league — the field names come from the same payload family the
+        adapter already reads; any mismatch leaves this empty and the paper
+        simply has no draft notes.
+        """
+        raw = self._get(league_id, int(season), ["mDraftDetail"])
+        picks = ((raw or {}).get("draftDetail") or {}).get("picks") or []
+        out = {}
+        for pk in picks:
+            pid = pk.get("playerId")
+            if pid is not None and int(pid) > 0:
+                out[str(pid)] = {"round": int(pk.get("roundId") or 0),
+                                 "overall": int(pk.get("overallPickNumber") or 0)}
+        return out
+
     def get_league(self, league_id: str, season: Optional[int] = None) -> League:
         season = int(season or _default_season())
         raw = self._get(league_id, season, ["mSettings", "mTeam"])

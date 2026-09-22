@@ -110,6 +110,14 @@ class FantasyProvider(ABC):
         """
         return []
 
+    def draft_picks(self, league_id: str, season: int) -> dict:
+        """This season's draft: {raw player id: {"round": r, "overall": n}}.
+
+        Empty if the platform doesn't say, or there was no draft. Same no-op
+        default as transactions, for the same reason.
+        """
+        return {}
+
     def get_transactions(self, league_id: str, season: int, week: int) -> list:
         """Roster moves that happened in this week. Empty if unsupported.
 

@@ -384,6 +384,32 @@ class SleeperProvider(FantasyProvider):
             f"Weeks with results: {listed}."
         )
 
+    def draft_picks(self, league_id: str, season: int) -> dict:
+        """The league's completed draft for this season, by player.
+
+        /league/{id}/drafts lists every draft attached to the league; the one
+        that matters is the completed one. /draft/{id}/picks gives each pick's
+        round and overall number. Cached like league metadata: a finished
+        draft never changes.
+        """
+        def fetch():
+            drafts = self._get(f"{BASE_URL}/league/{league_id}/drafts") or []
+            done = [d for d in drafts if (d.get("status") or "") == "complete"]
+            if not done:
+                return {}
+            draft = max(done, key=lambda d: d.get("start_time") or 0)
+            picks = self._get(f"{BASE_URL}/draft/{draft['draft_id']}/picks") or []
+            out = {}
+            for pk in picks:
+                pid = pk.get("player_id")
+                if pid:
+                    out[str(pid)] = {"round": int(pk.get("round") or 0),
+                                     "overall": int(pk.get("pick_no") or 0)}
+            return out
+
+        return self.cache.get_or_fetch(
+            f"draft:{league_id}:{season}", TTL_LEAGUE_META, fetch) or {}
+
     def available_weeks(self, league_id: str, season: int) -> list[int]:
         """Every week that has at least one team with points on the board.
 

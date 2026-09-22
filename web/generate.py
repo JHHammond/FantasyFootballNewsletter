@@ -393,13 +393,60 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
     return render_html(edition, theme=league.get("theme"))
 
 
+def _draft_picks(league: dict[str, Any]) -> dict:
+    """Where each player went in this season's draft — redraft leagues only.
+
+    In a keeper or dynasty league "drafted in the first round" describes a
+    rookie draft, or a pick from three years ago, and would be wrong in
+    print. Empty on any failure: this is seasoning, not substance.
+    """
+    if (league.get("format") or "redraft") != "redraft":
+        return {}
+    try:
+        from providers import get_provider
+        return get_provider(league["provider"]).draft_picks(
+            league["platform_league_id"], league["season"]) or {}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[draft] no draft data: {type(exc).__name__}: {exc}", flush=True)
+        return {}
+
+
+#: Which picks are worth telling the writer about. The first two rounds are
+#: where expectations live; round ten and later is where a big week is a
+#: story. Everything in between is noise.
+EARLY_ROUNDS = 2
+LATE_ROUND = 10
+#: An undrafted player only gets a note when he actually did something.
+UNDRAFTED_NOTABLE_POINTS = 15.0
+
+
+def annotate_draft(games: list, picks: dict) -> None:
+    """Add a `draft_note` to the players where the draft is worth a mention."""
+    if not picks:
+        return
+    for game in games:
+        for side in ("team_1", "team_2"):
+            team = game.get(side) or {}
+            for p in (team.get("all_starters") or []) + (team.get("all_bench") or []):
+                pick = picks.get(str(p.get("player_id")))
+                if pick:
+                    rnd, overall = pick.get("round"), pick.get("overall")
+                    if rnd and rnd <= EARLY_ROUNDS:
+                        p["draft_note"] = (f"drafted round {rnd}, #{overall} overall"
+                                           if overall else f"drafted round {rnd}")
+                    elif rnd and rnd >= LATE_ROUND:
+                        p["draft_note"] = f"drafted round {rnd}"
+                elif float(p.get("actual") or 0) >= UNDRAFTED_NOTABLE_POINTS:
+                    p["draft_note"] = "undrafted in this league (a pickup)"
+
+
 def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
     """Streaks, rematches and last week's paper for the writer, plus next
     week's betting lines. Every part is optional: a failure anywhere here
     costs the paper an extra, never the paper."""
     provider, lid, season = (league["provider"], league["platform_league_id"],
                              league["season"])
-    out = {"briefing": "", "lines": []}
+    out = {"briefing": "", "lines": [], "memories": {}}
     try:
         def fetch(w):
             return this_week if w == week else load_week(
@@ -417,6 +464,10 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
         pairs = [(str(m.teams[0].team_id), str(m.teams[1].team_id))
                  for m in this_week.matchups]
         out["briefing"] = history.previously_on(results, week, pairs, last_paper)
+        out["memories"] = {
+            frozenset((m.teams[0].team_name, m.teams[1].team_name)):
+                history.matchup_memory(results, week, a, b, last_paper)
+            for m, (a, b) in zip(this_week.matchups, pairs)}
 
         try:
             upcoming = load_week(provider, lid, season, week + 1,
@@ -458,6 +509,8 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         {m["handle"]: m["team_name"] for m in directory},
     )
 
+    annotate_draft(games, _draft_picks(league))
+
     season_so_far = _season_briefing(db, league, week, week_data)
     if season_so_far["briefing"]:
         league_context = (
@@ -477,6 +530,7 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
         tone=league.get("tone") or "standard",
         obituaries=history.lowest_starters(week_data),
         lines=season_so_far["lines"],
+        memories=season_so_far["memories"],
     )
 
     return render_and_store(db, league, week, ai_content)
