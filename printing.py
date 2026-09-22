@@ -29,6 +29,8 @@ with a stripe of blank down one side.
 
 from __future__ import annotations
 
+import json
+
 import themes
 
 # ---------------------------------------------------------------------------
@@ -608,16 +610,169 @@ def css_for(theme: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 #: Shown on the published paper, hidden while printing and while editing.
-#: window.print() is the whole implementation: every browser turns it into a
-#: dialog with "Save as PDF" already in the destination list, including iOS and
-#: Android. No dependency, no server round trip, and no 400MB of headless
-#: Chrome on the box.
+#:
+#: TWO KINDS OF PDF.
+#:
+#: Where the browser honours a page size set in CSS (Chrome, Edge, Brave,
+#: Arc, Firefox — desktop and Android) the button makes ONE long page: the
+#: paper exactly as it looks on screen, at full desktop width, top to bottom
+#: with no breaks. A newspaper that is a web page reads better as one scroll
+#: than as a web page chopped into Letter sheets.
+#:
+#: How: the paper is copied into an invisible 1200px-wide frame, the paged
+#: print stylesheet (#cd-print-paged) is taken out of the copy, the copy is
+#: measured, and a `@page { size: 1200px <height>px }` rule is written into it
+#: before it is printed. Measuring in a frame of the print width — not the
+#: reader's window — is what makes the height right on a phone, where the
+#: window is 390px wide and the phone layout is a different height entirely.
+#:
+#: Everywhere else (Safari, and every browser on an iPhone or iPad, which are
+#: all Safari underneath) the button falls back to window.print() and the
+#: paged Letter/A4 layout below, which those browsers handle properly.
 PRINT_BUTTON_HTML = """
-<button type="button" class="print-button" onclick="window.print()"
+<button type="button" class="print-button" onclick="cdSavePdf(this)"
         aria-label="Save this paper as a PDF">
     <span aria-hidden="true">&#8595;</span> Save as PDF
 </button>
 """
+
+#: The paper's width on screen (.page max-width). The long PDF is this wide,
+#: so it lays out as the desktop paper.
+LONG_PDF_WIDTH = 1200
+
+#: Rules for the copy that becomes the long PDF. Applied to the copy only, so
+#: they don't need @media print — the copy exists to be printed.
+LONG_PRINT_CSS = """
+html, body { margin: 0 !important; padding: 0 !important; }
+.page {
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    max-width: none !important;
+}
+.print-button, .ce-bar, .subscribe-form, .image-slot-empty, .ce-remove,
+button, input, select, textarea { display: none !important; }
+.image-wrap, .image-wrap-editing { resize: none !important; }
+/* It is a file, not ink on a sheet: print every colour, exactly as on screen. */
+* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+.print-footer {
+    display: block !important;
+    margin: 0 !important;
+    padding: 10px 18px 14px;
+    border-top: 1px solid #999;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.4px;
+    color: #555;
+    text-align: center;
+}
+.print-footer a { color: #555; text-decoration: none; }
+"""
+
+PRINT_SCRIPT = (
+    "<script>\n"
+    "(function () {\n"
+    "  var WIDTH = " + str(LONG_PDF_WIDTH) + ";\n"
+    "  var LONG_CSS = " + json.dumps(LONG_PRINT_CSS) + ";\n"
+    r"""
+  // Browsers whose Save-as-PDF obeys a CSS page size. Every iOS browser is
+  // WebKit, and desktop Safari's support is patchy, so those get pages.
+  function longSupported() {
+    var ua = navigator.userAgent || "";
+    var ios = /iPhone|iPad|iPod/.test(ua) ||
+              (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    if (ios) return false;
+    if (/Firefox\//.test(ua)) return true;
+    return /Chrome\/|Chromium\/|Edg\//.test(ua);
+  }
+
+  function paged() { window.print(); }
+
+  function waitForImages(doc) {
+    var imgs = Array.prototype.slice.call(doc.images);
+    return Promise.all(imgs.map(function (img) {
+      if (img.complete) return null;
+      return new Promise(function (ok) {
+        img.addEventListener("load", ok); img.addEventListener("error", ok);
+        setTimeout(ok, 4000);
+      });
+    }));
+  }
+
+  function stripNarrowRules(doc) {
+    for (var i = 0; i < doc.styleSheets.length; i++) {
+      var sheet = doc.styleSheets[i], rules;
+      try { rules = sheet.cssRules; } catch (e) { continue; }  // cross-origin fonts
+      for (var r = rules.length - 1; r >= 0; r--) {
+        var rule = rules[r];
+        if (rule.media && /max-width/.test(rule.media.mediaText)) sheet.deleteRule(r);
+      }
+    }
+  }
+
+  window.cdSavePdf = function (button) {
+    if (!longSupported()) return paged();
+    var label = button ? button.innerHTML : "";
+    if (button) { button.disabled = true; button.textContent = "Preparing PDF…"; }
+    function done() { if (button) { button.disabled = false; button.innerHTML = label; } }
+
+    // A copy of the paper, not the paper: the reader's page is left alone.
+    var copy = document.documentElement.cloneNode(true);
+    var drop = copy.querySelectorAll("#cd-print-paged, script");
+    for (var i = 0; i < drop.length; i++) drop[i].parentNode.removeChild(drop[i]);
+    // Offscreen, lazy images never load. Every one has to be in the PDF.
+    var lazy = copy.querySelectorAll("img[loading]");
+    for (var j = 0; j < lazy.length; j++) lazy[j].removeAttribute("loading");
+    var head = copy.querySelector("head");
+    var base = document.createElement("base");
+    base.href = document.baseURI;
+    head.insertBefore(base, head.firstChild);
+    var style = document.createElement("style");
+    style.textContent = LONG_CSS;
+    head.appendChild(style);
+
+    var frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.cssText = "position:fixed;left:-20000px;top:0;border:0;" +
+                          "width:" + WIDTH + "px;height:1000px;opacity:0;pointer-events:none;";
+    document.body.appendChild(frame);
+
+    var cleaned = false;
+    function cleanup() {
+      if (cleaned) return; cleaned = true; done();
+      setTimeout(function () { if (frame.parentNode) frame.parentNode.removeChild(frame); }, 500);
+    }
+
+    frame.onload = function () {
+      var win = frame.contentWindow, doc = frame.contentDocument;
+      var fonts = doc.fonts && doc.fonts.ready ? doc.fonts.ready : Promise.resolve();
+      Promise.all([fonts, waitForImages(doc)]).then(function () {
+        // Chrome evaluates media queries for print against a default sheet
+        // width, not the page size set below, so the copy would print with
+        // the tablet layout (one column) while being measured as desktop.
+        // The copy is only ever desktop width, so its narrow-screen rules
+        // are dead weight anyway: take them out, and screen and print agree.
+        stripNarrowRules(doc);
+        var page = doc.querySelector(".page");
+        // Any sliver below the paper shows the body, so make it the paper.
+        if (page) doc.body.style.background = win.getComputedStyle(page).backgroundColor;
+        var root = doc.documentElement;
+        var h = Math.max(Math.ceil(root.getBoundingClientRect().height),
+                         root.scrollHeight) + 4;
+        var size = doc.createElement("style");
+        size.textContent = "@page { size: " + WIDTH + "px " + h + "px; margin: 0; }";
+        doc.head.appendChild(size);
+        win.addEventListener("afterprint", cleanup);
+        try { win.focus(); win.print(); } catch (e) { cleanup(); paged(); return; }
+        // Chrome's print() returns once the dialog closes; afterprint may not fire.
+        setTimeout(cleanup, 1000);
+      }).catch(function () { cleanup(); paged(); });
+    };
+    frame.srcdoc = "<!DOCTYPE html>" + copy.outerHTML;
+  };
+})();
+</script>
+""")
 
 PRINT_BUTTON_CSS = """
         .print-button {

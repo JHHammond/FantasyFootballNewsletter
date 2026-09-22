@@ -1825,7 +1825,7 @@ def render_html(edition, theme=None):
     print_css = printing.css_for(theme)
     print_button_css = printing.PRINT_BUTTON_CSS
     print_button = ("" if edition.get("editable")
-                    else printing.PRINT_BUTTON_HTML)
+                    else printing.PRINT_BUTTON_HTML + printing.PRINT_SCRIPT)
     print_footer = printing.footer_html(edition.get("canonical_url"),
                                         edition.get("paper_name", ""))
     # Some themes want the writer's ALL CAPS set as title case. CSS can
@@ -2874,7 +2874,10 @@ def render_html(edition, theme=None):
         /* The Save-as-PDF control, and the footer only paper sees. */
         {print_button_css}
 
-        /* Print layout. Last, so it wins over both of the above. */
+    </style>
+    <style id="cd-print-paged">
+        /* Print layout, for PAGED printing. Last, so it wins over the above.
+           The long-PDF export removes this whole element from its copy. */
         {print_css}
     </style>
 </head>

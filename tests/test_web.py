@@ -9,6 +9,9 @@ No Supabase, no network, no emails sent (emailer falls back to stdout when
 RESEND_API_KEY is unset).
 """
 
+import re
+
+import printing
 import html as html_lib
 import os
 import sys
@@ -1719,8 +1722,10 @@ def _render_paper(ai, editable=False):
     rankings = build_power_rankings_from_matchups(games)
     html = render_html(build_edition("X", 1, summary, games, rankings, ai,
                                      subscribe_slug="sl", editable=editable))
-    return html.split("</style>", 1)[1]   # skip the CSS so class names in
-                                          # stylesheets don't false-positive
+    # Skip the CSS (and the PDF script, which carries some) so class names
+    # in stylesheets don't false-positive.
+    body = html.rsplit("</style>", 1)[1]
+    return re.sub(r"<script>.*?</script>", "", body, flags=re.S)
 
 
 def test_no_broken_relative_image_paths(client):
@@ -2576,7 +2581,9 @@ def test_a_paper_with_no_photos_has_no_broken_images():
 
 def _print_block(html):
     """Just the print stylesheet, so assertions can't match screen CSS."""
-    style = html.split("</style>")[0]
+    # Its own <style id="cd-print-paged">, so the long-PDF export can drop it.
+    start = html.index('<style id="cd-print-paged">')
+    style = html[start:].split("</style>")[0]
     marker = "@media print"
     assert marker in style, "no print stylesheet at all"
     return style[style.index("@page"):]
@@ -5351,3 +5358,31 @@ def test_awards_are_capped(client, league, monkeypatch):
         client.post("/account/awards/add", data={
             "league_id": league["id"], "name": f"A{i}", "mode": "manual"})
     assert len(demo_db.get_awards(league["id"])) == webapp.MAX_CUSTOM_AWARDS
+
+
+# --------------------------------------------------------------------------
+# One long PDF
+# --------------------------------------------------------------------------
+
+def test_paged_print_css_is_its_own_element_for_the_long_pdf_to_drop():
+    """The long PDF removes #cd-print-paged from its copy. If the print rules
+    drift back into the main stylesheet, the long PDF silently turns into the
+    Letter layout on one very tall sheet."""
+    html = _full_paper(dict(SAMPLE_AI))
+    main_css = html.split("</style>")[0]
+    assert "@media print" not in main_css.split("print-footer { display: none; }")[1]
+    assert '<style id="cd-print-paged">' in html
+    assert "cd-print-paged" in printing.PRINT_SCRIPT
+
+
+def test_published_paper_ships_the_long_pdf_button():
+    html = _full_paper(dict(SAMPLE_AI))
+    assert 'onclick="cdSavePdf(this)"' in html
+    assert "window.cdSavePdf" in html
+    # Safari and every iPhone browser get the paged layout instead.
+    assert "iPhone|iPad" in printing.PRINT_SCRIPT
+    assert "@page { size: " in printing.PRINT_SCRIPT
+
+
+def test_edit_view_has_no_pdf_script():
+    assert "window.cdSavePdf" not in _full_paper(dict(SAMPLE_AI), editable=True)

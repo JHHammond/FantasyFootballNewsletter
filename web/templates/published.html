@@ -65,6 +65,12 @@ document.getElementById('pdf-btn').addEventListener('click', function () {
         return;
     }
     try {
+        // The paper knows how to make its own PDF (one long page where the
+        // browser allows it, pages where it doesn't). See printing.py.
+        if (typeof frame.contentWindow.cdSavePdf === 'function') {
+            frame.contentWindow.cdSavePdf(this);
+            return;
+        }
         // Safari won't open the dialog for a frame that isn't focused.
         frame.contentWindow.focus();
         frame.contentWindow.print();
