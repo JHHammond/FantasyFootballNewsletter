@@ -298,21 +298,24 @@ def _snapshot_publisher_ads(db, ai_content: dict, season: int,
 
 
 def promo_settings() -> dict | None:
-    """The PrizePicks box on the back page, from the environment.
+    """The referral box on the back page, from the environment.
 
-    PRIZEPICKS_CODE turns it on; without it the box isn't printed and the
-    back page closes up around it. The image is web/static/promo/prizepicks.png
-    if that file exists (or PRIZEPICKS_IMAGE_URL), served from this site with
-    an absolute URL, because papers are stored and read somewhere else.
+    PROMO_CODE turns it on (PRIZEPICKS_CODE still works, from before the
+    switch to Underdog); without it the box isn't printed and the back page
+    closes up around it. PROMO_BRAND names the site (default Underdog). The
+    graphic is web/static/promo/referral.png, served from this site with an
+    absolute URL because papers are stored and read somewhere else.
     """
-    code = os.getenv("PRIZEPICKS_CODE", "").strip()
+    code = (os.getenv("PROMO_CODE") or os.getenv("PRIZEPICKS_CODE") or "").strip()
     if not code:
         return None
-    image = os.getenv("PRIZEPICKS_IMAGE_URL", "").strip()
-    if not image and (ROOT / "web" / "static" / "promo" / "prizepicks.png").exists():
-        image = f"{public_base_url()}/static/promo/prizepicks.png"
-    return {"code": code[:40], "image_url": image,
-            "link": os.getenv("PRIZEPICKS_LINK", "").strip()}
+    image = os.getenv("PROMO_IMAGE_URL", "").strip()
+    if not image and (ROOT / "web" / "static" / "promo" / "referral.png").exists():
+        image = f"{public_base_url()}/static/promo/referral.png"
+    return {"code": code[:40],
+            "brand": (os.getenv("PROMO_BRAND") or "Underdog").strip()[:40],
+            "image_url": image,
+            "link": (os.getenv("PROMO_LINK") or os.getenv("PRIZEPICKS_LINK") or "").strip()}
 
 
 def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
@@ -514,9 +517,10 @@ def generate_and_store(db, league: dict[str, Any], week: int) -> dict[str, Any]:
     season_so_far = _season_briefing(db, league, week, week_data)
     if season_so_far["briefing"]:
         league_context = (
-            "THE SEASON SO FAR. Use a fact from here only when it makes a "
-            "story better — a streak, a rematch, somebody repeating last "
-            "week's mistake. Never recite it, never list records.\n"
+            "BACKGROUND ON THE SEASON — for you, not to recite. Use a fact "
+            "from here rarely, only when it makes a story better (a long "
+            "streak, a rematch, somebody repeating last week's mistake). "
+            "Never list records, and never write \"earlier this season\".\n"
             + season_so_far["briefing"]
             + ("\n\n" + league_context if league_context else ""))
 

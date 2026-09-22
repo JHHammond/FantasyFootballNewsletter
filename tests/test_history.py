@@ -183,26 +183,33 @@ def test_obituaries_are_the_lowest_scoring_starters():
 
 def test_the_promo_comes_from_the_environment(monkeypatch):
     from web import generate
-    monkeypatch.delenv("PRIZEPICKS_CODE", raising=False)
+    for k in ("PROMO_CODE", "PRIZEPICKS_CODE", "PROMO_IMAGE_URL", "PROMO_BRAND", "PROMO_LINK"):
+        monkeypatch.delenv(k, raising=False)
     assert generate.promo_settings() is None
-    monkeypatch.setenv("PRIZEPICKS_CODE", "JOHNH")
-    monkeypatch.setenv("PRIZEPICKS_IMAGE_URL", "https://cdn/x.png")
-    assert generate.promo_settings() == {"code": "JOHNH", "image_url": "https://cdn/x.png",
-                                         "link": ""}
+    monkeypatch.setenv("PROMO_CODE", "JOHNHAMMOND3")
+    out = generate.promo_settings()
+    assert out["code"] == "JOHNHAMMOND3" and out["brand"] == "Underdog"
+    assert out["image_url"].endswith("/static/promo/referral.png")
+    monkeypatch.setenv("PROMO_IMAGE_URL", "https://cdn/x.png")
+    assert generate.promo_settings()["image_url"] == "https://cdn/x.png"
 
 
-def test_matchup_memory_is_about_these_two_teams_only():
-    last = {"matchup_content": [{"winner": "Team carson", "loser": "Team steve",
-                                 "headline": "CARSON ROLLS STEVE"},
-                                {"winner": "Team mark", "loser": "Team will",
-                                 "headline": "UNRELATED"}]}
+def test_matchup_memory_is_only_the_notable_things():
+    last = {"awards": [{"title": "JERRY JONES AWARD", "body": "Will started a bye."},
+                       {"title": "KYLE PITTS AWARD", "body": "Steve got lucky."}]}
     text = history.matchup_memory(RESULTS, 3, "carson", "will", last)
-    assert "Team carson (Carson) is 3-0" in text and "won 3 straight" in text
-    assert "Team will (Will) is 0-3" in text
-    assert "already met in week 1" in text
-    assert "CARSON ROLLS STEVE" in text
-    assert "UNRELATED" in text          # will was in that game too
-    assert "Team steve (Steve)" not in text
+    assert "won 3 straight" in text and "lost 3 straight" in text
+    assert "Rematch: in week 1" in text
+    assert "Jerry Jones Award" in text and "Steve got lucky" not in text
+    # no routine records, last results or headlines
+    assert "last week" not in text.lower().replace("last week the paper", "")
+
+
+def test_a_game_with_nothing_notable_gets_no_memory():
+    # week 2, carson v steve: first meeting, no streak of three, too early
+    # for a season high — so nothing to say, and nothing is said
+    results = history.results_from_weeks([W1, W2])
+    assert history.matchup_memory(results, 2, "carson", "steve") == ""
 
 
 def test_draft_notes_only_where_they_are_worth_a_mention():
@@ -240,3 +247,11 @@ def test_sleeper_draft_picks_come_from_the_completed_draft(monkeypatch, tmp_path
     monkeypatch.setattr(p, "_get", lambda url, params=None: next(
         v for k, v in calls.items() if url.endswith(k)))
     assert p.draft_picks("L", 2026) == {"4046": {"round": 1, "overall": 3}}
+
+
+def test_a_season_high_needs_three_earlier_games():
+    w4 = _week(4, (_team("carson", 150), _team("mark", 90)),
+                  (_team("steve", 100), _team("will", 90)))
+    results = history.results_from_weeks([W1, W2, W3, w4])
+    assert "new season high" in history.matchup_memory(results, 4, "carson", "mark")
+    assert "new season high" not in history.matchup_memory(RESULTS, 3, "carson", "will")

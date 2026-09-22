@@ -329,7 +329,7 @@ _OBITS = [{"player": f"Player {i}", "points": float(i), "projected": 12.0,
 _LINES = [{"favorite": "Carson", "underdog": "Will", "spread": 7.5, "total": 245.5,
            "pickem": False, "pick": "Carson covers."},
           {"favorite": "A", "underdog": "B", "spread": 0.5, "pickem": True, "pick": ""}]
-_PROMO = {"code": "JOHNH", "image_url": "https://x/p.png", "link": ""}
+_PROMO = {"code": "JOHNH", "brand": "Underdog", "image_url": "https://x/p.png", "link": ""}
 
 
 def test_the_letter_renders_escaped_and_signed():
@@ -346,7 +346,7 @@ def test_the_back_page_follows_the_sketch():
     html = newspaper.render_back_page(_OBITS, _PROMO, _LINES, transactions=None)
     # obituaries down the left, promo and preview across the top
     assert "'obit promo preview'" in html
-    assert html.index("Obituaries") < html.index("PrizePicks") < html.index("Next Week")
+    assert html.index("Obituaries") < html.index("Underdog") < html.index("Next Week")
     assert html.count('class="obit"') == 4
     assert "<b>x</b>" not in html
     assert "Projected 12.0 &ndash; Scored 0.0" in html
@@ -365,7 +365,7 @@ def test_the_promo_always_carries_its_small_print():
 
 def test_no_promo_code_means_no_promo_box_and_no_hole():
     html = newspaper.render_back_page(_OBITS, {"code": ""}, _LINES, None)
-    assert "PrizePicks" not in html
+    assert "Underdog" not in html
     assert "'obit preview preview'" in html
 
 
@@ -394,3 +394,10 @@ def test_a_pickem_names_no_favourite():
         {"favorite": "Steve", "underdog": "Mark", "spread": 0.5, "pickem": True,
          "favorite_points": 120.2, "underdog_points": 119.8}], None)
     assert "favored" not in html and "Coin flip" in html
+
+
+def test_the_referral_graphic_is_shown_with_the_code_as_copyable_text():
+    html = newspaper.render_back_page([], _PROMO, [], None)
+    assert '<img class="promo-image" src="https://x/p.png"' in html
+    assert "Code: <strong>JOHNH</strong>" in html
+    assert "If you play Underdog" in html

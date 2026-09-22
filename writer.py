@@ -241,6 +241,7 @@ stops being their league's paper. These are banned outright:
 - delve, tapestry, testament, landscape, realm, navigate, underscore,
   showcase, harness, elevate, resonate, foster, pivotal, crucial, robust,
   seamless, myriad, plethora, "a stark reminder", "speaks volumes",
+  "earlier this season", "so far this season", "on the season",
   "at the end of the day", "make no mistake", "let that sink in".
 - Opening a sentence with "In a league where", "When it comes to", "There's
   something to be said for", or "Here's the thing".
@@ -1418,6 +1419,20 @@ Write the headline for this game story.
     return clean_headline(raw)
 
 
+#: How each recap opens, rotated through the paper's games. Every recap was
+#: being written in isolation from the same prompt, so every one opened the
+#: same way — a formula nobody chose. Assigning a different way in to each
+#: game is the cheapest way to make a page of them read like a writer.
+OPENINGS = (
+    "Open on the one player who decided it.",
+    "Open on the losing manager's worst call of the week.",
+    "Open on the score, and what kind of game that number means.",
+    "Open with one short, blunt sentence, then explain it.",
+    "Open on the winning manager.",
+    "Open on the moment the game was lost, not the moment it was won.",
+)
+
+
 def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", system=None, model=None):
     """The recap for one game.
 
@@ -1450,11 +1465,14 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
     earlier = ""
     if ctx.get("memory"):
         earlier = (
-            "\nEARLIER THIS SEASON, for these two teams. If one of these makes "
-            "the story better — a streak, a rematch, a repeat of last week's "
-            "mistake, last week's paper — work it in, in a clause, the way "
-            "somebody who reads the paper every week would. Skip what doesn't "
-            "help:\n" + ctx["memory"] + "\n")
+            "\nBackground on these two teams, for you, not to recite. At most "
+            "ONE of these, and only if it makes this game's story better; "
+            "skipping all of it is fine. Refer to it the way somebody in the "
+            "league would (\"that's four straight\", \"revenge for week two\") "
+            "— never with the phrase \"earlier this season\":\n"
+            + ctx["memory"] + "\n")
+
+    opening = OPENINGS[int(ctx.get("index") or 0) % len(OPENINGS)]
 
     bench_note = ""
     loser_gap = ctx.get("loser_lineup_gap")
@@ -1494,7 +1512,9 @@ together with a combined total (from the position totals above; never add
 numbers up yourself). Say what it suggests about each team from here.
 {earlier}
 
-Finish with a short line giving both new records.
+{opening}
+Do not end on the two teams' records — they are printed beside the story.
+End on whatever the last real point is.
 
 Write only what the numbers support. No invented injuries, plays, snap counts
 or quotes. Plain prose — no markdown, no bullets, no headers.
@@ -2050,6 +2070,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     game_contexts = []
     for game in games:
         ctx = build_game_context(game)
+        ctx["index"] = len(game_contexts)
         key = frozenset((game["team_1"].get("team_name"), game["team_2"].get("team_name")))
         if memories and memories.get(key):
             ctx["memory"] = memories[key]

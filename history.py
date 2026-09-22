@@ -192,14 +192,21 @@ def previously_on(results: list[Result], week: int,
     return "\n".join(lines)
 
 
+#: A streak only becomes a story at three.
+NOTABLE_STREAK = 3
+
+
 def matchup_memory(results: list[Result], week: int, a_id: str, b_id: str,
                    last_paper: Optional[dict] = None) -> str:
-    """Everything earlier this season about these two teams, for their recap.
+    """Only the NOTABLE history between and around these two teams.
 
-    The league-wide briefing is a list of every team; a recap writer handed
-    that ignores most of it. This is the same material cut down to the two
-    teams in the game, so the streak or the rematch is right in front of the
-    story it belongs to.
+    Deliberately sparse. The first version handed every recap both teams'
+    records, last results, season highs and last week's headlines — so every
+    recap had something to reach for, and the paper said "earlier this
+    season" over and over. Now a game gets a note only when there is a real
+    story: a streak of three or more, a rematch, a season high set this week,
+    or last week's paper handing one of them an award. Most games get nothing,
+    which is the point.
     """
     if week <= 1 or not results:
         return ""
@@ -209,36 +216,33 @@ def matchup_memory(results: list[Result], week: int, a_id: str, b_id: str,
         h = hist.get(tid)
         if not h:
             continue
-        bits = [f"{h.team} ({h.manager}) is {h.record}"]
-        if h.streak_len >= 2:
-            bits.append(f"{_STREAK_WORD[h.streak_kind]} {h.streak_len} straight")
-        if h.last:
-            verb = {"W": "beat", "L": "lost to", "T": "tied"}[h.last.outcome]
-            bits.append(f"last week {verb} {h.last.opp_team} "
-                        f"{h.last.points:.1f}-{h.last.opp_points:.1f}")
+        if h.streak_len >= NOTABLE_STREAK:
+            lines.append(f"{h.team} ({h.manager}) has now "
+                         f"{_STREAK_WORD[h.streak_kind]} {h.streak_len} straight "
+                         f"({h.record}).")
         prior = [r.points for r in results if r.team_id == tid and r.week < week]
-        if prior:
-            best = max(prior)
-            bits.append(f"season high before this week {best:.1f}")
-        lines.append(", ".join(bits) + ".")
+        this = next((r.points for r in results
+                     if r.team_id == tid and r.week == week), None)
+        # Three earlier games at least, or "season high" means nothing.
+        if len(prior) >= 3 and this is not None and this > max(prior):
+            lines.append(f"{h.team}'s {this:.1f} is a new season high "
+                         f"(previous best {max(prior):.1f}).")
 
     for r in meetings(results, a_id, b_id, week):
         winner = r.team if r.outcome == "W" else r.opp_team
         loser = r.opp_team if r.outcome == "W" else r.team
         hi, lo = max(r.points, r.opp_points), min(r.points, r.opp_points)
-        lines.append(f"They already met in week {r.week}: {winner} beat "
-                     f"{loser} {hi:.1f}-{lo:.1f}.")
+        lines.append(f"Rematch: in week {r.week} {winner} beat {loser} "
+                     f"{hi:.1f}-{lo:.1f}.")
 
     if last_paper:
         names = {hist[t].team for t in (a_id, b_id) if t in hist}
-        for m in last_paper.get("matchup_content") or []:
-            if {m.get("winner"), m.get("loser")} & names and m.get("headline"):
-                lines.append(f"Last week's paper ran this headline about "
-                             f"{m.get('winner')} v {m.get('loser')}: {m['headline']}")
+        names |= {hist[t].manager for t in (a_id, b_id) if t in hist}
         for award in last_paper.get("awards") or []:
             body = award.get("body") or ""
             if any(n and n in body for n in names):
-                lines.append(f"Last week's {award.get('title', '')}: {body[:200]}")
+                lines.append(f"Last week the paper gave the "
+                             f"{award.get('title', '').title()} to: {body[:160]}")
     return "\n".join(lines)
 
 

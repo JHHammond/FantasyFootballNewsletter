@@ -46,12 +46,14 @@ services:
         sync: false        # where the weekly job reports its failures
       - key: SENTRY_DSN
         sync: false        # optional; unset means no error tracking
-      - key: PRIZEPICKS_CODE
-        sync: false        # turns on the PrizePicks box on every paper's back
-                           # page. Unset = no box. The image is
-                           # web/static/promo/prizepicks.png if present.
-      - key: PRIZEPICKS_LINK
-        sync: false        # optional: your referral link, so the code is clickable
+      - key: PROMO_CODE
+        sync: false        # your referral code; turns on the box on every
+                           # paper's back page. Unset = no box. The graphic is
+                           # web/static/promo/referral.png.
+      - key: PROMO_BRAND
+        value: "Underdog"
+      - key: PROMO_LINK
+        sync: false        # optional: your referral link, so the box is clickable
       - key: SAMPLE_PAPER_URL
         sync: false        # a published paper to show on the landing page
       - key: MAX_PAPERS_PER_DAY

@@ -2228,7 +2228,8 @@ def test_this_games_memory_is_put_in_front_of_its_recap(swap_client, no_sleeping
         "P", 3, GAMES, SUMMARY, memories={key: "MEMORY-MARKER: lost 3 straight."})
     recap = [p for p in prompts if "Write the recap of this game" in p]
     assert recap and "MEMORY-MARKER" in recap[0]
-    assert "EARLIER THIS SEASON" in recap[0]
+    assert "not to recite" in recap[0]
+    assert 'never with the phrase "earlier this season"' in recap[0]
 
 
 def test_no_commentary_is_written_for_the_lines(swap_client, no_sleeping):
@@ -2238,3 +2239,23 @@ def test_no_commentary_is_written_for_the_lines(swap_client, no_sleeping):
     paper = writer.generate_full_newspaper_content("P", 3, GAMES, SUMMARY, lines=lines)
     assert not any("betting lines" in p for p in prompts)
     assert paper["lines"] == lines
+
+
+def test_each_recap_is_told_to_open_differently(swap_client, no_sleeping):
+    prompts = []
+    swap_client(lambda k: prompts.append(k["messages"][0]["content"]) or _reply("x"))
+    ctxs = []
+    for i in range(3):
+        c = writer.build_game_context(GAME)
+        c["index"] = i
+        writer.generate_matchup_body(c)
+    openings = [next(o for o in writer.OPENINGS if o in p) for p in prompts]
+    assert len(set(openings)) == 3
+
+
+def test_recaps_are_not_told_to_end_on_the_records(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    writer.generate_matchup_body(writer.build_game_context(GAME))
+    assert "Finish with a short line giving both new records" not in seen["p"]
+    assert "Do not end on the two teams' records" in seen["p"]

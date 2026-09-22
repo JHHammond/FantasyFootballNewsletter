@@ -725,32 +725,43 @@ def _obituary_items(obituaries, editable=False):
 
 
 #: The disclosure that has to sit with the code. A referral bonus is a
-#: material connection, and PrizePicks is real-money play with an age limit
-#: and state restrictions — so the small print is not optional.
+#: material connection, and paid fantasy pick'em is real-money play with an
+#: age limit and state restrictions — so the small print is not optional.
 PROMO_SMALL_PRINT = ("We get a referral bonus if you sign up with our code. "
                      "Must be 18+ (21+ in some states). Not available in all "
                      "states. Gambling problem? Call 1-800-GAMBLER.")
 
 
 def _promo_box(promo):
+    """The referral box: John's own graphic (code + QR), a line asking for the
+    favour, and the small print. The code is also printed as text under the
+    graphic so it can be copied on a phone, where a QR code is no use."""
     code = html_escape((promo or {}).get("code") or "")
     if not code:
         return ""
+    brand = html_escape((promo or {}).get("brand") or "Underdog")
     image = (promo or {}).get("image_url") or ""
     link = (promo or {}).get("link") or ""
-    img = (f'<img class="promo-image" src="{html_escape(image)}" '
-           f'alt="PrizePicks" />') if image else ""
-    code_html = f'<div class="promo-code">{code}</div>'
+
+    if image:
+        art = (f'<img class="promo-image" src="{html_escape(image)}" '
+               f'alt="{brand} referral code {code}" />')
+        code_html = f'<div class="promo-code-small">Code: <strong>{code}</strong></div>'
+    else:
+        art = ""
+        code_html = (f'<div class="promo-code-label">Use code</div>'
+                     f'<div class="promo-code">{code}</div>')
     if link:
-        code_html = (f'<a class="promo-link" href="{html_escape(link)}" '
-                     f'target="_blank" rel="sponsored noopener">{code_html}</a>')
+        art = (f'<a class="promo-link" href="{html_escape(link)}" target="_blank" '
+               f'rel="sponsored noopener">{art}</a>') if art else art
+        code_html = (f'<a class="promo-link" href="{html_escape(link)}" target="_blank" '
+                     f'rel="sponsored noopener">{code_html}</a>')
     return f"""
-            <div class="bp-label">PrizePicks</div>
-            {img}
+            <div class="bp-label">{brand}</div>
             <p class="promo-pitch">Running this paper doesn&rsquo;t make us
-            much. If you play PrizePicks, signing up with our code helps keep
-            the presses running.</p>
-            <div class="promo-code-label">Use code</div>
+            much. If you play {brand}, signing up with our code helps keep the
+            presses running.</p>
+            {art}
             {code_html}
             <p class="promo-small">{PROMO_SMALL_PRINT}</p>"""
 
@@ -2498,7 +2509,8 @@ def render_html(edition, theme=None):
         .obit p {{ margin: 4px 0 0; font-size: 14px; line-height: 1.5; }}
         .obit-name {{ font-weight: 700; font-size: 16px; }}
         .obit-dates {{ font-size: 12px; font-style: italic; opacity: 0.75; }}
-        .promo-image {{ display: block; max-width: 100%; max-height: 160px; margin: 0 auto 10px; }}
+        .promo-image {{ display: block; width: 100%; max-width: 240px; height: auto; margin: 0 auto 6px; }}
+        .promo-code-small {{ font-size: 13px; margin-bottom: 10px; letter-spacing: 0.5px; }}
         .promo-pitch {{ font-size: 14px; line-height: 1.5; margin: 0 0 12px; }}
         .promo-code-label {{ font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.7; }}
         .promo-code {{
