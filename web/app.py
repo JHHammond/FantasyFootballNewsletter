@@ -1479,6 +1479,7 @@ def create_league(
 def manage(
     request: Request, token: str,
     new: int = 0, generated: int = 0, error: str = "", notice: str = "",
+    confirm_week: int = 0,
 ):
     league = _adopt_if_unowned(request, _require_league(token))
 
@@ -1535,6 +1536,9 @@ def manage(
         generated_week=generated or None,
         error=error,
         notice=notice,
+        # The week whose edits a regeneration would overwrite, if the last
+        # attempt hit that guard. Renders a confirm button under the message.
+        confirm_week=confirm_week if confirm_week in weeks else 0,
     )
 
 
@@ -1974,10 +1978,13 @@ def _generate_response(request: Request, league: dict, week: int,
     # Regenerating throws away hand-edited prose. Ask first rather than
     # silently deleting someone's work.
     if existing and existing.get("edited_at") and confirm_overwrite != "yes":
+        # confirm_week puts a "Yes, regenerate it" button under the message,
+        # which posts straight back here with the confirmation. Warning
+        # somebody and then leaving them with no way to say yes is not a
+        # warning, it's a wall.
         return RedirectResponse(
-            f"/l/{token}?error=Week+{week}+has+your+edits+in+it.+"
-            f"Regenerating+would+wipe+them+-+open+the+editor+and+use+"
-            f"Restore+the+original+if+that's+what+you+want.",
+            f"/l/{token}?confirm_week={week}&error=Week+{week}+has+your+edits+"
+            f"in+it.+Regenerating+writes+a+new+paper+over+them.",
             status_code=303)
 
     # Non-blocking: if every slot is busy, say so immediately rather than
