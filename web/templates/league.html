@@ -14,7 +14,22 @@
 </div>
 {% endif %}
 
-{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if error %}
+<div class="alert alert-error">
+    {{ error }}
+    {% if confirm_week %}
+    <form method="post" action="/l/{{ league.admin_token }}/generate"
+          class="alert-actions" data-generating>
+        <input type="hidden" name="week" value="{{ confirm_week }}" />
+        <input type="hidden" name="confirm_overwrite" value="yes" />
+        <button type="submit" class="btn btn-sm">
+            Yes, regenerate week {{ confirm_week }}
+        </button>
+        <a class="btn-link" href="/l/{{ league.admin_token }}/edit/{{ confirm_week }}">Keep my edits</a>
+    </form>
+    {% endif %}
+</div>
+{% endif %}
 {% if notice %}<div class="alert alert-success">{{ notice }}</div>{% endif %}
 
 {% if generated_week %}

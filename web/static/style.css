@@ -1463,3 +1463,12 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     padding: 4px 8px;
 }
 .letter-close:hover { color: var(--ink); }
+
+/* The confirm button under a warning (regenerating over hand edits). */
+.alert-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}

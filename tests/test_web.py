@@ -1403,7 +1403,21 @@ def test_regenerating_an_edited_week_is_blocked(client, league, paper, no_rerend
     r = client.post("/l/secret-admin-token/generate", data={"week": 1},
                     follow_redirects=False)
     assert "error=" in r.headers["location"]
-    assert "wipe" in r.headers["location"]
+    assert "confirm_week=1" in r.headers["location"]
+
+
+def test_the_warning_carries_a_way_to_say_yes(client, league, paper, no_rerender,
+                                              monkeypatch):
+    """A warning with no confirm button is a wall. John hit it and had no way
+    through but the editor."""
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok())
+    client.post("/l/secret-admin-token/edit/1", data={"headline": "NEW"})
+    html = client.get("/l/secret-admin-token?confirm_week=1&error=Week+1+has+"
+                      "your+edits+in+it.").text
+    assert "Yes, regenerate week 1" in html
+    assert 'name="confirm_overwrite" value="yes"' in html
+    # and not on an ordinary page load
+    assert "Yes, regenerate" not in client.get("/l/secret-admin-token").text
 
 
 def test_regenerating_an_edited_week_is_allowed_when_confirmed(client, league, paper,
