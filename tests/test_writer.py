@@ -331,7 +331,6 @@ def _fail_when(marker: str):
 
 @pytest.mark.parametrize("marker,key,expected_type", [
     ("AWARDS", "awards", list),
-    ("power rankings note", "power_rankings_comments", dict),
     ("LEAD STORY", "lead_story", str),
     ("FRAUD", "fraud_watch", str),
 ])
@@ -759,7 +758,7 @@ def test_the_writing_people_read_stays_on_the_expensive_model():
     anybody reads. Neither may quietly end up on the cheap model because
     somebody was chasing a number.
     """
-    for task in ("lead_story", "headline", "power_rankings_comments",
+    for task in ("lead_story", "headline",
                  "matchup_body_0", "matchup_body_4"):
         assert writer.model_for(task) == writer.MODEL, (
             f"{task} is on the cheap model")
@@ -773,7 +772,7 @@ def test_the_mechanical_calls_are_on_the_cheap_model():
     awards and fraud_watch used to be in this list and are not any more; see
     test_the_sections_that_judge_stay_on_the_big_model for what they did.
     """
-    for task in ("game_teasers", "classifieds"):
+    for task in ("game_teasers", "classifieds", "pull_quote"):
         assert writer.model_for(task) == writer.SMALL_MODEL, (
             f"{task} is still on the expensive model")
 
@@ -1092,7 +1091,7 @@ def test_the_sections_that_judge_stay_on_the_big_model():
     quote pulled from finished prose, a headline off a scoreline. TRANSFORM a
     thing you were given, cheap. JUDGE what matters in a pile, expensive.
     """
-    for task in ("fraud_watch", "power_rankings_comments"):
+    for task in ("fraud_watch",):
         assert writer.model_for(task) == writer.MODEL, (
             f"{task} judges what matters and cannot be on the cheap model")
 
@@ -1985,10 +1984,9 @@ def test_the_long_prose_calls_ask_for_the_check():
         assert "avoid_tells=True" in inspect.getsource(fn), fn.__name__
 
 
-def test_the_pull_quote_is_written_by_the_big_model():
-    """It is now invented comedy, not a sentence lifted from finished prose —
-    the one job on the old cheap list that is actually writing."""
-    assert writer.model_for("pull_quote") == writer.MODEL
+def test_the_pull_quote_is_on_the_cheap_model():
+    """John, 23 Sep: one line in a box, moved to the cheap model to cut cost."""
+    assert writer.model_for("pull_quote") == writer.SMALL_MODEL
 
 
 # ---------------------------------------------------------------------------
@@ -2223,26 +2221,48 @@ def test_the_writer_is_told_to_use_team_names_first():
     assert "handle" in text
 
 
-def test_obituaries_are_short_and_shaped_like_johns_example(swap_client, no_sleeping):
-    seen = {}
-
-    def behaviour(k):
-        seen["p"] = k["messages"][0]["content"]
-        return _reply("1. Rest in peace, Ja'Marr. 3.2 points. Survived by Champ.\n"
-                      "(aside)\n3. Gone too soon, Jaylen. 1.2 points.")
-    swap_client(behaviour)
+def test_obituaries_are_templates_and_never_call_the_model(swap_client, no_sleeping):
+    calls = []
+    swap_client(lambda k: calls.append(1) or _reply("x"))
     dead = [{"name": "Ja'Marr Chase", "points": 3.2, "projected": 20.4,
              "manager": "Champ", "nfl_team": "CIN"},
-            {"name": "Nobody", "points": 1.0, "manager": "Will"},
-            {"name": "Jaylen Waddle", "points": 1.2, "manager": "Will", "nfl_team": "XYZ"}]
+            {"name": "", "points": 1.0, "manager": "Will"},
+            {"name": "Jaylen Waddle", "points": 1.2, "manager": "Will", "nfl_team": "XYZ"},
+            {"name": "Steelers D/ST", "position": "DEF", "points": -2.0,
+             "manager": "Kate", "nfl_team": "PIT"}]
     out = writer.generate_obituaries(dead)
-    assert [o["player"] for o in out] == ["Ja'Marr Chase", "Jaylen Waddle"]
+    assert not calls
+    assert [o["player"] for o in out] == ["Ja'Marr Chase", "Jaylen Waddle", "Steelers D/ST"]
     assert out[0]["projected"] == 20.4          # kept for the heading
-    p = seen["p"]
-    assert "Rest in peace" in p and "Survived by" in p
-    assert "Paycor Stadium" in p                 # stadium from the team
-    assert "No projections" in p
-    assert "20.4" not in p                       # projection never reaches the body prompt
+    first, second, third = (o["body"] for o in out)
+    assert "Ja'Marr" in first and "Chase" not in first and "3.2 points" in first
+    assert "Champ" in first and "Paycor Stadium" in first
+    assert "Will" in second and "Stadium" not in second   # unknown team, no venue
+    assert "Steelers D/ST" in third and "-2.0 points" in third
+    assert "20.4" not in first                  # projection never in the body
+    # No two on one page open the same way, and the same week is stable.
+    assert len({b.split(".")[0] for b in (first, second, third)}) == 3
+    assert writer.generate_obituaries(dead) == out
+
+
+def test_every_obituary_line_fills_in():
+    fill = {"first": "A", "manager": "M", "stadium": "S", "points": "1.0"}
+    for pool in (writer.OBIT_OPENERS, writer.OBIT_SCORES, writer.OBIT_SURVIVORS,
+                 writer.OBIT_CLOSERS_AT, writer.OBIT_CLOSERS):
+        for line in pool:
+            assert "{" not in line.format(**fill)
+    for line in writer.OBIT_CLOSERS:
+        assert "{stadium}" not in line
+
+
+def test_power_rankings_are_facts_not_a_model_call(swap_client, no_sleeping):
+    prompts = []
+    swap_client(lambda k: prompts.append(k["messages"][0]["content"]) or _reply("x"))
+    paper = writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY)
+    assert not any("power rankings" in p.lower() for p in prompts)
+    notes = paper["power_rankings_comments"]
+    assert notes and all(n.startswith(("Beat ", "Lost to ")) for n in notes.values())
 
 
 def test_player_scores_are_rounded_in_the_prose():

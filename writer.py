@@ -61,11 +61,18 @@ SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 #: NOT on this list, deliberately: lead_story and every matchup_body. That is
 #: the writing people actually read, and it is 53% of the output budget —
 #: simultaneously the biggest saving available and the worst place to take one.
-#: power_rankings_comments is not here either; it was rewritten once already
-#: for producing "Fine. Perfectly, aggressively fine."
+#:
+#: pull_quote joined on 23 Sep (John's call, to cut cost). It had been moved to
+#: the big model as "invented comedy"; one line in a box, and a weak one costs
+#: little. If it starts printing flat, it is the first to move back.
+#:
+#: power_rankings_comments and obituaries are not model calls at all any more
+#: (23 Sep): the rankings carry a factual line built from the box score, and
+#: the obituaries are filled-in templates. See those functions.
 SMALL_MODEL_TASKS = frozenset({
     "game_teasers",
     "classifieds",
+    "pull_quote",
 })
 
 
@@ -1838,70 +1845,39 @@ Subject: {_compact(context)}
     return call_claude(prompt, max_tokens=300, system=system, model=model)
 
 
-def generate_power_rankings_comments(teams, commissioner_name="", system=None, model=None):
+def power_rankings_notes(teams):
+    """One factual line per team for the power rankings. No model call.
+
+    John, 23 Sep: the rankings don't need AI commentary. What goes under each
+    card is the result and who carried them — "Beat Champ, 132.4-98.1.
+    Walker led with 34.1." It stays editable on the page like before, which
+    is why this still returns {team: note} rather than nothing.
     """
-    Generate power rankings comments for ALL teams in one API call.
-    teams: list of dicts with keys: team, record, score, rank
-    Returns: dict of {team_name: comment}
-    """
-    teams_text = []
+    notes = {}
     for t in teams:
-        # `or 0` throughout, not a .get default: a team that did not play, or a
-        # provider that returned a null, puts None in these fields and a
-        # default only fires on a missing key. Formatting None raises, and one
-        # raise here loses the whole rankings block.
         score = t.get("score") or 0
-        parts = [f"#{t['rank']}. {t['team']} | {t['record']} | {score:.1f} pts"]
+        opp = t.get("opp_score") or 0
         if t.get("beat"):
-            parts.append(f"beat {t['beat']}")
-        if t.get("lost_to"):
-            parts.append(f"lost to {t['lost_to']}")
-        best, worst = t.get("best") or {}, t.get("worst") or {}
+            line = f"Beat {t['beat']}, {score:.1f}-{opp:.1f}."
+        elif t.get("lost_to"):
+            line = f"Lost to {t['lost_to']}, {score:.1f}-{opp:.1f}."
+        else:
+            line = f"{score:.1f} points."
+        best = t.get("best") or {}
         if best.get("name"):
-            parts.append(f"best: {best['name']} {best.get('actual') or 0:.1f}")
-        if worst.get("name"):
-            gap = worst.get("beat_projection_by")
-            miss = f" ({gap:+.1f} vs proj)" if isinstance(gap, (int, float)) else ""
-            parts.append(f"worst: {worst['name']} {worst.get('actual') or 0:.1f}{miss}")
-        gap = t.get("bench_gap") or 0
-        if gap > 10:
-            parts.append(f"left {gap:.0f} on the bench")
-        teams_text.append(" | ".join(parts))
-    teams_text = "\n".join(teams_text)
+            line += f" {_short_name(best['name'])} led with {best.get('actual') or 0:.1f}."
+        notes[t["team"]] = line
+    return notes
 
-    prompt = f"""
-Write a one-line power rankings note for each team below. One sentence, up to
-about 18 words.
 
-Each note has to contain something that only applies to THIS team THIS week —
-a player, a number, who they played. A line that could be pasted under any
-other team is a failed line. Restating the score they already scored is the
-most common way to fail; the score is printed directly above the note.
-
-{f"If the team is {commissioner_name}, the commissioner, be flattering and completely straight about it." if commissioner_name else ""}
-
-Teams, best to worst:
-{teams_text}
-
-Return ONLY a JSON object mapping team name to the note, like this:
-{{
-  "TeamName": "One sentence here.",
-  "OtherTeam": "Another sentence here."
-}}
-No markdown. No extra text. Just the JSON object.
-"""
-    raw = call_claude(prompt, max_tokens=600, system=system, model=model)
-
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[-1]
-        cleaned = cleaned.rsplit("```", 1)[0].strip()
-
-    try:
-        return json.loads(cleaned)
-    except Exception:
-        # Fallback: return generic comments
-        return {t["team"]: "Still under review." for t in teams}
+def _short_name(name: str) -> str:
+    """Surname for a player, the whole thing for a defence ("Steelers D/ST")."""
+    parts = (name or "").split()
+    if len(parts) < 2 or parts[-1].upper() in ("D/ST", "DST", "DEF"):
+        return name or ""
+    if parts[-1].rstrip(".").upper() in ("JR", "SR", "II", "III", "IV", "V"):
+        parts = parts[:-1]
+    return parts[-1]
 
 
 def generate_game_teasers(game_contexts, commissioner_name="", inside_jokes="", system=None, model=None):
@@ -1990,64 +1966,103 @@ STADIUMS = {
 }
 
 
+#: The obituary pieces. One of each is picked per player and filled in with
+#: his first name, his score, the manager who started him and, where known, the
+#: stadium. John's original, which every combination is built to sound like:
+#:
+#:   Rest in peace, Ja'Marr. 3.2 points. Survived by Champ. The funeral service
+#:   will be held at Paycor Stadium, or in lieu of flowers, please send
+#:   ridiculous trade offers to try and fleece Champ.
+#:
+#: Rules the lines keep: the joke is on the MANAGER, never the man; nothing
+#: about real death, illness, injury or family; no pronouns, because one of
+#: the obituaries can be a defence. Add lines freely — more lines, less repeat.
+OBIT_OPENERS = [
+    "Rest in peace, {first}.",
+    "Gone too soon, {first}.",
+    "Taken from us this week: {first}.",
+    "We gather today for {first}.",
+    "Say a few words for {first}.",
+    "The league mourns {first}.",
+    "Lights out for {first}.",
+    "Pour one out for {first}.",
+]
+OBIT_SCORES = [
+    "{points} points.",
+    "{points} points. That was the whole thing.",
+    "Final line: {points} points.",
+    "{points} points, all told.",
+]
+OBIT_SURVIVORS = [
+    "Survived by {manager}.",
+    "Survived by {manager}, who started this on purpose.",
+    "Survived by {manager} and a lineup that never recovered.",
+    "Survived by {manager}, who had options.",
+    "Survived by {manager}, who saw the projection and believed it.",
+]
+OBIT_CLOSERS_AT = [
+    "The funeral service will be held at {stadium}, or in lieu of flowers, "
+    "please send ridiculous trade offers to try and fleece {manager}.",
+    "Services at {stadium}. {manager} asks for privacy and a waiver claim.",
+    "A viewing will be held at {stadium}; {manager} is accepting condolences "
+    "and lowball trade offers.",
+    "Visitation at {stadium}. Please do not ask {manager} about the bench.",
+    "Memorial at {stadium}. Expect the same lineup from {manager} next week.",
+]
+OBIT_CLOSERS = [
+    "In lieu of flowers, please send ridiculous trade offers to {manager}.",
+    "{manager} asks for privacy and a waiver claim.",
+    "Memorial donations may be made to {manager}'s waiver budget.",
+    "Expect the same lineup from {manager} next week.",
+    "Please do not ask {manager} about the bench.",
+]
+
+
+def _first_name(d) -> str:
+    name = (d.get("name") or "").strip()
+    if (d.get("position") or "").upper() in ("DEF", "DST", "D/ST") or " " not in name:
+        return name
+    return name.split()[0]
+
+
 def generate_obituaries(dead, system=None, model=None):
     """Short, deadpan death notices for the week's lowest-scoring starters.
 
-    John's model, word for word the register wanted: "Rest in peace,
-    Ja'Marr. 3.2 points. Survived by Champ. The funeral service will be held
-    at Paycor Stadium, or in lieu of flowers, please send ridiculous trades
-    to try and fleece Champ." Short, and a joke about the MANAGER — the
-    projection lives in the little heading above, not in the body.
+    No model call since 23 Sep — John: "simple if-then logic", a rotating set
+    of lines with the player and the manager filled in. `system` and `model`
+    are accepted and ignored so older callers don't break.
+
+    The pick is a hash of the names and scores, not random: the same week
+    regenerated gets the same obituaries (a commissioner who edited one
+    doesn't see the others reshuffle), while a new week's names and scores
+    give new ones. Within one paper each player takes the next line along, so
+    no two obituaries on the page share an opener or a closer.
     """
+    import hashlib
+
     dead = [d for d in (dead or []) if d.get("name")]
     if not dead:
         return []
 
-    rows = []
-    for i, d in enumerate(dead):
-        stadium = STADIUMS.get((d.get("nfl_team") or "").upper())
-        bits = [f"{i + 1}. {d['name']} ({d.get('position', '')}), "
-                f"{d.get('points', 0):.1f} points, started by {d.get('manager', '')}"]
-        if stadium:
-            bits.append(f"his team plays at {stadium}")
-        rows.append(", ".join(bits) + ".")
+    key = "|".join(f"{d['name']}:{d.get('points')}:{d.get('manager')}" for d in dead)
+    seed = int(hashlib.sha256(key.encode()).hexdigest(), 16)
 
-    raw = call_claude(f"""
-Write a very short mock OBITUARY for each of these players' fantasy weeks —
-the lowest scorers anybody in the league started. This exact shape and
-length, varied every time:
-
-  Rest in peace, Ja'Marr. 3.2 points. Survived by Champ. The funeral
-  service will be held at Paycor Stadium, or in lieu of flowers, please send
-  ridiculous trade offers to try and fleece Champ.
-
-Rules:
-- First name only after "Rest in peace" (or a variation: "Gone too soon",
-  "Taken from us Sunday"). Then the score, exactly as given, alone.
-- "Survived by" the manager who started him.
-- End on one joke about that manager — a trade to fleece them, a waiver
-  claim, a lineup they will set wrong again. Use the stadium where one is
-  given for the funeral; otherwise skip the venue.
-- No projections, no real death, illness, injury or family, no stats beyond
-  the score. 25 to 45 words each. No two alike.
-
-{chr(10).join(rows)}
-
-Reply with one paragraph per player, numbered the same way, and nothing else.
-""", max_tokens=1600, system=system, model=model)
-
-    bodies = {}
-    for line in (raw or "").splitlines():
-        head, _, rest = line.strip().partition(".")
-        if head.strip().isdigit() and rest.strip():
-            bodies[int(head) - 1] = rest.strip()
+    def pick(pool, i, salt):
+        return pool[(seed // salt + i) % len(pool)]
 
     out = []
     for i, d in enumerate(dead):
-        if bodies.get(i):
-            out.append({"player": d["name"], "points": d.get("points"),
-                        "projected": d.get("projected"),
-                        "manager": d.get("manager", ""), "body": bodies[i]})
+        manager = (d.get("manager") or "").strip() or "the manager who started it"
+        stadium = STADIUMS.get((d.get("nfl_team") or "").upper())
+        fill = {"first": _first_name(d), "manager": manager, "stadium": stadium,
+                "points": f"{float(d.get('points') or 0):.1f}"}
+        closers = OBIT_CLOSERS_AT if stadium else OBIT_CLOSERS
+        body = " ".join(line.format(**fill) for line in (
+            pick(OBIT_OPENERS, i, 1), pick(OBIT_SCORES, i, 7),
+            pick(OBIT_SURVIVORS, i, 53), pick(closers, i, 331)))
+        out.append({"player": d["name"], "points": d.get("points"),
+                    "projected": d.get("projected"),
+                    "manager": d.get("manager", ""), "body": body})
     return out
 
 
@@ -2098,9 +2113,10 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     # The extras. Each only when there is something to write it about.
     tasks = {}
-    if obituaries:
-        tasks["obituaries"] = lambda: generate_obituaries(
-            obituaries, sys_prompt, model_for("obituaries"))
+    # Obituaries are templates now (23 Sep), so they are filled in here rather
+    # than queued: a task that never calls the API would count as a success
+    # and hide an outage from the all-failed check.
+    obituary_notices = generate_obituaries(obituaries) if obituaries else []
 
     # Top-level tasks. The front headline is NOT here: it is written after
     # the lead story, from it — see the second wave below.
@@ -2147,6 +2163,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                 "best": ctx.get(f"{side}_top_performer"),
                 "worst": ctx.get(f"{side}_bottom_performer"),
                 "bench_gap": ctx.get(f"{side}_lineup_gap") or 0,
+                "opp_score": ctx["loser_score"] if side == "winner" else ctx["winner_score"],
                 "beat": ctx["loser"] if side == "winner" else None,
                 "lost_to": ctx["winner"] if side == "loser" else None,
             })
@@ -2155,10 +2172,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     for i, t in enumerate(all_teams_for_rankings):
         t["rank"] = i + 1
 
-    tasks["power_rankings_comments"] = lambda teams=all_teams_for_rankings: generate_power_rankings_comments(
-        teams, commissioner_name, sys_prompt,
-        model_for("power_rankings_comments")
-    )
+    # Not a model call (23 Sep) — built from the box score, and never missing.
+    rankings_notes = power_rankings_notes(all_teams_for_rankings)
 
     # 3. AI teaser hooks for left column — one call for all games
     tasks["game_teasers"] = lambda: generate_game_teasers(
@@ -2325,14 +2340,14 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         "matchup_content": matchup_content,
         "awards": _label_custom_awards(results.get("awards") or [], custom_awards),
         "fraud_watch": results.get("fraud_watch") or "No fraud detected.",
-        "power_rankings_comments": results.get("power_rankings_comments") or {},
+        "power_rankings_comments": rankings_notes,
         "classifieds": results.get("classifieds") or [],
         # Older callers and edits treat the pull quote as a string, so the
         # attribution travels beside it rather than inside it.
         "pull_quote": _pull_quote_part(results.get("pull_quote"), "quote"),
         "pull_quote_by": _pull_quote_part(results.get("pull_quote"), "by"),
         "pull_quote_team": _pull_quote_part(results.get("pull_quote"), "team"),
-        "obituaries": results.get("obituaries") or [],
+        "obituaries": obituary_notices,
         # Numbers only — John: no commentary on the previews.
         "lines": [dict(l) for l in (lines or [])],
     }
