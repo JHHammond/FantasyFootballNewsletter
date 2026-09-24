@@ -60,7 +60,10 @@ services:
         value: "300"       # process-wide ceiling. The API key's own budget
                            # limit is the backstop that survives a restart.
       - key: MAX_CONCURRENT_GENERATIONS
-        value: "4"         # keeps generation from starving readers
+        value: "10"        # papers written at once, per instance. Each one
+                           # sends up to 12 requests to Anthropic at a time,
+                           # so this must fit the API key's rate-limit tier.
+                           # The request threadpool grows with it.
       - key: TRUSTED_PROXY_HOPS
         value: "1"         # proxies between the client and uvicorn. Getting
                            # this wrong makes rate limits spoofable.

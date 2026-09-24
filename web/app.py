@@ -187,6 +187,13 @@ def announce_unusable_publisher_token() -> None:
 async def lifespan(_app: FastAPI):
     announce_missing_migrations()
     announce_unusable_publisher_token()
+    # Every route here is a sync def, so they share one threadpool, 40 threads
+    # by default. A generation holds one for ~30 seconds. At a handful of
+    # generations that was plenty; with MAX_CONCURRENT_GENERATIONS raised for
+    # a busy night it would leave readers queueing behind writers. The pool
+    # is sized so the generations can never take more than half of it.
+    import anyio.to_thread
+    anyio.to_thread.current_default_thread_limiter().total_tokens = THREADPOOL_SIZE
     yield
 
 
@@ -378,6 +385,12 @@ MAX_PAPERS_PER_DAY = int(os.getenv("MAX_PAPERS_PER_DAY", "300"))
 #: which is a good launch day, not an attack.
 MAX_CONCURRENT_GENERATIONS = int(os.getenv("MAX_CONCURRENT_GENERATIONS", "4"))
 _GENERATION_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_GENERATIONS)
+
+#: Request threads for this process: always at least twice the generation
+#: slots plus room for readers, so raising MAX_CONCURRENT_GENERATIONS can never
+#: starve the people just trying to read a paper.
+THREADPOOL_SIZE = max(int(os.getenv("THREADPOOL_SIZE", "40")),
+                      2 * MAX_CONCURRENT_GENERATIONS + 20)
 
 
 def _rate_limited(key: str, limit: int, window: int = 3600) -> bool:
