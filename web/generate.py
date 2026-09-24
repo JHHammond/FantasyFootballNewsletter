@@ -127,10 +127,10 @@ def build_manager_context(managers: list,
         return ""
 
     lines = [
-        "THE PEOPLE IN THIS LEAGUE. Refer to each side by its TEAM NAME most "
-        "of the time; use the person's NAME now and then, mostly for a "
-        "decision they made. Never the handle when there is a team name or a "
-        "name. The notes are standing facts about that person; bring one up "
+        "THE PEOPLE IN THIS LEAGUE, by team. Refer to each side by its TEAM "
+        "NAME; use the person's NAME only now and then, mostly for a "
+        "decision they made. Never write a platform username. "
+        "The notes are standing facts about that person; bring one up "
         "when this week gives you a reason and leave it alone when it does "
         "not. Never explain a note, and never invent one."
     ]
@@ -140,9 +140,8 @@ def build_manager_context(managers: list,
         notes = (manager.get("notes") or "").strip()
         team = ((teams or {}).get(handle) or "").strip()
 
-        who = f"- {handle}"
-        if team and team != handle:
-            who += f" (team: {team})"
+        # Keyed by team so the handle never reaches the writer (John, 23 Sep).
+        who = f"- {team or handle}"
         if name:
             who += f" is {name}"
         if notes:

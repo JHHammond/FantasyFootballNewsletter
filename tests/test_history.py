@@ -52,7 +52,8 @@ def test_streaks_and_records():
 
 def test_the_briefing_names_streaks_rematches_and_last_week():
     text = history.previously_on(RESULTS, 3, [("carson", "will"), ("steve", "mark")])
-    assert "Team will (Will): 0-3" in text
+    assert "Team will: 0-3" in text
+    assert "(Will)" not in text          # team names only (John, 23 Sep)
     assert "lost 3 straight" in text
     assert "won 3 straight" in text
     assert "rematch" in text and "week 1" in text and "120.0-100.0" in text

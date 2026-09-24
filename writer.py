@@ -210,11 +210,11 @@ projection. Use them.
 - End with where both teams now stand.
 
 PEOPLE
-Call each side by its TEAM NAME most of the time — team names are chosen to be
-funny, and they are the joke the league already enjoys. Use the person's real
-name (where the people list gives one) now and then, mainly when the sentence
-is about a decision that person made. Use the platform username (the handle,
-like WillDavidson10) only when a team has no name of its own.
+Call each side by its TEAM NAME — team names are chosen to be funny, and
+they are the joke the league already enjoys. Use the person's real name (where
+the people list gives one) only now and then, mainly when the sentence is
+about a decision that person made. NEVER write a platform username (a handle
+like WillDavidson10) — John, 23 Sep: the whole paper goes by team names.
 
 You do not know anybody's gender. Not the managers, not the players. Refer to
 a manager by their team name or their name, and to a player by their surname. Do
@@ -1287,7 +1287,6 @@ def week_top_performers(games, limit=TOP_PERFORMERS_IN_LEAD):
                     "position": player.get("position") or "",
                     "points": round(float(actual), 1),
                     "team": team.get("team_name") or "",
-                    "manager": team.get("owner_name") or "",
                 })
 
     rows.sort(key=lambda r: r["points"], reverse=True)
@@ -1301,10 +1300,8 @@ def week_results(games):
         ctx = build_game_context(game)
         out.append({
             "winner": ctx.get("winner"),
-            "winner_manager": ctx.get("winner_owner"),
             "winner_score": ctx.get("winner_score"),
             "loser": ctx.get("loser"),
-            "loser_manager": ctx.get("loser_owner"),
             "loser_score": ctx.get("loser_score"),
             "margin": ctx.get("margin"),
         })
@@ -1364,8 +1361,7 @@ HOW IT GOES
   the numbers. That is the sentence this paragraph exists for.
 - Let the margin pick the verb. Three points is a nail-biter; sixty is not a
   game. You do not need an adjective for the ones in between.
-- Use people's names where the data gives you one, not team names, and never
-  a username where a real name exists.
+- Call each side by its team name. Never a platform username.
 
 THIS IS THE ONE PART OF THE PAPER THAT PLAYS IT STRAIGHT.
 No insults here. None. The jokes belong in the game recaps where there is
@@ -1500,8 +1496,8 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
     return call_claude(f"""
 Write the recap of this game for the paper.
 
-{ctx.get('winner')} ({ctx.get('winner_owner')}) beat {ctx.get('loser')} \
-({ctx.get('loser_owner')}), {ctx.get('winner_score')} to {ctx.get('loser_score')}, \
+{ctx.get('winner')} beat {ctx.get('loser')}, \
+{ctx.get('winner_score')} to {ctx.get('loser_score')}, \
 by {ctx.get('margin')}.
 
 {ctx.get('winner')} — what they started:
@@ -1566,7 +1562,7 @@ def _player_bit(entry):
     bits = f"{p['name']} scored {float(p.get('actual') or 0):.1f}"
     if isinstance(proj, (int, float)):
         bits += f" (projected {proj:.1f})"
-    return bits + f", for {t.get('team_name', '')} (manager {t.get('owner_name', '')})"
+    return bits + f", for {t.get('team_name', '')}"
 
 
 def award_facts(summary):
@@ -1576,7 +1572,7 @@ def award_facts(summary):
     game = summary.get("best_loser_game") or {}
     burrow = None
     if best_loser.get("team_name"):
-        burrow = (f"{best_loser['team_name']} (manager {best_loser.get('owner_name', '')}) "
+        burrow = (f"{best_loser['team_name']} "
                   f"scored {float(best_loser.get('points') or 0):.1f} and lost to "
                   f"{game.get('winner', '')} by {float(game.get('margin') or 0):.1f}")
     return {
@@ -1674,8 +1670,11 @@ def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=
         return {}
 
     ctx = game_contexts[0]
-    names = {side: (ctx.get(f"{side}_owner") or ctx.get(side) or "").strip()
-             for side in ("winner", "loser")}
+    # Team names, not handles (John, 23 Sep): "— Wasteland", not
+    # "— WillDavidson10".
+    names = {side: (ctx.get(side) or "").strip() for side in ("winner", "loser")}
+    owners = {(ctx.get(f"{side}_owner") or "").strip(): names[side]
+              for side in ("winner", "loser")}
     if not all(names.values()):
         return {}
 
@@ -1694,8 +1693,9 @@ def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=
         facts.append(f"{names['loser']} left {gap:.1f} points on the bench.")
 
     commissioner_line = ""
-    if commissioner_name and commissioner_name in names.values():
-        commissioner_line = (f"\n{commissioner_name} is the commissioner; if "
+    commish = owners.get(commissioner_name, commissioner_name)
+    if commish and commish in names.values():
+        commissioner_line = (f"\n{commish} is the commissioner; if "
                              f"you quote them, they sound statesmanlike.\n")
 
     raw = call_claude(f"""
@@ -1825,7 +1825,6 @@ def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=
 
     context = {
         "team_name": subject.get("team_name", "Unknown"),
-        "owner_name": subject.get("owner_name", "Unknown"),
         "points": subject.get("points", 0),
         "record": subject.get("record", ""),
         "inside_jokes": inside_jokes,
@@ -2052,7 +2051,9 @@ def generate_obituaries(dead, system=None, model=None):
 
     out = []
     for i, d in enumerate(dead):
-        manager = (d.get("manager") or "").strip() or "the manager who started it"
+        # The team, not the handle (John, 23 Sep): "Survived by Wasteland".
+        manager = ((d.get("team") or d.get("manager") or "").strip()
+                   or "the team that started it")
         stadium = STADIUMS.get((d.get("nfl_team") or "").upper())
         fill = {"first": _first_name(d), "manager": manager, "stadium": stadium,
                 "points": f"{float(d.get('points') or 0):.1f}"}

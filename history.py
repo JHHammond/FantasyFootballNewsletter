@@ -160,7 +160,7 @@ def previously_on(results: list[Result], week: int,
     lines: list[str] = []
 
     for h in sorted(hist.values(), key=lambda h: (-h.wins, -h.points_for)):
-        bits = [f"{h.team} ({h.manager}): {h.record} after this week"]
+        bits = [f"{h.team}: {h.record} after this week"]
         if h.streak_len >= 2:
             bits.append(f"has {_STREAK_WORD[h.streak_kind]} {h.streak_len} straight")
         if h.last:
@@ -217,7 +217,7 @@ def matchup_memory(results: list[Result], week: int, a_id: str, b_id: str,
         if not h:
             continue
         if h.streak_len >= NOTABLE_STREAK:
-            lines.append(f"{h.team} ({h.manager}) has now "
+            lines.append(f"{h.team} has now "
                          f"{_STREAK_WORD[h.streak_kind]} {h.streak_len} straight "
                          f"({h.record}).")
         prior = [r.points for r in results if r.team_id == tid and r.week < week]

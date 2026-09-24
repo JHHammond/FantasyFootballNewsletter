@@ -536,7 +536,8 @@ def test_unparseable_classifieds_fall_back_to_the_house_ads(swap_client,
 
 def _pq_names():
     ctx = writer.build_game_context(GAME)
-    return ctx, (ctx.get("winner_owner") or ctx["winner"]), (ctx.get("loser_owner") or ctx["loser"])
+    # Attributed to the team, never the handle (John, 23 Sep).
+    return ctx, ctx["winner"], ctx["loser"]
 
 
 def test_the_pull_quote_is_a_managers_quote_with_attribution(swap_client, no_sleeping):
@@ -1568,7 +1569,8 @@ def test_the_biggest_scores_are_attached_to_whoever_started_them():
 
     assert top[0]["player"] == "Tex Ballard"
     assert top[0]["points"] == 43.0
-    assert top[0]["manager"] == "Priya"
+    assert top[0]["team"]
+    assert "manager" not in top[0]      # team names only (John, 23 Sep)
 
 
 def test_a_benched_monster_is_not_in_the_lead():
@@ -1622,8 +1624,13 @@ def test_the_lead_prompt_carries_the_players_and_every_result(
 
     assert "Tex Ballard" in data
     assert "43" in data
-    for name in ("Priya", "Omar", "Lena", "Bo"):
-        assert name in data, name
+    # Team names reach the prompt; usernames never do (John, 23 Sep).
+    for g in _week():
+        for side in ("team_1", "team_2"):
+            assert g[side]["team_name"] in data
+            owner = g[side].get("owner_name")
+            if owner and owner not in g[side]["team_name"]:
+                assert owner not in data, owner
 
 
 def test_the_lead_is_told_to_play_it_straight(swap_client, no_sleeping):
@@ -2217,8 +2224,8 @@ def test_the_writer_is_told_to_use_team_names_first():
     """John: team names are always funnier than usernames."""
     prompt = writer.system_prompt("standard", GAMES)
     text = " ".join(b.get("text", "") for b in prompt) if isinstance(prompt, list) else str(prompt)
-    assert "TEAM NAME most of the time" in text
-    assert "handle" in text
+    assert "TEAM NAME" in text
+    assert "NEVER write a platform username" in text
 
 
 def test_obituaries_are_templates_and_never_call_the_model(swap_client, no_sleeping):

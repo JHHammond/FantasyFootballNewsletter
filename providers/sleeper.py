@@ -510,6 +510,7 @@ class SleeperProvider(FantasyProvider):
 
         # user_id -> Manager
         managers: dict[str, Manager] = {}
+        user_teams = _user_team_names(users)
         for u in users:
             avatar = u.get("avatar")
             managers[u["user_id"]] = Manager(
@@ -528,7 +529,9 @@ class SleeperProvider(FantasyProvider):
                 Manager(manager_id=r.get("owner_id") or rid, display_name="Unknown Manager"),
             )
             meta = r.get("metadata") or {}
-            roster_meta[rid] = (meta.get("team_name") or manager.display_name, manager)
+            roster_meta[rid] = (user_teams.get(r.get("owner_id"))
+                                or meta.get("team_name")
+                                or manager.display_name, manager)
 
         starting_slots = [s for s in league.roster_slots if s not in BENCH_SLOTS]
 
@@ -701,12 +704,33 @@ class SleeperProvider(FantasyProvider):
 
         display = {u["user_id"]: (u.get("display_name") or "Unknown Manager")
                    for u in users if u.get("user_id")}
+        user_teams = _user_team_names(users)
 
         names = {}
         for r in rosters:
             rid = str(r.get("roster_id"))
             meta = r.get("metadata") or {}
-            names[rid] = (meta.get("team_name")
+            names[rid] = (user_teams.get(r.get("owner_id"))
+                          or meta.get("team_name")
                           or display.get(r.get("owner_id"))
                           or f"Team {rid}")
         return names
+
+
+def _user_team_names(users) -> dict:
+    """user_id -> the team name the manager set in Sleeper.
+
+    Sleeper keeps a custom team name on the USER, in users[].metadata.team_name,
+    not on the roster. Reading only the roster's metadata found nothing, fell
+    back to the username, and printed "WillDavidson10" wherever the paper meant
+    a team (John, 23 Sep). Roster metadata is still checked after this, in
+    case a league has it there.
+    """
+    out = {}
+    for u in users or []:
+        if not isinstance(u, dict) or not u.get("user_id"):
+            continue
+        name = str((u.get("metadata") or {}).get("team_name") or "").strip()
+        if name:
+            out[u["user_id"]] = name
+    return out

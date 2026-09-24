@@ -1358,3 +1358,40 @@ def test_what_a_player_did_survives_the_trip_to_the_legacy_pipeline(espn_week):
     assert by_name["Patrick Mahomes"]["stat_note"] == "2 pass TD, 1 INT"
     assert by_name["Patrick Mahomes"]["touchdowns"] == 2
     assert by_name["Bijan Robinson"]["stat_note"] == "2 rush TD, 1 rec TD"
+
+
+# ---------------------------------------------------------------------------
+# Sleeper keeps the custom team name on the USER (John, 23 Sep)
+# ---------------------------------------------------------------------------
+
+def test_sleeper_team_names_come_from_the_user_profile(tmp_path, monkeypatch):
+    """users[].metadata.team_name is where Sleeper stores it. Reading only the
+    roster fell back to the username on every team."""
+    import copy
+    p = SleeperProvider(cache=TTLCache(cache_dir=tmp_path, namespace="un"))
+
+    def fake(url, params=None):
+        data = fixtures.fake_get(url, params)
+        if url.endswith("/users"):
+            data = copy.deepcopy(data)
+            for i, u in enumerate(data):
+                u.setdefault("metadata", {})["team_name"] = f"Custom Team {i}"
+        return data
+
+    monkeypatch.setattr(p, "_get", fake)
+    week = p.get_week("TESTLEAGUE", 2025, 3)
+    names = [t.team_name for m in week.matchups for t in m.teams]
+    handles = {t.manager.display_name for m in week.matchups for t in m.teams}
+    assert names and all(n.startswith("Custom Team") for n in names)
+    assert not handles & set(names)
+
+
+def test_sleeper_transactions_use_the_user_profile_team_name(tmp_path):
+    users = [dict(u) for u in _TX_USERS]
+    users[4]["metadata"] = {"team_name": "Superchaser FC"}
+
+    p = _tx_provider(tmp_path)
+    inner = p._get
+    p._get = lambda url, params=None: users if url.endswith("/users") else inner(url, params)
+    tx = p.get_transactions("123", 2026, 2)
+    assert any(t.teams == ["Superchaser FC"] for t in tx)
