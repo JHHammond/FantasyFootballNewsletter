@@ -381,7 +381,13 @@ numbers and not against any general idea of what a fantasy score should be.
 """
 
 
-def system_prompt(tone: str = "standard", games=None) -> list[dict]:
+#: What the per-call prompts say where the league's lore used to be pasted.
+#: The lore itself now lives once, in the cached system block (24 Sep).
+LEAGUE_BACKGROUND_REF = "see LEAGUE BACKGROUND in your instructions"
+
+
+def system_prompt(tone: str = "standard", games=None,
+                  league_context: str = "") -> list[dict]:
     """The house voice, as API blocks, split so the cache can be shared.
 
     TWO BLOCKS, NOT ONE, AND THE ORDER MATTERS.
@@ -403,13 +409,29 @@ def system_prompt(tone: str = "standard", games=None) -> list[dict]:
     variable = (TONE_GUIDANCE.get(tone or "standard", "")
                 + scoring_scale(games))
 
+    # THE LEAGUE'S CONTEXT GOES HERE TOO, AND THIS BLOCK IS CACHED (24 Sep).
+    # The lore, the people list and the season briefing used to be pasted into
+    # the user message of nearly every call — ~40% of a paper's uncached input,
+    # growing every week as the briefing does. They are identical across every
+    # call of ONE paper, so they belong in a block of their own with a cache
+    # mark: billed once per paper, at a tenth after that. The voice guide
+    # keeps its own mark in front, so it is still shared across leagues.
+    context = (league_context or "").strip()
+    if context:
+        variable += ("\n\nLEAGUE BACKGROUND — this league's people, lore and "
+                     "season so far. Draw on it only where a section says to, "
+                     "and only when it genuinely fits.\n" + context)
+
     blocks = [{
         "type": "text",
         "text": KEVLARVILLE_SYSTEM_PROMPT,
         "cache_control": {"type": "ephemeral"},
     }]
     if variable.strip():
-        blocks.append({"type": "text", "text": variable})
+        block = {"type": "text", "text": variable}
+        if context:
+            block["cache_control"] = {"type": "ephemeral"}
+        blocks.append(block)
     return blocks
 
 
@@ -2081,7 +2103,9 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import time
 
-    sys_prompt = system_prompt(tone, games)
+    sys_prompt = system_prompt(tone, games, league_context=inside_jokes)
+    # Every call below still says where the lore is; it no longer carries it.
+    inside_jokes = LEAGUE_BACKGROUND_REF if (inside_jokes or "").strip() else ""
     print(f"[writer] Generating AI content for Week {week} (parallel mode, tone={tone})...")
     start = time.time()
 

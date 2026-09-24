@@ -2331,3 +2331,35 @@ def test_no_letter_is_an_ordinary_paper(swap_client, no_sleeping):
         "The Kevlarville Times", 3, GAMES, SUMMARY, commissioner_letter="   ")
     assert paper["lead_by_commissioner"] is False
     assert any("LEAD STORY" in p for p in prompts)
+
+
+# --- the league's context is cached, not pasted into every call (24 Sep) ------
+
+def test_league_context_lives_in_a_cached_system_block(swap_client, no_sleeping):
+    lore = "LORE-MARKER: the loser gets a tattoo chosen by the winner."
+    seen = []
+
+    def behaviour(kwargs):
+        seen.append(kwargs)
+        return _reply("A sentence.")
+    swap_client(behaviour)
+    writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY, inside_jokes=lore)
+
+    assert seen
+    for k in seen:
+        blocks = k["system"]
+        assert "LORE-MARKER" in blocks[-1]["text"]
+        assert blocks[-1].get("cache_control") == {"type": "ephemeral"}
+        assert blocks[0].get("cache_control") == {"type": "ephemeral"}   # voice guide still shared
+        assert "LORE-MARKER" not in k["messages"][0]["content"]
+    # Byte-identical system blocks across the whole paper, or the cache never hits.
+    assert len({str(k["system"]) for k in seen}) == 1
+    # The sections that used the lore still point at it.
+    assert any(writer.LEAGUE_BACKGROUND_REF in k["messages"][0]["content"] for k in seen)
+
+
+def test_no_league_context_means_no_extra_cache_mark():
+    blocks = writer.system_prompt("standard", GAMES)
+    assert all("LEAGUE BACKGROUND" not in b["text"] for b in blocks)
+    assert "cache_control" not in blocks[-1] or len(blocks) == 1
