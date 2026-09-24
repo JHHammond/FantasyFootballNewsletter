@@ -1589,7 +1589,7 @@ html.is-generating, html.is-generating body { overflow: hidden; }
 }
 
 /* ---------- inside every edition ----------
-   Set like a newspaper's index box: the section, a dotted leader, the page. */
+   Set like a newspaper's index box: each section and what's in it. */
 
 .inside { margin-top: 48px; }
 
@@ -1619,27 +1619,9 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     color: var(--ink);
 }
 
-/* The dotted leader fills whatever room is left between entry and page. */
-.index li::after {
-    content: "";
-    order: 1;
-    flex: 1 1 24px;
-    min-width: 24px;
-    border-bottom: 2px dotted var(--line);
-    transform: translateY(-4px);
-}
-.index-page {
-    order: 2;
-    font-family: "Barlow Condensed", sans-serif;
-    font-weight: 700;
-    letter-spacing: 1px;
-    color: var(--red);
-}
-
 @media (max-width: 640px) {
     .sample-stage { padding-bottom: 10px; }
     .sample-stack::before, .sample-stack::after { display: none; }
     .index { padding: 4px 16px; }
     .index li { font-size: 14px; }
-    .index li::after { display: none; }
 }
