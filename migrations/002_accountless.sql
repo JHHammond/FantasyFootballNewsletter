@@ -240,10 +240,10 @@ insert into storage.buckets (id, name, public)
 values ('newspapers', 'newspapers', true)
 on conflict (id) do update set public = true;
 
+-- No SELECT policy: a public bucket serves files by URL without one, and a
+-- policy here would let anyone with the anon key LIST every league's paper.
+-- See 017_no_bucket_listing.sql.
 drop policy if exists "newspapers are publicly readable" on storage.objects;
-create policy "newspapers are publicly readable"
-    on storage.objects for select
-    using (bucket_id = 'newspapers');
 
 -- Remove the per-user write policies from the account-based schema.
 drop policy if exists "users write to their own newspaper folder" on storage.objects;

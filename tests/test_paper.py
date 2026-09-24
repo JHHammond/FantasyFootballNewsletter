@@ -470,3 +470,11 @@ def test_the_record_book_sits_under_the_obituaries():
     assert "New record" in html and "170.0" in html
     alone = newspaper.render_back_page([], None, [], None, record_book=book)
     assert "Season Record Book" in alone and "Obituaries" not in alone
+
+
+def test_published_papers_carry_no_developer_comments():
+    html = newspaper.strip_comments(
+        "<html><head><style>/* how it works */ .a { color: red; }</style></head>"
+        "<body><!-- MASTHEAD --><p>Hi</p><script>var s = '/* keep */';</script></body></html>")
+    assert "how it works" not in html and "MASTHEAD" not in html
+    assert ".a { color: red; }" in html and "'/* keep */'" in html and "<p>Hi</p>" in html

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import time
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -2710,10 +2711,38 @@ async def revert_edits(token: str, week: int):
 # Public reading — no token, no account, nothing to sign up for
 # ---------------------------------------------------------------------------
 
+#: How many paper addresses that don't exist one visitor may try in an hour.
+#: Somebody mistyping a link hits one or two. Somebody walking addresses to
+#: find other leagues' papers hits hundreds — and after this many, gets nothing
+#: at all from /p/, including for addresses that do exist, so a hit can't be
+#: told apart from a miss.
+PAPER_MISSES_PER_HOUR = 20
+_paper_misses: dict[str, list[float]] = {}
+
+
+def _paper_lookup_blocked(request: Request) -> bool:
+    """In memory, per process, on purpose: this runs on every paper read, and
+    a database write per reader would cost more than the guessing it stops.
+    The long slugs are the real protection; this just makes walking them loud."""
+    now = time.time()
+    hits = [t for t in _paper_misses.get(_client_ip(request), []) if now - t < 3600]
+    _paper_misses[_client_ip(request)] = hits
+    return len(hits) >= PAPER_MISSES_PER_HOUR
+
+
+def _paper_miss(request: Request) -> None:
+    _paper_misses.setdefault(_client_ip(request), []).append(time.time())
+    if len(_paper_misses) > 50_000:          # never grow without bound
+        _paper_misses.clear()
+
+
 @app.get("/p/{slug}", response_class=HTMLResponse)
 def league_papers(request: Request, slug: str, subscribed: int = 0, error: str = ""):
+    if _paper_lookup_blocked(request):
+        raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
     league = db.league_by_public_slug(slug)
     if not league:
+        _paper_miss(request)
         raise HTTPException(status_code=404, detail="No paper at that address.")
     return _render(request, "archive.html",
                    league=league, paper_name=paper_name_for(league),
@@ -2722,14 +2751,17 @@ def league_papers(request: Request, slug: str, subscribed: int = 0, error: str =
 
 
 @app.get("/p/{slug}/{season}/week-{week}", response_class=HTMLResponse)
-def read_paper(slug: str, season: int, week: int, embed: int = 0):
+def read_paper(request: Request, slug: str, season: int, week: int, embed: int = 0):
     """Serve from our own domain rather than redirecting to the CDN.
 
     Keeping readers here is what makes the pages worth anything to an ad
     network, and means the shared URL carries the product's name.
     """
+    if _paper_lookup_blocked(request):
+        raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
     league = db.league_by_public_slug(slug)
     if not league:
+        _paper_miss(request)
         raise HTTPException(status_code=404, detail="No paper at that address.")
 
     html = db.download_paper(db.storage_path(slug, season, week))

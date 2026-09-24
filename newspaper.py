@@ -1874,7 +1874,27 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     }
 
 
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_STYLE_BLOCK = re.compile(r"(<style[^>]*>)(.*?)(</style>)", re.S | re.I)
+_CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+
+
+def strip_comments(html: str) -> str:
+    """The published paper without the notes we leave ourselves (John,
+    24 Sep). The HTML and stylesheet comments explain how the paper is built
+    and name files on the server; readers get the markup and nothing else.
+    Scripts are left alone — a "/*" inside a JavaScript string is not a
+    comment, and the one script on the page is short."""
+    html = _STYLE_BLOCK.sub(lambda m: m.group(1) + _CSS_COMMENT.sub("", m.group(2)) + m.group(3), html)
+    return _HTML_COMMENT.sub("", html)
+
+
 def render_html(edition, theme=None):
+    """Render a paper, as readers receive it."""
+    return strip_comments(_render_html(edition, theme))
+
+
+def _render_html(edition, theme=None):
     """Render a paper.
 
     The base stylesheet below is the tabloid look. A theme layers overrides

@@ -3,9 +3,11 @@ Identifier generation for the accountless model.
 
 Two different identifiers, two different jobs:
 
-  public_slug  — appears in every shared paper URL. Readable, because people
-                 paste these into group chats and a readable link gets clicked
-                 more than a hash. Not a secret.
+  public_slug  — appears in every shared paper URL. Readable at the front,
+                 because people paste these into group chats and a readable
+                 link gets clicked more than a hash — but with a random tail
+                 long enough that it can't be guessed. Anyone with the link can
+                 read the paper; nobody can FIND a paper without the link.
 
   admin_token  — the *only* thing standing between a stranger and the ability
                  to edit a league. Must be unguessable. 32 chars of
@@ -34,9 +36,19 @@ def slugify(text: str, max_length: int = 32) -> str:
     return cleaned or "league"
 
 
+#: No 0/o, 1/l/i: people read these aloud and retype them from screenshots.
+_SLUG_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+#: 31 ** 10 is about 2 ** 50. The suffix used to be four hex characters
+#: (65,536 options), so anyone who knew a league's name could walk every
+#: address in under an hour and read a paper full of real people (John,
+#: 24 Sep). The name stays in front so the link is still readable.
+SLUG_SUFFIX_LENGTH = 10
+
+
 def public_slug(league_name: str) -> str:
-    """A readable, collision-resistant slug: "kevlarville-7f3a"."""
-    return f"{slugify(league_name, 24)}-{secrets.token_hex(2)}"
+    """A readable slug that can't be guessed: "kevlarville-k3x9q2m7wd"."""
+    suffix = "".join(secrets.choice(_SLUG_ALPHABET) for _ in range(SLUG_SUFFIX_LENGTH))
+    return f"{slugify(league_name, 24)}-{suffix}"
 
 
 def admin_token() -> str:

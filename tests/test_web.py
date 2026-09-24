@@ -1941,8 +1941,10 @@ def test_each_theme_renders_differently():
     broad = _full_paper(dict(SAMPLE_AI), theme="broadsheet")
     game = _full_paper(dict(SAMPLE_AI), theme="gameday")
     assert len({tab, broad, game}) == 3
-    assert "BROADSHEET" in broad
-    assert "GAMEDAY" in game
+    # The theme markers are CSS comments, stripped from published papers
+    # (24 Sep); each theme's own fonts identify it instead.
+    assert "Bodoni+Moda" in broad and "Bodoni+Moda" not in tab
+    assert "Anton" in game and "Anton" not in tab
 
 
 def test_themes_load_their_own_fonts():
@@ -2085,8 +2087,9 @@ def test_removing_a_photo_falls_back_to_automatic(client, paper, no_rerender):
 # ---------------------------------------------------------------------------
 
 def test_broadsheet_switches_off_the_tabloid_masthead():
-    css = _full_paper(dict(SAMPLE_AI), theme="broadsheet")
-    broadsheet_block = css.split("===== BROADSHEET =====")[1]
+    import themes
+    broadsheet_block = themes.css_for("broadsheet").split("===== BROADSHEET =====")[1]
+    assert "text-shadow: none !important" in _full_paper(dict(SAMPLE_AI), theme="broadsheet")
     # The base sets a red bar, 72px white type and a hard black shadow. Each
     # has to be actively cancelled, not merely re-fonted.
     assert "background: #fffefb !important" in broadsheet_block
@@ -5541,3 +5544,41 @@ def test_the_stylesheet_url_changes_when_the_file_does(client):
     m = re.search(r'href="/static/style\.css\?v=([0-9a-f]{10})"', body)
     assert m, "stylesheet link has no version"
     assert client.get(f"/static/style.css?v={m.group(1)}").status_code == 200
+
+
+# --- nobody finds a paper without its link (John, 24 Sep) ---------------------
+
+def test_new_public_slugs_cannot_be_walked():
+    from web import slugs
+    s = slugs.public_slug("The Kevlarville Times")
+    name, _, tail = s.rpartition("-")
+    assert name == "the-kevlarville-t"[:len(name)] or name.startswith("the-kevlarville")
+    assert len(tail) == 10 and set(tail) <= set(slugs._SLUG_ALPHABET)
+    assert len({slugs.public_slug("x") for _ in range(200)}) == 200
+
+
+def test_walking_paper_addresses_gets_cut_off(client, league, monkeypatch):
+    monkeypatch.setattr(webapp, "_paper_misses", {})
+    demo_db.save_paper(league["id"], 1, 2025, "p/1", "http://x/1", {"headline": "H"})
+    demo_db._STORAGE[demo_db.storage_path("kevlarville-7f3a", 2025, 1)] = "<html></html>"
+    assert client.get("/p/kevlarville-7f3a/2025/week-1").status_code == 200
+    for i in range(webapp.PAPER_MISSES_PER_HOUR):
+        assert client.get(f"/p/kevlarville-{i:04x}/2025/week-1").status_code == 404
+    # Now even a real address answers 429, so a hit can't be told from a miss.
+    assert client.get("/p/kevlarville-7f3a/2025/week-1").status_code == 429
+    assert client.get("/p/kevlarville-7f3a").status_code == 429
+
+
+def test_a_couple_of_typos_do_not_lock_anyone_out(client, league, monkeypatch):
+    monkeypatch.setattr(webapp, "_paper_misses", {})
+    demo_db._STORAGE[demo_db.storage_path("kevlarville-7f3a", 2025, 1)] = "<html></html>"
+    client.get("/p/kevlarvile-7f3a/2025/week-1")
+    client.get("/p/kevlarville-7f3/2025/week-1")
+    assert client.get("/p/kevlarville-7f3a/2025/week-1").status_code == 200
+
+
+def test_the_bucket_is_not_listable_on_a_fresh_install():
+    import pathlib
+    sql = pathlib.Path("migrations/002_accountless.sql").read_text()
+    assert "create policy \"newspapers are publicly readable\"" not in sql
+    assert "drop policy" in pathlib.Path("migrations/017_no_bucket_listing.sql").read_text()
