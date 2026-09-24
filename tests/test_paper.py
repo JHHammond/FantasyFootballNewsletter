@@ -336,9 +336,9 @@ _PROMO = {"code": "JOHNH", "brand": "Underdog", "image_url": "https://x/p.png", 
 
 def test_the_back_page_follows_the_sketch():
     html = newspaper.render_back_page(_OBITS, _PROMO, _LINES, transactions=None)
-    # obituaries down the left, promo and preview across the top
-    assert "'obit promo preview'" in html
-    assert html.index("Obituaries") < html.index("Underdog") < html.index("Next Week")
+    # obituaries on the left, the preview beside them (John, 23 Sep)
+    assert "'obit preview'" in html
+    assert html.index("Obituaries") < html.index("Next Week")
     assert html.count('class="obit"') == 4
     assert "<b>x</b>" not in html
     assert "Projected 12.0 &ndash; Scored 0.0" in html
@@ -348,25 +348,29 @@ def test_the_back_page_follows_the_sketch():
     assert "Carson covers." not in html
 
 
-def test_the_promo_always_carries_its_small_print():
-    html = newspaper.render_back_page([], _PROMO, [], None)
-    assert "JOHNH" in html
-    assert "referral bonus" in html and "1-800-GAMBLER" in html
-    assert "21+" in html and "Not available in all states" in html
+def test_the_underdog_box_is_gone_even_with_a_code_set():
+    """John, 23 Sep: a sign-up plea at the bottom made the product read as
+    if it were begging."""
+    html = newspaper.render_back_page(_OBITS, _PROMO, _LINES, None)
+    assert "Underdog" not in html and "JOHNH" not in html
+    assert "promo" not in html and "1-800-GAMBLER" not in html
+    assert newspaper.render_back_page([], _PROMO, [], None) == ""
 
 
-def test_no_promo_code_means_no_promo_box_and_no_hole():
-    html = newspaper.render_back_page(_OBITS, {"code": ""}, _LINES, None)
-    assert "Underdog" not in html
-    assert "'obit preview preview'" in html
+def test_obituaries_are_capped_at_four():
+    many = _OBITS + [dict(_OBITS[0], player="Extra")] * 3
+    html = newspaper.render_back_page(many, None, _LINES, None)
+    assert html.count('class="obit"') == 4 and "Extra" not in html
 
 
-def test_transactions_run_along_the_bottom():
+def test_transactions_run_the_full_width_along_the_bottom():
     from unittest import mock
     with mock.patch.object(newspaper, "render_transactions_html", lambda t, e: "<p>WIRE</p>"):
         html = newspaper.render_back_page(_OBITS, _PROMO, _LINES, transactions=[1])
-    assert "'obit tx tx'" in html
-    assert html.index("Next Week") < html.index("Transactions")
+        assert "'obit preview' 'tx tx'" in html
+        assert html.index("Next Week") < html.index("Transactions")
+        only_wire = newspaper.render_back_page([], None, [], transactions=[1])
+        assert "'tx tx'" in only_wire and "has-top" not in only_wire
 
 
 def test_an_empty_back_page_prints_nothing():
@@ -386,13 +390,6 @@ def test_a_pickem_names_no_favourite():
         {"favorite": "Steve", "underdog": "Mark", "spread": 0.5, "pickem": True,
          "favorite_points": 120.2, "underdog_points": 119.8}], None)
     assert "favored" not in html and "Coin flip" in html
-
-
-def test_the_referral_graphic_is_shown_with_the_code_as_copyable_text():
-    html = newspaper.render_back_page([], _PROMO, [], None)
-    assert '<img class="promo-image" src="https://x/p.png"' in html
-    assert "Code: <strong>JOHNH</strong>" in html
-    assert "If you play Underdog" in html
 
 
 def test_the_quote_byline_carries_the_team_name():

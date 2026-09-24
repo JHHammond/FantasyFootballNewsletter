@@ -807,62 +807,59 @@ def _lines_items(lines, editable=False):
     return "".join(cards)
 
 
+#: The most obituaries the back page prints. history.lowest_starters already
+#: picks four; this holds for older stored papers and hand edits too.
+OBITUARY_MAX = 4
+
+
 def render_back_page(obituaries=None, promo=None, lines=None,
                      transactions=None, editable=False):
-    """The back page, laid out to John's sketch:
+    """The back page (John, 23 Sep):
 
-        +------------+--------------+----------------------+
-        | OBITUARIES | PRIZEPICKS   | NEXT WEEK'S PREVIEW  |
-        |            |    CODE      |                      |
-        |            +--------------+----------------------+
-        |            |          TRANSACTIONS               |
-        +------------+-------------------------------------+
+        +--------------+-------------------------------+
+        | OBITUARIES   | NEXT WEEK'S PREVIEW           |
+        +--------------+-------------------------------+
+        |            TRANSACTIONS (full width)         |
+        +----------------------------------------------+
 
-    Any box with nothing in it is left out and its neighbours take the room,
-    so a league with no transactions feed, or a deployment with no promo
-    code, still gets a page with no holes in it. Nothing at all if every box
-    is empty.
+    The Underdog referral box is gone: a plea for sign-ups at the bottom of
+    the paper made the product read as if it were begging. `promo` is still
+    accepted so callers don't break, and ignored. Transactions run the full
+    width underneath so a tall obituaries column no longer leaves white space
+    beside them.
+
+    Any box with nothing in it is left out and its neighbours take the room.
+    Nothing at all if every box is empty.
     """
-    obits = _obituary_items(obituaries, editable)
-    promo_html = _promo_box(promo)
+    obits = _obituary_items((obituaries or [])[:OBITUARY_MAX], editable)
     lines_html = _lines_items(lines, editable)
     wire = render_transactions_html(transactions, editable) if transactions else ""
-
-    top = []
-    if promo_html:
-        right = " has-right" if lines_html else ""
-        top.append(("promo", f'<div class="bp-promo{right}">{promo_html}</div>'))
-    if lines_html:
-        top.append(("preview", f"""<div class="bp-preview">
-            <div class="bp-label">Next Week&rsquo;s Preview</div>
-            <div class="bp-note">Made up from the projections. The Desk takes no bets.</div>
-            {lines_html}</div>"""))
-    if not (obits or top or wire):
+    if not (obits or lines_html or wire):
         return ""
 
-    # Grid areas, built from what is actually there.
-    right_top = [name for name, _ in top]
-    if len(right_top) == 1:
-        right_top = right_top * 2
-    rows = []
-    if right_top:
-        rows.append(right_top)
+    top = [name for name, there in (("obit", obits), ("preview", lines_html)) if there]
+    if len(top) == 1:
+        top = top * 2
+    rows = [top] if top else []
     if wire:
         rows.append(["tx", "tx"])
-    if not rows:
-        rows = [["obit", "obit"]]
     # Single-quoted CSS strings: the whole thing sits inside a double-quoted
     # style attribute, and a double quote here ends the attribute.
-    areas = " ".join(
-        "'" + " ".join((["obit"] if obits else []) + r) + "'" for r in rows)
-    cols = "1fr 1.3fr 1.3fr" if obits else "1fr 1fr"
+    areas = " ".join("'" + " ".join(r) + "'" for r in rows)
+    cols = "1.2fr 1fr" if (obits and lines_html) else "1fr 1fr"
 
     parts = []
     if obits:
-        parts.append(f'<div class="bp-obits"><div class="bp-label">Obituaries</div>{obits}</div>')
-    parts.extend(html for _, html in top)
+        right = " has-right" if lines_html else ""
+        parts.append(f'<div class="bp-obits{right}"><div class="bp-label">Obituaries</div>{obits}</div>')
+    if lines_html:
+        parts.append(f"""<div class="bp-preview">
+            <div class="bp-label">Next Week&rsquo;s Preview</div>
+            <div class="bp-note">Made up from the projections. The Desk takes no bets.</div>
+            {lines_html}</div>""")
     if wire:
-        parts.append(f'<div class="bp-tx"><div class="bp-label">Transactions</div>'
+        top_rule = " has-top" if top else ""
+        parts.append(f'<div class="bp-tx{top_rule}"><div class="bp-label">Transactions</div>'
                      f'<div class="wire">{wire}</div></div>')
 
     return f"""
@@ -2601,7 +2598,7 @@ def render_html(edition, theme=None):
         }}
 
 
-        /* ── BACK PAGE ── obits | promo | preview, transactions ── */
+        /* ── BACK PAGE ── obits | preview, transactions full width ── */
         .back-page {{
             display: grid;
             margin: 28px 36px 0;
@@ -2609,11 +2606,15 @@ def render_html(edition, theme=None):
             border-bottom: 4px solid #111;
         }}
         .back-page > div {{ padding: 14px 16px; min-width: 0; }}
-        .bp-obits {{ grid-area: obit; border-right: 3px solid #111; }}
-        .bp-promo {{ grid-area: promo; text-align: center; }}
-        .bp-promo.has-right {{ border-right: 3px solid #111; }}
+        .bp-obits {{ grid-area: obit; }}
+        .bp-obits.has-right {{ border-right: 3px solid #111; }}
         .bp-preview {{ grid-area: preview; }}
-        .bp-tx {{ grid-area: tx; border-top: 3px solid #111; }}
+        .bp-tx {{ grid-area: tx; }}
+        .bp-tx.has-top {{ border-top: 3px solid #111; }}
+        /* Full width is too wide for one short line per move, so the wire runs
+           in two columns. The label already rules it off above. */
+        .bp-tx .wire {{ column-count: 2; column-gap: 36px; column-rule: 1px solid #cfc8b8; border-top: 0; }}
+        .bp-tx .wire-row {{ break-inside: avoid; }}
         .bp-label {{
             font-size: 14px; font-weight: 800; letter-spacing: 2px;
             text-transform: uppercase; color: var(--accent);
@@ -2645,6 +2646,7 @@ def render_html(edition, theme=None):
             .back-page {{ display: block; margin: 20px 16px 0; }}
             .back-page > div {{ border-right: 0 !important; border-top: 3px solid #111; }}
             .back-page > div:first-child {{ border-top: 0; }}
+            .bp-tx .wire {{ column-count: 1; }}
         }}
 
         .line-card {{ padding: 10px 0 12px; border-bottom: 1px solid #ddd; }}
