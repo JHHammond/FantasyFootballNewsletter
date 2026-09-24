@@ -197,6 +197,22 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 templates.env.globals["demo_mode"] = DEMO_MODE
+
+
+def static_url(name: str) -> str:
+    """/static/<name>?v=<content hash>. A browser that cached an old
+    stylesheet kept drawing new pages with it (24 Sep: the homepage came out
+    unstyled after a deploy). The hash changes whenever the file does, so every
+    deploy that touches the CSS is fetched fresh, and nothing else is."""
+    import hashlib
+    try:
+        digest = hashlib.sha1((BASE_DIR / "static" / name).read_bytes()).hexdigest()[:10]
+    except OSError:
+        return f"/static/{name}"
+    return f"/static/{name}?v={digest}"
+
+
+templates.env.globals["static_url"] = static_url
 # Templates build share links from this rather than request.base_url,
 # which behind a proxy reports http:// and the internal hostname.
 templates.env.globals["public_base"] = public_base_url
@@ -2391,8 +2407,8 @@ async def live_edit(request: Request, token: str, week: int):
         f' data-save-url="/l/{token}/edit/{week}/inline"'
         f' data-upload-url="/l/{token}/upload-image"'
         f' data-back-url="/l/{token}/published/{week}"></div>'
-        f'<link rel="stylesheet" href="/static/liveedit.css" />'
-        f'<script src="/static/liveedit.js" defer></script>'
+        f'<link rel="stylesheet" href="{static_url("liveedit.css")}" />'
+        f'<script src="{static_url("liveedit.js")}" defer></script>'
     )
     html = html.replace("</body>", config + "</body>")
 

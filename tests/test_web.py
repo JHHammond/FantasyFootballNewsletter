@@ -5531,3 +5531,13 @@ def test_the_embedded_preview_is_not_counted_as_a_read(client, league):
     assert demo_db.get_paper(league["id"], 2025, 1)["view_count"] == 0
     client.get("/p/kevlarville-7f3a/2025/week-1")
     assert demo_db.get_paper(league["id"], 2025, 1)["view_count"] == 1
+
+
+def test_the_stylesheet_url_changes_when_the_file_does(client):
+    """A browser holding an old style.css drew the new homepage unstyled
+    (24 Sep). The link carries a content hash so a changed file is refetched."""
+    import re
+    body = client.get("/").text
+    m = re.search(r'href="/static/style\.css\?v=([0-9a-f]{10})"', body)
+    assert m, "stylesheet link has no version"
+    assert client.get(f"/static/style.css?v={m.group(1)}").status_code == 200
