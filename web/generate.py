@@ -471,7 +471,8 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
     costs the paper an extra, never the paper."""
     provider, lid, season = (league["provider"], league["platform_league_id"],
                              league["season"])
-    out = {"briefing": "", "lines": [], "memories": {}, "trends": {}}
+    out = {"briefing": "", "lines": [], "memories": {}, "trends": {},
+           "record_book": []}
     try:
         def fetch(w):
             return this_week if w == week else load_week(
@@ -489,6 +490,15 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
         pairs = [(str(m.teams[0].team_id), str(m.teams[1].team_id))
                  for m in this_week.matchups]
         out["trends"] = history.weekly_scores(results, week)
+        # Streak arrows in the standings, and the back page's record book
+        # (John, 23 Sep). Garnish like the rest: a failure costs only these.
+        try:
+            if out["trends"]:
+                out["trends"]["streaks"] = history.current_streaks(results, week)
+            out["record_book"] = history.record_book(results, week)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[history] streaks/record book skipped: "
+                  f"{type(exc).__name__}: {exc}", flush=True)
         out["briefing"] = history.previously_on(results, week, pairs, last_paper)
         out["memories"] = {
             frozenset((m.teams[0].team_name, m.teams[1].team_name)):
@@ -608,5 +618,7 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     # must show the trend as it stood when this week was written.
     if season_so_far["trends"]:
         ai_content["trends"] = season_so_far["trends"]
+    if season_so_far.get("record_book"):
+        ai_content["record_book"] = season_so_far["record_book"]
 
     return render_and_store(db, league, week, ai_content)

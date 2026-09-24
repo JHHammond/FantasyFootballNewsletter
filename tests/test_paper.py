@@ -443,3 +443,30 @@ def test_power_rankings_render_in_those_rows():
     html = newspaper.build_power_rankings(teams)
     assert html.count('class="rankings-row"') == 3
     assert '--cols:5' in html and '--cols:4' in html
+
+
+# --- streak arrows and the record book (John, 23 Sep) -------------------------
+
+def test_streaks_print_as_coloured_arrows_with_the_count():
+    assert "streak-w" in newspaper.render_streak(["W", 3]) and "3" in newspaper.render_streak(["W", 3])
+    assert "&#9660;" in newspaper.render_streak(["L", 5]) and ">&#9660;&thinsp;5<" in newspaper.render_streak(["L", 5])
+    assert newspaper.render_streak(None) == ""
+
+
+def test_the_standings_show_streaks_instead_of_the_sparkline():
+    standings = [{"team_name": "Ann", "record": "3-0", "points": 420.0}]
+    trends = {"lo": 0, "hi": 1, "teams": {"Ann": [[1, 1.0]]}, "streaks": {"Ann": ["W", 3]}}
+    html = newspaper.render_standings_html(standings, trends)
+    assert "streak-w" in html and "<svg" not in html
+    old = newspaper.render_standings_html(standings, {"lo": 0, "hi": 1, "teams": {"Ann": [[1, 1.0], [2, 0.5]]}})
+    assert "<svg" in old                        # papers from before keep their sparkline
+
+
+def test_the_record_book_sits_under_the_obituaries():
+    book = [{"label": "Highest score", "team": "Ann", "value": "170.0",
+             "detail": "vs Dee", "week": 3, "new": True}]
+    html = newspaper.render_back_page(_OBITS, None, _LINES, None, record_book=book)
+    assert html.index("Obituaries") < html.index("Season Record Book") < html.index("Next Week")
+    assert "New record" in html and "170.0" in html
+    alone = newspaper.render_back_page([], None, [], None, record_book=book)
+    assert "Season Record Book" in alone and "Obituaries" not in alone

@@ -305,3 +305,50 @@ def test_the_standing_award_winners():
     assert s["kyle_pitts"]["team"]["team_name"] == "A"
     assert s["nick_foles"]["player"]["name"] == "Foles"         # best bench anywhere
     assert s["best_loser"]["team_name"] == "A"                  # Joe Burrow
+
+
+# --- streak arrows and the record book (John, 23 Sep) -------------------------
+
+def _game(week, a, pa, b, pb):
+    R = history.Result
+    return [R(week, a, a.title(), a, pa, b, b.title(), b, pb),
+            R(week, b, b.title(), b, pb, a, a.title(), a, pa)]
+
+
+def _season():
+    out = []
+    out += _game(1, "ann", 120, "bob", 100) + _game(1, "cal", 90, "dee", 95)
+    out += _game(2, "ann", 130, "cal", 80) + _game(2, "bob", 101, "dee", 100.5)
+    out += _game(3, "ann", 170, "dee", 60) + _game(3, "bob", 99, "cal", 140)
+    return out
+
+
+def test_current_streaks_are_keyed_by_team_name():
+    s = history.current_streaks(_season(), 3)
+    assert s["Ann"] == ["W", 3]
+    assert s["Dee"] == ["L", 2]
+    assert s["Bob"] == ["L", 1]
+
+
+def test_the_record_book_names_holders_and_stamps_what_fell_this_week():
+    book = {r["label"]: r for r in history.record_book(_season(), 3)}
+    assert book["Highest score"]["team"] == "Ann" and book["Highest score"]["value"] == "170.0"
+    assert book["Highest score"]["new"] is True           # beat 130 from week 2
+    assert book["Lowest score"]["team"] == "Dee" and book["Lowest score"]["new"] is True
+    assert book["Biggest blowout"]["value"] == "+110.0"
+    assert book["Closest game"]["team"] == "Bob" and book["Closest game"]["week"] == 2
+    assert book["Closest game"]["new"] is False
+    assert book["Most points in a loss"]["value"] == "100.5"
+    assert book["Longest win streak"]["team"] == "Ann"
+    assert book["Longest win streak"]["value"] == "3" and book["Longest win streak"]["new"]
+    assert book["Longest losing streak"]["value"] == "2"
+
+
+def test_week_one_stamps_nothing_new():
+    assert not any(r["new"] for r in history.record_book(_season(), 1))
+
+
+def test_a_tie_does_not_break_a_record():
+    rs = _game(1, "ann", 150, "bob", 100) + _game(2, "bob", 150, "ann", 90)
+    hi = next(r for r in history.record_book(rs, 2) if r["label"] == "Highest score")
+    assert hi["team"] == "Ann" and hi["new"] is False

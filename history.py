@@ -274,6 +274,122 @@ def weekly_scores(results: list[Result], through_week: int,
     return {"lo": min(values), "hi": max(values), "teams": teams}
 
 
+def current_streaks(results: list[Result], through_week: int) -> dict:
+    """{team name: ["W", 3]} — each team's streak as of this week, for the
+    arrows in the standings (John, 23 Sep). Keyed by the team's current name,
+    like the standings row."""
+    by_team: dict[str, list[Result]] = {}
+    for r in results:
+        if r.week <= through_week:
+            by_team.setdefault(r.team_id, []).append(r)
+    out = {}
+    for rs in by_team.values():
+        kind, n = streak(rs)
+        if n:
+            out[sorted(rs, key=lambda r: r.week)[-1].team] = [kind, n]
+    return out
+
+
+def _runs(rs: list[Result], kind: str):
+    """Every run of `kind` in a team's season, as (length, first week, last week)."""
+    runs, start, n = [], None, 0
+    for r in sorted(rs, key=lambda r: r.week):
+        if r.outcome == kind:
+            start = r.week if n == 0 else start
+            n += 1
+        else:
+            if n:
+                runs.append((n, start, prev))
+            n = 0
+        prev = r.week
+    if n:
+        runs.append((n, start, prev))
+    return runs
+
+
+def record_book(results: list[Result], through_week: int) -> list[dict]:
+    """The season's standing records, for the back page (John, 23 Sep).
+
+    Each entry: {"label", "team", "value", "detail", "week", "new"}. A record
+    is only broken by BEATING it, so a tie leaves the earlier holder in place.
+    `new` means it was set this week and beat everything before it — never in
+    week 1, when every record is new and the stamp would mean nothing.
+    """
+    rs = [r for r in results if r.week <= through_week]
+    if not rs:
+        return []
+    games = {}                                  # one entry per game, not per side
+    for r in rs:
+        key = (r.week, frozenset((r.team_id, r.opp_id)))
+        if key not in games and r.points >= r.opp_points:
+            games[key] = r
+
+    def best(items, value, higher=True):
+        """The record holder: highest (or lowest) value, earliest week on a tie."""
+        if not items:
+            return None, False
+        sign = -1 if higher else 1
+        holder = min(items, key=lambda x: (sign * value(x), x.week))
+        before = [x for x in items if x.week < through_week]
+        if holder.week != through_week or through_week <= 1:
+            return holder, False
+        if not before:
+            return holder, False
+        prev = min(before, key=lambda x: sign * value(x))
+        return holder, (value(holder) > value(prev)) if higher else (value(holder) < value(prev))
+
+    out = []
+
+    hi, new = best(rs, lambda r: r.points)
+    if hi:
+        out.append({"label": "Highest score", "team": hi.team,
+                    "value": f"{hi.points:.1f}", "detail": f"vs {hi.opp_team}",
+                    "week": hi.week, "new": new})
+    lo, new = best(rs, lambda r: r.points, higher=False)
+    if lo:
+        out.append({"label": "Lowest score", "team": lo.team,
+                    "value": f"{lo.points:.1f}", "detail": f"vs {lo.opp_team}",
+                    "week": lo.week, "new": new})
+    decided = [g for g in games.values() if g.points > g.opp_points]
+    blow, new = best(decided, lambda g: g.points - g.opp_points)
+    if blow:
+        out.append({"label": "Biggest blowout", "team": blow.team,
+                    "value": f"+{blow.points - blow.opp_points:.1f}",
+                    "detail": f"over {blow.opp_team}", "week": blow.week, "new": new})
+    close, new = best(decided, lambda g: g.points - g.opp_points, higher=False)
+    if close:
+        out.append({"label": "Closest game", "team": close.team,
+                    "value": f"+{close.points - close.opp_points:.1f}",
+                    "detail": f"over {close.opp_team}", "week": close.week, "new": new})
+    losses = [r for r in rs if r.outcome == "L"]
+    heart, new = best(losses, lambda r: r.points)
+    if heart:
+        out.append({"label": "Most points in a loss", "team": heart.team,
+                    "value": f"{heart.points:.1f}", "detail": f"to {heart.opp_team}",
+                    "week": heart.week, "new": new})
+
+    by_team: dict[str, list[Result]] = {}
+    for r in rs:
+        by_team.setdefault(r.team_id, []).append(r)
+    for kind, label in (("W", "Longest win streak"), ("L", "Longest losing streak")):
+        runs = []
+        for trs in by_team.values():
+            name = sorted(trs, key=lambda r: r.week)[-1].team
+            runs += [(n, first, last, name) for n, first, last in _runs(trs, kind)]
+        if not runs:
+            continue
+        top = max(runs, key=lambda x: (x[0], -x[1]))
+        if top[0] < 2:
+            continue                           # a one-game "streak" is not a record
+        earlier = [x[0] for x in runs if x is not top and x[2] < through_week]
+        new = (top[2] == through_week and through_week > 1
+               and top[0] > max(earlier or [0]))
+        span = f"weeks {top[1]}-{top[2]}"
+        out.append({"label": label, "team": top[3], "value": str(top[0]),
+                    "detail": span, "week": top[2], "new": new})
+    return out
+
+
 def load_season(fetch_week: Callable[[int], Any], through_week: int) -> list[Result]:
     """Every result from week 1 to `through_week`. A week that can't be
     fetched is skipped rather than failing the paper."""

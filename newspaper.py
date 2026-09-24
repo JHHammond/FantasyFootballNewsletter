@@ -812,8 +812,24 @@ def _lines_items(lines, editable=False):
 OBITUARY_MAX = 4
 
 
+def _record_book_html(records):
+    """The season record book: one line per record, stamped when it fell
+    this week."""
+    rows = []
+    for r in records or []:
+        stamp = '<span class="rb-new">New record</span>' if r.get("new") else ""
+        rows.append(f"""
+            <div class="rb-row">
+                <div class="rb-label">{html_escape(r.get("label") or "")}{stamp}</div>
+                <div class="rb-value">{html_escape(str(r.get("value") or ""))}</div>
+                <div class="rb-who"><strong>{html_escape(r.get("team") or "")}</strong>
+                    {html_escape(r.get("detail") or "")} &middot; Wk {html_escape(str(r.get("week") or ""))}</div>
+            </div>""")
+    return "".join(rows)
+
+
 def render_back_page(obituaries=None, promo=None, lines=None,
-                     transactions=None, editable=False):
+                     transactions=None, editable=False, record_book=None):
     """The back page (John, 23 Sep):
 
         +--------------+-------------------------------+
@@ -832,12 +848,14 @@ def render_back_page(obituaries=None, promo=None, lines=None,
     Nothing at all if every box is empty.
     """
     obits = _obituary_items((obituaries or [])[:OBITUARY_MAX], editable)
+    records = _record_book_html(record_book)
     lines_html = _lines_items(lines, editable)
     wire = render_transactions_html(transactions, editable) if transactions else ""
-    if not (obits or lines_html or wire):
+    if not (obits or records or lines_html or wire):
         return ""
 
-    top = [name for name, there in (("obit", obits), ("preview", lines_html)) if there]
+    left = obits or records
+    top = [name for name, there in (("obit", left), ("preview", lines_html)) if there]
     if len(top) == 1:
         top = top * 2
     rows = [top] if top else []
@@ -846,12 +864,19 @@ def render_back_page(obituaries=None, promo=None, lines=None,
     # Single-quoted CSS strings: the whole thing sits inside a double-quoted
     # style attribute, and a double quote here ends the attribute.
     areas = " ".join("'" + " ".join(r) + "'" for r in rows)
-    cols = "1.2fr 1fr" if (obits and lines_html) else "1fr 1fr"
+    cols = "1.2fr 1fr" if (left and lines_html) else "1fr 1fr"
 
     parts = []
-    if obits:
+    if left:
+        # The record book sits under the obituaries, in the room the
+        # Underdog box used to take (John, 23 Sep).
         right = " has-right" if lines_html else ""
-        parts.append(f'<div class="bp-obits{right}"><div class="bp-label">Obituaries</div>{obits}</div>')
+        inner = f'<div class="bp-label">Obituaries</div>{obits}' if obits else ""
+        if records:
+            spaced = " rb-after-obits" if obits else ""
+            inner += (f'<div class="bp-records{spaced}"><div class="bp-label">'
+                      f'Season Record Book</div>{records}</div>')
+        parts.append(f'<div class="bp-obits{right}">{inner}</div>')
     if lines_html:
         parts.append(f"""<div class="bp-preview">
             <div class="bp-label">Next Week&rsquo;s Preview</div>
@@ -910,17 +935,39 @@ def render_sparkline(series, lo, hi, team_name=""):
             f'{dots}</svg>')
 
 
+def render_streak(streak):
+    """A green up arrow and the count for a win streak, red and down for a
+    losing one (John, 23 Sep): three straight wins prints ▲ 3."""
+    kind, n = (list(streak) + ["", 0])[:2] if streak else ("", 0)
+    if not n:
+        return ""
+    if kind == "W":
+        return (f'<span class="streak streak-w" title="Won {n} straight">'
+                f'&#9650;&thinsp;{n}</span>')
+    if kind == "L":
+        return (f'<span class="streak streak-l" title="Lost {n} straight">'
+                f'&#9660;&thinsp;{n}</span>')
+    return f'<span class="streak streak-t" title="Tied">&ndash;&thinsp;{n}</span>'
+
+
 def render_standings_html(standings, trends=None):
     rows = []
     trends = trends or {}
     series_by_team = trends.get("teams") or {}
     lo, hi = trends.get("lo", 0), trends.get("hi", 1)
 
+    streaks = trends.get("streaks") or {}
+
     for i, team in enumerate(standings, start=1):
         avatar = render_avatar_img(team.get("avatar_url"), team["team_name"])
-        spark = render_sparkline(series_by_team.get(team["team_name"]), lo, hi,
-                                 team["team_name"]) if series_by_team else ""
-        trend_cell = f'<td class="trend-cell">{spark}</td>' if series_by_team else ""
+        if streaks:
+            trend_cell = f'<td class="trend-cell">{render_streak(streaks.get(team["team_name"]))}</td>'
+        else:
+            # Papers written before 23 Sep carry no streaks; they keep the
+            # sparkline they were printed with.
+            spark = render_sparkline(series_by_team.get(team["team_name"]), lo, hi,
+                                     team["team_name"]) if series_by_team else ""
+            trend_cell = f'<td class="trend-cell">{spark}</td>' if series_by_team else ""
         rows.append(f"""
         <tr>
             <td>{i}</td>
@@ -1780,15 +1827,18 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         "awards_html": awards_html,
         "back_page_html": render_back_page(
             obituaries=(ai_content or {}).get("obituaries"),
+            record_book=(ai_content or {}).get("record_book"),
             promo=promo,
             lines=(ai_content or {}).get("lines"),
             transactions=transactions,
             editable=editable),
         "standings_html": render_standings_html(
             build_standings(matchups), (ai_content or {}).get("trends")),
-        "standings_trend_th": ('<th class="trend-th">Trend</th>'
-                               if ((ai_content or {}).get("trends") or {}).get("teams")
-                               else ""),
+        "standings_trend_th": (
+            ('<th class="trend-th">Streak</th>'
+             if ((ai_content or {}).get("trends") or {}).get("streaks")
+             else '<th class="trend-th">Trend</th>')
+            if ((ai_content or {}).get("trends") or {}).get("teams") else ""),
         "top_scorers_html": build_top_scorers(matchups),
         "week_ticker_html": build_week_ticker(summary),
         "honor_roll_html": build_honor_roll_and_detention(matchups)[0],
@@ -2611,6 +2661,24 @@ def render_html(edition, theme=None):
         .bp-preview {{ grid-area: preview; }}
         .bp-tx {{ grid-area: tx; }}
         .bp-tx.has-top {{ border-top: 3px solid #111; }}
+        .rb-after-obits {{ margin-top: 18px; border-top: 3px solid #111; padding-top: 14px; }}
+        .bp-obits > .obit:nth-last-child(2) {{ border-bottom: 0; }}
+        .rb-row {{
+            display: grid; grid-template-columns: 1fr auto; column-gap: 12px;
+            padding: 8px 0; border-bottom: 1px dotted #cfc8b8;
+        }}
+        .rb-row:last-child {{ border-bottom: 0; }}
+        .rb-label {{ font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; }}
+        .rb-value {{ grid-row: span 2; align-self: center; font-size: 24px; font-weight: 900; color: var(--accent); }}
+        .rb-who {{ font-size: 13px; line-height: 1.4; }}
+        .rb-new {{
+            display: inline-block; margin-left: 8px; padding: 1px 6px;
+            background: var(--accent); color: #fff; font-size: 9.5px; letter-spacing: 1.5px;
+        }}
+        .streak {{ font-weight: 800; font-size: 13px; white-space: nowrap; }}
+        .streak-w {{ color: #1a8a3a; }}
+        .streak-l {{ color: #c40000; }}
+        .streak-t {{ color: #888; }}
         /* Full width is too wide for one short line per move, so the wire runs
            in two columns. The label already rules it off above. */
         .bp-tx .wire {{ column-count: 2; column-gap: 36px; column-rule: 1px solid #cfc8b8; border-top: 0; }}
