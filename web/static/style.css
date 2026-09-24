@@ -11,6 +11,10 @@
     --line:   #d8d0c0;
     --green:  #2d5016;
     --green-d:#1e3a0f;
+    /* The brand accent (John, 24 Sep): the paper's red, a shade deeper so
+       small text on cream stays readable. Was green. */
+    --accent:  #b3141c;
+    --accent-d:#8c0f15;
     --gold:   #c8a200;
     --red:    #a11313;
 }
@@ -72,7 +76,12 @@ body {
     letter-spacing: -1px;
     margin-bottom: 16px;
 }
-.hero-title em { font-style: italic; color: var(--green); }
+/* Only the homepage headline, which is the one with a word to pick out;
+   other pages' titles stay at full weight. */
+.hero-title:has(strong) { font-weight: 700; }
+/* "newspaper" carries the line by weight alone: upright, black, one step
+   heavier than the words around it. */
+.hero-title strong { font-weight: 900; font-style: normal; color: var(--ink); }
 
 .hero-sub {
     font-size: 18px;
@@ -176,7 +185,7 @@ input[type="text"], input[type="number"], select, textarea, .copy-input {
 }
 
 input:focus, select:focus, textarea:focus {
-    outline: 2px solid var(--green);
+    outline: 2px solid var(--accent);
     outline-offset: -1px;
 }
 
@@ -212,11 +221,11 @@ textarea { resize: vertical; }
 .btn:hover { background: var(--ink); color: var(--paper); }
 
 .btn-primary {
-    background: var(--green);
-    border-color: var(--green);
+    background: var(--accent);
+    border-color: var(--accent);
     color: #fff;
 }
-.btn-primary:hover { background: var(--green-d); border-color: var(--green-d); }
+.btn-primary:hover { background: var(--accent-d); border-color: var(--accent-d); }
 
 .btn-lg { padding: 14px 28px; font-size: 16px; }
 .btn-sm { padding: 7px 14px; font-size: 13px; }
@@ -238,9 +247,9 @@ textarea { resize: vertical; }
 }
 
 .alert-error { border-left-color: var(--red); }
-.alert-success { border-left-color: var(--green); }
+.alert-success { border-left-color: #2d5016; }
 .alert-bookmark { border-left-color: var(--gold); background: #fffbe8; }
-.alert a { color: var(--green); }
+.alert a { color: var(--accent); }
 
 /* ---------- lists ---------- */
 
@@ -305,7 +314,7 @@ textarea { resize: vertical; }
     color: var(--muted);
 }
 
-.upgrade-note a { color: var(--green); }
+.upgrade-note a { color: var(--accent); }
 
 /* A control you can see and cannot use. Deliberately still legible — greyed
    to the point of unreadable reads as broken rather than as locked. */
@@ -440,7 +449,7 @@ textarea { resize: vertical; }
 .check-help { display: block; font-size: 13px; color: var(--muted); margin-top: 3px; }
 
 .how-note { margin-top: 18px; font-size: 14px; color: var(--muted); }
-.how-note a { color: var(--green); }
+.how-note a { color: var(--accent); }
 
 /* ---------- setup wizard ---------- */
 
@@ -467,7 +476,7 @@ textarea { resize: vertical; }
     margin-left: 24px;
 }
 .radio-card:has(input:checked) {
-    border-color: var(--green);
+    border-color: var(--accent);
     background: #f7f9f4;
 }
 
@@ -564,7 +573,7 @@ textarea { resize: vertical; }
     transition: border-color 0.12s;
 }
 .theme-card:hover { border-color: var(--muted); }
-.theme-card:has(input:checked) { border-color: var(--green); border-width: 2px; }
+.theme-card:has(input:checked) { border-color: var(--accent); border-width: 2px; }
 .theme-card input { margin-bottom: 8px; }
 
 .theme-name {
@@ -909,7 +918,7 @@ textarea { resize: vertical; }
     height: 18px;
     transform: translate(-50%, -50%);
     border-radius: 50%;
-    background: var(--green-d);
+    background: var(--accent-d);
     opacity: 0;
     z-index: 0;
     transition: width 800ms cubic-bezier(0.19, 1, 0.22, 1),
@@ -1169,7 +1178,7 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     font-weight: 600;
     letter-spacing: 1px;
     text-transform: uppercase;
-    color: var(--green);
+    color: var(--accent);
     transition: opacity 0.22s ease, transform 0.22s ease;
 }
 
@@ -1246,7 +1255,7 @@ html.is-generating, html.is-generating body { overflow: hidden; }
 /* ---------- plan: nav link, manage-page note, the signup offer ---------- */
 
 .masthead-nav a.nav-upgrade {
-    color: var(--green);
+    color: var(--accent);
     font-weight: 700;
     border-bottom: 2px solid var(--gold);
 }
@@ -1307,7 +1316,7 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     position: absolute;
     left: 4px;
     font-weight: 700;
-    color: var(--green);
+    color: var(--accent);
 }
 .offer-cta { width: 100%; font-size: 18px; padding: 14px 18px; }
 .offer-fine { font-size: 13px; color: var(--muted); margin: 10px 0 14px; }
@@ -1372,7 +1381,7 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     counter-increment: step;
 }
 .wizard-progress li::before { content: counter(step) ". "; }
-.wizard-progress li.is-done { border-top-color: var(--green); color: var(--ink-2); }
+.wizard-progress li.is-done { border-top-color: var(--accent); color: var(--ink-2); }
 .wizard-progress li.is-current { border-top-color: var(--ink); color: var(--ink); }
 .wizard-title {
     font-family: "Playfair Display", serif;
@@ -1521,7 +1530,7 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     transform: translateY(-3px);
     box-shadow: 0 30px 56px -24px rgba(40, 30, 10, 0.5);
 }
-.sample-sheet:focus-visible { outline: 3px solid var(--green); outline-offset: 4px; }
+.sample-sheet:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
 
 .sample-viewport {
     --s: 0.8667;               /* 1040 / 1200 until the script measures */
@@ -1567,7 +1576,7 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     border-radius: 999px;
     transition: background 0.2s ease;
 }
-.sample-sheet:hover .sample-cta { background: var(--green); }
+.sample-sheet:hover .sample-cta { background: var(--accent); }
 
 .sample-caption {
     margin-top: 4px;
