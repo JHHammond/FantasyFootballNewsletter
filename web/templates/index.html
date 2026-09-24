@@ -21,6 +21,50 @@
 <div class="alert alert-error">{{ error|safe }}</div>
 {% endif %}
 
+{% if sample_embed_url %}
+{# The real thing, above the fold: the sample edition's front page, framed like
+   a paper on the stand. Not scrollable in place — a scroll box inside a
+   scrolling page traps thumbs on a phone — so the whole sheet is the link. #}
+<section class="sample" aria-label="A sample edition">
+    <div class="sample-stage">
+        <div class="sample-stack">
+        <a class="sample-sheet" href="{{ sample_paper_url }}">
+            <div class="sample-viewport" id="sample-viewport">
+                <iframe src="{{ sample_embed_url }}" title="A sample edition of the paper"
+                        tabindex="-1" scrolling="no" aria-hidden="true"></iframe>
+            </div>
+            <div class="sample-fade">
+                <span class="sample-cta">Read the whole paper &rarr;</span>
+            </div>
+        </a>
+        </div>
+    </div>
+    <p class="sample-caption">A real edition, from real scores &mdash; written, laid out and roasted in about a minute.</p>
+</section>
+<script>
+/* The paper is laid out for a 1200px page. On anything wide enough, draw it
+   at that width and scale the whole sheet down to fit, so the preview looks
+   like the real front page instead of the phone layout squeezed into a box.
+   Phones get the paper's own phone layout at full width instead. */
+(function () {
+    var box = document.getElementById("sample-viewport");
+    if (!box) return;
+    var PAGE = 1200;
+    function fit() {
+        var w = box.clientWidth;
+        if (w >= 700) {
+            box.classList.remove("is-phone");
+            box.style.setProperty("--s", (w / PAGE).toFixed(4));
+        } else {
+            box.classList.add("is-phone");
+            box.style.setProperty("--s", "1");
+        }
+    }
+    fit();
+    window.addEventListener("resize", fit);
+})();
+</script>
+{% else %}
 <section class="specimen">
     <div class="specimen-masthead">
         <span class="specimen-name">The Kevlarville Times</span>
@@ -46,6 +90,21 @@
     {% if sample_paper_url %}
     <p class="specimen-link"><a href="{{ sample_paper_url }}">Read a whole paper &rarr;</a></p>
     {% endif %}
+</section>
+{% endif %}
+
+<section class="inside">
+    <h2 class="section-title">Inside every edition</h2>
+    <ol class="index">
+        <li><span class="index-item"><strong>The front page</strong> &mdash; the week&rsquo;s lead story, told straight</span><span class="index-page">A1</span></li>
+        <li><span class="index-item"><strong>Game recaps</strong> &mdash; every matchup, every player who mattered</span><span class="index-page">A2</span></li>
+        <li><span class="index-item"><strong>Standings &amp; power rankings</strong> &mdash; with win and losing streaks</span><span class="index-page">A4</span></li>
+        <li><span class="index-item"><strong>Weekly awards</strong> &mdash; plus the ones your league invents</span><span class="index-page">A5</span></li>
+        <li><span class="index-item"><strong>Obituaries</strong> &mdash; for the week&rsquo;s biggest busts</span><span class="index-page">B1</span></li>
+        <li><span class="index-item"><strong>Season record book</strong> &mdash; stamped when a record falls</span><span class="index-page">B1</span></li>
+        <li><span class="index-item"><strong>Next week&rsquo;s lines</strong> &mdash; made-up spreads from the projections</span><span class="index-page">B2</span></li>
+        <li><span class="index-item"><strong>Transactions</strong> &mdash; every add, drop and denied claim</span><span class="index-page">B3</span></li>
+    </ol>
 </section>
 
 <section class="how">

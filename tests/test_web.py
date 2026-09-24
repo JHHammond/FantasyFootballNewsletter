@@ -5504,3 +5504,30 @@ def test_the_letter_survives_the_ai_text_cleanup():
               lead_by_commissioner=True)
     html = _full_paper(ai)
     assert "KEVLARVILLE TIMES rules *all* of you" in html
+
+
+# --- the homepage sample, embedded (John, 24 Sep) ------------------------------
+
+def test_a_single_edition_is_embedded_on_the_homepage(client, monkeypatch):
+    monkeypatch.setattr(webapp, "SAMPLE_PAPER_URL", "/p/sample-1234/2026/week-2")
+    body = client.get("/").text
+    assert 'src="/p/sample-1234/2026/week-2?embed=1"' in body
+    assert 'href="/p/sample-1234/2026/week-2"' in body
+    assert "specimen-headline" not in body          # the real paper replaces the excerpt
+
+
+def test_an_archive_link_keeps_the_excerpt_and_the_plain_link(client, monkeypatch):
+    monkeypatch.setattr(webapp, "SAMPLE_PAPER_URL", "/p/sample-1234")
+    body = client.get("/").text
+    assert "<iframe" not in body and "specimen-headline" in body
+    assert 'href="/p/sample-1234"' in body
+
+
+def test_the_embedded_preview_is_not_counted_as_a_read(client, league):
+    demo_db.save_paper(league["id"], 1, 2025, "p/1", "http://x/1", {"headline": "H"})
+    demo_db._STORAGE[demo_db.storage_path("kevlarville-7f3a", 2025, 1)] = "<html><head></head></html>"
+    r = client.get("/p/kevlarville-7f3a/2025/week-1?embed=1")
+    assert r.status_code == 200 and ".print-button{display:none" in r.text
+    assert demo_db.get_paper(league["id"], 2025, 1)["view_count"] == 0
+    client.get("/p/kevlarville-7f3a/2025/week-1")
+    assert demo_db.get_paper(league["id"], 2025, 1)["view_count"] == 1

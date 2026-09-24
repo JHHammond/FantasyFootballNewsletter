@@ -580,6 +580,15 @@ if "/l/" in SAMPLE_PAPER_URL:
     SAMPLE_PAPER_URL = ""
 
 
+def sample_embed_url(url: str) -> str:
+    """The sample, framed on the homepage — only when it points at ONE
+    edition (/p/<slug>/<season>/week-<n>). A league's archive page in a frame
+    is a list of links, not a newspaper, so that keeps the plain link."""
+    if not url or "/week-" not in url:
+        return ""
+    return url + ("&" if "?" in url else "?") + "embed=1"
+
+
 # ---------------------------------------------------------------------------
 # Connecting a platform
 #
@@ -1397,6 +1406,7 @@ def index(request: Request, error: str = ""):
     return _render(request, "index.html",
                    providers=_implemented_providers(),
                    sample_paper_url=SAMPLE_PAPER_URL,
+                   sample_embed_url=sample_embed_url(SAMPLE_PAPER_URL),
                    current_week=nfl_week.completed_week(),
                    current_season=nfl_week.current_season(),
                    error=error)
@@ -2696,7 +2706,7 @@ def league_papers(request: Request, slug: str, subscribed: int = 0, error: str =
 
 
 @app.get("/p/{slug}/{season}/week-{week}", response_class=HTMLResponse)
-def read_paper(slug: str, season: int, week: int):
+def read_paper(slug: str, season: int, week: int, embed: int = 0):
     """Serve from our own domain rather than redirecting to the CDN.
 
     Keeping readers here is what makes the pages worth anything to an ad
@@ -2714,7 +2724,16 @@ def read_paper(slug: str, season: int, week: int):
     # survives ad blockers, and fire-and-forget so a slow write never delays a
     # reader. Undercounts anything served from a CDN edge, which is the right
     # trade against blocking the page.
-    db.record_view(league["id"], season, week)
+    #
+    # Not for the homepage preview (?embed=1): every visit to the landing page
+    # would otherwise count as somebody reading that league's paper.
+    if embed:
+        # Framed as a picture of the front page: no Save-as-PDF button
+        # floating over it, and no scrollbar inside the frame.
+        html = html.replace("</head>", "<style>.print-button{display:none!important}"
+                            "html,body{overflow:hidden!important}</style></head>", 1)
+    else:
+        db.record_view(league["id"], season, week)
 
     return HTMLResponse(
         content=html,

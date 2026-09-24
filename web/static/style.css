@@ -1472,3 +1472,165 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     margin-top: 12px;
     flex-wrap: wrap;
 }
+
+
+/* ---------- the embedded sample edition (homepage) ----------
+   Wider than the 720px column on purpose: the paper is the product, and at
+   720px its front page would be too small to read. The stage breaks out of
+   the column and centres itself on the viewport. */
+
+.sample { margin: 6px 0 8px; }
+
+.sample-stage {
+    position: relative;
+    width: min(1040px, calc(100vw - 32px));
+    left: 50%;
+    transform: translateX(-50%);
+    isolation: isolate;
+    padding: 10px 0 18px;
+}
+
+.sample-sheet {
+    display: block;
+    position: relative;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    box-shadow: 0 22px 44px -22px rgba(40, 30, 10, 0.45);
+    color: inherit;
+    text-decoration: none;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Two more sheets underneath, slightly askew: a stack of papers, not a
+   screenshot in a box. */
+.sample-stack { position: relative; }
+.sample-stack::before,
+.sample-stack::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    z-index: -1;
+}
+.sample-stack::before { transform: rotate(-1.2deg) translate(-6px, 6px); }
+.sample-stack::after  { transform: rotate(0.9deg) translate(8px, 4px); }
+
+.sample-sheet:hover,
+.sample-sheet:focus-visible {
+    transform: translateY(-3px);
+    box-shadow: 0 30px 56px -24px rgba(40, 30, 10, 0.5);
+}
+.sample-sheet:focus-visible { outline: 3px solid var(--green); outline-offset: 4px; }
+
+.sample-viewport {
+    --s: 0.8667;               /* 1040 / 1200 until the script measures */
+    position: relative;
+    height: 760px;
+    overflow: hidden;
+}
+
+.sample-viewport iframe {
+    display: block;
+    width: 1200px;
+    height: calc(760px / var(--s));
+    border: 0;
+    transform: scale(var(--s));
+    transform-origin: 0 0;
+    pointer-events: none;      /* the whole sheet is the link */
+    background: var(--paper);
+}
+
+.sample-viewport.is-phone { height: 560px; }
+.sample-viewport.is-phone iframe { width: 100%; height: 560px; transform: none; }
+
+.sample-fade {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 200px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 28px;
+    background: linear-gradient(to bottom, rgba(255, 253, 248, 0), var(--paper) 78%);
+}
+
+.sample-cta {
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    background: var(--ink);
+    color: var(--paper);
+    padding: 12px 26px;
+    border-radius: 999px;
+    transition: background 0.2s ease;
+}
+.sample-sheet:hover .sample-cta { background: var(--green); }
+
+.sample-caption {
+    margin-top: 4px;
+    text-align: center;
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.8px;
+    color: var(--muted);
+}
+
+/* ---------- inside every edition ----------
+   Set like a newspaper's index box: the section, a dotted leader, the page. */
+
+.inside { margin-top: 48px; }
+
+.index {
+    list-style: none;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-top: 4px double var(--ink);
+    padding: 8px 24px;
+}
+
+.index li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px;
+    color: var(--ink-2);
+}
+.index li:last-child { border-bottom: 0; }
+
+.index-item { flex: 0 1 auto; }
+.index-item strong {
+    font-family: "Playfair Display", Georgia, serif;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+/* The dotted leader fills whatever room is left between entry and page. */
+.index li::after {
+    content: "";
+    order: 1;
+    flex: 1 1 24px;
+    min-width: 24px;
+    border-bottom: 2px dotted var(--line);
+    transform: translateY(-4px);
+}
+.index-page {
+    order: 2;
+    font-family: "Barlow Condensed", sans-serif;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--red);
+}
+
+@media (max-width: 640px) {
+    .sample-stage { padding-bottom: 10px; }
+    .sample-stack::before, .sample-stack::after { display: none; }
+    .index { padding: 4px 16px; }
+    .index li { font-size: 14px; }
+    .index li::after { display: none; }
+}
