@@ -101,18 +101,20 @@
         <li><span class="index-item"><strong>Obituaries</strong> &mdash; for the week&rsquo;s biggest busts</span></li>
         <li><span class="index-item"><strong>Season record book</strong> &mdash; stamped when a record falls</span></li>
         <li><span class="index-item"><strong>Next week&rsquo;s lines</strong> &mdash; made-up spreads from the projections</span></li>
-        <li><span class="index-item"><strong>Transactions</strong> &mdash; every add, drop and denied claim</span></li>
+        <li><span class="index-item"><strong>Trades &amp; transactions</strong> &mdash; every trade, pickup and denied claim</span></li>
     </ol>
 </section>
 
 <section class="how">
     <h2 class="section-title">Four steps, once</h2>
     <ol class="steps">
-        <li><strong>Make an account.</strong> Email and a password. Every paper
-            you make lives in one place.</li>
-        <li><strong>Connect your league.</strong> On Sleeper, type your username
-            and pick it from the list &mdash; no IDs to hunt for. ESPN and Yahoo
-            are on the way.</li>
+        <li><strong>Make an account.</strong> Email and a password{% if google_enabled() %},
+            or sign in with Google{% endif %}. Every paper you make lives in one place.</li>
+        <li><strong>Connect your league.</strong> {% if yahoo_live %}Sleeper, ESPN or Yahoo.{% else %}Sleeper or ESPN.{% endif %}
+            On Sleeper, type your username and pick your league &mdash; no IDs to
+            hunt for. On ESPN, paste your league ID and we&rsquo;ll show you the
+            one setting to flip{% if yahoo_live %}. On Yahoo, sign in and pick from
+            your leagues{% endif %}.{% if not yahoo_live %} Yahoo is coming soon.{% endif %}</li>
         <li><strong>Tell us the lore.</strong> The running jokes, the punishment,
             who has never won. This is the difference between your paper and a
             box score.</li>
@@ -122,7 +124,7 @@
 </section>
 
 <section class="cta">
-    <p class="cta-line">The first edition takes about thirty seconds to write.</p>
+    <p class="cta-line">Your first edition is about a minute away.</p>
     {% if user %}
     {{ flow_button("Add a league", href="/connect") }}
     {% else %}

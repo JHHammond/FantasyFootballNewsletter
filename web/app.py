@@ -254,6 +254,10 @@ templates.env.globals["billing_enabled"] = billing.configured
 # Same reasoning: a callable, so a deployment that adds Google
 # credentials shows the button without a code change.
 templates.env.globals["google_enabled"] = oauth.configured
+# Whether Yahoo is open to everyone — the homepage copy follows the adapter's
+# own verified flag, so flipping it is the only change needed on launch day.
+from providers.yahoo import YahooProvider as _YahooProvider  # noqa: E402
+templates.env.globals["yahoo_live"] = _YahooProvider.implemented
 
 
 # ---------------------------------------------------------------------------
