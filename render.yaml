@@ -10,7 +10,8 @@ services:
   - type: web
     name: commissioners-desk
     runtime: python
-    plan: starter          # free spins down after 15 min idle; starter stays warm
+    plan: standard         # 1 CPU / 2GB. Starter's 512MB ran out of memory on
+                           # a busy night (24 Sep); keep this matching the dashboard.
     region: oregon
     buildCommand: pip install -r requirements.txt
     # --proxy-headers and --forwarded-allow-ips make request.url report the
