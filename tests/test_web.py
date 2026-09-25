@@ -5741,3 +5741,28 @@ def test_one_account_is_still_limited():
     for _ in range(webapp.LEAGUE_CREATES_PER_HOUR):
         assert not webapp._league_creates_exhausted(_request_from(ip), user)
     assert webapp._league_creates_exhausted(_request_from(ip), user)
+
+
+# --- a test send reaches only the test address (John, 25 Sep) -----------------
+
+def test_a_test_send_emails_only_the_test_address_and_marks_nothing(client, league, sent_emails):
+    from web.tasks import test_send
+    _subscribe_and_confirm(client, league)
+    demo_db.save_paper(league["id"], 3, 2025, "path", "url", {"headline": "CHAOS"})
+    sent_emails.clear()
+
+    report = test_send(demo_db, 3, "kevlarville-7f3a", "john@example.com")
+
+    assert report["errors"] == [] and len(report["sent"]) == 2
+    assert {e["to"] for e in sent_emails} == {"john@example.com"}
+    assert all("[TEST] CHAOS" in e["body"] for e in sent_emails)
+    assert not demo_db.get_paper(league["id"], 2025, 3).get("emailed_at")
+
+
+def test_a_test_send_needs_both_flags(monkeypatch, capsys):
+    from web import tasks
+    monkeypatch.setenv("RESEND_API_KEY", "re_x")
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    monkeypatch.setattr("sys.argv", ["web.tasks", "--test-to=a@b.com"])
+    assert tasks.main() == 1
+    assert "--league" in capsys.readouterr().out

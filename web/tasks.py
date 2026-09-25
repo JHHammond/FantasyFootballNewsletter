@@ -147,6 +147,59 @@ def resolve_week() -> int:
     return nfl_week.completed_week()
 
 
+def test_send(db, week: int, league_slug: str, to: str) -> dict[str, Any]:
+    """Send this week's email for ONE league to ONE test address.
+
+        python -m web.tasks --league=<public slug> --test-to=you@example.com
+        python -m web.tasks 2 --league=<public slug> --test-to=you@example.com
+
+    Both versions go to `to` — the commissioner's copy and a subscriber's
+    copy — so each can be checked in a real inbox through the real Resend
+    account. Nobody else is emailed, and the week is NEVER marked as sent, so
+    Tuesday's real run is untouched by the test.
+
+    If that league has no paper for the week yet, one is written (one paper's
+    worth of Claude). Pick a week that already exists to test for free.
+    """
+    report = {"week": week, "league": league_slug, "to": to, "generated": False,
+              "sent": [], "errors": []}
+    league = db.league_by_public_slug(league_slug)
+    if not league:
+        report["errors"].append(f"no league with public slug {league_slug!r}")
+        return report
+
+    name = paper_name_for(league)
+    season = league["season"]
+    paper = db.get_paper(league["id"], season, week)
+    if not paper:
+        try:
+            generate_and_store(db, league, week)
+            report["generated"] = True
+            paper = db.get_paper(league["id"], season, week)
+        except Exception as exc:  # noqa: BLE001
+            report["errors"].append(f"could not write week {week}: {exc}")
+            return report
+
+    base = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+    paper_url = f"{base}/p/{league['public_slug']}/{season}/week-{week}"
+    headline = ((paper.get("ai_cache") or {}).get("headline")
+                if isinstance((paper or {}).get("ai_cache"), dict) else None)
+    headline = f"[TEST] {headline or f'Week {week} is out'}"
+
+    for label, send in (
+        ("commissioner copy", lambda: emailer.send_weekly_edition_to_owner(
+            to, name, week, headline, paper_url)),
+        ("subscriber copy", lambda: emailer.send_weekly_edition(
+            to, name, week, headline, paper_url, "test-not-a-real-token")),
+    ):
+        result = send()
+        if result.ok and not result.logged_only:
+            report["sent"].append(label)
+        else:
+            report["errors"].append(f"{label}: {result.detail or 'not sent'}")
+    return report
+
+
 def plan_weekly(db, week: int) -> list[str]:
     """What send_weekly WOULD do, without generating or sending anything.
 
@@ -200,6 +253,24 @@ def main() -> int:
         print("RESEND_API_KEY is not set on this job, so no email can go out. "
               "Refusing to run rather than marking the week as sent.")
         return 1
+
+    flags = dict(a[2:].split("=", 1) for a in sys.argv[1:]
+                 if a.startswith("--") and "=" in a)
+    if "test-to" in flags or "league" in flags:
+        if not (flags.get("test-to") and flags.get("league")):
+            print("A test send needs both --league=<public slug> and --test-to=<email>.")
+            return 1
+        from . import db
+        week = int(args[0]) if args else resolve_week()
+        report = test_send(db, week, flags["league"], flags["test-to"])
+        print(f"TEST SEND, week {week}, league {flags['league']} -> {flags['test-to']}"
+              f"{' (paper was written for this test)' if report['generated'] else ''}")
+        for label in report["sent"]:
+            print(f"  sent: {label}")
+        for line in report["errors"]:
+            print(f"  ERROR: {line}")
+        print("Nothing was marked as sent; nobody else was emailed.")
+        return 1 if report["errors"] else 0
 
     if args:
         week = int(args[0])
