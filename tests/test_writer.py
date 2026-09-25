@@ -1312,6 +1312,44 @@ def test_each_award_opens_with_one_line_on_what_it_is_about():
     assert "backup QB" not in source
 
 
+SNELL = ("On February 24, 2017, Tony Snell played 28 minutes for the Milwaukee "
+         "Bucks. He logged 0 points, 0 rebounds, 0 assists, 0 blocks, and 0 "
+         "steals. It is truly one of the greatest nonperformances of all time.")
+
+
+def test_the_tony_snell_intro_is_printed_word_for_word():
+    """John, 25 Sep: "It should say exactly that." Snell was an NBA player."""
+    assert writer.FIXED_AWARD_INTROS["TONY SNELL WINDSPRINT AWARD"] == SNELL
+    out = writer._with_fixed_intro({"title": "Tony Snell Windsprint Award",
+                                    "body": "This week it's Sell the Falcons."})
+    assert out["body"] == SNELL + " This week it's Sell the Falcons."
+    # Already there: not doubled.
+    assert writer._with_fixed_intro(out)["body"] == out["body"]
+    # The writer paraphrased it anyway: the paraphrase goes, the exact one stays.
+    echoed = writer._with_fixed_intro({
+        "title": "TONY SNELL WINDSPRINT AWARD",
+        "body": "Tony Snell once played 28 minutes and did nothing. "
+                "This week it's Sell the Falcons."})
+    assert echoed["body"] == SNELL + " This week it's Sell the Falcons."
+    # Other awards untouched.
+    other = {"title": "KYLE PITTS AWARD", "body": "x"}
+    assert writer._with_fixed_intro(other) == other
+
+
+def test_the_writer_is_told_not_to_write_the_snell_intro(swap_client, no_sleeping):
+    import json as _json
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply(
+        _json.dumps([{"title": "TONY SNELL WINDSPRINT AWARD",
+                      "body": "This week it's The Sommelier.", "winner": "x"}])))
+    summary = dict(SUMMARY, tony_snell={"player": {"name": "Zero Guy", "actual": 0.0},
+                                        "team": {"team_name": "The Sommelier"}})
+    out = writer.generate_awards(summary)
+    assert "INTRO PRINTED FOR YOU" in seen["p"]
+    snell = next(a for a in out if a["title"] == "TONY SNELL WINDSPRINT AWARD")
+    assert snell["body"].startswith(SNELL)
+
+
 def test_every_recap_opens_with_a_one_sentence_summary(swap_client, no_sleeping):
     seen = {}
     swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))

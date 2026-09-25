@@ -1678,8 +1678,9 @@ Plain prose — no markdown, no bullets, no headers.
 #: "for" is printed under each one; the "voice" tells the writer the joke.
 STANDING_AWARDS = [
     ("TONY SNELL WINDSPRINT AWARD", "The starter who did absolutely nothing",
-     "Named for the night Tony Snell played twenty minutes and recorded no "
-     "stats at all. Deadpan: he was out there. He was technically playing."),
+     "Named for an NBA game in which Tony Snell played 28 minutes and "
+     "recorded nothing at all. Deadpan: he was out there. He was technically "
+     "playing."),
     ("KYLE PITTS AWARD", "Started the player who fell furthest short",
      "\"Every year, we think it's his year. We think he'll finally put it "
      "together. We know he won't, but we just can't help ourselves.\" It "
@@ -1690,6 +1691,36 @@ STANDING_AWARDS = [
      "Always balls out; the rest of the roster always lets him down. "
      "Sympathetic — this manager did their job."),
 ]
+
+
+#: Awards whose opening explanation is printed WORD FOR WORD, never written
+#: by the model (John, 25 Sep). The writer supplies only the sentences about
+#: this week's winner, and the intro is put in front of them in code.
+FIXED_AWARD_INTROS = {
+    "TONY SNELL WINDSPRINT AWARD": (
+        "On February 24, 2017, Tony Snell played 28 minutes for the Milwaukee "
+        "Bucks. He logged 0 points, 0 rebounds, 0 assists, 0 blocks, and 0 "
+        "steals. It is truly one of the greatest nonperformances of all time."),
+}
+
+
+def _with_fixed_intro(award: dict) -> dict:
+    """Put the fixed intro in front of the writer's sentences, once."""
+    key = re.sub(r"\s+", " ", str(award.get("title") or "")).strip().upper()
+    intro = FIXED_AWARD_INTROS.get(key)
+    if not intro:
+        return award
+    body = (award.get("body") or "").strip()
+    if body.startswith(intro):
+        return award
+    # A writer that echoed part of it anyway ("On February 24, 2017...")
+    # would print it twice; drop anything before the first sentence that
+    # isn't about Snell.
+    if "Tony Snell" in body.split(".")[0]:
+        rest = [x for x in re.split(r"(?<=[.!?])\s+", body)
+                if "Snell" not in x and "2017" not in x and "nonperformance" not in x]
+        body = " ".join(rest).strip()
+    return dict(award, body=(intro + " " + body).strip())
 
 
 def _player_bit(entry):
@@ -1753,8 +1784,13 @@ def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
     for title, what, voice in STANDING_AWARDS:
         fact = facts.get(title)
         if fact:
-            standing.append(f"- {title} ({what}). The joke: {voice}\n"
-                            f"  This week: {fact}.")
+            if title in FIXED_AWARD_INTROS:
+                standing.append(f"- {title} ({what}). INTRO PRINTED FOR YOU — "
+                                f"write only the winner sentences.\n"
+                                f"  This week: {fact}.")
+            else:
+                standing.append(f"- {title} ({what}). The joke: {voice}\n"
+                                f"  This week: {fact}.")
     custom = _custom_award_lines(custom_awards, games_brief)
     if not standing and not custom:
         return []
@@ -1762,6 +1798,9 @@ def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
     prompt = f"""
 Write this week's AWARDS. For each: the title exactly as given, and a body
 that does two things, in this order:
+
+(Where an award below says INTRO PRINTED FOR YOU, skip step 1 for it and
+write only step 2 — its explanation is printed word for word already.)
 
 1. ONE short sentence saying what the award is about, in the paper's voice —
    the joke behind it, so a reader who isn't in on it gets it. For the
@@ -1772,9 +1811,9 @@ that does two things, in this order:
 2. One or two sentences on this week's winner.
 
 Round player scores to whole numbers. Refer to teams by their team names.
-Example body: "Tony Snell once played twenty minutes of an NFL game and
-recorded nothing at all. This week the honor goes to Sell the Falcons, who
-started Tee Higgins and got exactly one point for their trouble."
+Example body: "Every league has a Nick Foles: the backup who could have won it
+all, sitting there the whole time. This week it was Jake Ferguson, who scored
+20 on Sell the Falcons' bench while they started someone else."
 
 THE STANDING AWARDS (the winner is decided — just write it):
 {chr(10).join(standing) or "(none this week)"}
@@ -1796,12 +1835,12 @@ Inside jokes: {inside_jokes}
         parsed = json.loads(cleaned)
         out = [a for a in parsed if isinstance(a, dict) and a.get("title")]
         if out:
-            return out
+            return [_with_fixed_intro(a) for a in out]
     except Exception:  # noqa: BLE001
         pass
     # Fallback: the facts themselves, so the section never prints empty.
-    return [{"title": t, "body": facts[t] + "."} for t, _, _ in STANDING_AWARDS
-            if facts.get(t)]
+    return [_with_fixed_intro({"title": t, "body": facts[t] + "."})
+            for t, _, _ in STANDING_AWARDS if facts.get(t)]
 
 
 def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=None):
