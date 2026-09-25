@@ -1036,6 +1036,50 @@ def staff_around_stop(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# The NFL wire (staff)
+#
+# Real football news for a week — "Drake London went off because Penix was
+# back" — that every paper that week should know. Each note reaches only the
+# leagues where a player it names (in full) is rostered, unless it is marked
+# for every league. See nfl_notes_for in web/generate.py.
+# ---------------------------------------------------------------------------
+
+@app.get("/staff/wire", response_class=HTMLResponse)
+def staff_wire(request: Request, week: int = 0, saved: int = 0):
+    _require_staff(request)
+    import nfl_week
+    season = nfl_week.current_season()
+    latest = nfl_week.completed_week()
+    # Default to the week being played: notes go in before the papers are
+    # written, and the Tuesday papers are about the week now in progress.
+    week = week or nfl_week.current_week()
+    ready = db.nfl_notes_ready()
+    return _render(request, "staff_wire.html", ready=ready, season=season,
+                   week=week, latest=latest, saved=bool(saved),
+                   weeks=list(range(1, 19)),
+                   notes=db.nfl_notes(season, week) if ready else [])
+
+
+@app.post("/staff/wire")
+def staff_wire_add(request: Request, week: int = Form(...), note: str = Form(...),
+                   all_leagues: str = Form("")):
+    _require_staff(request)
+    import nfl_week
+    text = clean_text(note, max_length=600).strip()
+    if text and 1 <= week <= 18 and db.nfl_notes_ready():
+        db.add_nfl_note(nfl_week.current_season(), week, text,
+                        all_leagues=bool(all_leagues))
+    return RedirectResponse(f"/staff/wire?week={week}&saved=1", status_code=303)
+
+
+@app.post("/staff/wire/{note_id}/delete")
+def staff_wire_delete(request: Request, note_id: str, week: int = Form(...)):
+    _require_staff(request)
+    db.delete_nfl_note(note_id)
+    return RedirectResponse(f"/staff/wire?week={week}", status_code=303)
+
+
+# ---------------------------------------------------------------------------
 # Yahoo
 #
 # The only platform that shows nothing without signing in, so the flow is

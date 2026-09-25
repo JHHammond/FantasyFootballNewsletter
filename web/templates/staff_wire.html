@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}The NFL wire{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="eyebrow"><a href="/staff/around">Staff</a> &rsaquo; NFL wire</div>
+    <h1 class="page-title">The NFL wire</h1>
+</div>
+
+{% if not ready %}
+<div class="alert alert-error">
+    The <code>nfl_notes</code> table doesn&rsquo;t exist yet. Run
+    <code>migrations/022_nfl_notes.sql</code> in the Supabase SQL Editor, then reload.
+</div>
+{% else %}
+
+<section class="card">
+    <p class="card-sub">
+        Real football news the writer can&rsquo;t see in a box score. Every paper
+        written for that week gets the notes that mention a player on one of
+        its rosters. <strong>Use full names as the platforms spell them</strong>
+        (&ldquo;Drake London&rdquo;, &ldquo;Michael Penix Jr.&rdquo;) &mdash; last
+        names alone never match, so a Josh Allen note can&rsquo;t land on the
+        wrong Josh Allen. Notes only affect papers written after you add them.
+    </p>
+    <form method="get" action="/staff/wire" class="inline-form" style="gap:10px;">
+        <label class="field">
+            <span class="field-label">Week</span>
+            <select name="week" onchange="this.form.submit()">
+                {% for w in weeks %}<option value="{{ w }}" {% if w == week %}selected{% endif %}>Week {{ w }}</option>{% endfor %}
+            </select>
+        </label>
+    </form>
+</section>
+
+{% if saved %}<div class="alert alert-success">Added to week {{ week }}.</div>{% endif %}
+
+<section class="card">
+    <h2 class="card-title">Add a note for week {{ week }}</h2>
+    <form method="post" action="/staff/wire" class="stack">
+        <input type="hidden" name="week" value="{{ week }}" />
+        <label class="field">
+            <textarea name="note" rows="3" maxlength="600" required
+                placeholder="Drake London caught 11 passes for 142 yards and two scores in Michael Penix Jr.'s first start back from his knee injury."></textarea>
+            <span class="field-help">One fact per note works best. Say what happened and why.</span>
+        </label>
+        <label class="field" style="flex-direction:row;gap:8px;align-items:center;">
+            <input type="checkbox" name="all_leagues" value="1" />
+            <span>Every league, whoever is on their rosters (league-wide news only &mdash; a big trade, a weather game)</span>
+        </label>
+        <div><button type="submit" class="btn btn-primary">Add note</button></div>
+    </form>
+</section>
+
+<section class="card">
+    <h2 class="card-title">Week {{ week }} notes</h2>
+    {% for n in notes %}
+    <div class="paper-row" style="align-items:flex-start;">
+        <div>
+            <div>{{ n.note }}</div>
+            <div class="paper-meta">{% if n.all_leagues %}Every league{% else %}Leagues with a named player{% endif %}</div>
+        </div>
+        <form method="post" action="/staff/wire/{{ n.id }}/delete">
+            <input type="hidden" name="week" value="{{ week }}" />
+            <button type="submit" class="btn btn-sm">Remove</button>
+        </form>
+    </div>
+    {% else %}
+    <p class="card-sub">No notes for week {{ week }} yet.</p>
+    {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

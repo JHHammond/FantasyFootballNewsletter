@@ -870,6 +870,33 @@ def team_weeks_ready() -> bool:
         return False
 
 
+# --- The NFL wire (022) --------------------------------------------------------
+
+def nfl_notes(season: int, week: int) -> list[dict[str, Any]]:
+    res = (client().table("nfl_notes").select("*")
+           .eq("season", int(season)).eq("week", int(week))
+           .order("created_at").execute())
+    return res.data or []
+
+
+def add_nfl_note(season: int, week: int, note: str, all_leagues: bool = False) -> None:
+    client().table("nfl_notes").insert({
+        "season": int(season), "week": int(week), "note": note,
+        "all_leagues": bool(all_leagues)}).execute()
+
+
+def delete_nfl_note(note_id: str) -> None:
+    client().table("nfl_notes").delete().eq("id", note_id).execute()
+
+
+def nfl_notes_ready() -> bool:
+    try:
+        client().table("nfl_notes").select("id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def leagues_with_auto_send() -> list[dict[str, Any]]:
     res = client().table("leagues").select("*").eq("auto_send", True).execute()
     return res.data or []

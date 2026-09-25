@@ -386,8 +386,19 @@ numbers and not against any general idea of what a fantasy score should be.
 LEAGUE_BACKGROUND_REF = "see LEAGUE BACKGROUND in your instructions"
 
 
+NFL_WIRE_HEADER = (
+    "THE NFL WIRE — real news from this week in the NFL, supplied by the "
+    "editor. These are FACTS, and they explain WHY things happened that the "
+    "box score cannot. Use one when a player it names is in a story you are "
+    "writing and it genuinely explains his week — work it in naturally, in "
+    "your own words, once per paper at most per note. Never mention a note "
+    "about a player who isn't in this paper. Never add injury, trade or "
+    "lineup news of your own that isn't here or in the data: if it isn't on "
+    "the wire, you don't know it.\n")
+
+
 def system_prompt(tone: str = "standard", games=None,
-                  league_context: str = "") -> list[dict]:
+                  league_context: str = "", nfl_notes: str = "") -> list[dict]:
     """The house voice, as API blocks, split so the cache can be shared.
 
     TWO BLOCKS, NOT ONE, AND THE ORDER MATTERS.
@@ -427,6 +438,15 @@ def system_prompt(tone: str = "standard", games=None,
         "text": KEVLARVILLE_SYSTEM_PROMPT,
         "cache_control": {"type": "ephemeral"},
     }]
+    # THE NFL WIRE SITS BETWEEN THE TWO (25 Sep). It is the same for every
+    # league that shares a player with it this week, so behind the voice
+    # guide and ahead of anything league-specific, with its own mark, is where
+    # it can still be shared across papers. Three marks in all; the API
+    # allows four.
+    wire = (nfl_notes or "").strip()
+    if wire:
+        blocks.append({"type": "text", "text": NFL_WIRE_HEADER + wire,
+                       "cache_control": {"type": "ephemeral"}})
     if variable.strip():
         block = {"type": "text", "text": variable}
         if context:
@@ -2094,7 +2114,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      tone="standard", obituaries=None,
                                      lines=None, memories=None,
                                      custom_awards=None,
-                                     commissioner_letter=None):
+                                     commissioner_letter=None,
+                                     nfl_notes=""):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -2103,7 +2124,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import time
 
-    sys_prompt = system_prompt(tone, games, league_context=inside_jokes)
+    sys_prompt = system_prompt(tone, games, league_context=inside_jokes,
+                               nfl_notes=nfl_notes)
     # Every call below still says where the lore is; it no longer carries it.
     inside_jokes = LEAGUE_BACKGROUND_REF if (inside_jokes or "").strip() else ""
     print(f"[writer] Generating AI content for Week {week} (parallel mode, tone={tone})...")

@@ -500,6 +500,34 @@ def team_weeks_ready() -> bool:
     return True
 
 
+_NFL_NOTES: dict[str, dict[str, Any]] = {}
+
+
+def nfl_notes(season: int, week: int) -> list[dict[str, Any]]:
+    rows = [dict(n) for n in _NFL_NOTES.values()
+            if n["season"] == int(season) and n["week"] == int(week)]
+    rows.sort(key=lambda n: n["created_at"])
+    return rows
+
+
+def add_nfl_note(season: int, week: int, note: str, all_leagues: bool = False) -> None:
+    import uuid
+    with _lock:
+        nid = str(uuid.uuid4())
+        _NFL_NOTES[nid] = {"id": nid, "season": int(season), "week": int(week),
+                           "note": note, "all_leagues": bool(all_leagues),
+                           "created_at": _now()}
+
+
+def delete_nfl_note(note_id: str) -> None:
+    with _lock:
+        _NFL_NOTES.pop(note_id, None)
+
+
+def nfl_notes_ready() -> bool:
+    return True
+
+
 def leagues_for_weekly_send() -> list[dict[str, Any]]:
     import plans
     out = []

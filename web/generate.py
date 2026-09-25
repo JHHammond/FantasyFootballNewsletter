@@ -9,6 +9,7 @@ store and the Supabase store are interchangeable here.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -562,6 +563,46 @@ def letter_from_html(value: str) -> str:
     return text.strip()
 
 
+_NAME_SUFFIXES = re.compile(r"\s+(jr\.?|sr\.?|ii|iii|iv|v)$", re.I)
+
+
+def _plain_name(name: str) -> str:
+    """"Michael Penix Jr." -> "michael penix", so a note can say either."""
+    name = re.sub(r"[.'’]", "", (name or "").strip().lower())
+    return _NAME_SUFFIXES.sub("", name).strip()
+
+
+def nfl_notes_for(db, season: int, week: int, week_data) -> str:
+    """The NFL wire notes that belong in THIS league's paper.
+
+    A note comes along if it names, in full, a player on any roster in this
+    league this week (bench included: "his backup went off" is a story), or
+    if it was marked for every league. Last names alone are not matched on
+    purpose — there are two Josh Allens and several Williamses, and a note
+    about the wrong one would be printed as fact.
+    """
+    try:
+        notes = db.nfl_notes(season, week)
+    except Exception:  # noqa: BLE001 — no table yet reads as no notes
+        return ""
+    if not notes:
+        return ""
+    names = {_plain_name(p.name) for t in week_data.teams for p in t.all_players
+             if p.name and " " in p.name.strip()}
+    names.discard("")
+    keep = []
+    for n in notes:
+        text = (n.get("note") or "").strip()
+        if not text:
+            continue
+        plain = " " + re.sub(r"[.'’]", "", text.lower()) + " "
+        if n.get("all_leagues") or any(
+                re.search(r"(?<![a-z])" + re.escape(name) + r"(?![a-z])", plain)
+                for name in names):
+            keep.append("- " + text)
+    return "\n".join(keep)
+
+
 def generate_and_store(db, league: dict[str, Any], week: int,
                        letter: str = "", trial_last: bool = False) -> dict[str, Any]:
     """Fetch, write with Claude, render, upload, record.
@@ -617,6 +658,7 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         memories=season_so_far["memories"],
         custom_awards=_custom_awards_for_writer(db, league, directory),
         commissioner_letter=letter,
+        nfl_notes=nfl_notes_for(db, season, week, week_data),
     )
 
     # Stored as HTML, like an edited story: escaped here, once, so what he
