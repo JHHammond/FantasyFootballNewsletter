@@ -362,6 +362,11 @@ def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
     path, public_url = db.upload_paper(league["public_slug"], season, week, html)
     db.save_paper(league["id"], week, season, path, public_url, ai_content,
                   is_edit=is_edit)
+    if not is_edit:
+        # Around the Leagues rows, from data already in hand. Finished weeks
+        # only, and never a reason for the paper itself to fail.
+        from . import league_stats
+        league_stats.save_from_paper(db, league, week_data)
 
     return {
         "week": week,

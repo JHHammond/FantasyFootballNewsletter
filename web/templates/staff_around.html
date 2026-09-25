@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Around the Leagues{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="eyebrow">Staff</div>
+    <h1 class="page-title">Around the Leagues</h1>
+</div>
+
+{% if not ready %}
+<div class="alert alert-error">
+    The <code>team_weeks</code> table doesn&rsquo;t exist yet. Run
+    <code>migrations/021_team_weeks.sql</code> in the Supabase SQL Editor, then reload.
+</div>
+{% else %}
+
+<section class="card">
+    <form method="get" action="/staff/around" class="inline-form" style="gap:10px;flex-wrap:wrap;">
+        <label class="field">
+            <span class="field-label">Week</span>
+            <select name="week">
+                {% for w in weeks %}<option value="{{ w }}" {% if w == week %}selected{% endif %}>Week {{ w }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="field">
+            <span class="field-label">Scope</span>
+            <select name="scope">
+                <option value="week" {% if scope != 'season' %}selected{% endif %}>That week</option>
+                <option value="season" {% if scope == 'season' %}selected{% endif %}>Whole season</option>
+            </select>
+        </label>
+        <button type="submit" class="btn">Show</button>
+    </form>
+
+    {% set s = data.summary %}
+    <p class="card-sub" style="margin-top:14px;">
+        {% if s and s.teams %}
+        <strong>{{ '{:,}'.format(s.teams) }}</strong> team-weeks across
+        <strong>{{ '{:,}'.format(s.leagues) }}</strong> leagues &middot;
+        average <strong>{{ s.avg_points }}</strong> &middot; median <strong>{{ s.median_points }}</strong>
+        {% else %}
+        Nothing collected for this {{ 'season' if scope == 'season' else 'week' }} yet &mdash; use the buttons below.
+        {% endif %}
+    </p>
+</section>
+
+{% for board in data.boards %}
+<section class="card">
+    <h2 class="card-title">{{ board.title }}{% if scope != 'season' %} &middot; week {{ week }}{% endif %}</h2>
+    {% if board.rows %}
+    <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <tr style="text-align:left;">
+            <th>#</th><th>Team</th><th>League</th>{% if scope == 'season' %}<th>Wk</th>{% endif %}
+            <th style="text-align:right;">
+                {% if board.key in ('players', 'bench_players') %}Player{% elif board.key in ('blowouts', 'closest') %}Score{% else %}Pts{% endif %}
+            </th>
+            <th style="text-align:right;">
+                {% if board.key in ('blowouts', 'closest') %}Margin{% elif board.key == 'bench' %}Left{% elif board.key in ('players', 'bench_players') %}Pts{% else %}Result{% endif %}
+            </th>
+        </tr>
+        {% for r in board.rows %}
+        <tr style="border-top:1px solid rgba(127,127,127,.2);">
+            <td>{{ loop.index }}</td>
+            <td>{{ r.team_name }}{% if r.empty_slots %} <span class="paper-meta">({{ r.empty_slots }} empty)</span>{% endif %}</td>
+            <td class="paper-meta">{{ (r.leagues or {}).league_name or '' }} &middot; {{ r.provider }}{% if r.team_count %} &middot; {{ r.team_count }}-team{% endif %}{% if r.scoring_type %} {{ r.scoring_type|upper }}{% endif %}</td>
+            {% if scope == 'season' %}<td>{{ r.week }}</td>{% endif %}
+            {% if board.key in ('players', 'bench_players') %}
+                {% set name = r.top_player if board.key == 'players' else r.best_bench_player %}
+                {% set pts = r.top_player_points if board.key == 'players' else r.best_bench_points %}
+                <td style="text-align:right;">{{ name }}{% if board.key == 'players' and r.top_player_pos %} <span class="paper-meta">{{ r.top_player_pos }}</span>{% endif %}</td>
+                <td style="text-align:right;"><strong>{{ '%.2f'|format(pts|float) }}</strong></td>
+            {% elif board.key in ('blowouts', 'closest') %}
+                <td style="text-align:right;">{{ '%.2f'|format(r.points|float) }}&ndash;{{ '%.2f'|format(r.opponent_points|float) }} <span class="paper-meta">vs {{ r.opponent_name }}</span></td>
+                <td style="text-align:right;"><strong>{{ '%.2f'|format(r.margin|float) }}</strong></td>
+            {% elif board.key == 'bench' %}
+                <td style="text-align:right;">{{ '%.2f'|format(r.points|float) }}</td>
+                <td style="text-align:right;"><strong>{{ '%.2f'|format(r.bench_left|float) }}</strong>{% if r.best_bench_player %} <span class="paper-meta">({{ r.best_bench_player }})</span>{% endif %}</td>
+            {% else %}
+                <td style="text-align:right;"><strong>{{ '%.2f'|format(r.points|float) }}</strong></td>
+                <td style="text-align:right;">{{ r.result }}{% if r.opponent_points is not none %} <span class="paper-meta">{{ '%.2f'|format(r.opponent_points|float) }}</span>{% endif %}</td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p class="card-sub">Nothing yet.</p>
+    {% endif %}
+</section>
+{% endfor %}
+
+<section class="card">
+    <h2 class="card-title">Collecting</h2>
+    <p class="card-sub">
+        The Tuesday job collects the week that just finished for every connected
+        league, automatically. These buttons are for filling in earlier weeks.
+        Only finished weeks can be collected (the latest is week {{ latest }}). A
+        run skips leagues it already has, so it&rsquo;s safe to press again.
+    </p>
+    {% if job.running %}
+    <div class="alert alert-success">Running since {{ job.started[:16]|replace('T', ' ') }} UTC. Reload to see progress.</div>
+    <form method="post" action="/staff/around/stop"><button type="submit" class="btn">Stop</button></form>
+    {% else %}
+    <form method="post" action="/staff/around/collect" class="inline-form" style="gap:10px;">
+        <input type="hidden" name="weeks" value="1-{{ latest }}" />
+        <button type="submit" class="btn btn-primary">Backfill weeks 1&ndash;{{ latest }}</button>
+    </form>
+    {% endif %}
+    {% if job.log %}
+    <pre style="white-space:pre-wrap;font-size:12px;margin-top:12px;max-height:320px;overflow:auto;">{{ job.log|join('\n') }}</pre>
+    {% endif %}
+</section>
+{% endif %}
+{% endblock %}

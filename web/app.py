@@ -972,6 +972,70 @@ def connect_espn_add(request: Request, league_id: str = Form(...),
 
 
 # ---------------------------------------------------------------------------
+# Around the Leagues (staff)
+#
+# Every connected league's finished weeks, side by side: the lowest score in
+# the country, the biggest blowout, the most points left on a bench. See
+# web/league_stats.py. Staff only — team names are our users' content.
+# ---------------------------------------------------------------------------
+
+def _require_staff(request: Request) -> dict:
+    user = _require_user(request)
+    if user.get("plan") != plans.STAFF:
+        raise HTTPException(status_code=404)
+    return user
+
+
+@app.get("/staff/around", response_class=HTMLResponse)
+def staff_around(request: Request, week: int = 0, season: int = 0,
+                 scope: str = "week"):
+    _require_staff(request)
+    import nfl_week
+    from . import league_stats
+
+    season = season or nfl_week.current_season()
+    latest = nfl_week.completed_week()
+    week = week or latest
+    ready = db.team_weeks_ready()
+    data = None
+    if ready:
+        data = league_stats.leaderboards(
+            db, season, None if scope == "season" else week)
+    return _render(request, "staff_around.html", ready=ready, data=data,
+                   season=season, week=week, latest=latest, scope=scope,
+                   weeks=list(range(1, max(latest, 1) + 1)),
+                   job=league_stats.job_status())
+
+
+@app.post("/staff/around/collect")
+def staff_around_collect(request: Request, weeks: str = Form("")):
+    """Start a collection in the background. `weeks` is "3" or "1-3"."""
+    _require_staff(request)
+    from . import league_stats
+    try:
+        if "-" in weeks:
+            a, b = (int(x) for x in weeks.split("-", 1))
+            chosen = list(range(min(a, b), max(a, b) + 1))
+        else:
+            chosen = [int(weeks)]
+    except ValueError:
+        return RedirectResponse("/staff/around", status_code=303)
+    chosen = [w for w in chosen if 1 <= w <= 18]
+    if chosen and db.team_weeks_ready():
+        league_stats.start_background(db, chosen)
+        league_stats.clear_cache()
+    return RedirectResponse("/staff/around", status_code=303)
+
+
+@app.post("/staff/around/stop")
+def staff_around_stop(request: Request):
+    _require_staff(request)
+    from . import league_stats
+    league_stats.stop_background()
+    return RedirectResponse("/staff/around", status_code=303)
+
+
+# ---------------------------------------------------------------------------
 # Yahoo
 #
 # The only platform that shows nothing without signing in, so the flow is

@@ -794,6 +794,82 @@ def yahoo_tokens_ready() -> bool:
         return False
 
 
+# --- Around the Leagues (021) -------------------------------------------------
+
+def all_leagues(season: int) -> list[dict[str, Any]]:
+    """Every league row for a season. Paged: PostgREST stops at 1,000 rows,
+    and there are more leagues than that."""
+    out: list[dict[str, Any]] = []
+    page = 1000
+    start = 0
+    while True:
+        res = (client().table("leagues")
+               .select("id, provider, platform_league_id, season, league_name, "
+                       "public_slug, user_id")
+               .eq("season", int(season))
+               .order("created_at")
+               .range(start, start + page - 1).execute())
+        rows = res.data or []
+        out.extend(rows)
+        if len(rows) < page:
+            return out
+        start += page
+
+
+def upsert_team_weeks(rows: list[dict[str, Any]]) -> None:
+    for i in range(0, len(rows), 500):
+        client().table("team_weeks").upsert(
+            rows[i:i + 500], on_conflict="league_id,season,week,team_id").execute()
+
+
+def team_week_league_ids(season: int, week: int) -> set[str]:
+    """Leagues already collected for this week, so a rerun skips them."""
+    out: set[str] = set()
+    start, page = 0, 1000
+    while True:
+        res = (client().table("team_weeks").select("league_id")
+               .eq("season", int(season)).eq("week", int(week))
+               .order("league_id")
+               .range(start, start + page - 1).execute())
+        rows = res.data or []
+        out.update(r["league_id"] for r in rows)
+        if len(rows) < page:
+            return out
+        start += page
+
+
+def team_weeks_top(season: int, week: Optional[int], column: str, desc: bool,
+                   where: str, limit: int = 10) -> list[dict[str, Any]]:
+    q = (client().table("team_weeks")
+         .select("*, leagues(league_name, public_slug)")
+         .eq("season", int(season)))
+    if week:
+        q = q.eq("week", int(week))
+    if where == "won":
+        q = q.eq("result", "W")
+    else:
+        q = q.neq("result", "BYE").gt("points", 0)
+    q = q.filter(column, "not.is", "null")
+    res = q.order(column, desc=desc).limit(limit).execute()
+    return res.data or []
+
+
+def team_weeks_summary(season: int, week: Optional[int]) -> dict[str, Any]:
+    res = client().rpc("team_weeks_summary",
+                       {"p_season": int(season),
+                        "p_week": int(week) if week else None}).execute()
+    row = (res.data or [{}])[0] if isinstance(res.data, list) else (res.data or {})
+    return row or {}
+
+
+def team_weeks_ready() -> bool:
+    try:
+        client().table("team_weeks").select("league_id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def leagues_with_auto_send() -> list[dict[str, Any]]:
     res = client().table("leagues").select("*").eq("auto_send", True).execute()
     return res.data or []

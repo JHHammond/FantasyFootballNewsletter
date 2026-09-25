@@ -278,6 +278,15 @@ def main() -> int:
         print("Refusing to run the weekly job in DEMO_MODE — there's no real data.")
         return 1
 
+    # Around the Leagues on its own: `python -m web.tasks --collect 1 2 3`.
+    # Stats only — no Claude, no email — so it needs no Resend key. With no
+    # weeks given, the latest finished week.
+    if "--collect" in sys.argv:
+        from . import db, league_stats
+        weeks = [int(a) for a in args] or [resolve_week()]
+        reports = league_stats.backfill(db, weeks)
+        return 1 if any(r.get("errors") for r in reports) else 0
+
     # No Resend key means every "send" is a line in the log that reports
     # success — the job would mark the week sent and nobody would get a thing.
     if not os.getenv("RESEND_API_KEY"):
@@ -327,6 +336,20 @@ def main() -> int:
         print(f"  WARNING: {line}")
     for line in report["errors"]:
         print(f"  ERROR:   {line}")
+
+    # Around the Leagues: every connected league's finished week, stats only.
+    # After the papers, so paying customers never wait on it. The 14:00 and
+    # 22:00 runs both call this; the second skips whatever the first did.
+    try:
+        from . import league_stats
+        collected = league_stats.collect_week(db, week)
+        if collected.get("errors"):
+            report.setdefault("warnings", []).append(
+                f"Around the Leagues: {collected['errors']} league(s) errored "
+                f"while collecting week {week}.")
+    except Exception as exc:  # noqa: BLE001 — never costs anyone their paper
+        report.setdefault("warnings", []).append(
+            f"Around the Leagues collection failed: {type(exc).__name__}: {exc}")
 
     # A cron whose failures go only to a log nobody reads is a cron you don't
     # have. Mail the operator when anything went wrong.

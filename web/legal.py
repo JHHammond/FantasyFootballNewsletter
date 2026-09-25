@@ -85,6 +85,12 @@ PRIVACY_SECTIONS = [
             "the weekly edition they asked for, and nothing else.",
             "<strong>Read counts</strong> — how many times each published paper "
             "was opened. A number per edition, not a record of who opened it.",
+            "<strong>Weekly scores, combined across leagues.</strong> We keep "
+            "each team's weekly score and a few highlights so we can compare "
+            "leagues against each other: the week's lowest score, the biggest "
+            "blowout. Anything we publish from it describes a team (\"a "
+            "12-team PPR league\") and never names your team or league "
+            "without your okay.",
             "<strong>A Yahoo sign-in, if you connect a Yahoo league.</strong> "
             "Yahoo only shows a league to someone in it, so connecting one "
             "stores a read-only access token from Yahoo, encrypted, so your "

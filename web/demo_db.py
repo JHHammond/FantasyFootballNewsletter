@@ -450,6 +450,56 @@ def yahoo_tokens_ready() -> bool:
     return True
 
 
+_TEAM_WEEKS: dict[tuple, dict[str, Any]] = {}
+
+
+def all_leagues(season: int) -> list[dict[str, Any]]:
+    return [dict(l) for l in _LEAGUES.values() if l.get("season") == int(season)]
+
+
+def upsert_team_weeks(rows: list[dict[str, Any]]) -> None:
+    with _lock:
+        for r in rows:
+            _TEAM_WEEKS[(r["league_id"], r["season"], r["week"], r["team_id"])] = dict(r)
+
+
+def team_week_league_ids(season: int, week: int) -> set[str]:
+    return {r["league_id"] for r in _TEAM_WEEKS.values()
+            if r["season"] == int(season) and r["week"] == int(week)}
+
+
+def _tw_rows(season, week, where):
+    rows = [r for r in _TEAM_WEEKS.values() if r["season"] == int(season)
+            and (not week or r["week"] == int(week))]
+    if where == "won":
+        return [r for r in rows if r["result"] == "W"]
+    return [r for r in rows if r["result"] != "BYE" and (r["points"] or 0) > 0]
+
+
+def team_weeks_top(season, week, column, desc, where, limit=10):
+    rows = [r for r in _tw_rows(season, week, where) if r.get(column) is not None]
+    rows.sort(key=lambda r: r[column], reverse=desc)
+    out = []
+    for r in rows[:limit]:
+        league = _LEAGUES.get(r["league_id"]) or {}
+        out.append(dict(r, leagues={"league_name": league.get("league_name"),
+                                    "public_slug": league.get("public_slug")}))
+    return out
+
+
+def team_weeks_summary(season, week):
+    import statistics
+    rows = _tw_rows(season, week, "played")
+    pts = [r["points"] for r in rows]
+    return {"teams": len(rows), "leagues": len({r["league_id"] for r in rows}),
+            "avg_points": round(sum(pts) / len(pts), 2) if pts else None,
+            "median_points": round(statistics.median(pts), 2) if pts else None}
+
+
+def team_weeks_ready() -> bool:
+    return True
+
+
 def leagues_for_weekly_send() -> list[dict[str, Any]]:
     import plans
     out = []
