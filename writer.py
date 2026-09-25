@@ -1535,12 +1535,30 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
             f"and lost by {ctx.get('margin')}. The players marked [BENCHED] "
             f"are where those points went — name the one that hurts most.\n")
 
+    # WHAT DECIDED IT, worked out here rather than left to the writer (25 Sep).
+    # Handed two full lineups and told to "pick the few performances that
+    # decided it", the model picked nearly all of them and walked the roster
+    # position by position — a recap that read like a receipt, with a number
+    # in every clause. One sentence of fact about the swing gives the story a
+    # spine before the lineups give it detail.
+    decider = ""
+    margin = ctx.get("margin")
+    if (isinstance(loser_gap, (int, float)) and isinstance(margin, (int, float))
+            and loser_gap > margin):
+        decider = (f"{ctx.get('loser')} had enough on their own bench to win "
+                   f"this. That is the story.")
+    elif isinstance(margin, (int, float)) and margin < 5:
+        decider = "It came down to a handful of points. That is the story."
+    elif isinstance(margin, (int, float)) and margin > 40:
+        decider = "It was never close. Say so, then say why."
+
     return call_claude(f"""
 Write the recap of this game for the paper.
 
 {ctx.get('winner')} beat {ctx.get('loser')}, \
 {ctx.get('winner_score')} to {ctx.get('loser_score')}, \
 by {ctx.get('margin')}.
+{decider}
 
 {ctx.get('winner')} — what they started:
 {winner_lineup or "  (lineup unavailable)"}
@@ -1548,29 +1566,48 @@ by {ctx.get('margin')}.
 {ctx.get('loser')} — what they started:
 {loser_lineup or "  (lineup unavailable)"}
 
-Position totals (use these for any combined number):
+Position totals (only if you name two players together — never add numbers
+up yourself):
   {ctx.get('winner')}: {ctx.get('winner_groups') or 'n/a'}
   {ctx.get('loser')}: {ctx.get('loser_groups') or 'n/a'}
 
-Format of each line: Player (position/NFL team) points scored, projection, and
-the difference in brackets. [BENCHED] means they did not start, and only
-the losing team's bench is shown — a winner's bench is not a story.
+Each line: Player (position/NFL team), points scored, projection, and the
+difference. [BENCHED] means they did not start, and only the losing team's
+bench is shown — a winner's bench is not a story.
 {commissioner_note}{bench_note}
-Two paragraphs. One for how the winner won, one for how the loser lost — though
-if the more interesting story is the loser's, lead with that instead.
+This is a story, not a box score. Find the one thing that decided the game
+and build the recap around it. Everything else is supporting detail, and most
+of the lineup should go unmentioned.
 
-Pick the few performances that decided it and give each its number. Mix up
-how you do it — sometimes one player at a time, sometimes two or three lumped
-together with a combined total (from the position totals above; never add
-numbers up yourself). Say what it suggests about each team from here.
+HOW IT SHOULD READ:
+- Two short paragraphs, 110 to 160 words in all.
+- Four or five players, total, across both teams. Not a tour of the roster.
+- About five numbers in the whole recap, and never more than one in a
+  sentence (the final score is the exception). Where a line gives what a
+  player did — "2 rec TD" — say that instead of his points.
+- A projection at most once, and only when missing or beating it is the point.
+- Never list three players in one sentence, and never "combined for".
+- Every sentence is one a fan would say out loud at the bar. If a sentence
+  needs reading twice, it is wrong: make it two simple sentences. No mixed
+  metaphors, nothing that sounds clever but means nothing.
+- Get the football right. A tight end decision is a tight end decision; do
+  not call it a quarterback problem.
+- One name per team, the same one all the way through — the team name, or the
+  manager's name if the league background gives one. Never switch between
+  them, and never invent a first name from a username.
+- No injuries, illnesses or anything physical unless the line carries an
+  injury tag. "He was limping", "a hamstring issue", "banged up" are
+  invented facts. The same for plays, snap counts, quotes and game
+  situations: if it is not in the data, you do not know it.
+- Say what it means for each team going forward only if the data actually
+  supports it. Two weeks is not a season.
 {earlier}
 
 {opening}
 Do not end on the two teams' records — they are printed beside the story.
 End on whatever the last real point is.
 
-Write only what the numbers support. No invented injuries, plays, snap counts
-or quotes. Plain prose — no markdown, no bullets, no headers.
+Plain prose — no markdown, no bullets, no headers.
 
 {f"Things this league would want referenced if they fit: {inside_jokes}" if inside_jokes else ""}
 """, max_tokens=3000, system=system, model=model, avoid_tells=True)
@@ -2109,6 +2146,14 @@ def generate_obituaries(dead, system=None, model=None):
     return out
 
 
+#: When the main model's cache was last known warm, and how long to trust it.
+#: Per process, which is right: the cache is Anthropic's, but knowing it is
+#: warm is only ever a guess from here, and a wrong guess costs one cache
+#: write, not a failure.
+_LAST_WARM = 0.0
+WARM_WINDOW = 240
+
+
 def generate_full_newspaper_content(league_name, week, games, summary,
                                      commissioner_name="", inside_jokes="",
                                      tone="standard", obituaries=None,
@@ -2283,15 +2328,28 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # The warm-up call has to be on the MAIN model — the cache is per model —
     # and it used to be the headline, which is now written last. fraud_watch
     # is the smallest main-model call left.
+    #
+    # UNLESS IT IS ALREADY WARM (25 Sep). The voice guide is byte-identical
+    # for every league, so another paper written in the last few minutes has
+    # already cached it — on a Tuesday, or during a rush, that is nearly
+    # every paper — and waiting on a warm-up call is a few seconds of latency
+    # buying nothing. The cache lives five minutes; four is the safe side.
+    global _LAST_WARM
     warm = "fraud_watch"
-    if warm in remaining:
+    stage = time.time()
+    if warm in remaining and time.time() - _LAST_WARM > WARM_WINDOW:
         record(warm, remaining.pop(warm))
+        print(f"[writer] warm-up {time.time() - stage:.1f}s")
+    stage = time.time()
 
-    with ThreadPoolExecutor(max_workers=12) as executor:
+    with ThreadPoolExecutor(max_workers=16) as executor:
         futures = [executor.submit(record, key, fn)
                    for key, fn in remaining.items()]
         for future in as_completed(futures):
             future.result()   # record() already swallowed anything worth it
+    _LAST_WARM = time.time()
+    print(f"[writer] main wave ({len(remaining)} calls) {time.time() - stage:.1f}s")
+    stage = time.time()
 
     if letter:
         results["lead_story"] = letter
@@ -2314,11 +2372,13 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                 body=results.get(f"matchup_body_{i}") or "", names=names))
     total_calls += len(headline_tasks)
 
-    with ThreadPoolExecutor(max_workers=12) as executor:
+    with ThreadPoolExecutor(max_workers=16) as executor:
         futures = [executor.submit(record, key, fn)
                    for key, fn in headline_tasks.items()]
         for future in as_completed(futures):
             future.result()
+    print(f"[writer] headline wave ({len(headline_tasks)} calls) "
+          f"{time.time() - stage:.1f}s")
 
     # Fail loudly on wholesale failure rather than quietly shipping a paper
     # made entirely of fallback strings.

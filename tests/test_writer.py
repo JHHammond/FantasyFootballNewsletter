@@ -147,6 +147,13 @@ def _reply(text: str = "Some generated prose."):
     })()
 
 
+@pytest.fixture(autouse=True)
+def cold_cache(monkeypatch):
+    """Every test starts as the first paper in a while: the warm-up skip is
+    process state, and one test's paper would otherwise warm the next."""
+    monkeypatch.setattr(writer, "_LAST_WARM", 0.0)
+
+
 @pytest.fixture
 def no_sleeping(monkeypatch):
     """Retry backoff, without the wall-clock cost."""
@@ -651,6 +658,21 @@ def test_a_bare_string_system_prompt_still_gets_cached(swap_client):
     writer.call_claude("hi", system="just a string")
     assert seen["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert seen["system"][0]["text"] == "just a string"
+
+
+def test_a_paper_right_after_another_skips_the_warm_up(swap_client, monkeypatch, capsys):
+    """The voice guide is the same for every league, so a paper written a
+    minute after another one finds it cached. Waiting on a warm-up call then
+    buys nothing."""
+    import time as _time
+    swap_client(lambda k: _reply("x"))
+    writer.generate_full_newspaper_content("L", 3, GAMES, SUMMARY)
+    assert "[writer] warm-up" in capsys.readouterr().out      # cold: warms
+    writer.generate_full_newspaper_content("L", 3, GAMES, SUMMARY)
+    assert "[writer] warm-up" not in capsys.readouterr().out  # warm: skips
+    monkeypatch.setattr(writer, "_LAST_WARM", _time.time() - 600)
+    writer.generate_full_newspaper_content("L", 3, GAMES, SUMMARY)
+    assert "[writer] warm-up" in capsys.readouterr().out      # expired: warms
 
 
 def test_one_call_finishes_before_any_other_starts(swap_client):
@@ -2161,14 +2183,32 @@ def test_position_totals_are_computed_not_left_to_the_writer():
     assert "QB" not in out          # one player is not a group
 
 
-def test_the_recap_prompt_offers_grouping_as_an_option_not_a_rule(swap_client, no_sleeping):
+def test_the_recap_prompt_is_a_story_not_a_box_score(swap_client, no_sleeping):
+    """25 Sep: "lump two or three together with a combined total" produced
+    recaps that walked the whole roster with a number in every clause. The
+    prompt now asks for one story, a few players and a number budget."""
     seen = {}
     swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
     writer.generate_matchup_body(writer.build_game_context(GAME))
     p = seen["p"]
     assert "Position totals" in p
     assert "never add" in p
-    assert "Mix up" in p
+    assert "Mix up" not in p
+    assert "one thing that decided the game" in p
+    assert "never more than one in a" in p
+    assert "never \"combined for\"" in p
+    assert "hamstring issue" in p          # named as an example of invention
+    assert "never invent a first name from a username" in p
+
+
+def test_the_recap_is_told_when_the_bench_cost_the_game(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    ctx = writer.build_game_context(GAME)
+    ctx["loser_lineup_gap"], ctx["margin"] = 30.0, 21.0
+    writer.generate_matchup_body(ctx)
+    p = seen["p"]
+    assert "enough on their own bench to win" in p
     assert "at least five players" not in p
 
 
