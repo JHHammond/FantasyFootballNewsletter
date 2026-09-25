@@ -303,7 +303,7 @@ async def security_headers(request: Request, call_next):
 # against someone who can present any IP they like.
 # ---------------------------------------------------------------------------
 
-GENERATIONS_PER_HOUR = 10           # per IP
+GENERATIONS_PER_HOUR = 40           # per IP; shared carrier IPs
 GENERATIONS_PER_LEAGUE_PER_DAY = 12  # per league — not spoofable
 
 #: How many times a single week's paper may be REGENERATED after the first one.
@@ -340,7 +340,14 @@ def regenerations_used(paper: dict | None) -> int:
 
 def regenerations_left(paper: dict | None, user: dict | None = None) -> int:
     return max(0, regenerations_allowed(user) - regenerations_used(paper))
-LEAGUE_CREATES_PER_HOUR = 5
+#: Adding leagues. Counted per ACCOUNT, because an IP is not a person: phone
+#: carriers put thousands of customers behind a handful of public addresses,
+#: and on a viral night (24 Sep) strangers on the same carrier were using up
+#: each other's five tries and seeing "That's a few already" on their first.
+#: The per-IP ceiling is only a backstop against one machine making accounts
+#: in a loop, so it is set far above anything one shared address sees honestly.
+LEAGUE_CREATES_PER_HOUR = 10          # per account
+LEAGUE_CREATES_PER_IP_PER_HOUR = 100  # per IP, backstop only
 SUBSCRIBES_PER_HOUR = 20
 RECOVERIES_PER_HOUR = 5
 UPLOADS_PER_HOUR = 30               # per IP
@@ -363,9 +370,9 @@ MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 # Credential stuffing is the attack accounts invite, and it is run from many
 # addresses against many accounts at once. Limiting only by IP stops nobody;
 # limiting only by email lets one address grind through a user list. Both.
-LOGINS_PER_IP_PER_HOUR = 20
+LOGINS_PER_IP_PER_HOUR = 60    # per IP; the per-account limit is the real guard
 LOGINS_PER_ACCOUNT_PER_HOUR = 8
-SIGNUPS_PER_HOUR = 5
+SIGNUPS_PER_HOUR = 30          # per IP; shared carrier IPs, see above
 RESETS_PER_ACCOUNT_PER_DAY = 5
 LOOKUPS_PER_HOUR = 30               # username -> leagues, per IP
 
@@ -402,6 +409,13 @@ def _rate_limited(key: str, limit: int, window: int = 3600) -> bool:
     slot left, which is exactly the moment a spend ceiling is for.
     """
     return not db.claim_rate_slot(key, limit, window)
+
+
+def _league_creates_exhausted(request: Request, user: dict | None) -> bool:
+    """Has this person used up their league adds for the hour?"""
+    if user and _rate_limited(f"create:user:{user['id']}", LEAGUE_CREATES_PER_HOUR):
+        return True
+    return _rate_limited(f"create:{_client_ip(request)}", LEAGUE_CREATES_PER_IP_PER_HOUR)
 
 
 def _global_budget_exceeded() -> bool:
@@ -726,7 +740,7 @@ def connect_sleeper_add(request: Request, league_id: str = Form(...),
     """Turn a chosen league into a paper, owned by the signed-in account."""
     user = _require_user(request)
 
-    if _rate_limited(f"create:{_client_ip(request)}", LEAGUE_CREATES_PER_HOUR):
+    if _league_creates_exhausted(request, user):
         return RedirectResponse(
             "/connect/sleeper?error=That's+a+few+already.+Try+again+in+an+hour.",
             status_code=303)
@@ -806,7 +820,7 @@ def connect_espn_add(request: Request, league_id: str = Form(...),
     user = _require_user(request)
     league_id = league_id.strip()
 
-    if _rate_limited(f"create:{_client_ip(request)}", LEAGUE_CREATES_PER_HOUR):
+    if _league_creates_exhausted(request, user):
         return RedirectResponse(
             "/connect/espn?error=That's+a+few+already.+Try+again+in+an+hour.",
             status_code=303)
@@ -1461,7 +1475,7 @@ def create_league(
         return _render(request, "index.html",
                        providers=_implemented_providers(), error=message)
 
-    if _rate_limited(f"create:{_client_ip(request)}", LEAGUE_CREATES_PER_HOUR):
+    if _league_creates_exhausted(request, current_user(request)):
         return fail("You've made a few of these already. Give it an hour.")
 
     league_id = league_id.strip()

@@ -184,7 +184,8 @@ def test_duplicate_league_does_not_leak_admin_token(client, league, monkeypatch)
 
 def test_league_creation_is_rate_limited(client, monkeypatch):
     monkeypatch.setattr(webapp, "get_provider", _verify_ok(name="L"))
-    for i in range(webapp.LEAGUE_CREATES_PER_HOUR):
+    monkeypatch.setattr(webapp, "LEAGUE_CREATES_PER_IP_PER_HOUR", 3)
+    for i in range(webapp.LEAGUE_CREATES_PER_IP_PER_HOUR):
         client.post("/leagues", data={"league_id": f"id{i}", "season": 2025})
     r = client.post("/leagues", data={"league_id": "extra", "season": 2025})
     assert "Give it an hour" in r.text
@@ -5716,3 +5717,27 @@ def test_a_real_cancellation_downgrades():
     billing.apply_subscription(demo_db, _real_subscription("sub_c", "cus_cancel", "active"))
     billing.apply_subscription(demo_db, _real_subscription("sub_c", "cus_cancel", "canceled"))
     assert demo_db.user_by_id(user["id"])["plan"] == "free"
+
+
+
+def _request_from(ip):
+    from starlette.requests import Request
+    return Request({"type": "http", "method": "POST", "path": "/", "headers": [
+        (b"x-forwarded-for", ip.encode())], "client": ("10.0.0.1", 1)})
+
+
+def test_strangers_on_one_phone_carrier_ip_do_not_use_up_each_others_adds():
+    """24 Sep: a viral night, most visitors on phones, carriers sharing a few
+    public IPs — and first-time users told "That's a few already"."""
+    shared = "172.58.0.1"
+    for n in range(12):                         # twelve different people
+        user = demo_db.create_user(f"phone{n}@example.com", "x")
+        assert not webapp._league_creates_exhausted(_request_from(shared), user)
+
+
+def test_one_account_is_still_limited():
+    user = demo_db.create_user("looper@example.com", "x")
+    ip = "203.0.113.9"
+    for _ in range(webapp.LEAGUE_CREATES_PER_HOUR):
+        assert not webapp._league_creates_exhausted(_request_from(ip), user)
+    assert webapp._league_creates_exhausted(_request_from(ip), user)
