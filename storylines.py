@@ -87,11 +87,16 @@ def get_weekly_storylines(games):
     #
     # NICK FOLES: the best bench performance anywhere in the league — the
     # backup who could have won it all.
-    starters = []
+    # Kickers and defenses are not award material (John, 25 Sep): a defense at
+    # zero is an ordinary Sunday, and it used to win the Tony Snell nearly
+    # every week. They are only eligible if there is nobody else at all.
+    starters, special = [], []
     for team in all_teams:
         for p in team.get("all_starters") or []:
             if isinstance(p.get("actual"), (int, float)):
-                starters.append((p, team))
+                pos = (p.get("position") or "").upper()
+                (special if pos in ("K", "DEF", "DST", "D/ST") else starters).append((p, team))
+    starters = starters or special
 
     tony_snell = None
     if starters:

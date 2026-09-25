@@ -230,8 +230,12 @@ HOW TO BE FUNNY WHILE DOING THAT
   Short sentences are where jokes land. Long ones are where you build.
 - Understatement sometimes. Constant escalation goes numb by the third
   paragraph.
-- The funniest detail is usually the true one. A kicker who outscored someone's
-  first-round pick is funnier than any metaphor you could attach to him.
+- The funniest detail is usually the true one. A backup tight end who
+  outscored someone's first-round pick is funnier than any metaphor you could
+  attach to him.
+- Leave kickers and defenses alone. Nobody expects much of them, so a low
+  score there isn't a joke, it's a Sunday. They are one "special teams unit";
+  bring them up only when they swung a game, and never as the punchline.
 - The joke should come out of the number. If you could keep the joke and swap
   the player, it isn't the right joke.
 - If nothing is funny about a matchup, write it straight. A dry, accurate
@@ -609,11 +613,22 @@ def format_lineup(team_side, with_bench: bool = True):
     A human writing this names six to nine players, because that is what a
     fantasy team is. Hand over the same thing.
     """
-    starters = [
-        line for line in (
-            _player_line(p) for p in (team_side.get("all_starters") or [])
-        ) if line
-    ]
+    everyone = team_side.get("all_starters") or []
+    special = [p for p in everyone if _is_special(p)]
+    others = [p for p in everyone if not _is_special(p)]
+
+    starters = [line for line in (_player_line(p) for p in others) if line]
+
+    # SPECIAL TEAMS AS ONE LINE (John, 25 Sep). Kickers and defenses were in
+    # nearly every recap, usually as the punchline, and nobody expects much
+    # of them. So unless one of them did something (over 15), the writer
+    # never sees them separately: one unit, one combined number. An absence
+    # beats an instruction, same as the winner's bench.
+    unit = special_teams_line(special)
+    if unit:
+        starters.append(unit)
+    else:
+        starters += [line for line in (_player_line(p) for p in special) if line]
 
     if not with_bench:
         return starters
@@ -628,6 +643,31 @@ def format_lineup(team_side, with_bench: bool = True):
     ]
 
     return starters + bench
+
+
+_SPECIAL_POSITIONS = {"K", "DEF", "DST", "D/ST"}
+
+#: A kicker or defense over this is a real story and gets its own line.
+SPECIAL_TEAMS_STANDOUT = 15.0
+
+
+def _is_special(p) -> bool:
+    return (p.get("position") or "").upper() in _SPECIAL_POSITIONS
+
+
+def special_teams_line(special) -> str | None:
+    """"Special teams unit (Chase McLaughlin, Buccaneers) — scored 18.0
+    combined", or None when there is nothing to combine or one of them was a
+    standout and deserves his own line."""
+    scored = [p for p in special if isinstance(p.get("actual"), (int, float))]
+    if not scored:
+        return None
+    if any(float(p["actual"]) > SPECIAL_TEAMS_STANDOUT for p in scored):
+        return None
+    names = ", ".join(p["name"] for p in scored)
+    total = sum(float(p["actual"]) for p in scored)
+    return (f"Special teams unit ({names}) \u2014 scored {total:.1f} combined "
+            f"| a unit: mention only as a unit, only if it mattered")
 
 
 def _compact(payload) -> str:
@@ -1580,19 +1620,30 @@ and build the recap around it. Everything else is supporting detail, and most
 of the lineup should go unmentioned.
 
 HOW IT SHOULD READ:
-- Two short paragraphs, 110 to 160 words in all.
-- Four or five players, total, across both teams. Not a tour of the roster.
-- About five numbers in the whole recap, and never more than one in a
-  sentence (the final score is the exception). Where a line gives what a
-  player did — "2 rec TD" — say that instead of his points.
-- A projection at most once, and only when missing or beating it is the point.
-- Never list three players in one sentence, and never "combined for".
-- Every sentence is one a fan would say out loud at the bar. If a sentence
-  needs reading twice, it is wrong: make it two simple sentences. No mixed
+- Two full paragraphs, around 220 to 300 words. Don't pad it and don't cut
+  it short.
+- Name the players who mattered, usually six to eight across both teams. Not
+  a tour of the whole roster.
+- Write it the way a friend who watched every snap would tell it: loose,
+  specific, a little opinionated. Contractions. Mostly short sentences.
+- Vary the shape. A long sentence, then a four-word one. A question now and
+  then. Never start two sentences in a row the same way, and don't let
+  every sentence be "Player did X, which Y".
+- Most sentences carry one number and none carry more than two. Where a line
+  says what a player did — "2 rec TD" — say that instead of his points.
+- Grouping a position room is good when it tells the story: "the RB room
+  (Achane, Etienne) combined for 21.7, while Aaron Jones scored 8.2." Take
+  the combined number from the position totals. Never string three players
+  together each with his own number.
+- A projection only when missing or beating it is the point, and not for
+  every player you name.
+- Kickers and defenses are the special teams unit. Mention the unit only if
+  it mattered, and don't make fun of it.
+- If a sentence needs reading twice, it is wrong: split it. No mixed
   metaphors, nothing that sounds clever but means nothing.
 - Get the football right. A tight end decision is a tight end decision; do
   not call it a quarterback problem.
-- One name per team, the same one all the way through — the team name, or the
+- One name per team, the same one all the way through: the team name, or the
   manager's name if the league background gives one. Never switch between
   them, and never invent a first name from a username.
 - No injuries, illnesses or anything physical unless the line carries an

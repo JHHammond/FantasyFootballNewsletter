@@ -307,6 +307,25 @@ def test_the_standing_award_winners():
     assert s["best_loser"]["team_name"] == "A"                  # Joe Burrow
 
 
+def test_kickers_and_defenses_do_not_win_the_individual_awards():
+    """A defense at zero is an ordinary Sunday, not a Tony Snell."""
+    import storylines
+    a = _legacy_team("A", 90, [
+        {"name": "Bucs", "position": "DEF", "actual": 0.0, "projected": 7.0,
+         "beat_projection_by": -7.0},
+        {"name": "Kicker", "position": "K", "actual": -2.0, "projected": 30.0,
+         "beat_projection_by": -32.0},
+        {"name": "Slow WR", "position": "WR", "actual": 1.5, "projected": 12.0,
+         "beat_projection_by": -10.5}])
+    b = _legacy_team("B", 120, [
+        {"name": "Allen", "position": "QB", "actual": 40.0, "projected": 22.0,
+         "beat_projection_by": 18.0}])
+    s = storylines.get_weekly_storylines(
+        [{"team_1": a, "team_2": b, "winner": "B", "margin": 30.0}])
+    assert s["tony_snell"]["player"]["name"] == "Slow WR"
+    assert s["kyle_pitts"]["player"]["name"] == "Slow WR"
+
+
 # --- streak arrows and the record book (John, 23 Sep) -------------------------
 
 def _game(week, a, pa, b, pb):

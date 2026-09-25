@@ -2195,10 +2195,40 @@ def test_the_recap_prompt_is_a_story_not_a_box_score(swap_client, no_sleeping):
     assert "never add" in p
     assert "Mix up" not in p
     assert "one thing that decided the game" in p
-    assert "never more than one in a" in p
-    assert "never \"combined for\"" in p
+    assert "none carry more than two" in p
+    assert "RB room" in p                  # grouping a room is welcome
+    assert "220 to 300 words" in p         # the length stays (John, 25 Sep)
+    assert "Never start two sentences in a row the same way" in p
     assert "hamstring issue" in p          # named as an example of invention
     assert "never invent a first name from a username" in p
+
+
+def test_kicker_and_defense_arrive_as_one_special_teams_unit():
+    side = {"all_starters": [
+        {"name": "Joe Burrow", "position": "QB", "actual": 20.0, "projected": 18.0},
+        {"name": "Chase McLaughlin", "position": "K", "actual": 9.0, "projected": 8.5},
+        {"name": "Buccaneers", "position": "DEF", "actual": 2.0, "projected": 7.0},
+    ]}
+    lines = writer.format_lineup(side, with_bench=False)
+    assert any(l.startswith("Special teams unit (Chase McLaughlin, Buccaneers)")
+               and "11.0 combined" in l for l in lines)
+    assert not any(l.startswith("Chase McLaughlin") for l in lines)
+    assert not any(l.startswith("Buccaneers") for l in lines)
+
+
+def test_a_standout_kicker_keeps_his_own_line():
+    side = {"all_starters": [
+        {"name": "Chase McLaughlin", "position": "K", "actual": 16.0, "projected": 8.5},
+        {"name": "Buccaneers", "position": "DEF", "actual": 2.0, "projected": 7.0},
+    ]}
+    lines = writer.format_lineup(side, with_bench=False)
+    assert not any(l.startswith("Special teams") for l in lines)
+    assert any(l.startswith("Chase McLaughlin") for l in lines)
+
+
+def test_the_voice_guide_leaves_kickers_alone():
+    text = writer.system_prompt("standard", GAMES)[0]["text"]
+    assert "Leave kickers and defenses alone" in text
 
 
 def test_the_recap_is_told_when_the_bench_cost_the_game(swap_client, no_sleeping):
