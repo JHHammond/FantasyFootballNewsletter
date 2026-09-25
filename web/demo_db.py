@@ -192,7 +192,7 @@ def save_paper(league_id, week, season, storage_path_, public_url, ai_cache,
             "league_id": league_id, "week": week, "season": season,
             "storage_path": storage_path_, "public_url": public_url,
             "ai_cache": ai_cache, "ai_cache_original": original,
-            "generated_at": existing.get("generated_at") or _now(),
+            "generated_at": (existing.get("generated_at") if is_edit else None) or _now(),
             "edited_at": edited_at,
             "emailed_at": existing.get("emailed_at"),
             # Regenerating replaces the prose, not the readership.

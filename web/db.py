@@ -365,6 +365,11 @@ def save_paper(
     else:
         row["ai_cache_original"] = ai_cache or None
         row["edited_at"] = None
+        # When the prose was WRITTEN, so the weekly job can tell a paper made
+        # on Friday (half the week's scores) from one made after Monday night.
+        # It used to be set once, at first generation, and never moved.
+        from datetime import datetime, timezone
+        row["generated_at"] = datetime.now(timezone.utc).isoformat()
 
     if existing.data:
         # Never overwrite an original that's already recorded.

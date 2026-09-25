@@ -66,6 +66,19 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
             report["skipped"].append(f"{name}: week {week} already sent")
             continue
 
+        # A paper written before the week's last game is a paper about part of
+        # the week (25 Sep: eight leagues had a "week 3" on the Friday of week
+        # 3). Rewrite it — unless a person has edited it, because rewriting
+        # would throw their work away; that one is sent as-is and flagged.
+        if paper and not regenerate and _written_early(paper, week, season):
+            if paper.get("edited_at"):
+                report.setdefault("warnings", []).append(
+                    f"{name}: week {week} was written before the week ended and then "
+                    f"edited by hand, so it was sent as-is")
+            else:
+                report.setdefault("rewritten", []).append(name)
+                paper = None
+
         if not paper or regenerate:
             try:
                 generate_and_store(db, league, week)
@@ -131,6 +144,20 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
     report["rate_rows_swept"] = db.sweep_rate_events()
 
     return report
+
+
+def _written_early(paper: dict, week: int, season: int) -> bool:
+    """Was this paper generated before the week's games were all played?"""
+    import nfl_week
+    from datetime import datetime
+    stamp = paper.get("generated_at")
+    if not stamp:
+        return False
+    try:
+        written = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return written < nfl_week.week_final(week, season)
 
 
 def resolve_week() -> int:
@@ -214,6 +241,10 @@ def plan_weekly(db, week: int) -> list[str]:
                 if (s.get("email") or "").lower() != (owner.get("email") or "").lower()]
         if paper and paper.get("emailed_at"):
             state = "already sent"
+        elif paper and _written_early(paper, week, league["season"]):
+            state = ("written before the week ended AND hand-edited, would email as-is"
+                     if paper.get("edited_at") else
+                     "written before the week ended, would REWRITE, then email")
         elif paper:
             state = "paper exists, would email"
         else:
@@ -290,13 +321,18 @@ def main() -> int:
           f"{report['generated']} generated, {report['emails_sent']} emails sent")
     for line in report["skipped"]:
         print(f"  skipped: {line}")
+    for line in report.get("rewritten", []):
+        print(f"  rewritten (was written before the week ended): {line}")
+    for line in report.get("warnings", []):
+        print(f"  WARNING: {line}")
     for line in report["errors"]:
         print(f"  ERROR:   {line}")
 
     # A cron whose failures go only to a log nobody reads is a cron you don't
     # have. Mail the operator when anything went wrong.
-    if report["errors"]:
-        emailer.send_ops_alert(f"Weekly job, week {week}", report)
+    if report["errors"] or report.get("warnings"):
+        emailer.send_ops_alert(f"Weekly job, week {week}",
+                               {**report, "errors": report["errors"] + report.get("warnings", [])})
 
     return 1 if report["errors"] else 0
 

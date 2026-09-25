@@ -70,6 +70,15 @@ def current_week(today: date | None = None, *, season: int | None = None) -> int
     return max(1, min(REGULAR_SEASON_WEEKS, delta // 7 + 1))
 
 
+def week_final(week: int, season: int):
+    """When a week's games are all over: 08:00 UTC on the Tuesday after it
+    (4am Eastern, clear of the latest Monday night finish). A paper written
+    before this has part of the week's scores."""
+    from datetime import datetime, time, timezone
+    tuesday = season_opener(season) + timedelta(days=7 * (week - 1) + 5)
+    return datetime.combine(tuesday, time(8, 0), tzinfo=timezone.utc)
+
+
 def is_in_season(today: date | None = None) -> bool:
     """True between the opener and the end of week 18."""
     today = today or date.today()

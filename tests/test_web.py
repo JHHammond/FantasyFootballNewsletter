@@ -5766,3 +5766,62 @@ def test_a_test_send_needs_both_flags(monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["web.tasks", "--test-to=a@b.com"])
     assert tasks.main() == 1
     assert "--league" in capsys.readouterr().out
+
+
+# --- a paper written mid-week is rewritten before it is sent (25 Sep) ---------
+
+def _early(league_id, week=3, season=2025, edited=False):
+    import nfl_week
+    demo_db.save_paper(league_id, week, season, "path", "url", {"headline": "HALF A WEEK"})
+    paper = demo_db._PAPERS[(league_id, season, week)]
+    paper["generated_at"] = (nfl_week.week_final(week, season).replace(day=1)).isoformat()
+    if edited:
+        paper["edited_at"] = paper["generated_at"]
+
+
+def test_the_week_ends_early_tuesday_morning():
+    import nfl_week
+    assert nfl_week.week_final(3, 2026).isoformat() == "2026-09-29T08:00:00+00:00"
+
+
+def test_a_paper_written_before_the_week_ended_is_rewritten(client, league, sent_emails, monkeypatch):
+    from web import tasks
+    _early(league["id"])
+    rewrites = []
+
+    def fake_generate(db, lg, week, letter=""):
+        rewrites.append(week)
+        db.save_paper(lg["id"], week, lg["season"], "path", "url", {"headline": "THE WHOLE WEEK"})
+    monkeypatch.setattr(tasks, "generate_and_store", fake_generate)
+
+    report = tasks.send_weekly(demo_db, 3)
+    assert rewrites == [3] and report["rewritten"] == ["The Kevlarville Times"]
+    assert "THE WHOLE WEEK" in sent_emails[0]["body"]
+
+
+def test_a_hand_edited_early_paper_is_sent_as_is_and_flagged(client, league, sent_emails, monkeypatch):
+    from web import tasks
+    _early(league["id"], edited=True)
+    monkeypatch.setattr(tasks, "generate_and_store",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not rewrite")))
+    report = tasks.send_weekly(demo_db, 3)
+    assert report["warnings"] and "edited by hand" in report["warnings"][0]
+    assert "HALF A WEEK" in sent_emails[0]["body"]
+
+
+def test_the_dry_run_says_which_papers_would_be_rewritten(client, league):
+    from web.tasks import plan_weekly
+    _early(league["id"])
+    assert "would REWRITE" in plan_weekly(demo_db, 3)[0]
+
+
+def test_regenerating_moves_generated_at_but_editing_does_not():
+    import time
+    demo_db.save_paper("L", 1, 2025, "p", "u", {"headline": "a"})
+    first = demo_db._PAPERS[("L", 2025, 1)]["generated_at"]
+    time.sleep(0.01)
+    demo_db.save_paper("L", 1, 2025, "p", "u", {"headline": "b"}, is_edit=True)
+    assert demo_db._PAPERS[("L", 2025, 1)]["generated_at"] == first
+    time.sleep(0.01)
+    demo_db.save_paper("L", 1, 2025, "p", "u", {"headline": "c"})
+    assert demo_db._PAPERS[("L", 2025, 1)]["generated_at"] > first
