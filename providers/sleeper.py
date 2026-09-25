@@ -21,6 +21,10 @@ Notable fixes this makes over the original fetch_data.py:
 
 from __future__ import annotations
 
+import threading
+
+import time
+
 import requests
 
 from .base import FantasyProvider, LeagueNotFound, ProviderError, WeekNotAvailable
@@ -84,6 +88,29 @@ def _to_float(value, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+#: The only player fields anything reads (see _build_player and
+#: get_transactions). Everything else in Sleeper's index is dropped on load.
+_PLAYER_FIELDS = ("first_name", "last_name", "full_name", "position",
+                  "fantasy_positions", "team", "injury_status")
+
+#: cache dir -> (loaded_at, slim index). One per process, shared by threads.
+_PLAYER_INDEXES: dict[str, tuple[float, dict]] = {}
+_PLAYER_INDEX_LOCK = threading.Lock()
+
+
+def _slim_players(raw) -> dict:
+    """{player_id: {only the fields we use}}, skipping empty values."""
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for pid, info in raw.items():
+        if isinstance(info, dict):
+            out[str(pid)] = {k: info[k] for k in _PLAYER_FIELDS if info.get(k)}
+        else:
+            out[str(pid)] = {}
+    return out
 
 
 class SleeperProvider(FantasyProvider):
@@ -210,12 +237,36 @@ class SleeperProvider(FantasyProvider):
     # -- reference data ----------------------------------------------------
 
     def _player_index(self) -> dict:
-        """The full NFL player database, cached for a day."""
-        return self.cache.get_or_fetch(
-            "players:nfl",
-            TTL_PLAYER_INDEX,
-            lambda: self._get(f"{BASE_URL}/players/nfl"),
-        )
+        """Every NFL player, slimmed to the fields we use, ONE copy per process.
+
+        24 Sep: the site ran out of memory (512MB) and restarted in a loop on
+        a busy night. This was why. The index is ~11,000 players with dozens
+        of fields each, and it was re-read from disk and re-parsed on EVERY
+        week fetched — this week, every earlier week for the season history,
+        next week for the lines, the transactions — so one paper parsed it
+        four or five times and ten papers at once held dozens of full copies.
+
+        Now: parsed once, trimmed to _PLAYER_FIELDS, held in memory for the
+        cache's lifetime and shared by every paper in the process. A lock
+        makes papers that start together wait for the one load instead of
+        each doing their own, which was the exact pattern that blew the limit.
+        """
+        key = str(getattr(self.cache, "dir", id(self.cache)))
+        now = time.time()
+        held = _PLAYER_INDEXES.get(key)
+        if held and now - held[0] < TTL_PLAYER_INDEX:
+            return held[1]
+        with _PLAYER_INDEX_LOCK:
+            held = _PLAYER_INDEXES.get(key)          # another thread may have loaded it
+            if held and now - held[0] < TTL_PLAYER_INDEX:
+                return held[1]
+            slim = self.cache.get_or_fetch(
+                "players:nfl:slim",
+                TTL_PLAYER_INDEX,
+                lambda: _slim_players(self._get(f"{BASE_URL}/players/nfl")),
+            ) or {}
+            _PLAYER_INDEXES[key] = (time.time(), slim)
+            return slim
 
     def _projections(self, season: int, week: int) -> dict:
         """Weekly projections keyed by raw Sleeper player ID."""

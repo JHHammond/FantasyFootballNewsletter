@@ -1395,3 +1395,35 @@ def test_sleeper_transactions_use_the_user_profile_team_name(tmp_path):
     p._get = lambda url, params=None: users if url.endswith("/users") else inner(url, params)
     tx = p.get_transactions("123", 2026, 2)
     assert any(t.teams == ["Superchaser FC"] for t in tx)
+
+
+# --- the player index is loaded once per process (24 Sep: out of memory) ------
+
+def test_the_player_index_is_parsed_once_and_shared(tmp_path, monkeypatch):
+    from providers import sleeper as S
+    monkeypatch.setattr(S, "_PLAYER_INDEXES", {})
+    calls = []
+
+    def fake(url, params=None):
+        if "players/nfl" in url:
+            calls.append(1)
+        return fixtures.fake_get(url, params)
+
+    cache = TTLCache(cache_dir=tmp_path, namespace="once")
+    for _ in range(3):                       # three papers, three providers
+        p = SleeperProvider(cache=cache)
+        p._get = fake
+        p.get_week("TESTLEAGUE", 2025, 3)
+        p.get_week("TESTLEAGUE", 2025, 2)
+    assert len(calls) == 1
+    assert len(S._PLAYER_INDEXES) == 1
+
+
+def test_the_slim_index_keeps_only_what_is_read():
+    from providers import sleeper as S
+    slim = S._slim_players({"1": {"first_name": "Josh", "last_name": "Allen", "team": "BUF",
+                                  "college": "Wyoming", "metadata": {"x": 1},
+                                  "fantasy_positions": ["QB"]}, "PIT": {}})
+    assert slim["1"] == {"first_name": "Josh", "last_name": "Allen", "team": "BUF",
+                         "fantasy_positions": ["QB"]}
+    assert slim["PIT"] == {}
