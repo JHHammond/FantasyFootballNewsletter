@@ -419,6 +419,37 @@ def record_trial_week(provider: str, platform_league_id: str, season: int,
         _TRIAL.add((provider, str(platform_league_id), int(season), int(week)))
 
 
+def find_league_by_platform_id(provider: str, platform_league_id: str):
+    rows = [dict(l) for l in _LEAGUES.values()
+            if l.get("provider") == provider
+            and l.get("platform_league_id") == str(platform_league_id)]
+    rows.sort(key=lambda l: l.get("season") or 0, reverse=True)
+    return rows[0] if rows else None
+
+
+_YAHOO_TOKENS: dict[str, dict[str, Any]] = {}
+
+
+def get_yahoo_token(user_id: str):
+    row = _YAHOO_TOKENS.get(user_id)
+    return dict(row) if row else None
+
+
+def save_yahoo_token(user_id: str, fields: dict[str, Any]) -> None:
+    with _lock:
+        row = _YAHOO_TOKENS.setdefault(user_id, {"user_id": user_id})
+        row.update(fields)
+
+
+def delete_yahoo_token(user_id: str) -> None:
+    with _lock:
+        _YAHOO_TOKENS.pop(user_id, None)
+
+
+def yahoo_tokens_ready() -> bool:
+    return True
+
+
 def leagues_for_weekly_send() -> list[dict[str, Any]]:
     import plans
     out = []

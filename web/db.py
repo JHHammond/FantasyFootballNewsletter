@@ -750,6 +750,50 @@ def record_trial_week(provider: str, platform_league_id: str, season: int,
        ignore_duplicates=True).execute()
 
 
+def find_league_by_platform_id(provider: str, platform_league_id: str):
+    """The newest league row for a platform id, any season. Yahoo keys carry
+    their season inside them, so there is only ever one."""
+    res = (
+        client().table("leagues").select("*")
+        .eq("provider", provider)
+        .eq("platform_league_id", str(platform_league_id))
+        .order("season", desc=True)
+        .limit(1).execute()
+    )
+    return res.data[0] if res.data else None
+
+
+# --- Yahoo tokens (020) -------------------------------------------------------
+
+def get_yahoo_token(user_id: str) -> Optional[dict[str, Any]]:
+    res = (client().table("yahoo_tokens").select("*")
+           .eq("user_id", user_id).limit(1).execute())
+    return res.data[0] if res.data else None
+
+
+def save_yahoo_token(user_id: str, fields: dict[str, Any]) -> None:
+    """Upsert. A refresh that omits the refresh token keeps the stored one."""
+    row = dict(fields, user_id=user_id, updated_at="now()")
+    existing = get_yahoo_token(user_id)
+    if existing:
+        client().table("yahoo_tokens").update(row).eq("user_id", user_id).execute()
+    else:
+        client().table("yahoo_tokens").insert(row).execute()
+
+
+def delete_yahoo_token(user_id: str) -> None:
+    client().table("yahoo_tokens").delete().eq("user_id", user_id).execute()
+
+
+def yahoo_tokens_ready() -> bool:
+    """Whether migration 020 has been run. Yahoo stays hidden until it has."""
+    try:
+        client().table("yahoo_tokens").select("user_id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def leagues_with_auto_send() -> list[dict[str, Any]]:
     res = client().table("leagues").select("*").eq("auto_send", True).execute()
     return res.data or []

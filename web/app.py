@@ -67,6 +67,7 @@ import printing  # noqa: E402
 import themes  # noqa: E402
 
 from . import auth, billing, emailer, images, legal, oauth, slugs  # noqa: E402
+from . import yahoo_auth  # noqa: E402
 from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
     WriterError,
@@ -708,8 +709,12 @@ _PLATFORM_COPY = [
      "Paste your league ID. ESPN has no way to look you up by name, and your "
      "league has to be viewable to the public \u2014 we show you how."),
     ("yahoo", "Yahoo",
-     "Being built. Yahoo requires signing in with them first."),
+     "Sign in with Yahoo and pick your league. Read-only \u2014 we can "
+     "never change your lineup."),
 ]
+
+#: What the Yahoo tile says while it is still behind the waiting list.
+_YAHOO_SOON = "Being built. Yahoo requires signing in with them first."
 
 
 def _platforms() -> list[dict]:
@@ -721,10 +726,42 @@ def _platforms() -> list[dict]:
 PLATFORMS = _platforms()
 
 
+def yahoo_open_to(user: dict | None) -> bool:
+    """Whether this person gets the real Yahoo flow rather than the list.
+
+    Needs the Yahoo app's credentials (Render env) and migration 020. Then:
+    everyone once the adapter has been checked against a real league
+    (YahooProvider.implemented), and until that day, STAFF accounts only —
+    which is how it gets checked.
+    """
+    if not user or not yahoo_auth.configured():
+        return False
+    try:
+        if not db.yahoo_tokens_ready():
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    from providers.yahoo import YahooProvider
+    return YahooProvider.implemented or user.get("plan") == plans.STAFF
+
+
+def _platforms_for(user: dict | None) -> list[dict]:
+    out = []
+    for p in PLATFORMS:
+        p = dict(p)
+        if p["key"] == "yahoo":
+            p["ready"] = yahoo_open_to(user)
+            if not p["ready"]:
+                p["how"] = _YAHOO_SOON
+        out.append(p)
+    return out
+
+
 @app.get("/connect", response_class=HTMLResponse)
 def connect(request: Request, error: str = ""):
-    _require_user(request)
-    return _render(request, "connect.html", platforms=PLATFORMS, error=error)
+    user = _require_user(request)
+    return _render(request, "connect.html", platforms=_platforms_for(user),
+                   error=error)
 
 
 @app.get("/connect/sleeper", response_class=HTMLResponse)
@@ -932,6 +969,261 @@ def connect_espn_add(request: Request, league_id: str = Form(...),
     )
     db.claim_league(league["id"], user["id"])
     return RedirectResponse(f"/l/{league['admin_token']}/setup", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Yahoo
+#
+# The only platform that shows nothing without signing in, so the flow is
+# OAuth first and a league list second. The person signs in with Yahoo, comes
+# back to a list of their own leagues, and picks one — no ID to hunt for.
+# What is kept, and why, is in web/yahoo_auth.py.
+# ---------------------------------------------------------------------------
+
+def _yahoo_leagues(user: dict) -> tuple[list, str]:
+    """(leagues, error) for the signed-in account's Yahoo login."""
+    from providers.yahoo import YahooProvider
+    token = yahoo_auth.access_token_for_user(user["id"], db=db)
+    if not token:
+        return [], "reconnect"
+    try:
+        return YahooProvider(access_token=token).user_leagues(), ""
+    except AuthRequired:
+        return [], "reconnect"
+    except ProviderError as exc:
+        return [], f"Couldn't list your Yahoo leagues. {exc}"
+
+
+@app.get("/connect/yahoo", response_class=HTMLResponse)
+def connect_yahoo(request: Request, error: str = "", sent: int = 0):
+    user = _require_user(request)
+    if not yahoo_open_to(user):
+        known = next(p for p in _platforms_for(user) if p["key"] == "yahoo")
+        return _render(request, "connect_waitlist.html",
+                       platform=known, sent=bool(sent))
+
+    if not yahoo_auth.has_tokens(user["id"], db=db):
+        return _render(request, "connect_yahoo.html", leagues=None,
+                       error=error, is_staff=user.get("plan") == plans.STAFF)
+
+    leagues, problem = _yahoo_leagues(user)
+    if problem == "reconnect":
+        return _render(request, "connect_yahoo.html", leagues=None,
+                       error=error or "Yahoo needs you to sign in again.",
+                       is_staff=user.get("plan") == plans.STAFF)
+
+    mine = {l.get("platform_league_id") for l in db.leagues_for_user(user["id"])}
+    return _render(request, "connect_yahoo.html",
+                   error=error or problem,
+                   is_staff=user.get("plan") == plans.STAFF,
+                   leagues=[{
+                       "league_id": l.league_id,
+                       "name": l.name,
+                       "season": l.season,
+                       "team_count": l.team_count,
+                       "status": l.status,
+                       "already": l.league_id in mine,
+                   } for l in leagues])
+
+
+@app.get("/connect/yahoo/start")
+def connect_yahoo_start(request: Request):
+    user = _require_user(request)
+    if not yahoo_open_to(user):
+        return RedirectResponse("/connect/yahoo", status_code=303)
+    if _rate_limited(f"yahoo-oauth:{user['id']}", LOGINS_PER_IP_PER_HOUR):
+        return RedirectResponse(
+            "/connect/yahoo?error=Too+many+attempts.+Try+again+later.",
+            status_code=303)
+
+    state = yahoo_auth.new_state()
+    try:
+        destination = yahoo_auth.consent_url(state, public_base_url())
+    except yahoo_auth.YahooAuthError as exc:
+        print(f"[yahoo] cannot start sign-in: {exc}", flush=True)
+        return RedirectResponse(
+            "/connect/yahoo?error=Yahoo+sign-in+isn't+available+right+now.",
+            status_code=303)
+    response = RedirectResponse(destination, status_code=303)
+    response.set_cookie(yahoo_auth.STATE_COOKIE, auth.sign_value(state),
+                        **auth.state_cookie_kwargs())
+    return response
+
+
+@app.get("/connect/yahoo/callback")
+def connect_yahoo_callback(request: Request, code: str = "", state: str = "",
+                           error: str = ""):
+    user = _require_user(request)
+
+    def done(message: str = ""):
+        target = "/connect/yahoo" + (f"?error={quote(message)}" if message else "")
+        response = RedirectResponse(target, status_code=303)
+        response.delete_cookie(yahoo_auth.STATE_COOKIE, path="/")
+        return response
+
+    if not yahoo_open_to(user):
+        return done()
+    if error:
+        return done("No problem. Nothing was connected.")
+
+    # The same check that makes the Google callback ours: a signed state we
+    # issued, echoed back, recent. Without it this URL would attach somebody
+    # else's Yahoo login to whoever clicked a link.
+    issued = auth.read_signed_value(request.cookies.get(yahoo_auth.STATE_COOKIE, ""))
+    if not issued or not state or not hmac.compare_digest(issued, state):
+        return done("That sign-in link didn't check out. Try again.")
+    if not yahoo_auth.state_is_fresh(issued):
+        return done("That sign-in took too long. Try again.")
+
+    try:
+        body = yahoo_auth.exchange_code(code, public_base_url())
+    except yahoo_auth.YahooAuthError as exc:
+        return done(str(exc))
+    yahoo_auth.save_tokens(user["id"], body, db=db)
+    return done()
+
+
+@app.post("/connect/yahoo/add")
+def connect_yahoo_add(request: Request, league_id: str = Form(...),
+                      paper_name: str = Form("")):
+    user = _require_user(request)
+    if not yahoo_open_to(user):
+        return RedirectResponse("/connect/yahoo", status_code=303)
+    league_key = league_id.strip()
+
+    if _league_creates_exhausted(request, user):
+        return RedirectResponse(
+            "/connect/yahoo?error=That's+a+few+already.+Try+again+in+an+hour.",
+            status_code=303)
+
+    # Only a league Yahoo says this account is IN. The form value is just a
+    # string; without this, anyone signed in with Yahoo could post any
+    # league key and read a league they are not part of.
+    leagues, problem = _yahoo_leagues(user)
+    if problem == "reconnect":
+        return RedirectResponse("/connect/yahoo", status_code=303)
+    info = next((l for l in leagues if l.league_id == league_key), None)
+    if info is None:
+        return RedirectResponse(
+            "/connect/yahoo?error=That+league+isn't+on+your+Yahoo+account.",
+            status_code=303)
+
+    existing = db.find_existing_league("yahoo", league_key, info.season)
+    if existing:
+        if existing.get("user_id") == user["id"]:
+            return RedirectResponse(f"/l/{existing['admin_token']}",
+                                    status_code=303)
+        if not existing.get("user_id"):
+            db.claim_league(existing["id"], user["id"])
+            return RedirectResponse(
+                f"/l/{existing['admin_token']}?notice=Picked+up+where+you+left+off.",
+                status_code=303)
+        return RedirectResponse(
+            "/connect/yahoo?error=Another+account+already+has+a+paper+for+that+"
+            "league.+If+that+is+you,+sign+in+with+that+email.",
+            status_code=303)
+
+    if out_of_leagues(user):
+        return RedirectResponse(
+            f"/connect/yahoo?error={quote(plans.LOCK_REASONS['leagues'])}",
+            status_code=303)
+
+    league = db.create_league(
+        provider="yahoo",
+        platform_league_id=league_key,
+        league_name=info.name,
+        paper_name=(paper_name.strip() or f"The {info.name} Times"),
+        commissioner_name="",
+        season=info.season,
+        public_slug=slugs.public_slug(info.name),
+        admin_token=slugs.admin_token(),
+    )
+    db.claim_league(league["id"], user["id"])
+    return RedirectResponse(f"/l/{league['admin_token']}/setup", status_code=303)
+
+
+@app.post("/connect/yahoo/disconnect")
+def connect_yahoo_disconnect(request: Request):
+    """Forget the Yahoo login. Papers already written stay; new ones for
+    Yahoo leagues will ask to sign in again."""
+    user = _require_user(request)
+    yahoo_auth.forget(user["id"], db=db)
+    return RedirectResponse("/connect/yahoo", status_code=303)
+
+
+@app.get("/connect/yahoo/check", response_class=HTMLResponse)
+def connect_yahoo_check(request: Request, league: str = "", week: int = 0,
+                        raw: str = ""):
+    """STAFF ONLY. The test that decides whether Yahoo goes live.
+
+    For one league and one finished week: does every team's starters add up
+    to Yahoo's own score, to the cent? And do the touchdown stat ids, run
+    through the league's own scoring, reproduce the points Yahoo gave each
+    player? The same two checks that validated ESPN. `raw=scoreboard` or
+    `raw=roster` returns Yahoo's untouched JSON, to hand over if anything
+    fails.
+    """
+    user = _require_user(request)
+    if user.get("plan") != plans.STAFF:
+        raise HTTPException(status_code=404)
+
+    from providers.yahoo import (YahooProvider, _merge, _points,
+                                 _stat_values, reconcile)
+    token = yahoo_auth.access_token_for_user(user["id"], db=db)
+    if not token:
+        return RedirectResponse("/connect/yahoo", status_code=303)
+    adapter = YahooProvider(access_token=token)
+
+    if not league:
+        leagues, problem = _yahoo_leagues(user)
+        return _render(request, "yahoo_check.html", leagues=leagues,
+                       error=problem, result=None, league_key="", week=0)
+
+    if raw in ("scoreboard", "roster", "settings", "transactions", "metadata"):
+        try:
+            w = week or 1
+            path = {
+                "scoreboard": f"league/{league}/scoreboard;week={w}",
+                "settings": f"league/{league}/settings",
+                "metadata": f"league/{league}/metadata",
+                "transactions": f"league/{league}/transactions;types=add,drop,trade",
+                "roster": (f"team/{league}.t.1/roster;week={w}"
+                           f"/players/stats;type=week;week={w}"),
+            }[raw]
+            return JSONResponse(adapter.raw(path))
+        except ProviderError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=502)
+
+    result: dict = {"teams": [], "players": [], "error": "", "weeks": []}
+    try:
+        result["weeks"] = adapter.available_weeks(league, 0)
+        target = week or (result["weeks"][-1] if result["weeks"] else 1)
+        data = adapter.get_week(league, 0, target)
+        result["week"] = target
+        result["league"] = data.league.to_dict()
+        result["teams"] = reconcile(data)
+        mods = adapter.stat_modifiers(league)
+        first = data.matchups[0].teams[0] if data.matchups else None
+        if first:
+            for p in adapter._roster(league, first.team_id, target):
+                values = _stat_values(p.get("player_stats"))
+                computed = round(sum(v * mods.get(k, 0.0)
+                                     for k, v in values.items()), 2)
+                reported = _points(p.get("player_points"))
+                name = (p.get("name") or {}).get("full", "?")
+                line = adapter._player_line(p)
+                result["players"].append({
+                    "name": name, "reported": reported, "computed": computed,
+                    "ok": abs(computed - reported) < 0.011,
+                    "slot": (_merge(p.get("selected_position")) or {}).get("position"),
+                    "tds": line.stats.describe() if line and line.stats else "",
+                })
+        result["transactions"] = [t.to_dict() for t in
+                                  adapter.get_transactions(league, 0, target)][:15]
+    except ProviderError as exc:
+        result["error"] = str(exc)
+    return _render(request, "yahoo_check.html", leagues=None, error="",
+                   result=result, league_key=league, week=week)
 
 
 @app.get("/connect/{platform}", response_class=HTMLResponse)

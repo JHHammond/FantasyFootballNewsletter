@@ -31,6 +31,13 @@ import history  # noqa: E402
 from writer import WriterError, generate_full_newspaper_content  # noqa: E402
 
 
+# Yahoo's adapter asks for an access token per league; this is where it gets
+# one. Registered here because both the web app and the weekly job import this
+# module, and the job never imports the app.
+from . import yahoo_auth as _yahoo_auth  # noqa: E402
+_yahoo_auth.register()
+
+
 def public_base_url() -> str:
     """Where readers actually reach us.
 

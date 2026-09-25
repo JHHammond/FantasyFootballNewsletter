@@ -85,6 +85,13 @@ PRIVACY_SECTIONS = [
             "the weekly edition they asked for, and nothing else.",
             "<strong>Read counts</strong> — how many times each published paper "
             "was opened. A number per edition, not a record of who opened it.",
+            "<strong>A Yahoo sign-in, if you connect a Yahoo league.</strong> "
+            "Yahoo only shows a league to someone in it, so connecting one "
+            "stores a read-only access token from Yahoo, encrypted, so your "
+            "weekly paper can be written without you signing in each time. It "
+            "cannot change your team or post anything. Disconnect on the "
+            "Connect page, or remove the app from your Yahoo account settings, "
+            "and it stops working immediately.",
         ],
     },
     {
@@ -104,9 +111,8 @@ PRIVACY_SECTIONS = [
             "what it needs to do its job:",
         ],
         "bullets": [
-            "<strong>Your fantasy platform</strong> (Sleeper, and others as they "
-            "are added) — read only, using their public API. Nothing is ever "
-            "written back to your league.",
+            "<strong>Your fantasy platform</strong> (Sleeper, ESPN or Yahoo) — "
+            "read only. Nothing is ever written back to your league.",
             "<strong>Anthropic</strong> — the week's scores and any league "
             "context you supply are sent to Claude to write the prose. Email "
             "addresses are not.",

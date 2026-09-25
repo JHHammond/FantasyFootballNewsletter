@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Connect Yahoo{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="eyebrow"><a href="/connect">Platforms</a> &rsaquo; Yahoo</div>
+    <h1 class="page-title">
+        {% if leagues is not none %}Pick a league{% else %}Sign in with Yahoo{% endif %}
+    </h1>
+</div>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+{% if leagues is not none %}
+<section class="card">
+    {% if leagues %}
+    <p class="card-sub">
+        Every Yahoo football league on your account this season. Pick the one
+        you want a paper for &mdash; you can add the others later.
+    </p>
+    <ul class="paper-list">
+        {% for league in leagues %}
+        <li class="paper-row">
+            <div>
+                <div class="paper-week">{{ league.name }}</div>
+                <div class="paper-meta">
+                    {{ league.team_count }} teams &middot; {{ league.season }}
+                    {% if league.status == 'pre_draft' %}
+                    &middot; <em>hasn&rsquo;t drafted yet</em>
+                    {% elif league.status == 'complete' %}
+                    &middot; season finished
+                    {% endif %}
+                </div>
+            </div>
+            <div class="paper-row-actions">
+                {% if league.already %}
+                <span class="paper-meta">Already added</span>
+                {% elif league.status == 'pre_draft' %}
+                <span class="paper-meta">No games yet</span>
+                {% else %}
+                <form method="post" action="/connect/yahoo/add">
+                    <input type="hidden" name="league_id" value="{{ league.league_id }}" />
+                    <button type="submit" class="btn btn-sm btn-primary">Make a paper</button>
+                </form>
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="card-sub">
+        That Yahoo account isn&rsquo;t in any football leagues this season. If
+        you play on a different Yahoo account, disconnect below and sign in
+        with that one.
+    </p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2 class="card-title">Wrong Yahoo account?</h2>
+    <form method="post" action="/connect/yahoo/disconnect" class="inline-form">
+        <button type="submit" class="btn">Disconnect Yahoo</button>
+    </form>
+    {% if is_staff %}
+    <p class="card-sub" style="margin-top:14px;">
+        Staff: <a href="/connect/yahoo/check">run the Yahoo check</a> on a league
+        before this goes live for everyone.
+    </p>
+    {% endif %}
+</section>
+
+{% else %}
+<section class="card">
+    <p class="card-sub">
+        Yahoo only shares a league with someone who&rsquo;s in it, so we need
+        you to sign in with Yahoo once. You&rsquo;ll come straight back here to
+        a list of your leagues &mdash; no league ID to hunt for.
+    </p>
+    <a class="btn btn-primary btn-lg" href="/connect/yahoo/start">Sign in with Yahoo</a>
+</section>
+
+<section class="card">
+    <h2 class="card-title">What we can and can&rsquo;t do</h2>
+    <ul class="steps">
+        <li><strong>Read-only.</strong> We can see scores, lineups and moves. We can
+            never set a lineup, make a trade or post anything.</li>
+        <li><strong>Any league member can connect.</strong> You don&rsquo;t have to
+            be the commissioner.</li>
+        <li><strong>You can cut us off any time</strong> &mdash; disconnect here, or
+            remove The Commissioner&rsquo;s Desk from your Yahoo account settings.</li>
+    </ul>
+</section>
+{% endif %}
+{% endblock %}

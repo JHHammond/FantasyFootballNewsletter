@@ -44,12 +44,14 @@ from .models import (
 )
 from .optimizer import apply_lineup_gaps, optimal_lineup
 from .sleeper import SleeperProvider
+from .yahoo import YahooProvider
 
 #: Every platform we know about. Keys are what callers pass to get_provider()
 #: and what gets stored in the leagues table's `provider` column.
 PROVIDERS: dict[str, type[FantasyProvider]] = {
     SleeperProvider.name: SleeperProvider,
     ESPNProvider.name: ESPNProvider,
+    YahooProvider.name: YahooProvider,
 }
 
 
@@ -174,6 +176,7 @@ __all__ = [
     "FantasyProvider",
     "SleeperProvider",
     "ESPNProvider",
+    "YahooProvider",
     "ProviderError",
     "LeagueNotFound",
     "AuthRequired",

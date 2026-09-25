@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Yahoo check{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="eyebrow"><a href="/connect/yahoo">Yahoo</a> &rsaquo; Staff check</div>
+    <h1 class="page-title">Does Yahoo add up?</h1>
+</div>
+
+<section class="card">
+    <p class="card-sub">
+        Two checks decide whether Yahoo goes live. <strong>1.</strong> Every
+        team&rsquo;s starters must add up to Yahoo&rsquo;s own score, to the cent.
+        <strong>2.</strong> Each player&rsquo;s stats, run through the league&rsquo;s
+        scoring, should reproduce the points Yahoo gave them. All green on a
+        real league and it&rsquo;s safe to switch on.
+    </p>
+</section>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+{% if leagues is not none %}
+<section class="card">
+    <h2 class="card-title">Pick a league to check</h2>
+    <ul class="paper-list">
+        {% for l in leagues %}
+        <li class="paper-row">
+            <div>
+                <div class="paper-week">{{ l.name }}</div>
+                <div class="paper-meta">{{ l.team_count }} teams &middot; {{ l.season }} &middot; <code>{{ l.league_id }}</code></div>
+            </div>
+            <div class="paper-row-actions">
+                <a class="btn btn-sm btn-primary" href="/connect/yahoo/check?league={{ l.league_id|urlencode }}">Check</a>
+            </div>
+        </li>
+        {% else %}
+        <li class="paper-row"><div class="paper-meta">No leagues on this Yahoo account.</div></li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if result %}
+{% if result.error %}
+<div class="alert alert-error">{{ result.error }}</div>
+{% else %}
+<section class="card">
+    <h2 class="card-title">{{ result.league.name }} &middot; week {{ result.week }}</h2>
+    <p class="card-sub">
+        Finished weeks: {{ result.weeks|join(', ') or 'none' }} &middot;
+        scoring: {{ result.league.scoring_type }} &middot;
+        slots: {{ result.league.roster_slots|join(' ') }}
+    </p>
+    {% set bad = result.teams|rejectattr('ok')|list %}
+    <div class="alert {% if bad %}alert-error{% else %}alert-success{% endif %}">
+        {% if bad %}{{ bad|length }} of {{ result.teams|length }} teams don&rsquo;t add up.
+        {% else %}All {{ result.teams|length }} teams add up to the cent.{% endif %}
+    </div>
+    <table class="check-table" style="width:100%;border-collapse:collapse;">
+        <tr><th align="left">Team</th><th align="right">Yahoo</th><th align="right">Starters</th><th align="right">Start/Bench</th><th></th></tr>
+        {% for t in result.teams %}
+        <tr>
+            <td>{{ t.team }}</td><td align="right">{{ '%.2f'|format(t.yahoo) }}</td>
+            <td align="right">{{ '%.2f'|format(t.starters) }}</td>
+            <td align="right">{{ t.n_starters }}/{{ t.n_bench }}</td>
+            <td>{% if t.ok %}&#9989;{% else %}&#10060;{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</section>
+
+<section class="card">
+    <h2 class="card-title">Player scoring (first team)</h2>
+    {% set pbad = result.players|rejectattr('ok')|list %}
+    <p class="card-sub">{{ result.players|length - pbad|length }} of {{ result.players|length }} players reproduce exactly. A few misses can be yardage bonuses; most misses means a stat id is wrong.</p>
+    <table class="check-table" style="width:100%;border-collapse:collapse;">
+        <tr><th align="left">Player</th><th>Slot</th><th align="right">Yahoo</th><th align="right">Computed</th><th align="left">TDs read</th><th></th></tr>
+        {% for p in result.players %}
+        <tr>
+            <td>{{ p.name }}</td><td align="center">{{ p.slot }}</td>
+            <td align="right">{{ '%.2f'|format(p.reported) }}</td>
+            <td align="right">{{ '%.2f'|format(p.computed) }}</td>
+            <td>{{ p.tds }}</td>
+            <td>{% if p.ok %}&#9989;{% else %}&#10060;{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</section>
+
+<section class="card">
+    <h2 class="card-title">Transactions read</h2>
+    {% for t in result.transactions %}
+    <p class="card-sub">{{ t.kind }} &middot; {{ t.teams|join(' / ') }} &middot;
+        {% for team, p in t.adds %}+{{ p.name }} ({{ team }}) {% endfor %}
+        {% for team, p in t.drops %}&minus;{{ p.name }} ({{ team }}) {% endfor %}
+        {% if t.bid %}&middot; ${{ t.bid }}{% endif %}</p>
+    {% else %}
+    <p class="card-sub">None found.</p>
+    {% endfor %}
+</section>
+{% endif %}
+
+<section class="card">
+    <h2 class="card-title">Raw Yahoo replies</h2>
+    <p class="card-sub">If anything above is red, open these and send them over.</p>
+    {% for kind in ['scoreboard', 'roster', 'settings', 'metadata', 'transactions'] %}
+    <a class="btn btn-sm" href="/connect/yahoo/check?league={{ league_key|urlencode }}&week={{ result.week or week }}&raw={{ kind }}">{{ kind }}</a>
+    {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

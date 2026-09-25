@@ -23,6 +23,11 @@ stripe>=15.0,<16
 # else in the flow is two plain HTTP calls — see web/oauth.py.
 google-auth>=2.40,<3
 
+# Yahoo: its refresh tokens are kept (Yahoo shows a league only to a signed-in
+# member, even to the Tuesday job), and they are encrypted at rest with
+# Fernet. See web/yahoo_auth.py.
+cryptography>=42
+
 # Tests
 pytest>=7.4
 httpx>=0.27                  # FastAPI's TestClient depends on this
