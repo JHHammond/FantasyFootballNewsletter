@@ -5928,3 +5928,12 @@ def test_the_last_free_paper_says_so_to_the_league():
 def test_the_trial_table_is_required_before_generating():
     from web import db as real_db
     assert any(name == "019_trial_papers" for name, *_ in real_db._EXPECTED_SCHEMA)
+
+
+def test_the_welcome_offer_carries_the_three_paper_heads_up(client, monkeypatch):
+    """John, 25 Sep: passing on the upgrade shows the three-paper limit first,
+    so paper four is never the first anyone hears of it."""
+    monkeypatch.setattr(webapp, "_offer_upgrade", lambda request, user: True)
+    _signup(client)
+    body = client.get("/connect?welcome=1").text
+    assert 'id="offer-headsup"' in body and "first three papers are on us" in body

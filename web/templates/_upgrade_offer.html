@@ -8,6 +8,7 @@
 #}
 {% from "_macros.html" import upgrade_buttons %}
 <dialog class="offer" id="upgrade-offer" aria-labelledby="offer-title">
+  <div id="offer-main">
     <div class="offer-eyebrow">Welcome to the Desk</div>
     <h2 class="offer-title" id="offer-title">Get the whole paper for {{ season_price_text if season_pass_enabled() else price_text }}</h2>
     <p class="offer-sub">
@@ -26,6 +27,20 @@
         {% if season_pass_enabled() %}The pass renews once a year. {% endif %}Cancel any time from your account page.
     </p>
     <button type="button" class="offer-later" id="offer-later">Maybe later</button>
+  </div>
+  {# Shown instead of closing, the first time they pass on the offer (John,
+     25 Sep): the three-paper limit should never be a surprise at paper four. #}
+  <div id="offer-headsup" hidden>
+    <div class="offer-eyebrow">Just a heads up</div>
+    <h2 class="offer-title">Your first three papers are on us.</h2>
+    <p class="offer-sub">
+        Free leagues get three papers, then it&rsquo;s time to upgrade. We don&rsquo;t
+        blame you for wanting to see how it looks first! Enjoy, and go dominate
+        your league this year.
+    </p>
+    <button type="button" class="btn btn-primary offer-go" id="offer-go">Let&rsquo;s go</button>
+    <button type="button" class="offer-later" id="offer-back">Actually, show me the upgrade</button>
+  </div>
 </dialog>
 <script>
 (function () {
@@ -41,13 +56,45 @@
         } catch (e) {}
     }
 
-    document.getElementById("offer-later").addEventListener("click", function () {
+    var main = document.getElementById("offer-main");
+    var headsup = document.getElementById("offer-headsup");
+    var warned = false;
+
+    // Passing on the offer shows the heads-up once, whichever way they pass:
+    // "Maybe later", Escape, or a click on the backdrop. The second time,
+    // it closes.
+    function passOrClose() {
+        if (warned) { offer.close(); return; }
+        warned = true;
+        main.hidden = true;
+        headsup.hidden = false;
+        document.getElementById("offer-go").focus();
+    }
+
+    document.getElementById("offer-later").addEventListener("click", passOrClose);
+    document.getElementById("offer-go").addEventListener("click", function () {
         offer.close();
     });
-    offer.addEventListener("close", forget);
+    document.getElementById("offer-back").addEventListener("click", function () {
+        headsup.hidden = true;
+        main.hidden = false;
+    });
+    // Escape closes a dialog outright, and Chrome won't let a page stop that
+    // on the first press — so if it closed before the heads-up was seen,
+    // open it again on the heads-up.
+    offer.addEventListener("close", function () {
+        if (!warned) {
+            warned = true;
+            main.hidden = true;
+            headsup.hidden = false;
+            offer.showModal();
+            return;
+        }
+        forget();
+    });
     // A click on the dimmed backdrop lands on the dialog element itself.
     offer.addEventListener("click", function (e) {
-        if (e.target === offer) offer.close();
+        if (e.target === offer) passOrClose();
     });
     offer.showModal();
 })();
