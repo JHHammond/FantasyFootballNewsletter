@@ -5654,3 +5654,65 @@ def test_the_dry_run_lists_leagues_and_sends_nothing(client, league, sent_emails
     lines = plan_weekly(demo_db, 3)
     assert len(lines) == 1 and "would WRITE" in lines[0] and "1 subscriber" in lines[0]
     assert sent_emails == [] and demo_db.get_paper(league["id"], 2025, 3) is None
+
+
+# --- real Stripe objects, not dicts (24 Sep: 32 failed webhook deliveries) ----
+#
+# stripe-python 12+ objects are not dicts: .get() raises AttributeError. Every
+# test above hands the handler dicts or a stand-in, which is how
+# `obj.get("subscription")` shipped and 500'd every checkout.session.completed.
+
+def _real_subscription(sub_id, customer, status, metadata=None):
+    import stripe
+    return stripe.Subscription.construct_from({
+        "id": sub_id, "object": "subscription", "customer": customer,
+        "status": status, "metadata": metadata or {},
+        "items": {"object": "list", "data": [
+            {"id": "si_1", "object": "subscription_item", "current_period_end": 1790000000}]},
+    }, "sk_test")
+
+
+def test_a_real_checkout_completed_event_upgrades_the_account(client, monkeypatch):
+    import json as json_mod, stripe
+    from web import billing
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+
+    # Only the checkout's client_reference_id names this account: no stored
+    # customer, no metadata on the subscription. The last-resort path.
+    user = demo_db.create_user("checkout@example.com", "x")
+    monkeypatch.setattr(stripe.Subscription, "retrieve",
+                        lambda sid, *a, **k: _real_subscription(sid, "cus_fresh", "active"))
+
+    body = json_mod.dumps({
+        "id": "evt_cs", "object": "event", "type": "checkout.session.completed",
+        "data": {"object": {"id": "cs_1", "object": "checkout.session",
+                            "subscription": "sub_fresh", "customer": "cus_fresh",
+                            "client_reference_id": user["id"]}},
+    }).encode()
+    r = client.post("/stripe/webhook", content=body,
+                    headers={"stripe-signature": _signed(body),
+                             "content-type": "application/json"})
+
+    assert r.status_code == 200, r.text
+    fresh = demo_db.user_by_id(user["id"])
+    assert fresh["plan"] == "paid" and fresh["plan_status"] == "active"
+    assert fresh["stripe_customer_id"] == "cus_fresh"
+
+
+def test_metadata_on_a_real_stripe_subscription_finds_its_owner():
+    from web import billing
+    user = demo_db.create_user("meta@example.com", "x")
+    billing.apply_subscription(
+        demo_db, _real_subscription("sub_m", "cus_meta_only", "active",
+                                    metadata={"user_id": user["id"]}))
+    assert demo_db.user_by_id(user["id"])["plan"] == "paid"
+
+
+def test_a_real_cancellation_downgrades():
+    from web import billing
+    user = demo_db.create_user("cancel@example.com", "x")
+    demo_db.remember_stripe_customer(user["id"], "cus_cancel")
+    billing.apply_subscription(demo_db, _real_subscription("sub_c", "cus_cancel", "active"))
+    billing.apply_subscription(demo_db, _real_subscription("sub_c", "cus_cancel", "canceled"))
+    assert demo_db.user_by_id(user["id"])["plan"] == "free"

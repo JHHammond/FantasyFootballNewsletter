@@ -262,6 +262,27 @@ def _field(obj, name, default=None):
     return default if value is None else value
 
 
+def _as_dict(value) -> dict:
+    """A Stripe object (or a plain dict) as a plain dict, or {}.
+
+    stripe-python 12+ StripeObjects are NOT dicts any more: `.get()` raises
+    AttributeError and `hasattr(obj, "get")` is False (24 Sep). Reading
+    metadata that way silently found nothing, so a payment that had to be
+    matched through its metadata was dropped as "no matching account".
+    """
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        try:
+            return to_dict() or {}
+        except Exception:  # noqa: BLE001
+            return {}
+    return {}
+
+
 def _period_end(subscription) -> Optional[str]:
     """When the current paid period runs out, as an ISO timestamp.
 
@@ -279,7 +300,8 @@ def _period_end(subscription) -> Optional[str]:
     return None
 
 
-def _user_for_subscription(db, subscription) -> Optional[dict[str, Any]]:
+def _user_for_subscription(db, subscription,
+                           fallback_user_id: Optional[str] = None) -> Optional[dict[str, Any]]:
     """Whose subscription this is.
 
     Customer id first, because that is the durable link and it is written
@@ -293,8 +315,10 @@ def _user_for_subscription(db, subscription) -> Optional[dict[str, Any]]:
         if found:
             return found
 
-    metadata = _field(subscription, "metadata", {})
-    user_id = metadata.get("user_id") if hasattr(metadata, "get") else None
+    metadata = _as_dict(_field(subscription, "metadata"))
+    # The checkout session's client_reference_id is the last resort: it is
+    # written by this app at checkout and names the account directly.
+    user_id = metadata.get("user_id") or fallback_user_id
     if user_id:
         found = db.user_by_id(user_id)
         if found:
@@ -306,7 +330,8 @@ def _user_for_subscription(db, subscription) -> Optional[dict[str, Any]]:
     return None
 
 
-def apply_subscription(db, subscription) -> str:
+def apply_subscription(db, subscription,
+                       fallback_user_id: Optional[str] = None) -> str:
     """Set somebody's plan from what Stripe says about their subscription.
 
     The status decides, not the event name. "customer.subscription.updated"
@@ -314,9 +339,11 @@ def apply_subscription(db, subscription) -> str:
     alike, and reading the status off the object handles all of them with one
     rule instead of four.
     """
-    user = _user_for_subscription(db, subscription)
+    user = _user_for_subscription(db, subscription, fallback_user_id)
     if not user:
-        return "no matching account"
+        # Loud: this is a payment that did not reach anybody's account.
+        return (f"no matching account for customer {_field(subscription, 'customer')} "
+                f"/ subscription {_field(subscription, 'id')}")
 
     # Staff is set by hand in the database and Stripe has no say in it. A
     # cancelled test subscription on a staff account must not quietly put the
@@ -346,16 +373,20 @@ def handle_event(db, event) -> str:
     if kind not in HANDLED_EVENTS:
         return f"ignored {kind}"
 
-    obj = event["data"]["object"]
+    obj = _field(_field(event, "data"), "object")
 
     if kind == "checkout.session.completed":
         # The session itself carries no subscription status, only a pointer.
         # Fetch the real thing rather than assuming a completed checkout means
         # an active subscription — with some payment methods it does not.
-        subscription_id = obj.get("subscription")
+        #
+        # _field, not obj.get(): on stripe-python 12+ a Session is not a dict
+        # and .get() raises. That was every one of these returning 500.
+        subscription_id = _field(obj, "subscription")
         if not subscription_id:
             return "checkout completed with no subscription"
         subscription = _stripe().Subscription.retrieve(subscription_id)
-        return apply_subscription(db, subscription)
+        return apply_subscription(db, subscription,
+                                  fallback_user_id=_field(obj, "client_reference_id"))
 
     return apply_subscription(db, obj)
