@@ -425,6 +425,11 @@ class Transaction:
     #: leagues and for free agent adds.
     bid: Optional[int] = None
     created: Optional[int] = None   # epoch ms, as the platform reports it
+    #: Trades only (25 Sep): draft picks as (receiving team, "2027 1st-round
+    #: pick (Team X's)"), and FAAB as (from team, to team, amount). A dynasty
+    #: trade is often mostly picks, and those used to be dropped.
+    picks: list[tuple[str, str]] = field(default_factory=list)
+    faab: list[tuple[str, str, int]] = field(default_factory=list)
 
     @property
     def is_trade(self) -> bool:
@@ -444,6 +449,8 @@ class Transaction:
             "drops": [(t, p.to_dict()) for t, p in self.drops],
             "bid": self.bid,
             "created": self.created,
+            "picks": [list(p) for p in self.picks],
+            "faab": [list(f) for f in self.faab],
         }
 
 
