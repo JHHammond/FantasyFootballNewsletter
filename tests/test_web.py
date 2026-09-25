@@ -5937,3 +5937,26 @@ def test_the_welcome_offer_carries_the_three_paper_heads_up(client, monkeypatch)
     _signup(client)
     body = client.get("/connect?welcome=1").text
     assert 'id="offer-headsup"' in body and "first three papers are on us" in body
+
+
+# --- the week picker starts on a finished week (John, 25 Sep) -----------------
+
+def test_the_picker_defaults_to_the_latest_finished_week(monkeypatch):
+    import nfl_week
+    from datetime import datetime, timezone
+    # Week 3 still being played; weeks 1 and 2 done.
+    monkeypatch.setattr(nfl_week, "week_final", lambda w, s: datetime(2026, 9, 29, 8, tzinfo=timezone.utc)
+                        if w == 3 else datetime(2026, 9, 1, tzinfo=timezone.utc))
+    assert webapp.unfinished_weeks([1, 2, 3], 2026) == {3}
+    assert webapp.default_week([1, 2, 3], 2026) == 2
+    assert webapp.default_week([3], 2026) == 3          # nothing finished yet: still offer something
+    assert webapp.default_week([], 2026) is None
+
+
+def test_the_manage_page_marks_the_week_in_progress(client, league, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=(1, 2, 3)))
+    monkeypatch.setattr(webapp, "unfinished_weeks", lambda weeks, season: {3})
+    monkeypatch.setattr(webapp, "default_week", lambda weeks, season: 2)
+    body = client.get("/l/secret-admin-token").text
+    assert '<option value="2" selected>' in body
+    assert "Week 3 (in progress)" in body

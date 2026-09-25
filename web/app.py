@@ -360,6 +360,28 @@ def trial_status(league: dict, owner: dict | None) -> dict | None:
     return {"used": used, "left": left, "total": plans.FREE_TRIAL_PAPERS}
 
 
+def unfinished_weeks(weeks: list[int], season) -> set[int]:
+    """Weeks whose games aren't all played yet (before Tuesday 4am ET)."""
+    import nfl_week
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    try:
+        return {w for w in weeks if nfl_week.week_final(int(w), int(season)) > now}
+    except Exception:  # noqa: BLE001 — a bad season value mustn't break the page
+        return set()
+
+
+def default_week(weeks: list[int], season) -> int | None:
+    """The week the picker starts on: the latest FINISHED week (25 Sep).
+    It was simply the latest week, so on a Friday people were writing up a
+    week with one game played, then going back and making the week before."""
+    if not weeks:
+        return None
+    unfinished = unfinished_weeks(weeks, season)
+    finished = [w for w in weeks if w not in unfinished]
+    return max(finished) if finished else max(weeks)
+
+
 def earliest_free_week(league: dict) -> int:
     """No free backfilling: a free paper is for the latest finished week or
     later. A league whose season isn't this one (an old season looked at in
@@ -1605,6 +1627,8 @@ def manage(
         total_reads=sum(int(p.get("view_count") or 0) for p in papers),
         regenerations=regenerations,
         regenerations_per_week=regenerations_allowed(owner),
+        default_week=default_week(weeks, league["season"]),
+        unfinished_weeks=unfinished_weeks(weeks, league["season"]),
         trial=trial_status(league, owner),
         trial_over=bool(trial_over),
         earliest_free_week=earliest_free_week(league),
@@ -1908,7 +1932,7 @@ def setup_form(request: Request, token: str):
                    league=league, paper_name=paper_name_for(league),
                    plan=league_plan(league),
                    managers=managers_for_page(db, league, weeks),
-                   latest_week=max(weeks) if weeks else None)
+                   latest_week=default_week(weeks, league["season"]))
 
 
 @app.post("/l/{token}/setup")

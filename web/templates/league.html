@@ -86,7 +86,7 @@
             <span class="field-label">Week</span>
             <select name="week">
                 {% for w in weeks %}
-                <option value="{{ w }}" {% if loop.last %}selected{% endif %}>Week {{ w }}{%
+                <option value="{{ w }}" {% if w == default_week %}selected{% endif %}>Week {{ w }}{% if w in unfinished_weeks %} (in progress){% endif %}{%
                     if w in regenerations %} &mdash; {{ regenerations[w] }} redo{{ '' if regenerations[w] == 1 else 's' }} left{% endif %}</option>
                 {% endfor %}
             </select>
