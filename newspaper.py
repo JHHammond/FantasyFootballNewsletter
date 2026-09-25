@@ -850,8 +850,15 @@ def render_back_page(obituaries=None, promo=None, lines=None,
     obits = _obituary_items((obituaries or [])[:OBITUARY_MAX], editable)
     records = _record_book_html(record_book)
     lines_html = _lines_items(lines, editable)
-    wire = render_transactions_html(transactions, editable) if transactions else ""
-    if not (obits or records or lines_html or wire):
+    # Trades get their own section (25 Sep); the wire keeps everything else.
+    def is_trade(t):
+        return isinstance(t, dict) and t.get("kind") == "trade"
+    trades = [t for t in (transactions or [])
+              if is_trade(t) and t.get("status") == "complete"]
+    others = [t for t in (transactions or []) if not is_trade(t)]
+    trades_html = render_trades_html(trades)
+    wire = render_transactions_html(others, editable) if others else ""
+    if not (obits or records or lines_html or wire or trades_html):
         return ""
 
     left = obits or records
@@ -859,6 +866,8 @@ def render_back_page(obituaries=None, promo=None, lines=None,
     if len(top) == 1:
         top = top * 2
     rows = [top] if top else []
+    if trades_html:
+        rows.append(["trades", "trades"])
     if wire:
         rows.append(["tx", "tx"])
     # Single-quoted CSS strings: the whole thing sits inside a double-quoted
@@ -882,8 +891,11 @@ def render_back_page(obituaries=None, promo=None, lines=None,
             <div class="bp-label">Next Week&rsquo;s Preview</div>
             <div class="bp-note">Made up from the projections. The Desk takes no bets.</div>
             {lines_html}</div>""")
+    if trades_html:
+        parts.append(f'<div class="bp-trades{" has-top" if top else ""}">'
+                     f'<div class="bp-label">Trades</div>{trades_html}</div>')
     if wire:
-        top_rule = " has-top" if top else ""
+        top_rule = " has-top" if (top or trades_html) else ""
         parts.append(f'<div class="bp-tx{top_rule}"><div class="bp-label">Transactions</div>'
                      f'<div class="wire">{wire}</div></div>')
 
@@ -1365,6 +1377,42 @@ def build_top_scorers(matchups, players_data=None, n=5):
 def get_player_headshot_url(player_id):
     """Sleeper CDN URL for player headshots."""
     return f"https://sleepercdn.com/content/nfl/players/{player_id}.jpg"
+
+
+def render_trades_html(trades):
+    """The week's trades, one card each, every side shown together (25 Sep):
+    what each team came away with — players, draft picks and FAAB."""
+    cards = []
+    for t in trades or []:
+        teams = list(t.get("teams") or [])
+        for team, _ in (t.get("adds") or []):
+            if team not in teams:
+                teams.append(team)
+        for team, _ in (t.get("picks") or []):
+            if team not in teams:
+                teams.append(team)
+        if len(teams) < 2:
+            continue
+        sides = []
+        for team in teams:
+            got = []
+            for who, pl in (t.get("adds") or []):
+                if who == team:
+                    where = "/".join(x for x in (pl.get("position"), pl.get("nfl_team")) if x)
+                    got.append(f'{safe(pl.get("name") or "a player")}'
+                               + (f' <span class="wire-pos">{safe(where)}</span>' if where else ""))
+            for who, label in (t.get("picks") or []):
+                if who == team:
+                    got.append(f'<span class="trade-pick">{safe(label)}</span>')
+            for _frm, to, amount in (t.get("faab") or []):
+                if to == team:
+                    got.append(f'<span class="trade-pick">${int(amount)} FAAB</span>')
+            items = "".join(f"<li>{g}</li>" for g in got) or "<li class='trade-none'>Nothing but relief</li>"
+            sides.append(f'<div class="trade-side"><div class="trade-team">'
+                         f'{safe(team)} <span>gets</span></div><ul>{items}</ul></div>')
+        swap = '<div class="trade-swap" aria-hidden="true">&#8644;</div>'
+        cards.append(f'<div class="trade-card">{swap.join(sides)}</div>')
+    return "".join(cards)
 
 
 def render_transactions_html(transactions, editable=False):
@@ -2705,6 +2753,24 @@ def _render_html(edition, theme=None):
         .bp-preview {{ grid-area: preview; }}
         .bp-tx {{ grid-area: tx; }}
         .bp-tx.has-top {{ border-top: 3px solid #111; }}
+        .bp-trades {{ grid-area: trades; }}
+        .bp-trades.has-top {{ border-top: 3px solid #111; }}
+        .trade-card {{
+            display: flex; align-items: stretch; gap: 14px;
+            padding: 12px 0; border-bottom: 1px dotted #cfc8b8;
+        }}
+        .trade-card:last-child {{ border-bottom: 0; }}
+        .trade-side {{ flex: 1; min-width: 0; }}
+        .trade-team {{ font-weight: 800; font-size: 15px; margin-bottom: 4px; }}
+        .trade-team span {{ font-weight: 400; font-style: italic; opacity: 0.7; }}
+        .trade-side ul {{ margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.5; }}
+        .trade-pick {{ font-style: italic; }}
+        .trade-none {{ list-style: none; margin-left: -18px; opacity: 0.6; font-style: italic; }}
+        .trade-swap {{ align-self: center; font-size: 26px; color: var(--accent, #c40000); }}
+        @media (max-width: 600px) {{
+            .trade-card {{ flex-direction: column; gap: 6px; }}
+            .trade-swap {{ align-self: flex-start; transform: rotate(90deg); font-size: 20px; }}
+        }}
         .rb-after-obits {{ margin-top: 18px; border-top: 3px solid #111; padding-top: 14px; }}
         .bp-obits > .obit:nth-last-child(2) {{ border-bottom: 0; }}
         .rb-row {{

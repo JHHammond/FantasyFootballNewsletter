@@ -1427,3 +1427,29 @@ def test_the_slim_index_keeps_only_what_is_read():
     assert slim["1"] == {"first_name": "Josh", "last_name": "Allen", "team": "BUF",
                          "fantasy_positions": ["QB"]}
     assert slim["PIT"] == {}
+
+
+def test_sleeper_trades_carry_picks_and_faab_and_pick_only_trades_survive(tmp_path):
+    rows = [
+        {"type": "trade", "status": "complete", "roster_ids": [1, 2],
+         "adds": {"4046": 1}, "drops": {"4046": 2},
+         "draft_picks": [{"season": "2027", "round": 1, "roster_id": 1,
+                          "previous_owner_id": 1, "owner_id": 2}],
+         "waiver_budget": [{"sender": 2, "receiver": 1, "amount": 15}], "created": 1},
+        {"type": "trade", "status": "complete", "roster_ids": [3, 5],
+         "adds": None, "drops": None,
+         "draft_picks": [{"season": "2027", "round": 2, "roster_id": 3,
+                          "previous_owner_id": 3, "owner_id": 5},
+                         {"season": "2028", "round": 11, "roster_id": 5,
+                          "previous_owner_id": 5, "owner_id": 3}], "created": 2},
+    ]
+    tx = _tx_provider(tmp_path, rows=rows).get_transactions("123", 2026, 3)
+    assert len(tx) == 2, "a trade of nothing but picks was dropped"
+    first, picks_only = tx
+    assert first.picks == [("Jagan34", "2027 1st-round pick (johnhenryhammond's)")]
+    assert first.faab == [("Jagan34", "johnhenryhammond", 15)]
+    assert ("superchaser", "2027 2nd-round pick (Satan's)") in picks_only.picks
+    assert ("Satan", "2028 11th-round pick (superchaser's)") in picks_only.picks
+    assert first.to_dict()["picks"] == [["Jagan34", "2027 1st-round pick (johnhenryhammond's)"]]
+    from providers.sleeper import _possessive
+    assert _possessive("Hank's Heroes") == "Hank's Heroes'" and _possessive("Satan") == "Satan's"

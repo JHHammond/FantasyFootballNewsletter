@@ -129,6 +129,7 @@ BASE_PRINT_CSS = """
     .player-card,
     .obit,
     .line-card,
+    .trade-card,
     .bp-promo,
     .classified,
     .fraud-callout,

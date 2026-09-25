@@ -478,3 +478,36 @@ def test_published_papers_carry_no_developer_comments():
         "<body><!-- MASTHEAD --><p>Hi</p><script>var s = '/* keep */';</script></body></html>")
     assert "how it works" not in html and "MASTHEAD" not in html
     assert ".a { color: red; }" in html and "'/* keep */'" in html and "<p>Hi</p>" in html
+
+
+# --- trades get their own section (John, 25 Sep) ------------------------------
+
+_TRADE = {"kind": "trade", "status": "complete", "week": 3, "teams": ["Wasteland", "Satan"],
+          "adds": [["Wasteland", {"name": "Bijan Robinson", "position": "RB", "nfl_team": "ATL"}],
+                   ["Satan", {"name": "Josh Allen", "position": "QB", "nfl_team": "BUF"}]],
+          "drops": [["Satan", {"name": "Bijan Robinson"}], ["Wasteland", {"name": "Josh Allen"}]],
+          "picks": [["Satan", "2027 1st-round pick (Wasteland's)"]],
+          "faab": [["Satan", "Wasteland", 15]]}
+_WAIVER = {"kind": "waiver", "status": "complete", "week": 3, "teams": ["Hands"],
+           "adds": [["Hands", {"name": "Rico Dowdle"}]], "drops": [], "bid": 14}
+
+
+def test_trades_get_their_own_section_with_every_side():
+    html = newspaper.render_back_page([], None, [], [_TRADE, _WAIVER])
+    trades = html[html.index(">Trades<"):html.index(">Transactions<")]
+    assert "Wasteland <span>gets</span>" in trades and "Satan <span>gets</span>" in trades
+    assert "Bijan Robinson" in trades and "Josh Allen" in trades
+    assert "2027 1st-round pick (Wasteland&#x27;s)" in trades or "2027 1st-round pick (Wasteland's)" in trades
+    assert "$15 FAAB" in trades
+    wire = html[html.index(">Transactions<"):]
+    assert "Rico Dowdle" in wire and "Josh Allen" not in wire      # no double listing
+
+
+def test_no_trades_means_no_trades_section():
+    html = newspaper.render_back_page([], None, [], [_WAIVER])
+    assert ">Trades<" not in html and "Rico Dowdle" in html
+
+
+def test_a_failed_trade_is_not_printed_as_a_trade():
+    html = newspaper.render_back_page([], None, [], [dict(_TRADE, status="failed")])
+    assert ">Trades<" not in html

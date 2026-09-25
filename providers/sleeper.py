@@ -100,6 +100,22 @@ _PLAYER_INDEXES: dict[str, tuple[float, dict]] = {}
 _PLAYER_INDEX_LOCK = threading.Lock()
 
 
+def _possessive(name: str) -> str:
+    """"Satan" -> "Satan's", "Hank's Heroes" -> "Hank's Heroes'"."""
+    name = (name or "").strip()
+    return f"{name}'" if name.lower().endswith("s") else f"{name}'s"
+
+
+def _ordinal(n) -> str:
+    """1 -> "1st", 2 -> "2nd", 11 -> "11th"."""
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return str(n or "")
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def _slim_players(raw) -> dict:
     """{player_id: {only the fields we use}}, skipping empty values."""
     if not isinstance(raw, dict):
@@ -727,7 +743,26 @@ class SleeperProvider(FantasyProvider):
             drops = [(team(rid), player(pid))
                      for pid, rid in (row.get("drops") or {}).items()]
 
-            if not adds and not drops:
+            # Trades can move draft picks and FAAB as well as players.
+            picks, faab = [], []
+            if kind == "trade":
+                for pk in row.get("draft_picks") or []:
+                    if not isinstance(pk, dict) or pk.get("owner_id") is None:
+                        continue
+                    rnd = _ordinal(pk.get("round"))
+                    label = f"{pk.get('season') or ''} {rnd}-round pick".strip()
+                    original = pk.get("roster_id")
+                    if original is not None and original != pk.get("owner_id"):
+                        label += f" ({_possessive(team(original))})"
+                    picks.append((team(pk["owner_id"]), label))
+                for fb in row.get("waiver_budget") or []:
+                    if isinstance(fb, dict) and fb.get("amount"):
+                        faab.append((team(fb.get("sender")), team(fb.get("receiver")),
+                                     int(fb["amount"])))
+
+            # A trade of nothing but picks has no adds or drops, and used to
+            # be skipped here as if it were empty.
+            if not adds and not drops and not picks and not faab:
                 continue
 
             settings = row.get("settings") or {}
@@ -742,6 +777,8 @@ class SleeperProvider(FantasyProvider):
                 drops=drops,
                 bid=bid if isinstance(bid, int) else None,
                 created=row.get("created"),
+                picks=picks,
+                faab=faab,
             ))
 
         # Oldest first reads as a wire: the week in the order it happened.
