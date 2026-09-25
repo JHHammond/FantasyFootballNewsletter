@@ -1298,16 +1298,26 @@ def test_call_claude_survives_a_thinking_block_end_to_end(monkeypatch):
         "Walker went for 34.1 against a 13.7 projection.")
 
 
-def test_the_awards_do_not_explain_who_their_namesakes_are():
-    """The names are the league's joke and stay unexplained; no roster fact
-    is hardcoded (Minshew's 'backup QB for KC' went stale within a season)."""
+def test_each_award_opens_with_one_line_on_what_it_is_about():
+    """John, 25 Sep: bring back the short explanation at the start of each
+    award. Only the joke, though — no current roster fact about the namesake
+    (Minshew's 'backup QB for KC' went stale within a season)."""
     import inspect
     titles = [t for t, _, _ in writer.STANDING_AWARDS]
     assert titles == ["TONY SNELL WINDSPRINT AWARD", "KYLE PITTS AWARD",
                       "NICK FOLES AWARD", "JOE BURROW AWARD"]
     source = inspect.getsource(writer.generate_awards)
-    assert "Never explain who" in source
+    assert "ONE short sentence saying what the award is about" in source
+    assert "nothing current about the" in source
     assert "backup QB" not in source
+
+
+def test_every_recap_opens_with_a_one_sentence_summary(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    writer.generate_matchup_body(writer.build_game_context(GAME))
+    assert "START WITH ONE SENTENCE THAT SUMS UP THE WHOLE MATCHUP" in seen["p"]
+    assert "flow straight into the breakdown" in seen["p"]
 
 
 def test_the_writer_is_told_not_to_remember_rosters():

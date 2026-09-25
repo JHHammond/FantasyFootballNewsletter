@@ -1517,12 +1517,18 @@ Write the headline for this game story.
 #: same way — a formula nobody chose. Assigning a different way in to each
 #: game is the cheapest way to make a page of them read like a writer.
 OPENINGS = (
-    "Open on the one player who decided it.",
-    "Open on the losing manager's worst call of the week.",
-    "Open on the score, and what kind of game that number means.",
-    "Open with one short, blunt sentence, then explain it.",
-    "Open on the winning manager.",
-    "Open on the moment the game was lost, not the moment it was won.",
+    # The ANGLE for the one-sentence summary that opens every recap (John,
+    # 25 Sep). Each paper's games rotate through these, so no two recaps in
+    # one paper sum up their game the same way.
+    "the single moment or decision the game turned on",
+    "a short, flat verdict on the losing team",
+    "the bench, if the loser's bench would have changed the result; "
+    "otherwise the player who carried the winner",
+    "what the league will be saying to the losing manager in the group chat",
+    "the score, and what kind of Sunday that score means",
+    "the winning team, and whether they had a plan or just got lucky",
+    "two players, one on each side, who tell the whole game between them",
+    "the question the losing manager is asking himself this morning",
 )
 
 
@@ -1654,7 +1660,10 @@ HOW IT SHOULD READ:
   supports it. Two weeks is not a season.
 {earlier}
 
-{opening}
+START WITH ONE SENTENCE THAT SUMS UP THE WHOLE MATCHUP: who won, and the real
+reason why, the way you'd answer "what happened in that one?" Come at it from
+this angle: {opening}. Then flow straight into the breakdown, so that sentence
+leads somewhere instead of standing alone.
 Do not end on the two teams' records — they are printed beside the story.
 End on whatever the last real point is.
 
@@ -1751,9 +1760,21 @@ def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
         return []
 
     prompt = f"""
-Write this week's AWARDS. For each: the title exactly as given, and a body of
-one or two sentences. Round player scores to whole numbers. Never explain who
-the award is named after. Refer to teams by their team names.
+Write this week's AWARDS. For each: the title exactly as given, and a body
+that does two things, in this order:
+
+1. ONE short sentence saying what the award is about, in the paper's voice —
+   the joke behind it, so a reader who isn't in on it gets it. For the
+   standing awards, make it from "The joke" given; for the league's own, from
+   what it goes to. Say it fresh each week; don't copy the wording given.
+   Under twenty words. Only the joke given: nothing current about the
+   namesake (his team, his role, how he's playing), which goes stale.
+2. One or two sentences on this week's winner.
+
+Round player scores to whole numbers. Refer to teams by their team names.
+Example body: "Tony Snell once played twenty minutes of an NFL game and
+recorded nothing at all. This week the honor goes to Sell the Falcons, who
+started Tee Higgins and got exactly one point for their trouble."
 
 THE STANDING AWARDS (the winner is decided — just write it):
 {chr(10).join(standing) or "(none this week)"}
