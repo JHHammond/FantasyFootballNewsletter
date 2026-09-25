@@ -99,7 +99,7 @@ _STYLE = (
 )
 
 _BUTTON = (
-    "display:inline-block;background:#2d5016;color:#ffffff;text-decoration:none;"
+    "display:inline-block;background:#b3141c;color:#ffffff;text-decoration:none;"
     "padding:13px 26px;font-family:Helvetica,Arial,sans-serif;font-size:15px;"
     "font-weight:700;letter-spacing:1px;text-transform:uppercase;"
 )
@@ -202,6 +202,32 @@ def send_weekly_edition(
         _shell(body, _marketing_footer(unsubscribe_url)),
         unsubscribe_url=unsubscribe_url,
     )
+
+
+def send_weekly_edition_to_owner(
+    to: str, paper_name: str, week: int, headline: str, paper_url: str,
+) -> SendResult:
+    """The commissioner's own copy: the delivery they are paying for, so it is
+    a service email rather than marketing — no unsubscribe footer, but it says
+    plainly why it came and where to turn it off."""
+    _, _, base, _ = _config()
+    body = f"""
+  <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#6b6050;">
+    Week {week}
+  </div>
+  <h1 style="font-size:28px;line-height:1.15;margin:8px 0 18px;font-weight:900;">
+    {html.escape(headline)}
+  </h1>
+  <p>This week&rsquo;s <strong>{html.escape(paper_name)}</strong> is written and
+     published. Drop the link in your league chat:</p>
+  <p style="margin:24px 0;"><a href="{paper_url}" style="{_BUTTON}">Read the paper</a></p>
+  <p style="font-size:14px;color:#3a3a3a;word-break:break-all;">{html.escape(paper_url)}</p>
+  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #d8d0c0;
+              font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b6050;">
+    You&rsquo;re getting this because weekly delivery is on for your league.
+    Change it any time from <a href="{base}/account" style="color:#6b6050;">your papers</a>.
+  </div>"""
+    return _send(to, f"{paper_name} — Week {week} is out", _shell(body))
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,9 @@
 """
 Weekly auto-send.
 
-For every league with auto_send on: generate this week's paper if it doesn't
-exist yet, then email it to every confirmed subscriber.
+For every league whose owner pays for weekly delivery (and hasn't switched it
+off): generate this week's paper if it doesn't exist yet, then email it to the
+commissioner and every confirmed subscriber.
 
 Two ways to run it, because hosting platforms differ:
 
@@ -32,7 +33,17 @@ from .generate import generate_and_store, paper_name_for  # noqa: E402
 
 
 def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
-    """Run the weekly job. Returns a summary suitable for logging or a response."""
+    """Run the weekly job. Returns a summary suitable for logging or a response.
+
+    WHO (24 Sep): every league whose owner is on a plan with weekly delivery,
+    unless the owner switched it off. It used to be only leagues with an
+    opt-in box ticked — a box that started unticked — so people paid for
+    delivery and got nothing.
+
+    TO WHOM: the commissioner, always, plus every confirmed subscriber. The
+    commissioner is the person who paid and the one who shares the link; the
+    subscriber list is empty for most leagues.
+    """
     report = {
         "week": week,
         "leagues": 0,
@@ -42,7 +53,8 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
         "errors": [],
     }
 
-    for league in db.leagues_with_auto_send():
+    for league in db.leagues_for_weekly_send():
+        owner = league.pop("_owner", None) or {}
         report["leagues"] += 1
         name = paper_name_for(league)
         season = league["season"]
@@ -70,20 +82,30 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
             report["errors"].append(f"{name}: no paper after generation")
             continue
 
-        subscribers = db.active_subscribers(league["id"])
-        if not subscribers:
-            report["skipped"].append(f"{name}: no subscribers")
-            # Still mark it, so we don't retry the send every hour forever.
-            db.mark_emailed(league["id"], season, week)
-            continue
-
         base = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
         paper_url = f"{base}/p/{league['public_slug']}/{season}/week-{week}"
         headline = ((paper.get("ai_cache") or {}).get("headline")
                     if isinstance(paper.get("ai_cache"), dict) else None)
         headline = headline or f"Week {week} is out"
 
-        sent = 0
+        owner_email = (owner.get("email") or "").strip().lower()
+        subscribers = [s for s in db.active_subscribers(league["id"])
+                       if (s.get("email") or "").strip().lower() != owner_email]
+
+        if not owner_email and not subscribers:
+            report["skipped"].append(f"{name}: nobody to send to")
+            db.mark_emailed(league["id"], season, week)
+            continue
+
+        sent = failed = 0
+        if owner_email:
+            result = emailer.send_weekly_edition_to_owner(
+                owner_email, name, week, headline, paper_url)
+            if result.ok:
+                sent += 1
+            else:
+                failed += 1
+                report["errors"].append(f"{name} -> owner: {result.detail}")
         for subscriber in subscribers:
             result = emailer.send_weekly_edition(
                 subscriber["email"], name, week, headline,
@@ -92,10 +114,16 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
             if result.ok:
                 sent += 1
             else:
+                failed += 1
                 report["errors"].append(f"{name} -> {subscriber['email']}: {result.detail}")
 
         report["emails_sent"] += sent
-        db.mark_emailed(league["id"], season, week)
+        # Nothing went out at all — Resend down, a domain not verified yet —
+        # so leave it unmarked and the next run tries again. Once anything has
+        # gone out, mark it: a retry that re-mails the people who DID get it is
+        # worse than one person missing a week.
+        if sent or not failed:
+            db.mark_emailed(league["id"], season, week)
 
     # Housekeeping, while we're already awake once a week. claim_rate_slot only
     # prunes the bucket it was called for, so an address that appeared once and
@@ -108,40 +136,78 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
 def resolve_week() -> int:
     """Which week the job should write up when nobody says.
 
-    Asks the platform first, because it knows about schedule changes and the
-    difference between the regular season and the playoffs. Falls back to date
-    arithmetic that works in any year — the previous version of this lived in
-    render.yaml as a fixed 2025 date, which meant the job silently wrote up
-    week 18 for the whole of every subsequent season.
+    The date, not the platform (24 Sep). Sleeper's live `week` is the week in
+    progress, and WHEN it rolls over is Sleeper's business — if it hasn't yet
+    on a Tuesday morning, "that minus one" is the week before last, and the
+    job would mail out an old paper. The NFL calendar is a rule (the opener is
+    the Thursday after Labor Day, weeks run Thursday to Monday), so the week
+    that just finished can be worked out exactly from today's date.
     """
     import nfl_week
-
-    try:
-        from providers import get_provider
-        state = get_provider("sleeper").current_state()
-    except Exception:  # noqa: BLE001 — a convenience lookup, never fatal
-        state = None
-
-    if state and state.get("season_type") == "regular":
-        # Sleeper's `week` is the week now in progress. On Tuesday the paper
-        # people want is about the weekend that just finished.
-        return max(1, min(nfl_week.REGULAR_SEASON_WEEKS, int(state["week"]) - 1)) \
-            if int(state["week"]) > 1 else 1
-
     return nfl_week.completed_week()
+
+
+def plan_weekly(db, week: int) -> list[str]:
+    """What send_weekly WOULD do, without generating or sending anything.
+
+        python -m web.tasks --dry-run        # this week
+        python -m web.tasks 3 --dry-run      # a given week
+    """
+    lines = []
+    for league in db.leagues_for_weekly_send():
+        owner = league.pop("_owner", None) or {}
+        paper = db.get_paper(league["id"], league["season"], week)
+        subs = [s for s in db.active_subscribers(league["id"])
+                if (s.get("email") or "").lower() != (owner.get("email") or "").lower()]
+        if paper and paper.get("emailed_at"):
+            state = "already sent"
+        elif paper:
+            state = "paper exists, would email"
+        else:
+            state = "would WRITE the paper, then email"
+        who = ("commissioner" if owner.get("email") else "no commissioner email") + \
+              f" + {len(subs)} subscriber(s)"
+        lines.append(f"{paper_name_for(league)} ({league['provider']}, season "
+                     f"{league['season']}): {state} -> {who}")
+    return lines
 
 
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     regenerate = "--regenerate" in sys.argv
+    dry_run = "--dry-run" in sys.argv
+
+    if dry_run:
+        import nfl_week
+        from . import db
+        week = int(args[0]) if args else resolve_week()
+        print(f"DRY RUN, week {week} (in season: {nfl_week.is_in_season()}). "
+              f"Nothing is written or sent.")
+        lines = plan_weekly(db, week)
+        for line in lines:
+            print("  " + line)
+        print(f"{len(lines)} league(s). RESEND_API_KEY "
+              f"{'is set' if os.getenv('RESEND_API_KEY') else 'is NOT set — the real run would refuse'}.")
+        return 0
 
     if os.getenv("DEMO_MODE") == "1":
         print("Refusing to run the weekly job in DEMO_MODE — there's no real data.")
         return 1
 
+    # No Resend key means every "send" is a line in the log that reports
+    # success — the job would mark the week sent and nobody would get a thing.
+    if not os.getenv("RESEND_API_KEY"):
+        print("RESEND_API_KEY is not set on this job, so no email can go out. "
+              "Refusing to run rather than marking the week as sent.")
+        return 1
+
     if args:
         week = int(args[0])
     else:
+        import nfl_week
+        if not nfl_week.is_in_season():
+            print("Not in the NFL regular season; nothing to send.")
+            return 0
         week = resolve_week()
         print(f"No week given; resolved to week {week}.")
 

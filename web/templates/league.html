@@ -314,12 +314,12 @@
         <label class="check{% if not plan.auto_send %} locked-option{% endif %}">
             <input type="checkbox" name="auto_send"
                    {% if not plan.auto_send %}disabled{% endif %}
-                   {% if league.auto_send %}checked{% endif %} />
+                   {% if plan.auto_send and not league.auto_send_off %}checked{% endif %} />
             <span>
                 Do it for me every week.{% if not plan.auto_send %}{{ lock(lock_reasons.auto_send) }}{% endif %}
                 <span class="check-help">
-                    We'll generate Tuesday morning and email it to everyone who
-                    subscribed, so you don't have to remember.
+                    We write it Tuesday morning and email the link to you and
+                    everyone who subscribed, so you don't have to remember.
                 </span>
             </span>
         </label>

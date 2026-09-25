@@ -726,9 +726,36 @@ def leagues_with_auto_send() -> list[dict[str, Any]]:
     return res.data or []
 
 
+def leagues_for_weekly_send() -> list[dict[str, Any]]:
+    """Every league the Tuesday job should write and deliver, each with its
+    owner attached as `_owner`.
+
+    A league qualifies when its OWNER is on a plan that includes weekly
+    delivery right now — so a lapsed card stops the papers the same week — and
+    the owner hasn't switched delivery off (migration 018). Asked per owner
+    rather than per league: a handful of paying accounts, not every league.
+    """
+    import plans
+    owners = (client().table("users").select("*")
+              .in_("plan", [plans.PAID, plans.STAFF]).execute().data or [])
+    owners = {u["id"]: u for u in owners if plans.plan_for(u).auto_send}
+    if not owners:
+        return []
+    leagues = (client().table("leagues").select("*")
+               .in_("user_id", list(owners)).execute().data or [])
+    out = []
+    for league in leagues:
+        if league.get("auto_send_off"):
+            continue
+        out.append({**league, "_owner": owners[league["user_id"]]})
+    return out
+
+
 def mark_emailed(league_id: str, season: int, week: int) -> None:
+    from datetime import datetime, timezone
     (
-        client().table("newspapers").update({"emailed_at": "now()"})
+        client().table("newspapers")
+        .update({"emailed_at": datetime.now(timezone.utc).isoformat()})
         .eq("league_id", league_id).eq("season", season).eq("week", week).execute()
     )
 

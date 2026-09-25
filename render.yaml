@@ -165,14 +165,16 @@ services:
                            # it revokes the old URL, which is how to retire a
                            # link that ended up somewhere it should not be.
 
-  # Tuesday 9am ET. Generates the week for every league with auto-send on and
-  # emails their subscribers. Idempotent, so a retry can't double-send.
+  # Tuesday 10am and 6pm ET (14:00 and 22:00 UTC; 9am/5pm once clocks go
+  # back). Generates the week for every paid league with delivery on and
+  # emails the commissioner and subscribers. Idempotent: the evening run only
+  # picks up what failed in the morning, and never re-mails anyone.
   - type: cron
     name: weekly-papers
     runtime: python
     plan: starter
     region: oregon
-    schedule: "0 14 * * 2"
+    schedule: "0 14,22 * * 2"
     buildCommand: pip install -r requirements.txt
     # No week argument: the job asks Sleeper what week it is and falls back to
     # nfl_week.py, which derives the opener from Labor Day for any year. This

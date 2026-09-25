@@ -405,6 +405,19 @@ def leagues_with_auto_send() -> list[dict[str, Any]]:
     return [dict(l) for l in _LEAGUES.values() if l.get("auto_send")]
 
 
+def leagues_for_weekly_send() -> list[dict[str, Any]]:
+    import plans
+    out = []
+    for league in _LEAGUES.values():
+        owner = _USERS.get(league.get("user_id") or "")
+        if not owner or not plans.plan_for(owner).auto_send:
+            continue
+        if league.get("auto_send_off"):
+            continue
+        out.append({**dict(league), "_owner": dict(owner)})
+    return out
+
+
 def mark_emailed(league_id: str, season: int, week: int) -> None:
     with _lock:
         paper = _PAPERS.get((league_id, season, week))

@@ -1667,16 +1667,30 @@ def update_settings(
     # curl request with any field in it.
     plan = league_plan(league)
 
-    db.update_league(league["id"], {
+    # Weekly delivery is ON for a paid league unless this box is unticked
+    # (24 Sep): the job reads auto_send_off. A free league's form arrives with
+    # the box disabled and so empty, which must not be read as "turn it off" —
+    # it would silently opt them out the day they upgrade.
+    delivery = {}
+    if plan.auto_send:
+        wants = auto_send == "on"
+        delivery = {"auto_send": wants, "auto_send_off": not wants}
+
+    fields = {
         "paper_name": paper_name.strip() or None,
         "commissioner_name": commissioner.strip(),
-        "auto_send": auto_send == "on" and plan.auto_send,
+        **delivery,
         "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
         "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
         "theme": plans.resolve_theme(plan, themes.resolve(theme)),
         "stakes": stakes.strip()[:300] or None,
         "punishment": punishment.strip()[:300] or None,
-    })
+    }
+    try:
+        db.update_league(league["id"], fields)
+    except Exception:  # noqa: BLE001 — migration 018 not run yet
+        fields.pop("auto_send_off", None)
+        db.update_league(league["id"], fields)
     return RedirectResponse(f"/l/{token}?notice=Saved.", status_code=303)
 
 

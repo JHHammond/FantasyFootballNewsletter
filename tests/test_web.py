@@ -460,17 +460,24 @@ def _subscribe_and_confirm(client, league, email="a@b.com"):
     return row
 
 
-def test_weekly_send_mails_confirmed_subscribers(client, league, sent_emails):
+def test_weekly_send_mails_the_commissioner_and_confirmed_subscribers(client, league, sent_emails):
     from web.tasks import send_weekly
 
     _subscribe_and_confirm(client, league)
-    demo_db.update_league(league["id"], {"auto_send": True})
     demo_db.save_paper(league["id"], 3, 2025, "path", "url", {"headline": "CHAOS"})
     sent_emails.clear()
 
     report = send_weekly(demo_db, 3)
-    assert report["emails_sent"] == 1
-    assert "CHAOS" in sent_emails[0]["body"]
+    assert report["emails_sent"] == 2
+    to = {e["to"]: e for e in sent_emails}
+    assert set(to) == {"owner@example.com", "a@b.com"}
+    assert all("CHAOS" in e["body"] for e in sent_emails)
+    # The subscriber's copy is marketing and carries unsubscribe; the paying
+    # commissioner's is the service they bought and says where to turn it off.
+    assert to["a@b.com"]["unsubscribe_url"] is not None
+    assert "Unsubscribe" in to["a@b.com"]["body"]
+    assert to["owner@example.com"]["unsubscribe_url"] is None
+    assert "/account" in to["owner@example.com"]["body"]
 
 
 def test_weekly_send_is_idempotent(client, league, sent_emails):
@@ -478,7 +485,6 @@ def test_weekly_send_is_idempotent(client, league, sent_emails):
     from web.tasks import send_weekly
 
     _subscribe_and_confirm(client, league)
-    demo_db.update_league(league["id"], {"auto_send": True})
     demo_db.save_paper(league["id"], 3, 2025, "path", "url", {"headline": "X"})
 
     send_weekly(demo_db, 3)
@@ -489,25 +495,82 @@ def test_weekly_send_is_idempotent(client, league, sent_emails):
     assert sent_emails == []
 
 
-def test_weekly_send_skips_leagues_without_auto_send(client, league, sent_emails):
+def test_a_paid_league_is_delivered_without_ticking_anything(client, league, sent_emails):
+    """John, 24 Sep: people paid and expected it every week. The box started
+    unticked, so paying used to deliver nothing."""
     from web.tasks import send_weekly
+    assert not demo_db._LEAGUES[league["id"]].get("auto_send")      # never ticked
+    demo_db.save_paper(league["id"], 3, 2025, "path", "url", {})
+    assert send_weekly(demo_db, 3)["leagues"] == 1
+    assert [e["to"] for e in sent_emails] == ["owner@example.com"]
 
-    _subscribe_and_confirm(client, league)
+
+def test_switching_delivery_off_is_respected(client, league, sent_emails):
+    from web.tasks import send_weekly
+    demo_db.update_league(league["id"], {"auto_send_off": True})
     demo_db.save_paper(league["id"], 3, 2025, "path", "url", {})
     assert send_weekly(demo_db, 3)["leagues"] == 0
+    assert sent_emails == []
 
 
-def test_weekly_email_carries_unsubscribe(client, league, sent_emails):
+def test_free_and_lapsed_owners_get_no_weekly_paper(client, league, free_league, sent_emails):
     from web.tasks import send_weekly
+    owner = next(u for u in demo_db._USERS.values() if u["email"] == "owner@example.com")
+    demo_db.set_plan(owner["id"], plan="paid", status="past_due")
+    assert send_weekly(demo_db, 3)["leagues"] == 0
+    assert sent_emails == []
 
-    _subscribe_and_confirm(client, league)
-    demo_db.update_league(league["id"], {"auto_send": True})
+
+def test_a_commissioner_who_also_subscribed_gets_one_email(client, league, sent_emails):
+    from web.tasks import send_weekly
+    _subscribe_and_confirm(client, league, email="owner@example.com")
     demo_db.save_paper(league["id"], 3, 2025, "path", "url", {})
     sent_emails.clear()
+    assert send_weekly(demo_db, 3)["emails_sent"] == 1
 
-    send_weekly(demo_db, 3)
-    assert sent_emails[0]["unsubscribe_url"] is not None
-    assert "Unsubscribe" in sent_emails[0]["body"]
+
+def test_a_week_where_nothing_sent_is_retried(client, league, monkeypatch):
+    from web.tasks import send_weekly
+    demo_db.save_paper(league["id"], 3, 2025, "path", "url", {})
+    monkeypatch.setattr(emailer, "_send",
+                        lambda *a, **k: emailer.SendResult(ok=False, detail="domain not verified"))
+    first = send_weekly(demo_db, 3)
+    assert first["errors"] and not demo_db.get_paper(league["id"], 2025, 3).get("emailed_at")
+
+    sent = []
+    monkeypatch.setattr(emailer, "_send",
+                        lambda to, *a, **k: sent.append(to) or emailer.SendResult(ok=True))
+    assert send_weekly(demo_db, 3)["emails_sent"] == 1 and sent == ["owner@example.com"]
+    assert demo_db.get_paper(league["id"], 2025, 3).get("emailed_at")
+
+
+def test_the_job_refuses_to_run_without_resend(monkeypatch, capsys):
+    from web import tasks
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    monkeypatch.setattr("sys.argv", ["web.tasks", "3"])
+    assert tasks.main() == 1
+    assert "RESEND_API_KEY" in capsys.readouterr().out
+
+
+def test_tuesday_writes_up_the_weekend_that_just_finished():
+    """By the date, not by asking Sleeper — whose live week may not have
+    rolled over on a Tuesday morning."""
+    import datetime, nfl_week
+    from web import tasks
+    assert nfl_week.completed_week(datetime.date(2026, 9, 29)) == 3   # Tue after week 3
+    assert nfl_week.completed_week(datetime.date(2026, 9, 15)) == 1   # Tue after the opener
+    assert nfl_week.completed_week(datetime.date(2027, 1, 12)) == 18  # Tue after week 18
+    assert "completed_week" in __import__("inspect").getsource(tasks.resolve_week)
+
+
+def test_unticking_delivery_turns_it_off_but_a_free_form_never_does(client, league, free_league):
+    client.post("/l/secret-admin-token/settings", data={"paper_name": "X"})
+    assert demo_db._LEAGUES[league["id"]].get("auto_send_off") is True
+    client.post("/l/secret-admin-token/settings", data={"paper_name": "X", "auto_send": "on"})
+    assert demo_db._LEAGUES[league["id"]].get("auto_send_off") is False
+    client.post("/l/free-admin-token/settings", data={"paper_name": "Y"})
+    assert not demo_db._LEAGUES[free_league["id"]].get("auto_send_off")
 
 
 def test_weekly_task_endpoint_requires_the_key(client, league):
@@ -5582,3 +5645,12 @@ def test_the_bucket_is_not_listable_on_a_fresh_install():
     sql = pathlib.Path("migrations/002_accountless.sql").read_text()
     assert "create policy \"newspapers are publicly readable\"" not in sql
     assert "drop policy" in pathlib.Path("migrations/017_no_bucket_listing.sql").read_text()
+
+
+def test_the_dry_run_lists_leagues_and_sends_nothing(client, league, sent_emails):
+    from web.tasks import plan_weekly
+    _subscribe_and_confirm(client, league)
+    sent_emails.clear()
+    lines = plan_weekly(demo_db, 3)
+    assert len(lines) == 1 and "would WRITE" in lines[0] and "1 subscriber" in lines[0]
+    assert sent_emails == [] and demo_db.get_paper(league["id"], 2025, 3) is None
