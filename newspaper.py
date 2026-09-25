@@ -950,6 +950,21 @@ def render_streak(streak):
     return f'<span class="streak streak-t" title="Tied">&ndash;&thinsp;{n}</span>'
 
 
+def _trial_note(last, base=None):
+    """On a free league's third and last free paper, where every reader sees
+    it (25 Sep). Addressed to the league, because the eleven people reading
+    are the ones who will lean on the commissioner."""
+    if not last:
+        return ""
+    site = html_escape((base or "https://commissionersdesk.com").rstrip("/"))
+    return f"""
+        <div class="trial-note">
+            <strong>This is the last free edition.</strong>
+            Your commissioner can keep the presses running at
+            <a href="{site}">{site.split("//", 1)[-1]}</a>.
+        </div>"""
+
+
 def render_standings_html(standings, trends=None):
     rows = []
     trends = trends or {}
@@ -1846,6 +1861,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         # Ad inventory. Falls back to house ads so the paper never has a
         # visible hole. See ads.py for the network-fill hooks.
         "ed_headline": ed("headline", editable),
+        "trial_note_html": _trial_note((ai_content or {}).get("trial_last"), canonical_base),
         "ed_lead": ed("lead_story", editable),
         "ed_fraud": ed("fraud_watch", editable),
         "hero_image_html": render_image_slot(
@@ -2069,6 +2085,14 @@ def _render_html(edition, theme=None):
             padding-bottom: 12px;
         }}
 
+        .trial-note {{
+            margin: 14px 36px 0; padding: 10px 16px; text-align: center;
+            border: 2px solid var(--accent, #c40000); font-size: 15px;
+            font-family: Georgia, "Times New Roman", serif;
+        }}
+        .trial-note strong {{ color: var(--accent, #c40000); text-transform: uppercase; letter-spacing: 1px; margin-right: 6px; }}
+        .trial-note a {{ color: inherit; font-weight: 700; }}
+        @media print {{ .trial-note {{ display: none; }} }}
         .dateline-bar {{
             display: flex;
             justify-content: space-between;
@@ -3031,6 +3055,8 @@ def _render_html(edition, theme=None):
                 <span>{edition['dateline_right']}</span>
             </div>
         </div>
+
+        {edition.get('trial_note_html', '')}
 
         <!-- FRONT PAGE 3-COL -->
         <div class="front-page">

@@ -38,7 +38,8 @@ def clean_state(monkeypatch):
     for store in (demo_db._LEAGUES, demo_db._LORE, demo_db._PAPERS,
                   demo_db._STORAGE, demo_db._SUBSCRIBERS, demo_db._MAGIC_LINKS,
                   demo_db._RATE_EVENTS, demo_db._USERS,
-                  demo_db._PUBLISHER_ADS, demo_db._MANAGERS, demo_db._AWARDS):
+                  demo_db._PUBLISHER_ADS, demo_db._MANAGERS, demo_db._AWARDS,
+                  demo_db._TRIAL):
         store.clear()
     monkeypatch.setattr(webapp, "db", demo_db)
     yield
@@ -3735,7 +3736,7 @@ def test_the_remaining_count_is_on_the_week_picker(client, league, monkeypatch):
     _generate(client)   # one redo spent
 
     body = client.get("/l/secret-admin-token").text
-    assert "2 redos left" in body, "the remaining count is not on the week picker"
+    assert "4 redos left" in body, "the remaining count is not on the week picker"   # paid: five a week
 
 
 def test_the_past_editions_list_shows_what_each_paper_has_used(client, league):
@@ -3745,7 +3746,7 @@ def test_the_past_editions_list_shows_what_each_paper_has_used(client, league):
     demo_db.save_paper(league["id"], 3, league["season"], "p", "u", {"h": 1})
 
     body = client.get("/l/secret-admin-token").text
-    assert "regenerated 1 of 3" in body
+    assert "regenerated 1 of 5" in body
 
 
 def test_a_paper_that_was_never_regenerated_says_nothing_about_it(client, league):
@@ -5069,12 +5070,12 @@ def test_the_plan_card_is_at_the_bottom_of_the_account_page(client):
 def test_free_manage_page_points_at_the_upgrade(client, free_league, monkeypatch):
     monkeypatch.setattr(webapp, "get_provider", _verify_ok())
     html = client.get("/l/free-admin-token").text
-    assert 'class="plan-note"' in html
+    assert 'class="trial-box' in html and "/account#plan" in html
 
 
 def test_paid_manage_page_does_not_nag(client, league, monkeypatch):
     monkeypatch.setattr(webapp, "get_provider", _verify_ok())
-    assert 'class="plan-note"' not in client.get("/l/secret-admin-token").text
+    assert 'class="trial-box' not in client.get("/l/secret-admin-token").text
 
 
 def test_the_header_is_about_the_viewer_not_the_leagues_owner(client, league, monkeypatch):
@@ -5497,7 +5498,7 @@ def test_the_generate_button_asks_for_a_letter_first(client, league):
 def test_the_letter_reaches_the_writer(client, league, monkeypatch):
     got = {}
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk, letter="": got.update(week=wk, letter=letter))
+                        lambda db_, lg, wk, letter="", **_k: got.update(week=wk, letter=letter))
     client.post("/l/secret-admin-token/generate",
                 data={"week": "3", "letter": "  Gentlemen.\n\nI am undefeated.  "},
                 follow_redirects=False)
@@ -5507,7 +5508,7 @@ def test_the_letter_reaches_the_writer(client, league, monkeypatch):
 def test_no_letter_means_the_paper_writes_its_own(client, league, monkeypatch):
     got = {}
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk, letter="": got.update(letter=letter))
+                        lambda db_, lg, wk, letter="", **_k: got.update(letter=letter))
     client.post("/l/secret-admin-token/generate", data={"week": "3"},
                 follow_redirects=False)
     assert got == {"letter": ""}
@@ -5516,7 +5517,7 @@ def test_no_letter_means_the_paper_writes_its_own(client, league, monkeypatch):
 def test_a_letter_is_capped(client, league, monkeypatch):
     got = {}
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk, letter="": got.update(letter=letter))
+                        lambda db_, lg, wk, letter="", **_k: got.update(letter=letter))
     client.post("/l/secret-admin-token/generate",
                 data={"week": "3", "letter": "x" * 20000}, follow_redirects=False)
     assert len(got["letter"]) == _gen.MAX_LETTER_CHARS
@@ -5525,7 +5526,7 @@ def test_a_letter_is_capped(client, league, monkeypatch):
 def test_the_setup_wizard_asks_too_and_passes_it_on(client, league, monkeypatch):
     got = {}
     monkeypatch.setattr(webapp, "generate_and_store",
-                        lambda db_, lg, wk, letter="": got.update(letter=letter))
+                        lambda db_, lg, wk, letter="", **_k: got.update(letter=letter))
     client.post("/l/secret-admin-token/setup",
                 data={"then": "generate", "week": "3", "letter": "Hello league"},
                 follow_redirects=False)
@@ -5825,3 +5826,105 @@ def test_regenerating_moves_generated_at_but_editing_does_not():
     time.sleep(0.01)
     demo_db.save_paper("L", 1, 2025, "p", "u", {"headline": "c"})
     assert demo_db._PAPERS[("L", 2025, 1)]["generated_at"] > first
+
+
+# --- the free trial: three papers per real league (John, 25 Sep) --------------
+
+def _free_gen(client, week, token="free-admin-token"):
+    return client.post(f"/l/{token}/generate", data={"week": week}, follow_redirects=False)
+
+
+@pytest.fixture
+def trial_env(monkeypatch):
+    """A free league whose platform has weeks 1-8, papers written instantly,
+    and a record of what the writer was told."""
+    calls = []
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=tuple(range(1, 9))))
+
+    def fake_generate(db_, lg, wk, letter="", trial_last=False):
+        calls.append((wk, trial_last))
+        demo_db.save_paper(lg["id"], wk, lg["season"], "p", "u", {"headline": "x"})
+    monkeypatch.setattr(webapp, "generate_and_store", fake_generate)
+    monkeypatch.setattr(webapp, "earliest_free_week", lambda lg: 1)
+    return calls
+
+
+def test_a_free_league_gets_three_papers_then_the_upgrade(client, free_league, trial_env):
+    for w in (1, 2, 3):
+        assert "error" not in _free_gen(client, w).headers["location"]
+    r = _free_gen(client, 4)
+    assert "trial_over=1" in r.headers["location"]
+    assert [w for w, _ in trial_env] == [1, 2, 3]
+    # The third one was told it was the last.
+    assert trial_env == [(1, False), (2, False), (3, True)]
+
+
+def test_redoing_a_week_does_not_use_a_free_paper(client, free_league, trial_env):
+    _free_gen(client, 1)
+    _free_gen(client, 1)           # a regeneration
+    lg = demo_db.league_by_admin_token("free-admin-token")
+    assert demo_db.trial_weeks(lg["provider"], lg["platform_league_id"], lg["season"]) == [1]
+
+
+def test_free_regenerations_are_two_a_week_and_paid_five():
+    import plans
+    assert plans.PLANS[plans.FREE].regenerations_per_week == 2
+    assert plans.PLANS[plans.PAID].regenerations_per_week == 5
+
+
+def test_reconnecting_the_same_real_league_does_not_reset_the_trial(client, free_league, trial_env):
+    for w in (1, 2, 3):
+        _free_gen(client, w)
+    lg = demo_db.league_by_admin_token("free-admin-token")
+    demo_db.delete_league(lg["id"])
+    again = demo_db.create_league(
+        provider=lg["provider"], platform_league_id=lg["platform_league_id"],
+        league_name="Thriftville", paper_name="Again", commissioner_name="",
+        season=lg["season"], public_slug="thrift-2", admin_token="again-token")
+    assert "trial_over=1" in _free_gen(client, 4, token="again-token").headers["location"]
+
+
+def test_earlier_weeks_are_not_free(client, free_league, trial_env, monkeypatch):
+    monkeypatch.setattr(webapp, "earliest_free_week", lambda lg: 5)
+    r = _free_gen(client, 3)
+    assert "week+5+onward" in r.headers["location"] and trial_env == []
+    assert "error" not in _free_gen(client, 5).headers["location"]
+
+
+def test_paid_leagues_are_not_on_the_trial(client, league, trial_env):
+    for w in range(1, 7):
+        assert "error" not in _generate(client, w).headers["location"]
+    assert all(last is False for _, last in trial_env)
+    assert demo_db._TRIAL == set()
+
+
+def test_a_failed_generation_does_not_use_a_free_paper(client, free_league, monkeypatch):
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=(1, 2)))
+    monkeypatch.setattr(webapp, "earliest_free_week", lambda lg: 1)
+
+    def boom(*a, **k):
+        from providers import ProviderError
+        raise ProviderError("Sleeper is down")
+    monkeypatch.setattr(webapp, "generate_and_store", boom)
+    _free_gen(client, 1)
+    assert demo_db._TRIAL == set()
+
+
+def test_the_manage_page_counts_down(client, free_league, trial_env):
+    assert "3 of 3 free papers left" in client.get("/l/free-admin-token").text
+    _free_gen(client, 1); _free_gen(client, 2)
+    assert "last free edition" in client.get("/l/free-admin-token").text
+    _free_gen(client, 3)
+    body = client.get("/l/free-admin-token").text
+    assert "free papers are used" in body and "Keep the presses running" in body
+
+
+def test_the_last_free_paper_says_so_to_the_league():
+    import newspaper
+    assert "last free edition" in newspaper._trial_note(True, "https://commissionersdesk.com")
+    assert newspaper._trial_note(False) == ""
+
+
+def test_the_trial_table_is_required_before_generating():
+    from web import db as real_db
+    assert any(name == "019_trial_papers" for name, *_ in real_db._EXPECTED_SCHEMA)

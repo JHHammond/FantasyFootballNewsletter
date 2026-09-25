@@ -33,6 +33,12 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 FREE = "free"
+
+#: The free trial (25 Sep): three papers per real league, counted on the
+#: platform's league id and season, so reconnecting doesn't reset it. Only a
+#: NEW week's paper uses one; redoing a week is a regeneration. Free papers are
+#: for the latest finished week onward, never earlier weeks.
+FREE_TRIAL_PAPERS = 3
 PAID = "paid"
 
 #: The site's own people. Never sold and never reachable from Stripe: the only
@@ -91,7 +97,7 @@ PLANS: dict[str, Plan] = {
     FREE: Plan(
         key=FREE,
         label="Free",
-        regenerations_per_week=2,
+        regenerations_per_week=2,       # John, 25 Sep: two for free
         leagues=1,
         # Tabloid only. It is the loudest and the best demonstration of what
         # the thing is; the other two read as restraint, which is a taste you
@@ -103,7 +109,7 @@ PLANS: dict[str, Plan] = {
     PAID: Plan(
         key=PAID,
         label="Paid",
-        regenerations_per_week=3,
+        regenerations_per_week=5,       # John, 25 Sep: five per league, per week
         leagues=None,
         themes=None,
         auto_send=True,
@@ -205,7 +211,8 @@ LOCK_REASONS = {
     "leagues": f"Running more than one league is part of {PRICE_TEXT}.",
     "auto_send": f"Sending itself every week is part of {PRICE_TEXT}.",
     "photo_uploads": f"Putting your own photos in is part of {PRICE_TEXT}.",
-    "generations": f"{PRICE_TEXT} gets you another go at each week.",
+    "generations": f"{PRICE_TEXT} gets you five redos a week.",
+    "trial": "Your three free papers are used. Upgrade to keep the presses running.",
 }
 
 

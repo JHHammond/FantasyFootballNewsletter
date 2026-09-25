@@ -551,7 +551,7 @@ def letter_from_html(value: str) -> str:
 
 
 def generate_and_store(db, league: dict[str, Any], week: int,
-                       letter: str = "") -> dict[str, Any]:
+                       letter: str = "", trial_last: bool = False) -> dict[str, Any]:
     """Fetch, write with Claude, render, upload, record.
 
     `letter` is the commissioner's own front-page story, if he wrote one.
@@ -620,5 +620,9 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         ai_content["trends"] = season_so_far["trends"]
     if season_so_far.get("record_book"):
         ai_content["record_book"] = season_so_far["record_book"]
+
+    # The third free paper says so, on the page every reader sees (25 Sep).
+    if trial_last:
+        ai_content["trial_last"] = True
 
     return render_and_store(db, league, week, ai_content)

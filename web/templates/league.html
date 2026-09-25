@@ -99,11 +99,30 @@
         &mdash; after that, edit it by hand instead, which costs nothing and
         changes as much as you like.
     </p>
-    {% if plan.key == 'free' %}
-    <p class="plan-note">
-        Free plan &middot; {{ regenerations_per_week }} redos a week.
-        <a href="/account#plan">Upgrade for three, every look, and your own photos &rarr;</a>
-    </p>
+    {% if trial %}
+    <div class="trial-box{% if trial.left == 0 %} is-over{% elif trial.left == 1 %} is-last{% endif %}">
+        <div class="trial-count">
+            {% for i in range(trial.total) %}<span class="trial-dot{% if i < trial.total - trial.left %} used{% endif %}"></span>{% endfor %}
+            <strong>
+            {% if trial.left == 0 %}Your {{ trial.total }} free papers are used.
+            {% elif trial.left == 1 %}1 free paper left &mdash; your next new week is the last free edition.
+            {% else %}{{ trial.left }} of {{ trial.total }} free papers left.{% endif %}
+            </strong>
+        </div>
+        <p class="trial-help">
+            {% if trial.left == 0 %}
+            Every paper you&rsquo;ve made stays up for the league to read. Upgrade to
+            keep a new one coming every week &mdash; it writes and emails itself on Tuesdays.
+            {% else %}
+            Each new week&rsquo;s paper uses one; redoing a week doesn&rsquo;t.
+            Free papers are for week {{ earliest_free_week }} onward, and the
+            last one tells the league it&rsquo;s the last.
+            {% endif %}
+        </p>
+        <a class="btn {% if trial.left <= 1 %}btn-primary{% endif %}" href="/account#plan">
+            {% if trial.left == 0 %}Keep the presses running{% else %}Upgrade{% endif %} &rarr;
+        </a>
+    </div>
     {% endif %}
     {% elif earlier_season %}
     <p class="card-sub">

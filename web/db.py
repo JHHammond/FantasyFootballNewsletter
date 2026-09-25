@@ -452,6 +452,9 @@ _EXPECTED_SCHEMA = [
     ("008_views", "column", "newspapers", "view_count"),
     ("009_limits", "function", "claim_rate_slot", None),
     ("011_generation_count", "column", "newspapers", "generation_count"),
+    # Without it a free league's trial can't be counted, and generating must
+    # not quietly turn into unlimited free papers.
+    ("019_trial_papers", "column", "trial_papers", "week"),
 ]
 
 
@@ -725,6 +728,27 @@ def consume_magic_link(token: str, purpose: str = "recover") -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Auto-send bookkeeping
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# The free trial (migration 019)
+# ---------------------------------------------------------------------------
+
+def trial_weeks(provider: str, platform_league_id: str, season: int) -> list[int]:
+    """The weeks this REAL league has had a free paper for, this season."""
+    res = (client().table("trial_papers").select("week")
+           .eq("provider", provider).eq("platform_league_id", str(platform_league_id))
+           .eq("season", int(season)).execute())
+    return sorted({int(r["week"]) for r in (res.data or [])})
+
+
+def record_trial_week(provider: str, platform_league_id: str, season: int,
+                      week: int) -> None:
+    client().table("trial_papers").upsert({
+        "provider": provider, "platform_league_id": str(platform_league_id),
+        "season": int(season), "week": int(week),
+    }, on_conflict="provider,platform_league_id,season,week",
+       ignore_duplicates=True).execute()
+
 
 def leagues_with_auto_send() -> list[dict[str, Any]]:
     res = client().table("leagues").select("*").eq("auto_send", True).execute()

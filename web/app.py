@@ -340,6 +340,34 @@ def regenerations_used(paper: dict | None) -> int:
 
 def regenerations_left(paper: dict | None, user: dict | None = None) -> int:
     return max(0, regenerations_allowed(user) - regenerations_used(paper))
+
+
+def trial_status(league: dict, owner: dict | None) -> dict | None:
+    """Where this league stands in the free trial, or None if it isn't on it.
+
+    Counted on the REAL league (provider + platform id + season), so a league
+    deleted and connected again, or connected from a second account, finds the
+    same papers already used. Paid and staff accounts aren't on a trial.
+    """
+    if plans.is_paid(owner):
+        return None
+    try:
+        used = db.trial_weeks(league["provider"], league["platform_league_id"],
+                              league["season"])
+    except Exception:  # noqa: BLE001 — migration 019 missing; schema_blockers says so
+        used = []
+    left = max(0, plans.FREE_TRIAL_PAPERS - len(used))
+    return {"used": used, "left": left, "total": plans.FREE_TRIAL_PAPERS}
+
+
+def earliest_free_week(league: dict) -> int:
+    """No free backfilling: a free paper is for the latest finished week or
+    later. A league whose season isn't this one (an old season looked at in
+    the offseason) has no such floor."""
+    import nfl_week
+    if int(league.get("season") or 0) != nfl_week.current_season():
+        return 1
+    return nfl_week.completed_week()
 #: Adding leagues. Counted per ACCOUNT, because an IP is not a person: phone
 #: carriers put thousands of customers behind a handful of public addresses,
 #: and on a viral night (24 Sep) strangers on the same carrier were using up
@@ -1533,7 +1561,7 @@ def create_league(
 def manage(
     request: Request, token: str,
     new: int = 0, generated: int = 0, error: str = "", notice: str = "",
-    confirm_week: int = 0,
+    confirm_week: int = 0, trial_over: int = 0,
 ):
     league = _adopt_if_unowned(request, _require_league(token))
 
@@ -1577,6 +1605,9 @@ def manage(
         total_reads=sum(int(p.get("view_count") or 0) for p in papers),
         regenerations=regenerations,
         regenerations_per_week=regenerations_allowed(owner),
+        trial=trial_status(league, owner),
+        trial_over=bool(trial_over),
+        earliest_free_week=earliest_free_week(league),
         awards=db.get_awards(league["id"]),
         award_people=db.get_managers(league["id"]),
         awards_ready=db.awards_table_ready(),
@@ -2043,6 +2074,24 @@ def _generate_response(request: Request, league: dict, week: int,
             f"anything+you+like.{more}",
             status_code=303)
 
+    # THE FREE TRIAL (25 Sep). Only a NEW week's paper spends one of the three;
+    # redoing a week is a regeneration, limited above. And no free backfill:
+    # a free paper is for the latest finished week or later.
+    trial = trial_status(league, owner)
+    trial_last = False
+    if trial is not None and not existing:
+        floor = earliest_free_week(league)
+        if week < floor:
+            return RedirectResponse(
+                f"/l/{token}?error=Free+papers+are+for+week+{floor}+onward+-+"
+                f"earlier+weeks+are+part+of+the+paid+plan.",
+                status_code=303)
+        if trial["left"] <= 0:
+            return RedirectResponse(
+                f"/l/{token}?trial_over=1&error="
+                + quote(plans.LOCK_REASONS["trial"]), status_code=303)
+        trial_last = trial["left"] == 1
+
     # Regenerating throws away hand-edited prose. Ask first rather than
     # silently deleting someone's work.
     if existing and existing.get("edited_at") and confirm_overwrite != "yes":
@@ -2063,7 +2112,16 @@ def _generate_response(request: Request, league: dict, week: int,
             f"Give+it+a+minute+and+hit+generate+again.",
             status_code=303)
     try:
-        generate_and_store(db, league, week, letter=letter)
+        generate_and_store(db, league, week, letter=letter, trial_last=trial_last)
+        if trial is not None and not existing:
+            # Only once the paper exists: a failed generation costs no trial.
+            try:
+                db.record_trial_week(league["provider"], league["platform_league_id"],
+                                     league["season"], week)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[trial] could not record week {week} for "
+                      f"{league['provider']}:{league['platform_league_id']}: {exc}",
+                      flush=True)
     except ProviderError as exc:
         return RedirectResponse(f"/l/{token}?error={exc}", status_code=303)
     except WriterError as exc:

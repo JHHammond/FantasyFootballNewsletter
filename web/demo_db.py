@@ -405,6 +405,20 @@ def leagues_with_auto_send() -> list[dict[str, Any]]:
     return [dict(l) for l in _LEAGUES.values() if l.get("auto_send")]
 
 
+_TRIAL: set = set()
+
+
+def trial_weeks(provider: str, platform_league_id: str, season: int) -> list[int]:
+    return sorted(w for (p, l, s, w) in _TRIAL
+                  if p == provider and l == str(platform_league_id) and s == int(season))
+
+
+def record_trial_week(provider: str, platform_league_id: str, season: int,
+                      week: int) -> None:
+    with _lock:
+        _TRIAL.add((provider, str(platform_league_id), int(season), int(week)))
+
+
 def leagues_for_weekly_send() -> list[dict[str, Any]]:
     import plans
     out = []
