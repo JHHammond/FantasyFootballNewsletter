@@ -1964,16 +1964,69 @@ def reset(request: Request, token: str, password: str = Form(...),
         user["id"])
 
 
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request, error: str = ""):
+def homepage_wire(season: int, week: int) -> dict:
+    """The homepage ticker: this week across every league, from Around the
+    Leagues. Numbers and NFL players only — never a team or a league name,
+    which are our users' content. Empty when there's nothing collected, and
+    the page falls back to its standing lines. Never raises."""
+    from . import league_stats
+    try:
+        if not db.team_weeks_ready():
+            return {}
+        for wk in (week, week - 1):
+            if wk < 1:
+                continue
+            data = league_stats.leaderboards(db, season, wk, limit=1)
+            summary = data.get("summary") or {}
+            if summary.get("teams"):
+                break
+        else:
+            return {}
+    except Exception:  # noqa: BLE001 — a ticker is never worth a 500
+        return {}
+
+    top = {b["key"]: (b["rows"] or [None])[0] for b in data["boards"]}
+    items = [f"Week {wk}: {int(summary['teams']):,} teams across "
+             f"{int(summary['leagues']):,} leagues"]
+    if top.get("closest"):
+        items.append(f"Closest game in the country: decided by "
+                     f"{float(top['closest']['margin']):.2f}")
+    if top.get("highest"):
+        items.append(f"High score: {float(top['highest']['points']):.1f}")
+    if summary.get("avg_points"):
+        items.append(f"Average team: {float(summary['avg_points']):.1f}")
+    if top.get("players") and top["players"].get("top_player"):
+        items.append(f"Best game: {top['players']['top_player']}, "
+                     f"{float(top['players']['top_player_points']):.1f}")
+    if top.get("bench"):
+        items.append(f"Most left on a bench: "
+                     f"{float(top['bench']['bench_left']):.1f} points")
+    if top.get("lowest"):
+        items.append(f"Low score: {float(top['lowest']['points']):.1f}. "
+                     f"Somebody has a long week ahead")
+    return {"week": wk, "lines": items, "teams": int(summary["teams"]),
+            "leagues": int(summary["leagues"])}
+
+
+def _render_index(request: Request, error: str = ""):
+    """The homepage, with everything it needs, from any route that shows it."""
     import nfl_week
+    from datetime import date
+    season, week = nfl_week.current_season(), nfl_week.completed_week()
     return _render(request, "index.html",
                    providers=_implemented_providers(),
                    sample_paper_url=SAMPLE_PAPER_URL,
                    sample_embed_url=sample_embed_url(SAMPLE_PAPER_URL),
-                   current_week=nfl_week.completed_week(),
-                   current_season=nfl_week.current_season(),
+                   current_week=week,
+                   current_season=season,
+                   today=date.today(),
+                   wire=homepage_wire(season, week),
                    error=error)
+
+
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request, error: str = ""):
+    return _render_index(request, error)
 
 
 @app.post("/leagues")
@@ -1992,8 +2045,7 @@ def create_league(
     you answered a question that shouldn't have been asked.
     """
     def fail(message: str):
-        return _render(request, "index.html",
-                       providers=_implemented_providers(), error=message)
+        return _render_index(request, message)
 
     if _league_creates_exhausted(request, current_user(request)):
         return fail("You've made a few of these already. Give it an hour.")

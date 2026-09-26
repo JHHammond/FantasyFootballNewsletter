@@ -243,3 +243,24 @@ def test_backfill_button_starts_a_background_run(web, monkeypatch):
     r = web.post("/staff/around/collect", data={"weeks": "1-2"},
                  follow_redirects=False)
     assert r.status_code == 303 and started == [[1, 2]]
+
+
+def test_the_homepage_wire_uses_numbers_never_team_names(web):
+    from web import app as webapp
+    lg = _league("Secret League Name", pid="a")
+    demo_db.upsert_team_weeks([
+        _row(lg, "Private Team Name", 276.4, result="W", opp=100.0,
+             top_player="Ja'Marr Chase", top_player_points=41.3),
+        _row(lg, "Other Private Team", 100.06, result="W", opp=100.0),
+    ])
+    wire = webapp.homepage_wire(SEASON, 3)
+    text = " ".join(wire["lines"])
+    assert "276.4" in text and "0.06" in text and "Ja'Marr Chase" in text
+    assert "Private Team" not in text and "Secret League" not in text
+    page = web.get("/").text
+    assert "Around the leagues" in page and "Private Team" not in page
+
+
+def test_the_homepage_wire_falls_back_when_nothing_is_collected(web):
+    page = web.get("/").text
+    assert "Late edition" in page

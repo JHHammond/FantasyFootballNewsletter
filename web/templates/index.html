@@ -1,17 +1,55 @@
 {% extends "base.html" %}
 {% from "_macros.html" import flow_button %}
+{% block wrapclass %}home{% endblock %}
+
+{% block under_masthead %}
+{# The wire: this week across every league, live from Around the Leagues.
+   Numbers and NFL players only, never a user's team or league name. #}
+{% set lines = wire.lines if wire and wire.get("lines") else [
+    "Stop the presses: your league gets a newspaper every week",
+    "Bench decisions, graded in public",
+    "Obituaries for the week's biggest busts",
+    "Power rankings nobody asked for",
+    "Readers never sign up for anything",
+] %}
+<div class="wire" role="marquee" aria-label="Around the leagues">
+    <span class="wire-label">{% if wire and wire.get("lines") %}Around the leagues{% else %}Late edition{% endif %}</span>
+    <div class="wire-window">
+        <div class="wire-track">
+            {% for _ in range(2) %}
+            <span class="wire-run" {% if loop.index == 2 %}aria-hidden="true"{% endif %}>
+                {% for line in lines %}<span class="wire-item">{{ line }}</span>{% endfor %}
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}
 
 {% block content %}
-<section class="hero">
-    <p class="hero-kicker">Week {{ current_week }} &middot; {{ current_season }} season</p>
-    <h1 class="hero-title">Your league deserves<br />a <strong>newspaper</strong>.</h1>
-    <p class="hero-sub">Your league, in print.</p>
+<section class="front">
+    <p class="dateline">
+        <span>{{ today.strftime("%A, %B") }} {{ today.day }}, {{ today.year }}</span>
+        <span class="dateline-mid">Week {{ current_week }} edition</span>
+        <span>Free for readers</span>
+    </p>
+
+    <div class="front-head-wrap">
+        <h1 class="front-head">Your league deserves a
+            <span class="marked">newspaper<svg class="marked-line" viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true"><path d="M3 15 C 60 5, 110 20, 160 11 S 250 6, 297 13" /></svg></span>.</h1>
+        {% if not user %}
+        <div class="stamp" aria-hidden="true"><span>First</span><strong>3</strong><span>free</span></div>
+        {% endif %}
+    </div>
+
+    <p class="front-deck">Your league, in print. Every week, with the recaps, the
+        standings, the trash talk and the obituaries your group chat deserves.</p>
 
     {% if user %}
-    <p class="hero-actions">{{ flow_button("Your papers", href="/account") }}</p>
+    <p class="front-actions">{{ flow_button("Your papers", href="/account") }}</p>
     {% else %}
-    <p class="hero-actions">{{ flow_button("Start your paper", href="/signup") }}</p>
-    <p class="hero-note">First three papers free &middot; about a minute &middot; your league never signs up for anything</p>
+    <p class="front-actions">{{ flow_button("Start your paper", href="/signup") }}</p>
+    <p class="front-note">About a minute &middot; your league never signs up for anything</p>
     {% endif %}
 </section>
 
@@ -91,40 +129,47 @@
 </section>
 {% endif %}
 
+{% if wire and wire.get("teams") %}
+<section class="figures" aria-label="This season so far">
+    <div class="figure"><strong>{{ "{:,}".format(wire.leagues) }}</strong><span>leagues in print</span></div>
+    <div class="figure"><strong>{{ "{:,}".format(wire.teams) }}</strong><span>teams covered in week {{ wire.week }}</span></div>
+    <div class="figure"><strong>60<small>sec</small></strong><span>to your first edition</span></div>
+</section>
+{% endif %}
+
 <section class="inside">
-    <h2 class="section-title">Inside every edition</h2>
-    <ol class="index">
-        <li><span class="index-item"><strong>The front page</strong> &mdash; the week&rsquo;s lead story, told straight</span></li>
-        <li><span class="index-item"><strong>Game recaps</strong> &mdash; every matchup, every player who mattered</span></li>
-        <li><span class="index-item"><strong>Standings &amp; power rankings</strong> &mdash; with win and losing streaks</span></li>
-        <li><span class="index-item"><strong>Weekly awards</strong> &mdash; plus the ones your league invents</span></li>
-        <li><span class="index-item"><strong>Obituaries</strong> &mdash; for the week&rsquo;s biggest busts</span></li>
-        <li><span class="index-item"><strong>Season record book</strong> &mdash; stamped when a record falls</span></li>
-        <li><span class="index-item"><strong>Next week&rsquo;s lines</strong> &mdash; made-up spreads from the projections</span></li>
-        <li><span class="index-item"><strong>Trades &amp; transactions</strong> &mdash; every trade, pickup and denied claim</span></li>
-    </ol>
+    <h2 class="section-head"><span>Inside every edition</span></h2>
+    <ul class="clippings">
+        <li class="clip"><span class="clip-kicker">Page one</span><strong>The lead story</strong><p>The week&rsquo;s biggest game, told straight, with a headline to match.</p></li>
+        <li class="clip"><span class="clip-kicker">Sports</span><strong>Game recaps</strong><p>Every matchup, and every player who decided it.</p></li>
+        <li class="clip"><span class="clip-kicker">Standings</span><strong>Power rankings</strong><p>Win streaks, losing streaks and a table nobody can argue with.</p></li>
+        <li class="clip"><span class="clip-kicker">Honors</span><strong>Weekly awards</strong><p>The standing four, plus the ones your league invents.</p></li>
+        <li class="clip"><span class="clip-kicker">Obituaries</span><strong>In memoriam</strong><p>A proper send-off for the week&rsquo;s biggest busts.</p></li>
+        <li class="clip"><span class="clip-kicker">Records</span><strong>Season record book</strong><p>Stamped the moment a record falls.</p></li>
+        <li class="clip"><span class="clip-kicker">The lines</span><strong>Next week&rsquo;s spreads</strong><p>Made-up odds, straight from the projections.</p></li>
+        <li class="clip"><span class="clip-kicker">Business</span><strong>Trades &amp; transactions</strong><p>Every trade, every pickup, every denied claim.</p></li>
+    </ul>
 </section>
 
 <section class="how">
-    <h2 class="section-title">Four steps, once</h2>
-    <ol class="steps">
-        <li><strong>Make an account.</strong> Email and a password{% if google_enabled() %},
+    <h2 class="section-head"><span>Four steps, once</span></h2>
+    <ol class="beats">
+        <li><b>1</b><strong>Make an account.</strong> Email and a password{% if google_enabled() %},
             or sign in with Google{% endif %}. Every paper you make lives in one place.</li>
-        <li><strong>Connect your league.</strong> {% if yahoo_live %}Sleeper, ESPN or Yahoo.{% else %}Sleeper or ESPN.{% endif %}
-            On Sleeper, type your username and pick your league &mdash; no IDs to
-            hunt for. On ESPN, paste your league ID and we&rsquo;ll show you the
-            one setting to flip{% if yahoo_live %}. On Yahoo, sign in and pick from
-            your leagues{% endif %}.{% if not yahoo_live %} Yahoo is coming soon.{% endif %}</li>
-        <li><strong>Tell us the lore.</strong> The running jokes, the punishment,
-            who has never won. This is the difference between your paper and a
-            box score.</li>
-        <li><strong>Send it round.</strong> Every edition is a link anyone opens
-            &mdash; no app, no sign-in, nothing to install.</li>
+        <li><b>2</b><strong>Connect your league.</strong> {% if yahoo_live %}Sleeper, ESPN or Yahoo.{% else %}Sleeper or ESPN.{% endif %}
+            Sleeper takes your username; ESPN takes your league ID{% if yahoo_live %};
+            Yahoo, a quick sign-in{% endif %}.{% if not yahoo_live %} Yahoo is coming soon.{% endif %}</li>
+        <li><b>3</b><strong>Tell us the lore.</strong> The running jokes, the punishment,
+            who has never won. It&rsquo;s the difference between a paper and a box score.</li>
+        <li><b>4</b><strong>Send it round.</strong> Every edition is a link anyone
+            opens. No app, no sign-in, nothing to install.</li>
     </ol>
 </section>
 
-<section class="cta">
-    <p class="cta-line">Your first edition is about a minute away.</p>
+<section class="presses">
+    <p class="presses-kicker">Extra! Extra!</p>
+    <p class="presses-head">Stop the presses.</p>
+    <p class="presses-sub">Your first edition is about a minute away.</p>
     {% if user %}
     {{ flow_button("Add a league", href="/connect") }}
     {% else %}
