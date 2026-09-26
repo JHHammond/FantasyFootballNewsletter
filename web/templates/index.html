@@ -12,8 +12,7 @@
     "Power rankings nobody asked for",
     "Readers never sign up for anything",
 ] %}
-<div class="wire" role="marquee" aria-label="Around the leagues">
-    <span class="wire-label">{% if wire and wire.get("lines") %}Around the leagues{% else %}Late edition{% endif %}</span>
+<div class="wire" role="marquee" aria-label="Around the leagues this week">
     <div class="wire-window">
         <div class="wire-track">
             {% for _ in range(2) %}
@@ -37,9 +36,6 @@
     <div class="front-head-wrap">
         <h1 class="front-head">Your league deserves a
             <span class="marked">newspaper<svg class="marked-line" viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true"><path d="M3 15 C 60 5, 110 20, 160 11 S 250 6, 297 13" /></svg></span>.</h1>
-        {% if not user %}
-        <div class="stamp" aria-hidden="true"><span>First</span><strong>3</strong><span>free</span></div>
-        {% endif %}
     </div>
 
     <p class="front-deck">Your league, in print. Every week, with the recaps, the

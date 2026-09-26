@@ -263,7 +263,7 @@ def test_the_homepage_wire_uses_numbers_never_team_names(web):
 
 def test_the_homepage_wire_falls_back_when_nothing_is_collected(web):
     page = web.get("/").text
-    assert "Late edition" in page
+    assert "Bench decisions, graded in public" in page
 
 
 def test_leagues_in_print_counts_every_league_not_just_collected_ones(web):
