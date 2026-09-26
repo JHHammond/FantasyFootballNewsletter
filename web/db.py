@@ -897,6 +897,53 @@ def nfl_notes_ready() -> bool:
         return False
 
 
+# --- The photo desk (023) -------------------------------------------------------
+
+def player_photos(season: int, week: Optional[int] = None) -> list[dict[str, Any]]:
+    """Every photo for a season that applies to `week`: that week's, plus the
+    any-week ones. With week None, all of the season's."""
+    q = client().table("player_photos").select("*").eq("season", int(season))
+    rows = q.order("created_at", desc=True).execute().data or []
+    if week is None:
+        return rows
+    return [r for r in rows if r.get("week") in (None, int(week))]
+
+
+def add_player_photo(fields: dict[str, Any]) -> None:
+    client().table("player_photos").insert(fields).execute()
+
+
+def delete_player_photo(photo_id: str) -> None:
+    """Delete the row AND the file, so every paper that linked it loses it."""
+    rows = (client().table("player_photos").select("storage_path")
+            .eq("id", photo_id).limit(1).execute().data or [])
+    client().table("player_photos").delete().eq("id", photo_id).execute()
+    path = rows[0].get("storage_path") if rows else None
+    if path:
+        try:
+            client().storage.from_(BUCKET).remove([path])
+        except Exception as exc:  # noqa: BLE001
+            print(f"[photo desk] could not remove {path}: {exc}", flush=True)
+
+
+def upload_player_photo(filename: str, data: bytes, content_type: str,
+                        season: int) -> tuple[str, str]:
+    import secrets
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "jpg").lower()[:5]
+    path = f"photo-desk/{int(season)}/{secrets.token_urlsafe(12)}.{ext}"
+    storage = client().storage.from_(BUCKET)
+    storage.upload(path, data, {"content-type": content_type, "upsert": "true"})
+    return path, storage.get_public_url(path)
+
+
+def player_photos_ready() -> bool:
+    try:
+        client().table("player_photos").select("id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def leagues_with_auto_send() -> list[dict[str, Any]]:
     res = client().table("leagues").select("*").eq("auto_send", True).execute()
     return res.data or []

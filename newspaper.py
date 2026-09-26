@@ -79,7 +79,36 @@ def best_performer(team):
     return max(starters, key=lambda p: p.get("actual") or 0)
 
 
-def auto_photo_for_game(game):
+_NAME_SUFFIX = re.compile(r"\s+(jr|sr|ii|iii|iv|v)$")
+
+
+def plain_player_name(name) -> str:
+    """"Michael Penix Jr." and "michael penix" are the same man to the photo desk."""
+    name = re.sub(r"[.'\u2019]", "", str(name or "").strip().lower())
+    return _NAME_SUFFIX.sub("", re.sub(r"\s+", " ", name)).strip()
+
+
+def _desk_shot(player, desk):
+    """The photo desk's picture of this player, as a photo entry, or None."""
+    if not player or not desk:
+        return None
+    hit = desk.get(plain_player_name(player.get("name")))
+    if not hit:
+        return None
+    caption = (hit.get("caption") or "").strip() or (
+        f"{player['name']} \u2014 {float(player.get('actual') or 0):.1f} pts")
+    if (hit.get("credit") or "").strip():
+        caption += f" (Photo: {hit['credit'].strip()})"
+    return {"url": hit["url"], "caption": caption}
+
+
+def _desk_candidates(team):
+    """The players in a team worth a photo, best first."""
+    starters = [p for p in (team or {}).get("all_starters") or [] if p.get("name")]
+    return sorted(starters, key=lambda p: p.get("actual") or 0, reverse=True)[:3]
+
+
+def auto_photo_for_game(game, desk=None):
     """A photo and caption for a game story, with no work from anyone.
 
     Most commissioners have no relevant photo to hand, and a paper with empty
@@ -94,7 +123,16 @@ def auto_photo_for_game(game):
     t1, t2 = game.get("team_1", {}), game.get("team_2", {})
     winner = t1 if winner_name == get_team_name(t1) else t2
 
-    player = best_performer(winner) or best_performer(t2 if winner is t1 else t1)
+    # The photo desk first (25 Sep): if one of the game's standouts has a
+    # staff photo this week, that beats any headshot. Winner's top three,
+    # then the loser's best.
+    loser = t2 if winner is t1 else t1
+    for candidate in _desk_candidates(winner) + _desk_candidates(loser)[:1]:
+        shot = _desk_shot(candidate, desk)
+        if shot:
+            return shot
+
+    player = best_performer(winner) or best_performer(loser)
     if not player:
         return None
 
@@ -108,8 +146,16 @@ def auto_photo_for_game(game):
     return {"url": player["headshot_url"], "caption": caption}
 
 
-def auto_hero_photo(matchups):
+def auto_hero_photo(matchups, desk=None):
     """Whoever had the biggest day in the league, for the top of the page."""
+    if desk:
+        everyone = [p for game in matchups or [] for key in ("team_1", "team_2")
+                    for p in _desk_candidates(game.get(key))]
+        everyone.sort(key=lambda p: p.get("actual") or 0, reverse=True)
+        for p in everyone[:5]:
+            shot = _desk_shot(p, desk)
+            if shot:
+                return shot
     best = None
     for game in matchups or []:
         for key in ("team_1", "team_2"):
@@ -1647,7 +1693,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
                   ai_content=None, ads=None, subscribe_slug=None,
                   transactions=None, publisher_ads=None,
                   editable=False, canonical_url=None, canonical_base=None,
-                  promo=None):
+                  promo=None, photo_desk=None):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
 
@@ -1659,10 +1705,10 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     # the week's biggest scorer up top. Uploaded photos always win over these.
     auto_photos = {}
     for idx, game in enumerate(matchups or []):
-        shot = auto_photo_for_game(game)
+        shot = auto_photo_for_game(game, photo_desk)
         if shot:
             auto_photos[idx] = shot
-    auto_hero = auto_hero_photo(matchups)
+    auto_hero = auto_hero_photo(matchups, photo_desk)
 
     # --- Headline ---
     if ai_content and ai_content.get("headline"):

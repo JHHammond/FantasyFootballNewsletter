@@ -326,6 +326,25 @@ def promo_settings() -> dict | None:
             "link": (os.getenv("PROMO_LINK") or os.getenv("PRIZEPICKS_LINK") or "").strip()}
 
 
+def _photo_desk(db, season: int, week: int) -> dict:
+    """{plain player name: photo} for this week. A photo for this exact week
+    beats an any-week one. Never raises: no desk means headshots."""
+    from newspaper import plain_player_name
+    try:
+        rows = db.player_photos(season, week)
+    except Exception:  # noqa: BLE001
+        return {}
+    desk: dict = {}
+    # Any-week first, so a this-week photo overwrites it; newest wins within each.
+    for row in sorted(rows, key=lambda r: (r.get("week") is not None,
+                                           r.get("created_at") or "")):
+        key = plain_player_name(row.get("player_name"))
+        if key and row.get("image_url"):
+            desk[key] = {"url": row["image_url"], "caption": row.get("caption"),
+                         "credit": row.get("credit")}
+    return desk
+
+
 def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
                      *, is_edit: bool = False) -> dict[str, Any]:
     """Render a paper from existing prose and store it.
@@ -356,6 +375,7 @@ def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
         # freeze nothing.
         publisher_ads=_snapshot_publisher_ads(db, ai_content, season, week),
         promo=promo_settings(),
+        photo_desk=_photo_desk(db, season, week),
     )
     edition["paper_name"] = paper_name
     html = render_html(edition, theme=league.get("theme"))

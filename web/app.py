@@ -1084,6 +1084,72 @@ def staff_wire_delete(request: Request, note_id: str, week: int = Form(...)):
 
 
 # ---------------------------------------------------------------------------
+# The photo desk (staff)
+#
+# A photo tied to a player, for one week or any week. Any paper whose featured
+# player has one uses it instead of the headshot. Papers LINK to the file, so
+# deleting a photo here takes it out of every paper at once.
+# ---------------------------------------------------------------------------
+
+@app.get("/staff/photos", response_class=HTMLResponse)
+def staff_photos(request: Request, week: int = 0, error: str = "",
+                 saved: int = 0):
+    _require_staff(request)
+    import nfl_week
+    season = nfl_week.current_season()
+    week = week or nfl_week.current_week()
+    ready = db.player_photos_ready()
+    photos = db.player_photos(season, week) if ready else []
+    return _render(request, "staff_photos.html", ready=ready, season=season,
+                   week=week, weeks=list(range(1, 19)), photos=photos,
+                   error=error, saved=bool(saved))
+
+
+@app.post("/staff/photos")
+async def staff_photos_add(request: Request, photo: UploadFile = File(...),
+                           player_name: str = Form(...), week: str = Form(""),
+                           caption: str = Form(""), credit: str = Form("")):
+    _require_staff(request)
+    import nfl_week
+    season = nfl_week.current_season()
+    back = int(week) if week.isdigit() else nfl_week.current_week()
+
+    def fail(message: str):
+        return RedirectResponse(f"/staff/photos?week={back}&error={quote(message)}",
+                                status_code=303)
+
+    name = clean_text(player_name, max_length=80).strip()
+    if " " not in name:
+        return fail("Use the player's full name, as the platforms spell it.")
+    data = await photo.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        return fail("That file is over 8MB.")
+    kind = images.sniff(data)
+    if kind is None:
+        return fail(images.describe_rejection(data))
+
+    path, url = await run_in_threadpool(
+        db.upload_player_photo, f"desk.{kind.extension}", data, kind.mime, season)
+    await run_in_threadpool(db.add_player_photo, {
+        "season": season,
+        "week": int(week) if week.isdigit() else None,
+        "player_name": name,
+        "image_url": url,
+        "storage_path": path,
+        "caption": clean_text(caption, max_length=200).strip() or None,
+        "credit": clean_text(credit, max_length=80).strip() or None,
+    })
+    return RedirectResponse(f"/staff/photos?week={back}&saved=1", status_code=303)
+
+
+@app.post("/staff/photos/{photo_id}/delete")
+def staff_photos_delete(request: Request, photo_id: str, week: int = Form(0)):
+    _require_staff(request)
+    db.delete_player_photo(photo_id)
+    return RedirectResponse(f"/staff/photos?week={week}", status_code=303)
+
+
+# ---------------------------------------------------------------------------
 # Yahoo
 #
 # The only platform that shows nothing without signing in, so the flow is

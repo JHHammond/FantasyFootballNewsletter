@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Photo desk{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="eyebrow"><a href="/staff/around">Staff</a> &middot; <a href="/staff/wire">NFL wire</a> &rsaquo; Photo desk</div>
+    <h1 class="page-title">Photo desk</h1>
+</div>
+
+{% if not ready %}
+<div class="alert alert-error">
+    The <code>player_photos</code> table doesn&rsquo;t exist yet. Run
+    <code>migrations/023_player_photos.sql</code> in the Supabase SQL Editor, then reload.
+</div>
+{% else %}
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+{% if saved %}<div class="alert alert-success">Added. Papers written from now on will use it.</div>{% endif %}
+
+<section class="card">
+    <p class="card-sub">
+        A photo tied to a player. When that player is one of the standouts in a
+        game (or the week&rsquo;s top scorer), every paper uses this instead of
+        his headshot. A photo the commissioner uploaded still wins.
+        <strong>Full names, as the platforms spell them.</strong> Deleting a
+        photo here removes it from every paper that used it.
+    </p>
+    <form method="post" action="/staff/photos" enctype="multipart/form-data" class="stack">
+        <label class="field">
+            <span class="field-label">Player</span>
+            <input type="text" name="player_name" required placeholder="Drake London" />
+        </label>
+        <label class="field">
+            <span class="field-label">Week</span>
+            <select name="week">
+                <option value="">Any week</option>
+                {% for w in weeks %}<option value="{{ w }}" {% if w == week %}selected{% endif %}>Week {{ w }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="field">
+            <span class="field-label">Photo</span>
+            <input type="file" name="photo" accept="image/jpeg,image/png,image/gif,image/webp" required />
+        </label>
+        <label class="field">
+            <span class="field-label">Caption <span class="paper-meta">(optional &mdash; otherwise his points)</span></span>
+            <input type="text" name="caption" maxlength="200" />
+        </label>
+        <label class="field">
+            <span class="field-label">Credit <span class="paper-meta">(optional)</span></span>
+            <input type="text" name="credit" maxlength="80" placeholder="@whoever" />
+        </label>
+        <div><button type="submit" class="btn btn-primary">Add photo</button></div>
+    </form>
+</section>
+
+<section class="card">
+    <form method="get" action="/staff/photos" class="inline-form" style="gap:10px;margin-bottom:12px;">
+        <label class="field">
+            <span class="field-label">Showing</span>
+            <select name="week" onchange="this.form.submit()">
+                {% for w in weeks %}<option value="{{ w }}" {% if w == week %}selected{% endif %}>Week {{ w }} (and any-week photos)</option>{% endfor %}
+            </select>
+        </label>
+    </form>
+    {% for p in photos %}
+    <div class="paper-row" style="align-items:center;">
+        <div style="display:flex;gap:12px;align-items:center;">
+            <img src="{{ p.image_url }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:6px;" />
+            <div>
+                <div><strong>{{ p.player_name }}</strong></div>
+                <div class="paper-meta">{% if p.week %}Week {{ p.week }}{% else %}Any week{% endif %}{% if p.caption %} &middot; {{ p.caption }}{% endif %}{% if p.credit %} &middot; Photo: {{ p.credit }}{% endif %}</div>
+            </div>
+        </div>
+        <form method="post" action="/staff/photos/{{ p.id }}/delete">
+            <input type="hidden" name="week" value="{{ week }}" />
+            <button type="submit" class="btn btn-sm">Delete</button>
+        </form>
+    </div>
+    {% else %}
+    <p class="card-sub">No photos for week {{ week }} yet.</p>
+    {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

@@ -528,6 +528,44 @@ def nfl_notes_ready() -> bool:
     return True
 
 
+_PLAYER_PHOTOS: dict[str, dict[str, Any]] = {}
+
+
+def player_photos(season: int, week=None) -> list[dict[str, Any]]:
+    rows = [dict(r) for r in _PLAYER_PHOTOS.values() if r["season"] == int(season)]
+    rows.sort(key=lambda r: r["created_at"], reverse=True)
+    if week is None:
+        return rows
+    return [r for r in rows if r.get("week") in (None, int(week))]
+
+
+def add_player_photo(fields: dict[str, Any]) -> None:
+    import uuid
+    with _lock:
+        pid = str(uuid.uuid4())
+        _PLAYER_PHOTOS[pid] = dict(fields, id=pid, created_at=_now())
+
+
+def delete_player_photo(photo_id: str) -> None:
+    with _lock:
+        row = _PLAYER_PHOTOS.pop(photo_id, None)
+        if row and row.get("storage_path"):
+            _IMAGES.pop(row["storage_path"], None)
+
+
+def upload_player_photo(filename: str, data: bytes, content_type: str,
+                        season: int) -> tuple[str, str]:
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "jpg").lower()[:5]
+    name = f"desk-{secrets.token_urlsafe(8)}.{ext}"
+    with _lock:
+        _IMAGES[name] = (data, content_type)
+    return name, f"/demo-image/{name}"
+
+
+def player_photos_ready() -> bool:
+    return True
+
+
 def leagues_for_weekly_send() -> list[dict[str, Any]]:
     import plans
     out = []
