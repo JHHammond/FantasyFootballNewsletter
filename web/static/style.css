@@ -2078,3 +2078,116 @@ body:has(main.home) .site-footer { border-top: 0; }
 }
 /* Typing on a crooked sheet is harder to watch than to read. */
 .offer.letter-prompt { --tilt: -0.35deg; }
+
+
+/* =====================================================================
+   THE REST OF THE SITE, IN THE HOMEPAGE'S REGISTER (26 Sep)
+   Grain behind every page, cards as sheets of newsprint (double rule on
+   top, a shadow instead of a box), red kickers over an ink rule, and tape
+   in exactly three places: the sign-up and sign-in form, the platform
+   picker, and a league's "send this to your league" card. Anywhere else
+   it would stop meaning anything.
+   ===================================================================== */
+
+body {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .28 0 0 0 0 .15 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* The phone-sized inputs that never got the house style. */
+input[type="email"], input[type="password"], input[type="url"], input[type="search"] {
+    font-family: inherit;
+    font-size: 16px;
+    padding: 11px 13px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    border-radius: 0;
+    width: 100%;
+}
+
+.card {
+    border: 0;
+    border-top: 3px double var(--ink);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, .04), 0 12px 26px -18px rgba(40, 30, 10, .45);
+}
+
+.card-title {
+    display: inline-block;
+    color: var(--accent);
+    font-size: 12.5px;
+    letter-spacing: 2.2px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--ink);
+    margin-bottom: 12px;
+}
+
+.page-head {
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--ink);
+    margin-bottom: 30px;
+}
+.page-head .eyebrow { color: var(--accent); font-weight: 700; }
+.page-title { font-size: 40px; letter-spacing: -.6px; }
+
+/* The pages that open on a centred headline (sign up, sign in, connect). */
+.wrap:not(.home) .hero-title { font-size: 44px; letter-spacing: -.8px; }
+
+/* Links inside prose: the brand red, not the browser's blue. */
+.wrap p a:not(.btn):not(.flow-btn),
+.wrap .card-sub a, .wrap .alert a, .wrap .empty a {
+    color: var(--accent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
+/* ---------- tape, used sparingly ---------- */
+
+.taped { position: relative; }
+.taped::before {
+    content: "";
+    position: absolute;
+    top: -11px; left: 50%;
+    width: 84px; height: 22px;
+    transform: translateX(-50%) rotate(-3deg);
+    background: rgba(200, 162, 0, .32);
+    border-left: 1px dashed rgba(0, 0, 0, .1);
+    border-right: 1px dashed rgba(0, 0, 0, .1);
+    pointer-events: none;
+}
+/* Forms stay square: text boxes on a tilted sheet render with jagged edges. */
+
+/* ---------- the platform picker, as three clippings ---------- */
+
+.platform-grid { gap: 22px; margin-top: 12px; }
+.platform {
+    position: relative;
+    border: 0;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, .04), 0 12px 24px -16px rgba(40, 30, 10, .5);
+    padding: 26px 20px 20px;
+    transform: rotate(var(--tilt, 0deg));
+    transition: transform .25s ease, box-shadow .25s ease;
+}
+.platform::before {
+    content: "";
+    position: absolute; top: -10px; left: 50%;
+    width: 64px; height: 20px;
+    transform: translateX(-50%) rotate(var(--tape, -3deg));
+    background: rgba(200, 162, 0, .3);
+    border-left: 1px dashed rgba(0, 0, 0, .1);
+    border-right: 1px dashed rgba(0, 0, 0, .1);
+}
+.platform:nth-child(1) { --tilt: -1deg; --tape: 3deg; }
+.platform:nth-child(2) { --tilt: .7deg; --tape: -4deg; }
+.platform:nth-child(3) { --tilt: -.4deg; --tape: 2deg; }
+.platform:hover { transform: rotate(0) translateY(-4px); box-shadow: 0 18px 30px -16px rgba(40, 30, 10, .5); }
+.platform-name {
+    font-size: 24px; font-weight: 900;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--ink);
+}
+.platform-soon .platform-name { border-bottom-color: var(--line); }
+.platform-tag { color: var(--accent); border-color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+    .platform, .clip { transition: none; }
+}
