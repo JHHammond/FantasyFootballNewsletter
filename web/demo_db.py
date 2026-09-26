@@ -566,6 +566,10 @@ def player_photos_ready() -> bool:
     return True
 
 
+def count_leagues() -> int:
+    return len(_LEAGUES)
+
+
 def leagues_for_weekly_send() -> list[dict[str, Any]]:
     import plans
     out = []

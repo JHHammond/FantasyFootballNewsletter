@@ -944,6 +944,13 @@ def player_photos_ready() -> bool:
         return False
 
 
+def count_leagues() -> int:
+    """Every league row, for the homepage. One count query, no rows."""
+    res = (client().table("leagues").select("id", count="exact")
+           .limit(1).execute())
+    return int(res.count or 0)
+
+
 def leagues_with_auto_send() -> list[dict[str, Any]]:
     res = client().table("leagues").select("*").eq("auto_send", True).execute()
     return res.data or []

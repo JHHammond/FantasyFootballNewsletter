@@ -129,10 +129,10 @@
 </section>
 {% endif %}
 
-{% if wire and wire.get("teams") %}
+{% if league_count or (wire and wire.get("teams")) %}
 <section class="figures" aria-label="This season so far">
-    <div class="figure"><strong>{{ "{:,}".format(wire.leagues) }}</strong><span>leagues in print</span></div>
-    <div class="figure"><strong>{{ "{:,}".format(wire.teams) }}</strong><span>teams covered in week {{ wire.week }}</span></div>
+    {% if league_count %}<div class="figure"><strong>{{ "{:,}".format(league_count) }}</strong><span>leagues in print</span></div>{% endif %}
+    {% if wire and wire.get("teams") %}<div class="figure"><strong>{{ "{:,}".format(wire.teams) }}</strong><span>teams scored in week {{ wire.week }}</span></div>{% endif %}
     <div class="figure"><strong>60<small>sec</small></strong><span>to your first edition</span></div>
 </section>
 {% endif %}

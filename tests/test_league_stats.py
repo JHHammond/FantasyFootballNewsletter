@@ -264,3 +264,16 @@ def test_the_homepage_wire_uses_numbers_never_team_names(web):
 def test_the_homepage_wire_falls_back_when_nothing_is_collected(web):
     page = web.get("/").text
     assert "Late edition" in page
+
+
+def test_leagues_in_print_counts_every_league_not_just_collected_ones(web):
+    """It showed 137 on 25 Sep: the leagues with week 2 stats collected, while
+    1,611 had signed up. The figure is the signup count now."""
+    for i in range(5):
+        _league(f"L{i}", pid=f"p{i}")
+    lg = demo_db._LEAGUES[next(iter(demo_db._LEAGUES))]
+    demo_db.upsert_team_weeks([_row(lg, "t", 100.0)])
+    from web import app as webapp
+    webapp._LEAGUE_COUNT.update(at=0.0, n=0)
+    page = web.get("/").text
+    assert "<strong>5</strong><span>leagues in print</span>" in page

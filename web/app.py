@@ -1964,6 +1964,21 @@ def reset(request: Request, token: str, password: str = Form(...),
         user["id"])
 
 
+_LEAGUE_COUNT = {"at": 0.0, "n": 0}
+
+
+def league_count() -> int:
+    """How many leagues have signed up, for the homepage. Cached ten minutes;
+    0 if it can't be read, and the page then leaves the figure out."""
+    now = time.time()
+    if now - _LEAGUE_COUNT["at"] > 600:
+        try:
+            _LEAGUE_COUNT.update(n=db.count_leagues(), at=now)
+        except Exception:  # noqa: BLE001
+            return _LEAGUE_COUNT["n"]
+    return _LEAGUE_COUNT["n"]
+
+
 def homepage_wire(season: int, week: int) -> dict:
     """The homepage ticker: this week across every league, from Around the
     Leagues. Numbers and NFL players only — never a team or a league name,
@@ -2021,6 +2036,7 @@ def _render_index(request: Request, error: str = ""):
                    current_season=season,
                    today=date.today(),
                    wire=homepage_wire(season, week),
+                   league_count=league_count(),
                    error=error)
 
 
