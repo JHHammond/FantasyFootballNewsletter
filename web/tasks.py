@@ -324,7 +324,25 @@ def main() -> int:
 
     from . import db
 
+    # Around the Leagues FIRST (26 Sep): the papers' "How you stack up" box
+    # ranks each league against the whole country, and the country has to be
+    # collected before it can be ranked against. About half an hour of paced
+    # requests, no Claude. The 22:00 run skips everything the 14:00 run did.
+    collected = {}
+    try:
+        from . import league_stats
+        collected = league_stats.collect_week(db, week)
+    except Exception as exc:  # noqa: BLE001 — never costs anyone their paper
+        collected = {"failed": f"{type(exc).__name__}: {exc}"}
+
     report = send_weekly(db, week, regenerate=regenerate)
+    if collected.get("failed"):
+        report.setdefault("warnings", []).append(
+            f"Around the Leagues collection failed: {collected['failed']}")
+    elif collected.get("errors"):
+        report.setdefault("warnings", []).append(
+            f"Around the Leagues: {collected['errors']} league(s) errored "
+            f"while collecting week {week}.")
 
     print(f"Week {week}: {report['leagues']} leagues, "
           f"{report['generated']} generated, {report['emails_sent']} emails sent")
@@ -336,20 +354,6 @@ def main() -> int:
         print(f"  WARNING: {line}")
     for line in report["errors"]:
         print(f"  ERROR:   {line}")
-
-    # Around the Leagues: every connected league's finished week, stats only.
-    # After the papers, so paying customers never wait on it. The 14:00 and
-    # 22:00 runs both call this; the second skips whatever the first did.
-    try:
-        from . import league_stats
-        collected = league_stats.collect_week(db, week)
-        if collected.get("errors"):
-            report.setdefault("warnings", []).append(
-                f"Around the Leagues: {collected['errors']} league(s) errored "
-                f"while collecting week {week}.")
-    except Exception as exc:  # noqa: BLE001 — never costs anyone their paper
-        report.setdefault("warnings", []).append(
-            f"Around the Leagues collection failed: {type(exc).__name__}: {exc}")
 
     # A cron whose failures go only to a log nobody reads is a cron you don't
     # have. Mail the operator when anything went wrong.

@@ -1391,7 +1391,8 @@ def week_results(games):
 
 
 def generate_lead_story(summary, week, league_name, commissioner_name="",
-                        inside_jokes="", system=None, model=None, games=None):
+                        inside_jokes="", system=None, model=None, games=None,
+                        national=""):
     """The paragraph at the top of the front page.
 
     REWRITTEN, because what it produced was the thing John described as
@@ -1425,6 +1426,17 @@ def generate_lead_story(summary, week, league_name, commissioner_name="",
         "biggest_margin": summary.get("biggest_blowout", {}).get("margin", 0),
         "inside_jokes": inside_jokes,
     }
+
+    # How this league compared with every league on the site (26 Sep). One
+    # of these, at most, where it makes the round-up land harder: "a 168
+    # that only 40 teams in the country beat, and he still won by six".
+    national_block = ""
+    if (national or "").strip():
+        national_block = (
+            "\nHOW THIS LEAGUE COMPARED WITH EVERY OTHER LEAGUE ON THE SITE this "
+            "week. These are real. Use AT MOST ONE, woven into a sentence, and "
+            "only if it makes a result hit harder. Skipping them is fine. Never "
+            "name or describe any other league.\n" + national.strip() + "\n")
 
     prompt = f"""
 Write the LEAD STORY: the paragraph at the top of the front page that tells
@@ -1462,7 +1474,7 @@ margin, somebody scoring 60 — the number carries it without help.
       them. Somebody had to win. Brutal.
 
 One paragraph, flowing prose, no bullets and no headings.
-
+{national_block}
 Week data: {_compact(context)}
 """
     return call_claude(prompt, max_tokens=2400, system=system, model=model,
@@ -2271,7 +2283,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      lines=None, memories=None,
                                      custom_awards=None,
                                      commissioner_letter=None,
-                                     nfl_notes=""):
+                                     nfl_notes="", national=""):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -2331,7 +2343,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     if not letter:
         tasks["lead_story"] = lambda: generate_lead_story(
             summary, week, league_name, commissioner_name, inside_jokes,
-            sys_prompt, model_for("lead_story"), games=games)
+            sys_prompt, model_for("lead_story"), games=games,
+            national=national)
     games_brief = "\n".join(
         f"{gc['ctx']['winner']} beat {gc['ctx']['loser']} "
         f"{gc['ctx']['winner_score']}-{gc['ctx']['loser_score']}. "

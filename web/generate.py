@@ -665,6 +665,11 @@ def generate_and_store(db, league: dict[str, Any], week: int,
             + season_so_far["briefing"]
             + ("\n\n" + league_context if league_context else ""))
 
+    # How you stack up (26 Sep): this league against the country, frozen into
+    # the paper. None until enough of the week is collected.
+    from . import national as _national
+    stack_up = _national.build(db, league, week_data)
+
     ai_content = generate_full_newspaper_content(
         league_name=paper_name,
         week=week,
@@ -679,7 +684,10 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         custom_awards=_custom_awards_for_writer(db, league, directory),
         commissioner_letter=letter,
         nfl_notes=nfl_notes_for(db, season, week, week_data),
+        national=_national.writer_facts(stack_up),
     )
+    if stack_up:
+        ai_content["national"] = stack_up
 
     # Stored as HTML, like an edited story: escaped here, once, so what he
     # typed can never be read as markup, and the editor handles it exactly

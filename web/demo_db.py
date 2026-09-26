@@ -570,6 +570,20 @@ def count_leagues() -> int:
     return len(_LEAGUES)
 
 
+def national_ranks(season, week, points, league_avg, league_id):
+    pool = [r for r in _TEAM_WEEKS.values()
+            if r["season"] == int(season) and r["week"] == int(week)
+            and r["result"] != "BYE" and (r["points"] or 0) > 0
+            and r["league_id"] != league_id]
+    by_league: dict = {}
+    for r in pool:
+        by_league.setdefault(r["league_id"], []).append(r["points"])
+    avgs = [sum(v) / len(v) for v in by_league.values()]
+    return {"teams": len(pool), "leagues": len(by_league),
+            "above": [sum(1 for r in pool if r["points"] > x) for x in points],
+            "leagues_above": sum(1 for a in avgs if a > league_avg)}
+
+
 def leagues_for_weekly_send() -> list[dict[str, Any]]:
     import plans
     out = []

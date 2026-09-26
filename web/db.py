@@ -951,6 +951,23 @@ def count_leagues() -> int:
     return int(res.count or 0)
 
 
+def national_ranks(season: int, week: int, points: list[float],
+                   league_avg: float, league_id: str) -> dict[str, Any]:
+    """See migration 024. Everyone EXCEPT league_id:
+    {"teams", "leagues", "above": [...], "leagues_above"}."""
+    res = client().rpc("national_ranks", {
+        "p_season": int(season), "p_week": int(week),
+        "p_points": [float(p) for p in points], "p_avg": float(league_avg),
+        "p_league": str(league_id),
+    }).execute()
+    data = res.data
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    if isinstance(data, dict) and "national_ranks" in data:
+        data = data["national_ranks"]
+    return data or {}
+
+
 def leagues_with_auto_send() -> list[dict[str, Any]]:
     res = client().table("leagues").select("*").eq("auto_send", True).execute()
     return res.data or []

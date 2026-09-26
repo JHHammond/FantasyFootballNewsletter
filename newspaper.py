@@ -1023,6 +1023,32 @@ def _trial_note(last, base=None):
         </div>"""
 
 
+def render_stack_up_html(national):
+    """HOW YOU STACK UP: this league's week against every league on the site.
+    Frozen into ai_content when the paper is written; absent, nothing prints."""
+    if not national:
+        return ""
+    b, w = national.get("best") or {}, national.get("worst") or {}
+    honors = "".join(f'<div class="stack-honor">&#9733; {h}</div>'
+                      for h in national.get("honors") or [])
+    return f"""
+    <div class="stack-up">
+        <div class="col-section-label">How you stack up</div>
+        <div class="stack-sub">Week {national.get('week')} &middot; against
+            {int(national.get('teams') or 0):,} teams in
+            {int(national.get('leagues') or 0):,} leagues</div>
+        {honors}
+        <div class="stack-row"><span class="stack-big">Top {national.get('league_top_pct')}%</span>
+            <span>League average of {national.get('league_avg')}</span></div>
+        <div class="stack-row"><span class="stack-big">#{int(b.get('rank') or 0):,}</span>
+            <span>{b.get('team', '')}&rsquo;s {b.get('points')} in the country
+            (top {b.get('top_pct')}%)</span></div>
+        <div class="stack-row"><span class="stack-big">{w.get('beaten_by_pct')}%</span>
+            <span>of teams outscored {w.get('team', '')}&rsquo;s {w.get('points')}</span></div>
+    </div>
+    """
+
+
 def render_standings_html(standings, trends=None):
     rows = []
     trends = trends or {}
@@ -1949,6 +1975,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
              else '<th class="trend-th">Trend</th>')
             if ((ai_content or {}).get("trends") or {}).get("teams") else ""),
         "top_scorers_html": build_top_scorers(matchups),
+        "stack_up_html": render_stack_up_html((ai_content or {}).get("national")),
         "week_ticker_html": build_week_ticker(summary),
         "honor_roll_html": build_honor_roll_and_detention(matchups)[0],
         "detention_html": build_honor_roll_and_detention(matchups)[1],
@@ -2208,6 +2235,17 @@ def _render_html(edition, theme=None):
             letter-spacing: 0.5px;
             text-transform: none;
         }}
+
+        /* ── HOW YOU STACK UP (26 Sep) ── */
+        .stack-up {{ margin-top: 18px; padding-top: 4px; border-top: 3px double #111; }}
+        .stack-sub {{ font-size: 11px; color: #666; margin: -4px 0 8px; font-style: italic; }}
+        .stack-row {{ display: flex; gap: 8px; align-items: baseline; padding: 6px 0;
+                      border-bottom: 1px dotted #bbb; font-size: 12.5px; line-height: 1.35; }}
+        .stack-big {{ flex: none; min-width: 78px; font-family: "Barlow Condensed", "Helvetica Neue", Arial, sans-serif;
+                      font-weight: 700; font-size: 20px; color: var(--accent, #b3141c); letter-spacing: .3px; }}
+        .stack-honor {{ font-size: 12px; font-weight: 700; color: var(--accent, #b3141c);
+                        text-transform: uppercase; letter-spacing: .5px; padding: 6px 0;
+                        border-bottom: 1px dotted #bbb; }}
 
         /* ── FRONT PAGE: 3-col layout ── */
         .front-page {{
@@ -3205,6 +3243,7 @@ def _render_html(edition, theme=None):
                         {edition['standings_html']}
                     </tbody>
                 </table>
+                {edition.get('stack_up_html', '')}
             </div>
 
         </div>
