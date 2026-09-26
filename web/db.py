@@ -273,8 +273,17 @@ def get_lore(league_id: str) -> list[dict[str, Any]]:
     return res.data or []
 
 
-def add_lore(league_id: str, text: str) -> None:
-    client().table("lore").insert({"league_id": league_id, "entry": text}).execute()
+def add_lore(league_id: str, text: str, always: bool = False) -> None:
+    row = {"league_id": league_id, "entry": text}
+    if always:
+        row["always"] = True   # migration 025; without it, saved as ordinary lore
+    try:
+        client().table("lore").insert(row).execute()
+    except Exception:
+        if not always:
+            raise
+        row.pop("always")
+        client().table("lore").insert(row).execute()
 
 
 def deactivate_lore(lore_id: str, league_id: str) -> None:

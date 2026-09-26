@@ -255,7 +255,7 @@
     <ul class="joke-list">
         {% for item in lore %}
         <li class="joke">
-            <span>{{ item.entry }}</span>
+            <span>{% if item.always %}<strong class="joke-always">Every week</strong> {% endif %}{{ item.entry }}</span>
             <form method="post" action="/l/{{ league.admin_token }}/lore/{{ item.id }}/remove">
                 <button type="submit" class="btn btn-ghost btn-sm">Delete</button>
             </form>
@@ -269,7 +269,22 @@
     <form method="post" action="/l/{{ league.admin_token }}/lore" class="stack">
         <textarea name="entry" rows="2" maxlength="500"
                   placeholder="Anyone who starts a player that scores zero has to chug. Nick benches his best guy every single week."></textarea>
+        <label class="check-line">
+            <input type="checkbox" name="always" value="1" />
+            <span><strong>Use it every week.</strong> Otherwise the paper brings it up when the week gives it a reason.</span>
+        </label>
         <button type="submit" class="btn">Add it</button>
+    </form>
+
+    <h3 class="subhead">Nicknames</h3>
+    <p class="card-sub">
+        What your league calls people and players. One per line, real name
+        first. The paper uses them when they come up.
+    </p>
+    <form method="post" action="/l/{{ league.admin_token }}/nicknames" class="stack">
+        <textarea name="nicknames" rows="4" maxlength="4000"
+                  placeholder="superchaser = Chaser&#10;Kenneth Walker = K9&#10;Drake Maye = Drake &quot;Drake Maye&quot; Maye">{{ league.nicknames or '' }}</textarea>
+        <button type="submit" class="btn">Save nicknames</button>
     </form>
 </section>
 

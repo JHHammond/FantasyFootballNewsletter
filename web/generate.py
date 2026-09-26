@@ -623,8 +623,71 @@ def nfl_notes_for(db, season: int, week: int, week_data) -> str:
     return "\n".join(keep)
 
 
+def parse_nicknames(text: str) -> list[tuple[str, str]]:
+    """"Superchaser = Chaser" per line -> [("Superchaser", "Chaser")]."""
+    out = []
+    for line in (text or "").splitlines():
+        for sep in ("=", "\u2192", "->", ":"):
+            if sep in line:
+                real, nick = line.split(sep, 1)
+                real, nick = real.strip(" -\u2022*\t"), nick.strip()
+                if real and nick:
+                    out.append((real[:80], nick[:120]))
+                break
+    return out[:40]
+
+
+def nickname_context(pairs) -> str:
+    if not pairs:
+        return ""
+    return ("NICKNAMES — what this league calls these people and players. Use "
+            "the nickname when they come up, not every single time, and never "
+            "explain where it came from:\n"
+            + "\n".join(f"- {real}: {nick}" for real, nick in pairs))
+
+
+def route_jokes(jokes: list[str], week_data, managers: list | None) -> dict[str, list[str]]:
+    """{team name: [jokes naming that team or its manager]}, "" for the rest.
+
+    A joke belongs to a team when it names the team, the manager's handle, or
+    what the league calls that manager (the people list). Whole words, any
+    case: "Chase" matches Chase, not Chasers.
+    """
+    import re as _re
+    if not jokes:
+        return {}
+    called = {(m.get("handle") or "").lower(): (m.get("display_name") or "").strip()
+              for m in (managers or [])}
+    teams = []
+    for t in getattr(week_data, "teams", []) or []:
+        handle = (t.manager.display_name if t.manager else "") or ""
+        names = {t.team_name, handle, called.get(handle.lower(), "")}
+        teams.append((t.team_name, [n for n in names if n and len(n) > 1]))
+    out: dict[str, list[str]] = {}
+    for joke in jokes:
+        home = ""
+        for team_name, names in teams:
+            if any(_re.search(r"(?<![\w])" + _re.escape(n) + r"(?![\w])", joke, _re.I)
+                   for n in names):
+                home = team_name
+                break
+        out.setdefault(home, []).append(joke)
+    return out
+
+
+def split_jokes(text: str) -> list[str]:
+    """The week's jokes box: one per line, bullets stripped, capped."""
+    out = []
+    for line in (text or "").splitlines():
+        line = line.strip().lstrip("-\u2022*").strip()
+        if line:
+            out.append(line[:500])
+    return out[:12]
+
+
 def generate_and_store(db, league: dict[str, Any], week: int,
-                       letter: str = "", trial_last: bool = False) -> dict[str, Any]:
+                       letter: str = "", trial_last: bool = False,
+                       jokes: str = "") -> dict[str, Any]:
     """Fetch, write with Claude, render, upload, record.
 
     `letter` is the commissioner's own front-page story, if he wrote one.
@@ -648,10 +711,20 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     db.remember_managers(league["id"], [m["handle"] for m in directory])
 
     lore_entries = db.get_lore(league["id"])
+    # Lore marked "every week" is not background, it's an instruction: it
+    # goes to a recap that has to use it, and stays out of the general pile
+    # so three sections don't all reach for the same bit.
+    must_lore = [e["entry"] for e in lore_entries if e.get("always")]
+    lore_entries = [e for e in lore_entries if not e.get("always")]
+    managers = db.get_managers(league["id"])
     league_context = build_league_context(
-        league, lore_entries, db.get_managers(league["id"]),
+        league, lore_entries, managers,
         {m["handle"]: m["team_name"] for m in directory},
     )
+    nicknames = nickname_context(parse_nicknames(league.get("nicknames") or ""))
+    if nicknames:
+        league_context = (league_context + "\n\n" + nicknames).strip()
+    must_use = route_jokes(must_lore + split_jokes(jokes), week_data, managers)
 
     annotate_draft(games, _draft_picks(league))
 
@@ -685,6 +758,7 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         commissioner_letter=letter,
         nfl_notes=nfl_notes_for(db, season, week, week_data),
         national=_national.writer_facts(stack_up),
+        must_use=must_use,
     )
     if stack_up:
         ai_content["national"] = stack_up

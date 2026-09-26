@@ -2278,3 +2278,20 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
     line-height: 1;
     color: var(--accent);
 }
+
+/* ---------- the commissioner's jokes (26 Sep) ---------- */
+.check-line { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink-2); }
+.check-line input { margin-top: 4px; accent-color: var(--accent); }
+.joke-always {
+    font-family: "Barlow Condensed", sans-serif; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 1.2px;
+    color: #fff; background: var(--accent); padding: 1px 6px; margin-right: 4px;
+}
+.subhead {
+    font-family: "Playfair Display", Georgia, serif; font-size: 19px; font-weight: 900;
+    margin: 26px 0 6px; padding-top: 16px; border-top: 1px solid var(--line);
+}
+.letter-jokes { display: block; text-align: left; margin: 14px 0 10px; }
+.letter-jokes span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.letter-jokes em { font-weight: 400; color: var(--muted); }
+.letter-jokes textarea { width: 100%; }

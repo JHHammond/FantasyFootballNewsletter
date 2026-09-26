@@ -127,12 +127,12 @@ def get_lore(league_id: str) -> list[dict[str, Any]]:
             if l["league_id"] == league_id and l["active"]]
 
 
-def add_lore(league_id: str, text: str) -> None:
+def add_lore(league_id: str, text: str, always: bool = False) -> None:
     with _lock:
         lid = str(uuid4())
         _LORE[lid] = {
             "id": lid, "league_id": league_id, "entry": text,
-            "active": True, "created_at": _now(),
+            "active": True, "created_at": _now(), "always": bool(always),
         }
 
 

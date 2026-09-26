@@ -25,6 +25,11 @@
 
 Three weeks in and I am the only one of you who can set a lineup..."></textarea>
     <p class="letter-count"><span id="letter-count">0</span> / 6,000 &middot; Printed exactly as you type it.</p>
+    <label class="letter-jokes">
+        <span>Jokes to work in this week <em>(optional, one per line)</em></span>
+        <textarea id="letter-jokes" rows="3" maxlength="3000"
+                  placeholder="Boman traded Nabers for a box of peanuts.&#10;Chase is officially 'chaser' now."></textarea>
+    </label>
     <button type="button" class="btn btn-primary offer-cta" id="letter-use" disabled>
         Put it on the front page
     </button>
@@ -55,6 +60,7 @@ Three weeks in and I am the only one of you who can set a lineup..."></textarea>
             event.stopImmediatePropagation();
             pending = { form: form, submitter: event.submitter };
             text.value = "";
+            document.getElementById("letter-jokes").value = "";
             update();
             dlg.showModal();
             // A redo of a week that already has his letter: bring it back
@@ -83,6 +89,16 @@ Three weeks in and I am the only one of you who can set a lineup..."></textarea>
             form.appendChild(input);
         }
         input.value = letter;
+        // The week's jokes ride along whichever button was pressed: a paper
+        // written for him still has to say them.
+        var jokesInput = form.querySelector("input[name=jokes]");
+        if (!jokesInput) {
+            jokesInput = document.createElement("input");
+            jokesInput.type = "hidden";
+            jokesInput.name = "jokes";
+            form.appendChild(jokesInput);
+        }
+        jokesInput.value = document.getElementById("letter-jokes").value.trim();
         form.dataset.letterDone = "1";
         dlg.close();
         if (typeof form.requestSubmit === "function") {

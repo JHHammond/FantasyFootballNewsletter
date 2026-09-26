@@ -5790,7 +5790,7 @@ def test_a_paper_written_before_the_week_ended_is_rewritten(client, league, sent
     _early(league["id"])
     rewrites = []
 
-    def fake_generate(db, lg, week, letter=""):
+    def fake_generate(db, lg, week, letter="", **_k):
         rewrites.append(week)
         db.save_paper(lg["id"], week, lg["season"], "path", "url", {"headline": "THE WHOLE WEEK"})
     monkeypatch.setattr(tasks, "generate_and_store", fake_generate)
@@ -5841,7 +5841,7 @@ def trial_env(monkeypatch):
     calls = []
     monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=tuple(range(1, 9))))
 
-    def fake_generate(db_, lg, wk, letter="", trial_last=False):
+    def fake_generate(db_, lg, wk, letter="", trial_last=False, **_k):
         calls.append((wk, trial_last))
         demo_db.save_paper(lg["id"], wk, lg["season"], "p", "u", {"headline": "x"})
     monkeypatch.setattr(webapp, "generate_and_store", fake_generate)

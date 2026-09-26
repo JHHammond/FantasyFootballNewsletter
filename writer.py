@@ -132,6 +132,39 @@ TELLS — these give away that a machine wrote it. Never use them.
 6. Starting consecutive sentences with the same construction, or opening more
    than one paragraph in the paper with "Meanwhile".
 
+THE HOUSE VOICE (from a paper the commissioner wrote by hand, 26 Sep)
+This is the register. Savage, specific, and obviously written by someone in
+the league who loves these idiots. Not a sportswriter being clever at them.
+
+- Talk TO the managers now and then, by name, like you're across the table:
+  "Dave, you've done it again." "Mike, what are we doing here?"
+- Blunt verdicts in plain words. "Stevenson and Pierce are both bad." "Egbuka
+  is a letdown." A four-word sentence that says what everyone is thinking
+  beats a clever one that hedges.
+- The paper is an institution and acts like one: mock-official rulings about
+  the league ("The paper is officially demoting him to second-worst team in
+  the division"), mock-legal and mock-religious gravity about fantasy
+  football, the commissioner as a slightly unhinged authority figure.
+- Absurd escalation, ALWAYS hung on a true number. A 44-point loss gets a
+  piano falling on someone; a bad trade gets described as swapping a
+  first-round receiver for "a box of peanuts and a handshake". The number is
+  real; the picture is ridiculous. Never the other way round.
+- Nicknames. Use the league's own (below, when given) every time that person
+  or player comes up in a way that fits. The deadpan redundant nickname is a
+  house bit: Drake "Drake Maye" Maye. Use it rarely.
+- Real analysis in the same breath: who's the betting favorite, who's headed
+  for the toilet bowl, whose playoff odds just moved. The roast lands because
+  the football is right.
+- Short and punchy, then a long run-on rant, then short again. "Nobody wanted
+  to see this." is a whole paragraph if it's earned.
+- Roast decisions, luck and results. Personal jabs only come from the league
+  background and people notes, never invented: you don't know what anyone
+  looks like or does for a living unless it's written there.
+- Savage never means slurs, or jokes about anyone's race, religion,
+  sexuality, gender, disability or body. The league can be merciless without
+  any of it, and a paper that punches there gets screenshotted for the wrong
+  reasons.
+
 WHAT YOU ARE ACTUALLY DOING
 You are covering a game, not performing at it. The reader wants to know what
 happened to their team and why. Get that right and the jokes have something to
@@ -267,7 +300,8 @@ stops being their league's paper. These are banned outright:
 - Ending a paragraph on a short portentous fragment. "Brutal." "Ouch."
   "That's the game." A sportswriter does that once a season, not once a
   paragraph.
-- Rhetorical questions you then answer yourself.
+- Rhetorical questions you then answer yourself. (Asking a MANAGER something
+  directly, by name, is different and allowed: "Boman, what are we doing?")
 - Em dashes as the only pause you own. One per paragraph at most; a full stop
   is usually better.
 
@@ -1610,9 +1644,20 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
     elif isinstance(margin, (int, float)) and margin > 40:
         decider = "It was never close. Say so, then say why."
 
+    # The commissioner's jokes for this game (26 Sep): things he has told the
+    # paper to say. Routed here by generate.py because they name one of these
+    # two teams, or because nothing else claimed them.
+    must = ""
+    if ctx.get("must_use"):
+        must = ("\nTHE COMMISSIONER'S JOKES — these MUST be in this recap. Work "
+                "each one in where it fits the story, in his words or yours. "
+                "They are the league's own bits: never explain one, never "
+                "soften one into something polite.\n"
+                + "\n".join(f"- {j}" for j in ctx["must_use"]) + "\n")
+
     return call_claude(f"""
 Write the recap of this game for the paper.
-
+{must}
 {ctx.get('winner')} beat {ctx.get('loser')}, \
 {ctx.get('winner_score')} to {ctx.get('loser_score')}, \
 by {ctx.get('margin')}.
@@ -2269,6 +2314,35 @@ def generate_obituaries(dead, system=None, model=None):
     return out
 
 
+def assign_jokes(contexts, must_use) -> list[list[str]]:
+    """Which game recap carries each of the commissioner's jokes.
+
+    `must_use` is {team name: [jokes about that team]} plus "" for jokes that
+    name nobody on the schedule. A team's jokes go to that team's game; the
+    unclaimed ones are dealt round the games starting with the first (the
+    game at the top of the page), so no single recap carries all of them.
+    """
+    out: list[list[str]] = [[] for _ in contexts]
+    if not contexts:
+        return out
+    where = {}
+    for i, ctx in enumerate(contexts):
+        for side in ("winner", "loser"):
+            if ctx.get(side):
+                where[str(ctx[side])] = i
+    loose = list(must_use.get("", []))
+    for team, jokes in must_use.items():
+        if not team:
+            continue
+        if team in where:
+            out[where[team]].extend(jokes)
+        else:
+            loose.extend(jokes)
+    for n, joke in enumerate(loose):
+        out[n % len(contexts)].append(joke)
+    return out
+
+
 #: When the main model's cache was last known warm, and how long to trust it.
 #: Per process, which is right: the cache is Anthropic's, but knowing it is
 #: warm is only ever a guess from here, and a wrong guess costs one cache
@@ -2283,7 +2357,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      lines=None, memories=None,
                                      custom_awards=None,
                                      commissioner_letter=None,
-                                     nfl_notes="", national=""):
+                                     nfl_notes="", national="",
+                                     must_use=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -2321,6 +2396,12 @@ def generate_full_newspaper_content(league_name, week, games, summary,
             "winner_avatar": winner_avatar,
             "loser_avatar": loser_avatar,
         })
+
+    # The commissioner's must-use jokes, onto the games they belong to.
+    for gc, jokes in zip(game_contexts, assign_jokes(
+            [gc["ctx"] for gc in game_contexts], must_use or {})):
+        if jokes:
+            gc["ctx"]["must_use"] = jokes
 
     # Define all tasks as (key, callable) pairs
 

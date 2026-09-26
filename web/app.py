@@ -2196,7 +2196,7 @@ MAX_LORE_ENTRIES = 40
 
 
 @app.post("/l/{token}/lore")
-def add_lore(token: str, entry: str = Form(...)):
+def add_lore(token: str, entry: str = Form(...), always: str = Form("")):
     league = _require_league(token)
     text = entry.strip()
     if not text:
@@ -2205,8 +2205,21 @@ def add_lore(token: str, entry: str = Form(...)):
         return RedirectResponse(
             f"/l/{token}?error=That's+{MAX_LORE_ENTRIES}+bits+of+lore+-+"
             f"the+cap.+Remove+one+to+add+another.", status_code=303)
-    db.add_lore(league["id"], text[:500])
+    db.add_lore(league["id"], text[:500], always=bool(always))
     return RedirectResponse(f"/l/{token}", status_code=303)
+
+
+@app.post("/l/{token}/nicknames")
+def save_nicknames(token: str, nicknames: str = Form("")):
+    """One per line, "Superchaser = Chaser". Needs migration 025."""
+    league = _require_league(token)
+    try:
+        db.update_league(league["id"], {"nicknames": nicknames.strip()[:4000] or None})
+    except Exception:  # noqa: BLE001 — the column isn't there yet
+        return RedirectResponse(
+            f"/l/{token}?error=Nicknames+need+a+quick+database+update+first.",
+            status_code=303)
+    return RedirectResponse(f"/l/{token}?notice=Nicknames+saved.", status_code=303)
 
 
 @app.post("/l/{token}/lore/{lore_id}/remove")
@@ -2489,6 +2502,7 @@ def save_setup(
     notes: list[str] = Form([]),
     then: str = Form(""),
     letter: str = Form(""),
+    jokes: str = Form(""),
     week: str = Form(""),
 ):
     league = _require_league(token)
@@ -2531,7 +2545,8 @@ def save_setup(
     if then == "generate" and week.strip().isdigit():
         fresh = _require_league(token)
         return _generate_response(request, fresh, int(week.strip()),
-                                  letter=letter.strip()[:MAX_LETTER_CHARS])
+                                  letter=letter.strip()[:MAX_LETTER_CHARS],
+                                  jokes=jokes[:3000])
 
     return RedirectResponse(f"/l/{token}?new=1", status_code=303)
 
@@ -2560,14 +2575,17 @@ def skip_setup(request: Request, token: str, week: str = Form("")):
 
 @app.post("/l/{token}/generate")
 def generate(request: Request, token: str, week: int = Form(...),
-             confirm_overwrite: str = Form(""), letter: str = Form("")):
+             confirm_overwrite: str = Form(""), letter: str = Form(""),
+             jokes: str = Form("")):
     league = _require_league(token)
     return _generate_response(request, league, week, confirm_overwrite,
-                              letter=letter.strip()[:MAX_LETTER_CHARS])
+                              letter=letter.strip()[:MAX_LETTER_CHARS],
+                              jokes=jokes[:3000])
 
 
 def _generate_response(request: Request, league: dict, week: int,
-                       confirm_overwrite: str = "", letter: str = ""):
+                       confirm_overwrite: str = "", letter: str = "",
+                       jokes: str = ""):
     """Every check, the generation itself, and where to send the browser.
 
     Shared by the Generate button on the manage page and the last step of
@@ -2674,7 +2692,8 @@ def _generate_response(request: Request, league: dict, week: int,
             f"Give+it+a+minute+and+hit+generate+again.",
             status_code=303)
     try:
-        generate_and_store(db, league, week, letter=letter, trial_last=trial_last)
+        generate_and_store(db, league, week, letter=letter, trial_last=trial_last,
+                           jokes=jokes)
         if trial is not None and not existing:
             # Only once the paper exists: a failed generation costs no trial.
             try:
