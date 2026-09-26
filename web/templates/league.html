@@ -45,7 +45,7 @@
     <h1 class="page-title">{{ paper_name }}</h1>
 </header>
 
-<section class="card taped">
+<section class="card">
     <h2 class="card-title">Send this to your league</h2>
     <p class="card-sub">
         Anyone with this link can read every edition. No sign-in, no app to download.
@@ -164,8 +164,9 @@
     </p>
     <ul class="paper-list">
         {% for p in papers %}
-        <li class="paper-row">
-            <div>
+        <li class="paper-row edition-row">
+            <span class="edition-no" aria-hidden="true">{{ p.week }}</span>
+            <div class="edition-main">
                 <div class="paper-week">Week {{ p.week }}</div>
                 <div class="paper-meta">
                     {{ p.season }} season

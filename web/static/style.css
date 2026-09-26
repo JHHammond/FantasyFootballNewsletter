@@ -2191,3 +2191,90 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
 @media (prefers-reduced-motion: reduce) {
     .platform, .clip { transition: none; }
 }
+
+
+/* =====================================================================
+   26 Sep, second pass (John): tape only on the platform picker and the
+   leaguemates; "Your papers" and the manage page get flair without it.
+   The homepage wire goes black, with the red kept for its label.
+   ===================================================================== */
+
+/* ---------- the wire, in ink ---------- */
+.wire { background: var(--ink); border-bottom: 3px solid var(--accent); }
+.wire-label { background: var(--accent); }
+.wire-label::before { background: #fff; }
+.wire-item::after { color: var(--accent); opacity: 1; }
+
+/* ---------- leaguemates, each a taped card ----------
+   Taped but square: the text boxes inside render badly on a tilt. The
+   tape itself varies, so it still looks done by hand. */
+.manager {
+    position: relative;
+    background: #fff;
+    border-left: 0;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, .04), 0 10px 20px -14px rgba(40, 30, 10, .45);
+    padding: 22px 16px 16px;
+}
+.manager::before {
+    content: "";
+    position: absolute;
+    top: -9px; left: var(--tape-x, 50%);
+    width: 58px; height: 18px;
+    transform: translateX(-50%) rotate(var(--tape, -3deg));
+    background: rgba(200, 162, 0, .32);
+    border-left: 1px dashed rgba(0, 0, 0, .1);
+    border-right: 1px dashed rgba(0, 0, 0, .1);
+    pointer-events: none;
+}
+.manager:nth-child(4n+1) { --tape: -4deg; --tape-x: 30%; }
+.manager:nth-child(4n+2) { --tape: 3deg;  --tape-x: 64%; }
+.manager:nth-child(4n+3) { --tape: -2deg; --tape-x: 46%; }
+.manager:nth-child(4n+4) { --tape: 5deg;  --tape-x: 38%; }
+.manager-list { gap: 26px 18px; margin-top: 18px; }
+.manager .field-label {
+    font-family: "Playfair Display", Georgia, serif;
+    font-weight: 900;
+    font-size: 17px;
+    color: var(--ink);
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--ink);
+}
+
+/* ---------- mastheads for the pages that manage papers ---------- */
+.page-head {
+    border-top: 3px double var(--ink);
+    padding-top: 12px;
+}
+
+/* "Your papers": each league reads like its own nameplate. */
+.nameplate-row { padding: 18px 12px; margin: 0 -12px; transition: background .15s ease; }
+.nameplate-row:hover { background: var(--cream); }
+.nameplate {
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: -.3px;
+    line-height: 1.1;
+    margin-bottom: 4px;
+}
+.platform-chip {
+    display: inline-block;
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.4px;
+    color: #fff; background: var(--ink);
+    padding: 1px 7px; margin-right: 6px;
+    vertical-align: 1px;
+}
+
+/* Past editions: a big red edition number down the left. */
+.edition-row { justify-content: flex-start; gap: 16px; }
+.edition-row .edition-main { flex: 1; }
+.edition-no {
+    flex: none;
+    width: 46px;
+    text-align: center;
+    font-family: "Anton", "Barlow Condensed", sans-serif;
+    font-size: 34px;
+    line-height: 1;
+    color: var(--accent);
+}

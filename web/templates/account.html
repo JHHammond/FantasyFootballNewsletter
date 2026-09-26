@@ -21,10 +21,11 @@
     {% if leagues %}
     <ul class="paper-list">
         {% for league in leagues %}
-        <li class="paper-row">
+        <li class="paper-row nameplate-row">
             <div>
-                <div class="paper-week">{{ league.paper_name or league.league_name }}</div>
-                <div class="paper-meta">{{ league.league_name }} &middot; {{ league.season }} season</div>
+                <div class="paper-week nameplate">{{ league.paper_name or league.league_name }}</div>
+                <div class="paper-meta"><span class="platform-chip">{{ league.provider|provider_name }}</span>
+                    {{ league.league_name }} &middot; {{ league.season }} season</div>
             </div>
             <div class="paper-row-actions">
                 <a class="btn btn-sm" href="/l/{{ league.admin_token }}">Manage</a>
