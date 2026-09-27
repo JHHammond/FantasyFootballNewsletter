@@ -2483,12 +2483,32 @@ def test_no_league_context_means_no_extra_cache_mark():
     assert "cache_control" not in blocks[-1] or len(blocks) == 1
 
 
-def test_the_writer_is_told_it_does_not_know_this_nfl_season():
-    """27 Sep test paper: 'the Jaxson Dart injury', 'the Carson Wentz
-    situation', 'hamstring theater' — all from memory, all printed as news."""
+def test_the_wire_is_trusted_and_memory_is_not():
+    """27 Sep: the Dart injury and the Wentz situation came from the NFL wire,
+    which is true. What must not happen is news from the model's memory."""
     text = writer.system_prompt("standard", GAMES)[0]["text"]
-    assert "YOU DO NOT KNOW THIS NFL SEASON" in text
-    assert "Do not supply the why" in text
+    assert "YOUR OWN MEMORY OF THIS NFL SEASON IS OUT OF DATE" in text
+    assert "The NFL WIRE" in text and "it is true" in text
+    assert "Jaxson Dart" not in text and "Wentz" not in text
+
+
+def test_a_stat_line_sentence_is_sent_back():
+    stat_line = ("Goff threw for 30 against a 16.3 projection, Jonathan Taylor ran "
+                 "for 29, and CeeDee Lamb went for 35 on a number that had him "
+                 "projected at 17.8.")
+    assert writer.find_ai_tells(stat_line)
+    assert writer.find_ai_tells("Mike beat Chase by 11.98 and nobody cared.")
+    fine = "Mike won 169.3-157.3 and moves to 2-0. Lamb went for 35."
+    assert writer.find_ai_tells(fine) == []
+
+
+def test_the_headline_is_checked_against_who_started(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("X"))
+    writer.generate_headline(SUMMARY, 2, "L", lead_story="Somebody benched a star.",
+                             games=GAMES)
+    assert "never say one was benched" in seen["p"]
+    assert "started for" in seen["p"]
 
 
 def test_the_lead_gets_one_decimal_scores_and_knows_its_players_started(swap_client, no_sleeping):

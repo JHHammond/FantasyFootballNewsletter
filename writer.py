@@ -165,16 +165,13 @@ the league who loves these idiots. Not a sportswriter being clever at them.
   any of it, and a paper that punches there gets screenshotted for the wrong
   reasons.
 
-YOU DO NOT KNOW THIS NFL SEASON
-Everything you remember about the NFL is out of date: who is hurt, who is
-starting at quarterback, who got traded, whose offense is broken, who is on a
-bye. It WILL be wrong, and the league will know. The only NFL news you have
-is in the data and on the NFL wire (when one is given). So never write an
-injury, a quarterback "situation", a depth chart, a trade, a suspension, a
-bye week or a coaching story from memory — "the Jaxson Dart injury", "the
-Carson Wentz situation", "hamstring theater" are all invented facts printed
-as news. If the numbers are strange and nothing here explains why, say the
-numbers were strange. Do not supply the why.
+YOUR OWN MEMORY OF THIS NFL SEASON IS OUT OF DATE
+Who is hurt, who is starting, who got traded: what you remember is from an
+older season and will often be wrong. The NFL WIRE, when one is given, is
+this week's real news, written by the editor. Use it; it is true. Beyond the
+wire and the data, never supply an injury, a quarterback situation, a trade
+or a depth chart from memory. If the numbers are strange and nothing here
+explains why, say the numbers were strange.
 
 WHAT YOU ARE ACTUALLY DOING
 You are covering a game, not performing at it. The reader wants to know what
@@ -1125,10 +1122,31 @@ _TELL_PATTERNS = [
 _TELLS = [re.compile(p, re.IGNORECASE) for p in _TELL_PATTERNS]
 
 
+#: A sentence carrying this many numbers is a stat line, not prose (John,
+#: 27 Sep: "Goff threw for 30 against a 16.3 projection, Jonathan Taylor ran
+#: for 29, and CeeDee Lamb went for 35 on a number that had him projected at
+#: 17.8" is five). The prompt asks for two at most; this catches the worst.
+MAX_NUMBERS_PER_SENTENCE = 3
+
+_NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w])")
+_TWO_DECIMALS = re.compile(r"(?<![\w.])\d+\.\d{2}(?![\d])")
+
+
+def _number_heavy(sentence: str) -> bool:
+    # A score or a record ("169.3-157.3", "2-0") is one fact, not two.
+    flat = re.sub(r"(\d+(?:\.\d+)?)\s*[-\u2013]\s*(\d+(?:\.\d+)?)", r"\1", sentence)
+    return (len(_NUMBER.findall(flat)) > MAX_NUMBERS_PER_SENTENCE
+            or bool(_TWO_DECIMALS.search(sentence)))
+
+
 def find_ai_tells(text: str) -> list[str]:
-    """The sentences in `text` that use a banned construction."""
+    """The sentences in `text` that use a banned construction, or read like
+    a stat line."""
     found = []
     sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z\"'\u201c])", text or "")
+    for sentence in sentences:
+        if _number_heavy(sentence):
+            found.append(sentence.strip())
     # Pairs too, because "X isn't Y. It's Z." spans two sentences.
     windows = sentences + [a + " " + b for a, b in zip(sentences, sentences[1:])]
     for window in windows:
@@ -1147,7 +1165,8 @@ A previous draft of this used constructions this paper does not print:
 {quoted}
 Write it again from scratch. State each point directly. No "it's not X, it's
 Y", no "isn't X. It's Y", no "not just X but Y", no setting something up to
-knock it down ("should have been enough. It wasn't"), no "not a typo".
+knock it down ("should have been enough. It wasn't"), no "not a typo". No
+sentence with more than two numbers in it, and no number with two decimals.
 """
 
 
@@ -1354,7 +1373,7 @@ def league_names(game_contexts):
 
 def generate_headline(summary, week, league_name, commissioner_name="",
                       inside_jokes="", system=None, model=None,
-                      lead_story="", names=()):
+                      lead_story="", names=(), games=None):
     """The front page. Written from the finished lead story when there is
     one, so the biggest type on the page agrees with the first paragraph."""
     if lead_story:
@@ -1371,12 +1390,25 @@ def generate_headline(summary, week, league_name, commissioner_name="",
             "lowest_score": summary.get("lowest_score", {}).get("points", 0),
         }))
 
+    # The facts the headline is checked against (27 Sep: a lead that garbled
+    # a starter onto a bench produced "SUPERCHASER BENCHES 42-POINT
+    # SMITH-NJIGBA" in the biggest type on the page).
+    starters = week_top_performers(games) if games else []
+    facts = ""
+    if starters:
+        facts = ("\nFACTS THE HEADLINE MUST AGREE WITH — these players STARTED "
+                 "and their points counted; never say one was benched:\n"
+                 + "\n".join(f"- {r['player']} ({r['position']}) started for "
+                              f"{r['team']}: {r['points']}" for r in starters)
+                 + "\nIf the story above disagrees with these, the facts win.\n")
+
     raw = call_claude(f"""
 Write the FRONT PAGE headline for week {week} of {league_name}'s paper. It is
 about the whole week, so it names the one thing the league will be talking
 about.
 
 {source}
+{facts}
 {HEADLINE_RULES.format(names=", ".join(names) or "none given")}""",
         max_tokens=400, system=system, model=model)
     return clean_headline(raw)
@@ -1724,6 +1756,12 @@ HOW IT SHOULD READ:
   metaphors, nothing that sounds clever but means nothing.
 - Get the football right. A tight end decision is a tight end decision; do
   not call it a quarterback problem.
+- Every comparison must be true by the numbers above. "Outscored", "more
+  than", "all of them", "doubled": check the two numbers before you write
+  it. If three bench players "all outscored" the tight end, each of the three
+  numbers must be bigger than his.
+- Scores and margins to one decimal, never two: 11.98 is "12.0", or just
+  "twelve".
 - One name per team, the same one all the way through: the team name, or the
   manager's name if the league background gives one. Never switch between
   them, and never invent a first name from a username.
@@ -2620,7 +2658,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         "headline": lambda: generate_headline(
             summary, week, league_name, commissioner_name, inside_jokes,
             sys_prompt, model_for("headline"),
-            lead_story=results.get("lead_story") or "", names=names),
+            lead_story=results.get("lead_story") or "", names=names,
+            games=games),
     }
     for i, game_data in enumerate(game_contexts):
         headline_tasks[f"matchup_headline_{i}"] = (
