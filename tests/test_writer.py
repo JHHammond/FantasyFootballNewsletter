@@ -1777,9 +1777,9 @@ def test_only_a_losing_bench_gets_pointed_at(swap_client, no_sleeping):
     writer.generate_matchup_body(ctx)
 
     prompt = seen["prompt"]
-    assert "left 23.7 points on the bench" in prompt
-    assert ctx["loser"] in prompt.split("left 23.7")[0][-120:]
-    assert f"{ctx['winner']} left" not in prompt
+    assert f"{ctx['loser']}'s real lineup mistakes" in prompt
+    assert f"{ctx['winner']}'s real lineup" not in prompt
+    assert "Unused Stud" not in prompt
 
 
 def test_the_system_prompt_says_the_bench_rule_out_loud():
@@ -2283,7 +2283,7 @@ def test_the_recap_is_told_when_the_bench_cost_the_game(swap_client, no_sleeping
     seen = {}
     swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
     ctx = writer.build_game_context(GAME)
-    ctx["loser_lineup_gap"], ctx["margin"] = 30.0, 21.0
+    ctx["loser_bench_cost"], ctx["margin"] = 30.0, 21.0
     writer.generate_matchup_body(ctx)
     p = seen["p"]
     assert "enough on their own bench to win" in p
@@ -2543,3 +2543,64 @@ def test_game_context_scores_are_one_decimal():
     ctx = writer.build_game_context(GAME)
     for k in ("winner_score", "loser_score", "margin"):
         assert ctx[k] == round(ctx[k], 1)
+
+
+# --- the bench only when it mattered (John, 27 Sep) -------------------------
+
+def _side(starters, bench):
+    return {"all_starters": starters, "all_bench": bench}
+
+
+def test_a_bench_player_who_beat_his_starter_by_four_is_left_out():
+    """"When a bench player outscores the starter by something like 4 points,
+    it is really not that big of a deal." So the writer never sees him."""
+    side = _side([_player("Starter RB", "RB", "BUF", 10.0, 12.0, slot="RB")],
+                 [_player("Close Call", "RB", "CAR", 14.0, 9.0, slot="BN")])
+    assert writer.bench_mistakes(side) == []
+    assert not [l for l in writer.format_lineup(side) if "BENCHED" in l]
+
+
+def test_a_real_blunder_is_shown_with_who_he_should_have_replaced():
+    side = _side([_player("Dud TE", "TE", "CHI", 2.0, 11.0, slot="TE"),
+                  _player("Fine WR", "WR", "CIN", 15.0, 14.0, slot="WR")],
+                 [_player("Big TE", "TE", "HOU", 26.0, 9.0, slot="BN")])
+    lines = [l for l in writer.format_lineup(side) if "BENCHED" in l]
+    assert len(lines) == 1 and "Big TE" in lines[0] and "Dud TE" in lines[0]
+    assert "24.0 more" in lines[0]
+
+
+def test_a_bench_player_is_only_compared_with_a_slot_he_could_fill():
+    """A 20-point receiver on the bench is not a mistake because the
+    quarterback scored 5: he could never have played quarterback."""
+    side = _side([_player("Bad QB", "QB", "ARI", 5.0, 18.0, slot="QB"),
+                  _player("Good WR", "WR", "CIN", 19.0, 14.0, slot="WR")],
+                 [_player("Bench WR", "WR", "LV", 20.0, 9.0, slot="BN")])
+    assert writer.bench_mistakes(side) == []
+    side["all_starters"][0]["slot"] = "SUPER_FLEX"
+    assert writer.bench_mistakes(side)[0]["gain"] == 15.0
+
+
+def test_a_kicker_on_the_bench_is_never_a_blunder():
+    side = _side([_player("K1", "K", "JAX", 1.0, 8.0, slot="K")],
+                 [_player("K2", "K", "BAL", 18.0, 8.0, slot="BN")])
+    assert writer.bench_mistakes(side) == []
+
+
+def test_the_recap_is_told_the_records_after_the_game(swap_client, no_sleeping):
+    """Test paper 3 said "Mike improves to 2-1" for a manager who was 1-1:
+    the model was never told the records and worked one out."""
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    ctx = writer.build_game_context(GAME)
+    writer.generate_matchup_body(ctx)
+    assert (f"Records AFTER this game: {ctx['winner']} {ctx['winner_record']}"
+            in seen["p"])
+
+
+def test_no_bench_worth_mentioning_means_no_bench(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    ctx = writer.build_game_context(GAME)
+    ctx["loser_bench_cost"] = 0.0
+    writer.generate_matchup_body(ctx)
+    assert "Do not bring up anybody's bench" in seen["p"]

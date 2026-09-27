@@ -192,7 +192,7 @@ projection. Use them.
 
 - Pick the few performances that decided the game and give those room: the
   biggest beats, the biggest misses, anyone who scored zero, and — for the team
-  that LOST — anyone benched who outscored a starter. Do not walk through the
+  that LOST — a bench decision that cost real points. Do not walk through the
   whole lineup one player at a time.
 - Vary how you cover players so it never reads like a formula. One way,
   among others: lump two or three players who tell the same story together
@@ -279,7 +279,7 @@ HOW TO BE FUNNY WHILE DOING THAT
   bring them up only when they swung a game, and never as the punchline.
 - The joke should come out of the number. If you could keep the joke and swap
   the player, it isn't the right joke.
-- Every matchup has something to roast: a decision, a bench, a collapse, a
+- Every matchup has something to roast: a decision, a collapse, a dud, a
   winner who got lucky. Find it. What reads as a machine trying is a stock
   punchline; a specific jab at a specific decision never does.
 - If you reference the league's own history or running jokes, do it like someone
@@ -321,12 +321,14 @@ WHAT MATTERS IN A FANTASY WEEK
 - Close wins are theft. Blowouts are unnecessary.
 - Players who miss their projection badly get buried. Players who smash it get
   real credit — genuine football excitement, not sarcasm.
-- Points left on the bench are the great sin, but ONLY for a manager who lost.
-  Name the player who should have started and what he scored. A team that won
+- A real bench blunder is a great sin, but ONLY for a manager who lost, and
+  only when it cost real points. A bench player who beat his starter by four
+  is a coin flip, not a mistake; nobody in the league cares. When it was a
+  blunder, say it once, name him and what he scored, and move on. A team that won
   with points on its bench left nothing behind that mattered — those points
   were surplus, nobody in the league is thinking about them, and bringing them
-  up reads as a writer with nothing to say. You will only be shown a bench for
-  the team that lost.
+  up reads as a writer with nothing to say. You will only be shown the bench
+  mistakes worth mentioning, and only for the team that lost.
 - A starter who scored zero is always worth a sentence.
 - The Commissioner gets shamelessly flattering coverage. Play it completely
   straight, as though it were ordinary reporting.
@@ -620,15 +622,71 @@ def _player_line(p, bench=False):
 
     if p.get("injury_status") and not actual:
         bits.append(f"[{p['injury_status']}]")
-    if bench:
+    if isinstance(bench, str) and bench:
+        bits.append(f"[BENCHED] ({bench})")
+    elif bench:
         bits.append("[BENCHED]")
 
     return " ".join(bits)
 
 
-#: How many bench players to show. Enough to support "you should have started
-#: him", not so many that the bench outweighs the lineup that actually played.
-BENCH_SHOWN = 4
+#: How many bench mistakes to show at most.
+BENCH_SHOWN = 3
+
+#: A bench player is only a story if starting him instead of somebody he
+#: could legally have replaced was worth at least this much (John, 27 Sep:
+#: "when a bench player outscores the starter by something like 4 points, it
+#: is really not that big of a deal"). Below this, the writer never sees him.
+BENCH_MISTAKE_MIN = 8.0
+
+try:
+    from providers.models import SLOT_ELIGIBILITY as _SLOT_OK
+except Exception:  # noqa: BLE001 — writer.py also runs on its own
+    _SLOT_OK = {}
+
+
+def _can_fill(slot, position) -> bool:
+    slot = (slot or "").upper()
+    position = (position or "").upper()
+    if slot in _SLOT_OK:
+        return position in _SLOT_OK[slot]
+    return bool(slot) and slot == position
+
+
+def bench_mistakes(team_side) -> list[dict]:
+    """The bench decisions that actually cost points worth talking about.
+
+    Each bench player is set against the lowest-scoring starter he could
+    legally have replaced (a WR against the WR and flex starters, and so on);
+    a starter is only "used" once. Only swaps worth BENCH_MISTAKE_MIN or more
+    survive. Kickers and defenses never count: nobody gets roasted for the
+    wrong kicker.
+
+    A bench player who outscored his starter by four is noise; a bench full
+    of those, listed, made every recap about the bench.
+    """
+    starters = [p for p in (team_side.get("all_starters") or [])
+                if isinstance(p.get("actual"), (int, float)) and not _is_special(p)]
+    bench = [p for p in (team_side.get("all_bench") or [])
+             if isinstance(p.get("actual"), (int, float)) and not _is_special(p)
+             and (p.get("slot") or "BN").upper() not in ("IR",)]
+    bench.sort(key=lambda p: p["actual"], reverse=True)
+
+    used: set[int] = set()
+    out = []
+    for b in bench:
+        options = [(i, s) for i, s in enumerate(starters)
+                   if i not in used
+                   and _can_fill(s.get("slot") or s.get("position"), b.get("position"))]
+        if not options:
+            continue
+        i, s = min(options, key=lambda o: o[1]["actual"])
+        gain = round(b["actual"] - s["actual"], 1)
+        if gain < BENCH_MISTAKE_MIN:
+            continue
+        used.add(i)
+        out.append({"bench": b, "starter": s, "gain": gain})
+    return out[:BENCH_SHOWN]
 
 
 def format_lineup(team_side, with_bench: bool = True):
@@ -676,12 +734,15 @@ def format_lineup(team_side, with_bench: bool = True):
     if not with_bench:
         return starters
 
-    bench_players = [p for p in (team_side.get("all_bench") or [])
-                     if isinstance(p.get("actual"), (int, float))]
-    bench_players.sort(key=lambda p: p["actual"], reverse=True)
+    # Only the bench decisions that cost real points (see bench_mistakes).
+    # Everything else on the bench is left out entirely.
     bench = [
         line for line in (
-            _player_line(p, bench=True) for p in bench_players[:BENCH_SHOWN]
+            _player_line(m["bench"], bench=(
+                f"starting him over {m['starter'].get('name')} "
+                f"({_one_decimal(m['starter'].get('actual'))}) was worth "
+                f"{m['gain']:.1f} more"))
+            for m in bench_mistakes(team_side)
         ) if line
     ]
 
@@ -758,6 +819,18 @@ def _one_decimal(v):
     return round(float(v), 1) if isinstance(v, (int, float)) else v
 
 
+def _records_line(ctx) -> str:
+    """The records AFTER this game, spelled out (27 Sep: a recap wrote "Mike
+    improves to 2-1" for a manager who was 1-1). The model was never told
+    the records, so it did the arithmetic itself and got it wrong."""
+    w, l = ctx.get("winner_record"), ctx.get("loser_record")
+    if not (w and l):
+        return ("Records are not given here; do not state anybody's record.\n")
+    return (f"Records AFTER this game: {ctx.get('winner')} {w}, "
+            f"{ctx.get('loser')} {l}. If you mention a record, use exactly "
+            f"these; never work one out yourself.\n")
+
+
 def build_game_context(game):
     """Convert a game dict into a clean text summary for the prompt."""
     t1 = game["team_1"]
@@ -789,6 +862,7 @@ def build_game_context(game):
         "loser_top_performer": format_performer(loser_team.get("top_performer")),
         "loser_bottom_performer": format_performer(loser_team.get("bottom_performer")),
         "loser_lineup": format_lineup(loser_team, with_bench=True),
+        "loser_bench_cost": round(sum(m["gain"] for m in bench_mistakes(loser_team)), 1),
         "loser_groups": position_totals(loser_team),
         "margin": _one_decimal(margin),
     }
@@ -1679,13 +1753,20 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
 
     opening = OPENINGS[int(ctx.get("index") or 0) % len(OPENINGS)]
 
+    # THE BENCH ONLY WHEN IT COST REAL POINTS (27 Sep). loser_bench_cost is
+    # the sum of swaps worth 8+ each; small ones are not in the data at all.
     bench_note = ""
-    loser_gap = ctx.get("loser_lineup_gap")
-    if isinstance(loser_gap, (int, float)) and loser_gap > 10:
+    loser_gap = ctx.get("loser_bench_cost")
+    if loser_gap is None:   # an old ctx without the new field
+        loser_gap = ctx.get("loser_lineup_gap")
+    if isinstance(loser_gap, (int, float)) and loser_gap >= BENCH_MISTAKE_MIN:
         bench_note = (
-            f"\n{ctx.get('loser')} left {loser_gap:.1f} points on the bench "
-            f"and lost by {ctx.get('margin')}. The players marked [BENCHED] "
-            f"are where those points went — name the one that hurts most.\n")
+            f"\nThe [BENCHED] lines are {ctx.get('loser')}'s real lineup "
+            f"mistakes. Mention the bench once, for the one that hurt most — "
+            f"one or two sentences, not a theme.\n")
+    else:
+        bench_note = ("\nNo bench decision in this game was worth writing "
+                      "about. Do not bring up anybody's bench.\n")
 
     # WHAT DECIDED IT, worked out here rather than left to the writer (25 Sep).
     # Handed two full lineups and told to "pick the few performances that
@@ -1721,7 +1802,7 @@ Write the recap of this game for the paper.
 {ctx.get('winner')} beat {ctx.get('loser')}, \
 {ctx.get('winner_score')} to {ctx.get('loser_score')}, \
 by {ctx.get('margin')}.
-{decider}
+{_records_line(ctx)}{decider}
 
 {ctx.get('winner')} — what they started:
 {winner_lineup or "  (lineup unavailable)"}
@@ -1735,8 +1816,9 @@ up yourself):
   {ctx.get('loser')}: {ctx.get('loser_groups') or 'n/a'}
 
 Each line: Player (position/NFL team), points scored, projection, and the
-difference. [BENCHED] means they did not start, and only the losing team's
-bench is shown — a winner's bench is not a story.
+difference. [BENCHED] means they did not start. Only bench decisions that
+cost 8 or more points are shown at all; a bench player who beat his starter
+by a few points is not a story and is not in this list.
 {commissioner_note}{bench_note}
 This is a story, not a box score. Find the one thing that decided the game
 and build the recap around it. Everything else is supporting detail, and most
@@ -1799,15 +1881,14 @@ enforced"). Accurate is the floor, not the job. This recap MUST have:
 - At least one line said straight TO a manager, by name: "Chase, what are we
   doing?" / "Will, you've done it again."
 - At least one blunt verdict of a few words: "Barkley is cooked." "That
-  bench is a crime scene."
+  lineup is a crime scene."
 - At least one absurd escalation hung on a real number from this game.
 - A clear opinion on each team's future: contender, fraud, toilet bowl.
 It should read like the funniest person in the group chat wrote it after
 watching every snap, not like a wire report. For the register only (never
 reuse these lines):
-  "Chase, buddy. Bryce Young scored 24 on your bench while you started a
-  quarterback who managed 16. Twenty-four. Bryce Young. Somebody take his
-  phone away before waivers run."
+  "Chase, buddy. You started a tight end who caught one pass. One. For four
+  yards. Somebody take his phone away before waivers run."
 """, max_tokens=3000, system=system, model=model, avoid_tells=True)
 
 
@@ -2016,8 +2097,8 @@ def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=
             if p.get("name"):
                 facts.append(f"{names[side]} started {p['name']}, who scored "
                              f"{p.get('actual') or 0:.1f}.")
-    gap = ctx.get("loser_lineup_gap")
-    if isinstance(gap, (int, float)) and gap > 10:
+    gap = ctx.get("loser_bench_cost", ctx.get("loser_lineup_gap"))
+    if isinstance(gap, (int, float)) and gap >= BENCH_MISTAKE_MIN:
         facts.append(f"{names['loser']} left {gap:.1f} points on the bench.")
 
     commissioner_line = ""
@@ -2089,8 +2170,8 @@ def generate_classifieds(summary, game_contexts, commissioner_name="",
         if worst.get("name"):
             lines.append(f"  {ctx['loser']}'s worst: {worst['name']} "
                          f"{worst.get('actual') or 0:.1f}")
-        gap = ctx.get("loser_lineup_gap") or 0
-        if gap > 10:
+        gap = ctx.get("loser_bench_cost", ctx.get("loser_lineup_gap")) or 0
+        if gap >= BENCH_MISTAKE_MIN:
             lines.append(f"  {ctx['loser']} left {gap:.0f} on the bench")
 
     low = summary.get("lowest_score", {})
