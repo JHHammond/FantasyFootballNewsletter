@@ -178,13 +178,13 @@ You are covering a game, not performing at it. The reader wants to know what
 happened to their team and why. Get that right and the jokes have something to
 sit on; get it wrong and no amount of style rescues the paragraph.
 
-So: report first. Walk the lineup. Name who won them the week and who cost
-them, say what the projection was and what actually arrived, and say what it
-means for this team going forward. The humor rides on top of that reporting —
-it is the voice you report *in*, not a separate thing you stop and do.
+So: get the football right, then say it like the house voice. Name who won
+them the week and who cost them, and what it means going forward. The humor
+is the voice you report *in*, not a separate thing you stop and do.
 
-A paragraph with a great line and no football in it has failed. A paragraph
-with real football and no joke in it is fine.
+A paragraph with a great line and no football in it has failed. So has a
+paragraph with real football and no personality: a flat, accurate recap is
+a box score with extra steps, and this league can read the box score.
 
 COVERAGE — THE HARD REQUIREMENT
 You are given every player who started, with their actual points and their
@@ -269,8 +269,8 @@ HOW TO BE FUNNY WHILE DOING THAT
   "two catches for eleven yards".
 - Vary the rhythm. Every paragraph needs at least one sentence under six words.
   Short sentences are where jokes land. Long ones are where you build.
-- Understatement sometimes. Constant escalation goes numb by the third
-  paragraph.
+- Mix the gears: a blunt verdict, a long escalating rant, then something
+  short and deadpan. The same gear for a whole recap goes numb.
 - The funniest detail is usually the true one. A backup tight end who
   outscored someone's first-round pick is funnier than any metaphor you could
   attach to him.
@@ -279,8 +279,9 @@ HOW TO BE FUNNY WHILE DOING THAT
   bring them up only when they swung a game, and never as the punchline.
 - The joke should come out of the number. If you could keep the joke and swap
   the player, it isn't the right joke.
-- If nothing is funny about a matchup, write it straight. A dry, accurate
-  paragraph reads as confidence. A forced punchline reads as a machine trying.
+- Every matchup has something to roast: a decision, a bench, a collapse, a
+  winner who got lucky. Find it. What reads as a machine trying is a stock
+  punchline; a specific jab at a specific decision never does.
 - If you reference the league's own history or running jokes, do it like someone
   who was there — glancingly, without explaining it.
 
@@ -751,6 +752,12 @@ def position_totals(team_side):
     return " | ".join(out)
 
 
+def _one_decimal(v):
+    """Scores and margins go to the writer at one decimal: handed 52.46, it
+    prints "a 52.46 point beating"."""
+    return round(float(v), 1) if isinstance(v, (int, float)) else v
+
+
 def build_game_context(game):
     """Convert a game dict into a clean text summary for the prompt."""
     t1 = game["team_1"]
@@ -766,7 +773,7 @@ def build_game_context(game):
     return {
         "winner": winner_team.get("team_name"),
         "winner_owner": winner_team.get("owner_name"),
-        "winner_score": winner_team.get("points"),
+        "winner_score": _one_decimal(winner_team.get("points")),
         "winner_record": winner_team.get("record_after") or winner_team.get("record"),
         "winner_lineup_gap": winner_team.get("lineup_gap", 0),
         "winner_top_performer": format_performer(winner_team.get("top_performer")),
@@ -776,14 +783,14 @@ def build_game_context(game):
         "winner_groups": position_totals(winner_team),
         "loser": loser_team.get("team_name"),
         "loser_owner": loser_team.get("owner_name"),
-        "loser_score": loser_team.get("points"),
+        "loser_score": _one_decimal(loser_team.get("points")),
         "loser_record": loser_team.get("record_after") or loser_team.get("record"),
         "loser_lineup_gap": loser_team.get("lineup_gap", 0),
         "loser_top_performer": format_performer(loser_team.get("top_performer")),
         "loser_bottom_performer": format_performer(loser_team.get("bottom_performer")),
         "loser_lineup": format_lineup(loser_team, with_bench=True),
         "loser_groups": position_totals(loser_team),
-        "margin": margin,
+        "margin": _one_decimal(margin),
     }
 
 
@@ -1110,6 +1117,9 @@ _TELL_PATTERNS = [
     r"[,;:.\u2014-]\s*(?:it|this|that)(?:'s|\u2019s| is| was)\b",
     r"\b(?:isn't|wasn't|isn\u2019t|wasn\u2019t)\b[^.!?]{0,90}[.;\u2014-]\s*"
     r"(?:It|This|That)(?:'s|\u2019s| is| was)\b",
+    # "Ninety-seven points is not a lineup, it's a bye week" — any subject
+    r"\b(?:is|was|are|were)(?: not|n't|n\u2019t)\b[^.!?]{0,80}[,;:\u2014-]\s*"
+    r"(?:it|this|that|they)(?:'s|\u2019s| is| was|'re|\u2019re| are)\b",
     # not just X, but Y
     r"\bnot (?:just|only|merely)\b[^.!?]{0,90}\bbut\b",
     # not because X, but because Y
@@ -1783,6 +1793,21 @@ End on whatever the last real point is.
 Plain prose — no markdown, no bullets, no headers.
 
 {f"Things this league would want referenced if they fit: {inside_jokes}" if inside_jokes else ""}
+
+THE VOICE, WHICH IS THE POINT (John, 27 Sep: "the new tone is not being
+enforced"). Accurate is the floor, not the job. This recap MUST have:
+- At least one line said straight TO a manager, by name: "Chase, what are we
+  doing?" / "Will, you've done it again."
+- At least one blunt verdict of a few words: "Barkley is cooked." "That
+  bench is a crime scene."
+- At least one absurd escalation hung on a real number from this game.
+- A clear opinion on each team's future: contender, fraud, toilet bowl.
+It should read like the funniest person in the group chat wrote it after
+watching every snap, not like a wire report. For the register only (never
+reuse these lines):
+  "Chase, buddy. Bryce Young scored 24 on your bench while you started a
+  quarterback who managed 16. Twenty-four. Bryce Young. Somebody take his
+  phone away before waivers run."
 """, max_tokens=3000, system=system, model=model, avoid_tells=True)
 
 
@@ -2139,8 +2164,9 @@ Write the FRAUD WATCH for this week's paper.
 Attack their roster decisions, their players' performances, their snap counts, their coaching.
 Be specific — name the players who let them down, cite actual football failures.
 Do NOT use financial, legal, or crime metaphors. Keep it entirely on the football field.
-Frame it as a football analyst calling out bad roster management and poor player performance.
-Be savage, be funny, be specific to the sport.
+Frame it as the paper formally opening an investigation into this team.
+Be savage, be funny, be specific to the sport: talk to the manager by name at
+least once, and hang one absurd image on a real number.
 
 Subject: {_compact(context)}
 """

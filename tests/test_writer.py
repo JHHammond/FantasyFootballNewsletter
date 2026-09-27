@@ -2520,3 +2520,26 @@ def test_the_lead_gets_one_decimal_scores_and_knows_its_players_started(swap_cli
     for r in writer.week_results([game]):
         for key in ("winner_score", "loser_score", "margin"):
             assert r[key] == round(r[key], 1)
+
+
+def test_the_recap_ends_on_the_voice_it_must_have(swap_client, no_sleeping):
+    """27 Sep TEST_2: accurate, flat, wire-report recaps. The voice now comes
+    last in the prompt, as requirements, not early as suggestions."""
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    writer.generate_matchup_body(writer.build_game_context(GAME))
+    p = seen["p"]
+    tail = p[p.index("THE VOICE, WHICH IS THE POINT"):]
+    assert "said straight TO a manager" in tail and "absurd escalation" in tail
+    assert p.rstrip().endswith('phone away before waivers run."')
+
+
+def test_any_subject_is_not_x_its_y_is_caught():
+    assert writer.find_ai_tells(
+        "Ninety-seven points is not a fantasy lineup, it's a bye week that forgot to tell anyone.")
+
+
+def test_game_context_scores_are_one_decimal():
+    ctx = writer.build_game_context(GAME)
+    for k in ("winner_score", "loser_score", "margin"):
+        assert ctx[k] == round(ctx[k], 1)
