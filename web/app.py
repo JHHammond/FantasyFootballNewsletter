@@ -2510,7 +2510,6 @@ def save_setup(
     notes: list[str] = Form([]),
     then: str = Form(""),
     letter: str = Form(""),
-    news: str = Form(""),
     week: str = Form(""),
 ):
     league = _require_league(token)
@@ -2553,8 +2552,7 @@ def save_setup(
     if then == "generate" and week.strip().isdigit():
         fresh = _require_league(token)
         return _generate_response(request, fresh, int(week.strip()),
-                                  letter=letter.strip()[:MAX_LETTER_CHARS],
-                                  news=news[:3000])
+                                  letter=letter.strip()[:MAX_LETTER_CHARS])
 
     return RedirectResponse(f"/l/{token}?new=1", status_code=303)
 
@@ -2583,17 +2581,14 @@ def skip_setup(request: Request, token: str, week: str = Form("")):
 
 @app.post("/l/{token}/generate")
 def generate(request: Request, token: str, week: int = Form(...),
-             confirm_overwrite: str = Form(""), letter: str = Form(""),
-             news: str = Form("")):
+             confirm_overwrite: str = Form(""), letter: str = Form("")):
     league = _require_league(token)
     return _generate_response(request, league, week, confirm_overwrite,
-                              letter=letter.strip()[:MAX_LETTER_CHARS],
-                              news=news[:3000])
+                              letter=letter.strip()[:MAX_LETTER_CHARS])
 
 
 def _generate_response(request: Request, league: dict, week: int,
-                       confirm_overwrite: str = "", letter: str = "",
-                       news: str = ""):
+                       confirm_overwrite: str = "", letter: str = ""):
     """Every check, the generation itself, and where to send the browser.
 
     Shared by the Generate button on the manage page and the last step of
@@ -2700,8 +2695,7 @@ def _generate_response(request: Request, league: dict, week: int,
             f"Give+it+a+minute+and+hit+generate+again.",
             status_code=303)
     try:
-        generate_and_store(db, league, week, letter=letter, trial_last=trial_last,
-                           news=news)
+        generate_and_store(db, league, week, letter=letter, trial_last=trial_last)
         if trial is not None and not existing:
             # Only once the paper exists: a failed generation costs no trial.
             try:
@@ -2762,7 +2756,7 @@ def letter_for_week(token: str, week: int):
     text = ""
     if cache.get("lead_by_commissioner"):
         text = letter_from_html(cache.get("lead_story") or "")
-    return JSONResponse({"letter": text, "news": cache.get("news_raw") or ""})
+    return JSONResponse({"letter": text})
 
 
 @app.get("/l/{token}/published/{week}", response_class=HTMLResponse)

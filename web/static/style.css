@@ -2291,4 +2291,3 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
     font-family: "Playfair Display", Georgia, serif; font-size: 19px; font-weight: 900;
     margin: 26px 0 6px; padding-top: 16px; border-top: 1px solid var(--line);
 }
-#news-step textarea { width: 100%; margin-bottom: 14px; }

@@ -2481,3 +2481,22 @@ def test_no_league_context_means_no_extra_cache_mark():
     blocks = writer.system_prompt("standard", GAMES)
     assert all("LEAGUE BACKGROUND" not in b["text"] for b in blocks)
     assert "cache_control" not in blocks[-1] or len(blocks) == 1
+
+
+def test_the_writer_is_told_it_does_not_know_this_nfl_season():
+    """27 Sep test paper: 'the Jaxson Dart injury', 'the Carson Wentz
+    situation', 'hamstring theater' — all from memory, all printed as news."""
+    text = writer.system_prompt("standard", GAMES)[0]["text"]
+    assert "YOU DO NOT KNOW THIS NFL SEASON" in text
+    assert "Do not supply the why" in text
+
+
+def test_the_lead_gets_one_decimal_scores_and_knows_its_players_started(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    game = dict(GAME)
+    writer.generate_lead_story(SUMMARY, 2, "L", games=[game])
+    assert "None of them was on a bench" in seen["p"]
+    for r in writer.week_results([game]):
+        for key in ("winner_score", "loser_score", "margin"):
+            assert r[key] == round(r[key], 1)

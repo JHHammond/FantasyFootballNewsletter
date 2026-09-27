@@ -165,6 +165,17 @@ the league who loves these idiots. Not a sportswriter being clever at them.
   any of it, and a paper that punches there gets screenshotted for the wrong
   reasons.
 
+YOU DO NOT KNOW THIS NFL SEASON
+Everything you remember about the NFL is out of date: who is hurt, who is
+starting at quarterback, who got traded, whose offense is broken, who is on a
+bye. It WILL be wrong, and the league will know. The only NFL news you have
+is in the data and on the NFL wire (when one is given). So never write an
+injury, a quarterback "situation", a depth chart, a trade, a suspension, a
+bye week or a coaching story from memory — "the Jaxson Dart injury", "the
+Carson Wentz situation", "hamstring theater" are all invented facts printed
+as news. If the numbers are strange and nothing here explains why, say the
+numbers were strange. Do not supply the why.
+
 WHAT YOU ARE ACTUALLY DOING
 You are covering a game, not performing at it. The reader wants to know what
 happened to their team and why. Get that right and the jokes have something to
@@ -1414,12 +1425,16 @@ def week_results(games):
     out = []
     for game in games or []:
         ctx = build_game_context(game)
+        # One decimal, like the rest of the paper: "169.28-157.30" in a lead
+        # reads like a spreadsheet export.
+        def r1(v):
+            return round(float(v), 1) if isinstance(v, (int, float)) else v
         out.append({
             "winner": ctx.get("winner"),
-            "winner_score": ctx.get("winner_score"),
+            "winner_score": r1(ctx.get("winner_score")),
             "loser": ctx.get("loser"),
-            "loser_score": ctx.get("loser_score"),
-            "margin": ctx.get("margin"),
+            "loser_score": r1(ctx.get("loser_score")),
+            "margin": r1(ctx.get("margin")),
         })
     return out
 
@@ -1508,6 +1523,9 @@ margin, somebody scoring 60 — the number carries it without help.
       them. Somebody had to win. Brutal.
 
 One paragraph, flowing prose, no bullets and no headings.
+
+Every player in top_performers STARTED, and his points counted for the team
+named beside him. None of them was on a bench. Never say or suggest one was.
 {national_block}
 Week data: {_compact(context)}
 """
@@ -2088,7 +2106,8 @@ Be savage, be funny, be specific to the sport.
 
 Subject: {_compact(context)}
 """
-    return call_claude(prompt, max_tokens=300, system=system, model=model)
+    return call_claude(prompt, max_tokens=300, system=system, model=model,
+                       avoid_tells=True)
 
 
 def power_rankings_notes(teams):
