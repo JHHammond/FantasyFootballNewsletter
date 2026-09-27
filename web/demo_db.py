@@ -524,6 +524,30 @@ def delete_nfl_note(note_id: str) -> None:
         _NFL_NOTES.pop(note_id, None)
 
 
+_NICKNAMES: dict[str, dict[str, Any]] = {}
+
+
+def player_nicknames() -> list[dict[str, Any]]:
+    return sorted((dict(n) for n in _NICKNAMES.values()), key=lambda n: n["player_name"])
+
+
+def add_player_nickname(player_name: str, nickname: str) -> None:
+    import uuid
+    with _lock:
+        nid = str(uuid.uuid4())
+        _NICKNAMES[nid] = {"id": nid, "player_name": player_name,
+                           "nickname": nickname, "created_at": _now()}
+
+
+def delete_player_nickname(nick_id: str) -> None:
+    with _lock:
+        _NICKNAMES.pop(nick_id, None)
+
+
+def player_nicknames_ready() -> bool:
+    return True
+
+
 def nfl_notes_ready() -> bool:
     return True
 

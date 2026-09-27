@@ -69,5 +69,36 @@
     <p class="card-sub">No notes for week {{ week }} yet.</p>
     {% endfor %}
 </section>
+
+<section class="card" id="nicknames">
+    <h2 class="card-title">Player nicknames</h2>
+    {% if not nick_ready %}
+    <p class="card-sub">Run <code>migrations/026_player_nicknames.sql</code> in Supabase to turn this on.</p>
+    {% else %}
+    <p class="card-sub">
+        For every league, every week. A paper uses a nickname only when that
+        player is on one of its rosters. Full names, as the platforms spell them.
+    </p>
+    <form method="post" action="/staff/wire/nicknames" class="inline-form" style="gap:10px;flex-wrap:wrap;">
+        <input type="hidden" name="week" value="{{ week }}" />
+        <label class="field"><span class="field-label">Player</span>
+            <input type="text" name="player_name" required placeholder="Kenneth Walker" /></label>
+        <label class="field"><span class="field-label">Nickname</span>
+            <input type="text" name="nickname" required placeholder="K9" /></label>
+        <button type="submit" class="btn btn-primary">Add</button>
+    </form>
+    {% for n in nicknames %}
+    <div class="paper-row">
+        <div><strong>{{ n.player_name }}</strong> <span class="paper-meta">&rarr; {{ n.nickname }}</span></div>
+        <form method="post" action="/staff/wire/nicknames/{{ n.id }}/delete">
+            <input type="hidden" name="week" value="{{ week }}" />
+            <button type="submit" class="btn btn-sm">Remove</button>
+        </form>
+    </div>
+    {% else %}
+    <p class="empty" style="margin-top:14px;">No nicknames yet.</p>
+    {% endfor %}
+    {% endif %}
+</section>
 {% endif %}
 {% endblock %}

@@ -1058,10 +1058,31 @@ def staff_wire(request: Request, week: int = 0, saved: int = 0):
     # written, and the Tuesday papers are about the week now in progress.
     week = week or nfl_week.current_week()
     ready = db.nfl_notes_ready()
+    nick_ready = db.player_nicknames_ready()
     return _render(request, "staff_wire.html", ready=ready, season=season,
                    week=week, latest=latest, saved=bool(saved),
                    weeks=list(range(1, 19)),
-                   notes=db.nfl_notes(season, week) if ready else [])
+                   notes=db.nfl_notes(season, week) if ready else [],
+                   nick_ready=nick_ready,
+                   nicknames=db.player_nicknames() if nick_ready else [])
+
+
+@app.post("/staff/wire/nicknames")
+def staff_wire_nickname_add(request: Request, player_name: str = Form(...),
+                            nickname: str = Form(...), week: int = Form(0)):
+    _require_staff(request)
+    name = clean_text(player_name, max_length=80).strip()
+    nick = clean_text(nickname, max_length=120).strip()
+    if " " in name and nick and db.player_nicknames_ready():
+        db.add_player_nickname(name, nick)
+    return RedirectResponse(f"/staff/wire?week={week}#nicknames", status_code=303)
+
+
+@app.post("/staff/wire/nicknames/{nick_id}/delete")
+def staff_wire_nickname_delete(request: Request, nick_id: str, week: int = Form(0)):
+    _require_staff(request)
+    db.delete_player_nickname(nick_id)
+    return RedirectResponse(f"/staff/wire?week={week}#nicknames", status_code=303)
 
 
 @app.post("/staff/wire")
@@ -2209,19 +2230,6 @@ def add_lore(token: str, entry: str = Form(...), always: str = Form("")):
     return RedirectResponse(f"/l/{token}", status_code=303)
 
 
-@app.post("/l/{token}/nicknames")
-def save_nicknames(token: str, nicknames: str = Form("")):
-    """One per line, "Superchaser = Chaser". Needs migration 025."""
-    league = _require_league(token)
-    try:
-        db.update_league(league["id"], {"nicknames": nicknames.strip()[:4000] or None})
-    except Exception:  # noqa: BLE001 — the column isn't there yet
-        return RedirectResponse(
-            f"/l/{token}?error=Nicknames+need+a+quick+database+update+first.",
-            status_code=303)
-    return RedirectResponse(f"/l/{token}?notice=Nicknames+saved.", status_code=303)
-
-
 @app.post("/l/{token}/lore/{lore_id}/remove")
 def remove_lore(token: str, lore_id: str):
     league = _require_league(token)
@@ -2502,7 +2510,6 @@ def save_setup(
     notes: list[str] = Form([]),
     then: str = Form(""),
     letter: str = Form(""),
-    jokes: str = Form(""),
     week: str = Form(""),
 ):
     league = _require_league(token)
@@ -2545,8 +2552,7 @@ def save_setup(
     if then == "generate" and week.strip().isdigit():
         fresh = _require_league(token)
         return _generate_response(request, fresh, int(week.strip()),
-                                  letter=letter.strip()[:MAX_LETTER_CHARS],
-                                  jokes=jokes[:3000])
+                                  letter=letter.strip()[:MAX_LETTER_CHARS])
 
     return RedirectResponse(f"/l/{token}?new=1", status_code=303)
 
@@ -2575,17 +2581,14 @@ def skip_setup(request: Request, token: str, week: str = Form("")):
 
 @app.post("/l/{token}/generate")
 def generate(request: Request, token: str, week: int = Form(...),
-             confirm_overwrite: str = Form(""), letter: str = Form(""),
-             jokes: str = Form("")):
+             confirm_overwrite: str = Form(""), letter: str = Form("")):
     league = _require_league(token)
     return _generate_response(request, league, week, confirm_overwrite,
-                              letter=letter.strip()[:MAX_LETTER_CHARS],
-                              jokes=jokes[:3000])
+                              letter=letter.strip()[:MAX_LETTER_CHARS])
 
 
 def _generate_response(request: Request, league: dict, week: int,
-                       confirm_overwrite: str = "", letter: str = "",
-                       jokes: str = ""):
+                       confirm_overwrite: str = "", letter: str = ""):
     """Every check, the generation itself, and where to send the browser.
 
     Shared by the Generate button on the manage page and the last step of
@@ -2692,8 +2695,7 @@ def _generate_response(request: Request, league: dict, week: int,
             f"Give+it+a+minute+and+hit+generate+again.",
             status_code=303)
     try:
-        generate_and_store(db, league, week, letter=letter, trial_last=trial_last,
-                           jokes=jokes)
+        generate_and_store(db, league, week, letter=letter, trial_last=trial_last)
         if trial is not None and not existing:
             # Only once the paper exists: a failed generation costs no trial.
             try:

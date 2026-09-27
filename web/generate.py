@@ -623,29 +623,6 @@ def nfl_notes_for(db, season: int, week: int, week_data) -> str:
     return "\n".join(keep)
 
 
-def parse_nicknames(text: str) -> list[tuple[str, str]]:
-    """"Superchaser = Chaser" per line -> [("Superchaser", "Chaser")]."""
-    out = []
-    for line in (text or "").splitlines():
-        for sep in ("=", "\u2192", "->", ":"):
-            if sep in line:
-                real, nick = line.split(sep, 1)
-                real, nick = real.strip(" -\u2022*\t"), nick.strip()
-                if real and nick:
-                    out.append((real[:80], nick[:120]))
-                break
-    return out[:40]
-
-
-def nickname_context(pairs) -> str:
-    if not pairs:
-        return ""
-    return ("NICKNAMES — what this league calls these people and players. Use "
-            "the nickname when they come up, not every single time, and never "
-            "explain where it came from:\n"
-            + "\n".join(f"- {real}: {nick}" for real, nick in pairs))
-
-
 def route_jokes(jokes: list[str], week_data, managers: list | None) -> dict[str, list[str]]:
     """{team name: [jokes naming that team or its manager]}, "" for the rest.
 
@@ -675,19 +652,30 @@ def route_jokes(jokes: list[str], week_data, managers: list | None) -> dict[str,
     return out
 
 
-def split_jokes(text: str) -> list[str]:
-    """The week's jokes box: one per line, bullets stripped, capped."""
-    out = []
-    for line in (text or "").splitlines():
-        line = line.strip().lstrip("-\u2022*").strip()
-        if line:
-            out.append(line[:500])
-    return out[:12]
+def player_nicknames_for(db, week_data) -> str:
+    """Staff nicknames for players on a roster in this league, as wire lines.
+
+    Set on the NFL wire page, for every league. Matched by full name, the
+    same way as the wire notes, so "Kenneth Walker = K9" reaches a league
+    only if Kenneth Walker is on one of its rosters.
+    """
+    try:
+        rows = db.player_nicknames()
+    except Exception:  # noqa: BLE001 — no table yet reads as no nicknames
+        return ""
+    if not rows:
+        return ""
+    rostered = {_plain_name(p.name) for t in getattr(week_data, "teams", []) or []
+                for p in t.all_players if p.name}
+    keep = [f"- NICKNAME: {r['player_name']} is \"{r['nickname']}\". Use it "
+            f"when that player comes up, not every time, and never explain it."
+            for r in rows
+            if _plain_name(r.get("player_name")) in rostered and r.get("nickname")]
+    return "\n".join(keep)
 
 
 def generate_and_store(db, league: dict[str, Any], week: int,
-                       letter: str = "", trial_last: bool = False,
-                       jokes: str = "") -> dict[str, Any]:
+                       letter: str = "", trial_last: bool = False) -> dict[str, Any]:
     """Fetch, write with Claude, render, upload, record.
 
     `letter` is the commissioner's own front-page story, if he wrote one.
@@ -721,10 +709,7 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         league, lore_entries, managers,
         {m["handle"]: m["team_name"] for m in directory},
     )
-    nicknames = nickname_context(parse_nicknames(league.get("nicknames") or ""))
-    if nicknames:
-        league_context = (league_context + "\n\n" + nicknames).strip()
-    must_use = route_jokes(must_lore + split_jokes(jokes), week_data, managers)
+    must_use = route_jokes(must_lore, week_data, managers)
 
     annotate_draft(games, _draft_picks(league))
 
@@ -756,7 +741,9 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         memories=season_so_far["memories"],
         custom_awards=_custom_awards_for_writer(db, league, directory),
         commissioner_letter=letter,
-        nfl_notes=nfl_notes_for(db, season, week, week_data),
+        nfl_notes="\n".join(x for x in (
+            nfl_notes_for(db, season, week, week_data),
+            player_nicknames_for(db, week_data)) if x),
         national=_national.writer_facts(stack_up),
         must_use=must_use,
     )

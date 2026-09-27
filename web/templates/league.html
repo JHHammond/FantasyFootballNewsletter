@@ -275,17 +275,6 @@
         </label>
         <button type="submit" class="btn">Add it</button>
     </form>
-
-    <h3 class="subhead">Nicknames</h3>
-    <p class="card-sub">
-        What your league calls people and players. One per line, real name
-        first. The paper uses them when they come up.
-    </p>
-    <form method="post" action="/l/{{ league.admin_token }}/nicknames" class="stack">
-        <textarea name="nicknames" rows="4" maxlength="4000"
-                  placeholder="superchaser = Chaser&#10;Kenneth Walker = K9&#10;Drake Maye = Drake &quot;Drake Maye&quot; Maye">{{ league.nicknames or '' }}</textarea>
-        <button type="submit" class="btn">Save nicknames</button>
-    </form>
 </section>
 
 {% include "_awards_card.html" %}

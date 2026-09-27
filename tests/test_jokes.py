@@ -15,8 +15,8 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
 
 import writer  # noqa: E402
 from providers.models import League, Manager, Matchup, Team, WeekData  # noqa: E402
-from web.generate import (nickname_context, parse_nicknames, route_jokes,  # noqa: E402
-                          split_jokes)
+from web import demo_db  # noqa: E402
+from web.generate import player_nicknames_for, route_jokes  # noqa: E402
 
 
 def _week():
@@ -65,17 +65,18 @@ def test_the_recap_prompt_insists_on_them(monkeypatch):
     assert "Boman traded Nabers for peanuts." in seen["p"]
 
 
-def test_nicknames_parse_in_any_reasonable_format():
-    pairs = parse_nicknames("superchaser = Chaser\nKenneth Walker -> K9\n"
-                            "- Drake Maye: Drake \"Drake Maye\" Maye\nnonsense line")
-    assert pairs == [("superchaser", "Chaser"), ("Kenneth Walker", "K9"),
-                     ("Drake Maye", 'Drake "Drake Maye" Maye')]
-    assert "Kenneth Walker: K9" in nickname_context(pairs)
-    assert nickname_context([]) == ""
-
-
-def test_the_weeks_jokes_box_splits_lines():
-    assert split_jokes("- one\n\n• two\n  three  ") == ["one", "two", "three"]
+def test_wire_nicknames_reach_only_leagues_with_that_player():
+    from providers.models import PlayerLine
+    demo_db._NICKNAMES.clear()
+    demo_db.add_player_nickname("Kenneth Walker", "K9")
+    demo_db.add_player_nickname("Drake Maye", 'Drake "Drake Maye" Maye')
+    wk = _week()
+    wk.matchups[0].teams[0].lineup.append(
+        PlayerLine(player_id="x:1", name="Kenneth Walker III", position="RB", points=20.0, slot="RB"))
+    text = player_nicknames_for(demo_db, wk)
+    assert "Kenneth Walker is \"K9\"" in text
+    assert "Drake Maye" not in text
+    demo_db._NICKNAMES.clear()
 
 
 def test_the_house_voice_is_in_the_system_prompt():

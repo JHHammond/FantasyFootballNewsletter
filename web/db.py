@@ -898,6 +898,28 @@ def delete_nfl_note(note_id: str) -> None:
     client().table("nfl_notes").delete().eq("id", note_id).execute()
 
 
+def player_nicknames() -> list[dict[str, Any]]:
+    res = client().table("player_nicknames").select("*").order("player_name").execute()
+    return res.data or []
+
+
+def add_player_nickname(player_name: str, nickname: str) -> None:
+    client().table("player_nicknames").insert(
+        {"player_name": player_name, "nickname": nickname}).execute()
+
+
+def delete_player_nickname(nick_id: str) -> None:
+    client().table("player_nicknames").delete().eq("id", nick_id).execute()
+
+
+def player_nicknames_ready() -> bool:
+    try:
+        client().table("player_nicknames").select("id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def nfl_notes_ready() -> bool:
     try:
         client().table("nfl_notes").select("id").limit(1).execute()

@@ -130,3 +130,22 @@ def test_add_and_remove_a_note(web):
     assert note["note"] == "Drake London went off." and not note["all_leagues"]
     web.post(f"/staff/wire/{note['id']}/delete", data={"week": 3})
     assert demo_db.nfl_notes(nfl_week.current_season(), 3) == []
+
+
+def test_staff_can_add_and_remove_a_player_nickname(web):
+    _sign_up(web, "staff")
+    demo_db._NICKNAMES.clear()
+    web.post("/staff/wire/nicknames", data={"player_name": "Kenneth Walker",
+                                           "nickname": "K9", "week": 3})
+    rows = demo_db.player_nicknames()
+    assert [(r["player_name"], r["nickname"]) for r in rows] == [("Kenneth Walker", "K9")]
+    assert "K9" in web.get("/staff/wire?week=3").text
+    web.post(f"/staff/wire/nicknames/{rows[0]['id']}/delete", data={"week": 3})
+    assert demo_db.player_nicknames() == []
+
+
+def test_a_nickname_needs_a_full_name(web):
+    _sign_up(web, "staff")
+    demo_db._NICKNAMES.clear()
+    web.post("/staff/wire/nicknames", data={"player_name": "Walker", "nickname": "K9"})
+    assert demo_db.player_nicknames() == []

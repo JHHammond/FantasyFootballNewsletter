@@ -2291,7 +2291,3 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
     font-family: "Playfair Display", Georgia, serif; font-size: 19px; font-weight: 900;
     margin: 26px 0 6px; padding-top: 16px; border-top: 1px solid var(--line);
 }
-.letter-jokes { display: block; text-align: left; margin: 14px 0 10px; }
-.letter-jokes span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-.letter-jokes em { font-weight: 400; color: var(--muted); }
-.letter-jokes textarea { width: 100%; }
