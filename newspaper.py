@@ -103,12 +103,14 @@ def _desk_shot(player, desk):
 
 
 def _desk_candidates(team):
-    """The players in a team worth a photo, best first."""
+    """Every starter on a team, best first. ALL of them (27 Sep): if a team
+    started a player the photo desk has a picture of, that picture runs, even
+    if he scored four."""
     starters = [p for p in (team or {}).get("all_starters") or [] if p.get("name")]
-    return sorted(starters, key=lambda p: p.get("actual") or 0, reverse=True)[:3]
+    return sorted(starters, key=lambda p: p.get("actual") or 0, reverse=True)
 
 
-def auto_photo_for_game(game, desk=None):
+def auto_photo_for_game(game, desk=None, avoid=None):
     """A photo and caption for a game story, with no work from anyone.
 
     Most commissioners have no relevant photo to hand, and a paper with empty
@@ -123,14 +125,17 @@ def auto_photo_for_game(game, desk=None):
     t1, t2 = game.get("team_1", {}), game.get("team_2", {})
     winner = t1 if winner_name == get_team_name(t1) else t2
 
-    # The photo desk first (25 Sep): if one of the game's standouts has a
-    # staff photo this week, that beats any headshot. Winner's top three,
-    # then the loser's best.
+    # The photo desk ALWAYS wins (John, 27 Sep): if either team started a
+    # player with a staff photo, that photo runs. Highest scorer first when
+    # there are several; a photo already used elsewhere on the page (`avoid`)
+    # only if there is no other.
     loser = t2 if winner is t1 else t1
-    for candidate in _desk_candidates(winner) + _desk_candidates(loser)[:1]:
-        shot = _desk_shot(candidate, desk)
-        if shot:
-            return shot
+    shots = [s for s in (_desk_shot(p, desk) for p in sorted(
+        _desk_candidates(winner) + _desk_candidates(loser),
+        key=lambda p: p.get("actual") or 0, reverse=True)) if s]
+    fresh = [s for s in shots if s["url"] not in (avoid or ())]
+    if fresh or shots:
+        return (fresh or shots)[0]
 
     player = best_performer(winner) or best_performer(loser)
     if not player:
@@ -152,7 +157,7 @@ def auto_hero_photo(matchups, desk=None):
         everyone = [p for game in matchups or [] for key in ("team_1", "team_2")
                     for p in _desk_candidates(game.get(key))]
         everyone.sort(key=lambda p: p.get("actual") or 0, reverse=True)
-        for p in everyone[:5]:
+        for p in everyone:
             shot = _desk_shot(p, desk)
             if shot:
                 return shot
@@ -1744,12 +1749,14 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
 
     # Photos with no work from anyone: the standout player of each game, and
     # the week's biggest scorer up top. Uploaded photos always win over these.
+    auto_hero = auto_hero_photo(matchups, photo_desk)
+    used = {auto_hero["url"]} if auto_hero else set()
     auto_photos = {}
     for idx, game in enumerate(matchups or []):
-        shot = auto_photo_for_game(game, photo_desk)
+        shot = auto_photo_for_game(game, photo_desk, avoid=used)
         if shot:
             auto_photos[idx] = shot
-    auto_hero = auto_hero_photo(matchups, photo_desk)
+            used.add(shot["url"])
 
     # --- Headline ---
     if ai_content and ai_content.get("headline"):

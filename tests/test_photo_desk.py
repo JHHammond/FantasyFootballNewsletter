@@ -132,3 +132,39 @@ def test_a_last_name_alone_is_refused(web):
     r = web.post("/staff/photos", data={"player_name": "London", "week": ""},
                  files={"photo": ("x.png", PNG, "image/png")}, follow_redirects=False)
     assert "full+name" in r.headers["location"] or "full%20name" in r.headers["location"]
+
+
+# --- a desk photo always runs when its player started (John, 27 Sep) ---------
+
+def _team(name, n, low_man):
+    return {"team_name": name, "all_starters":
+            [_p(f"{name} Star {i}", 30.0 - i) for i in range(n)] + [low_man]}
+
+
+def test_a_desk_photo_runs_even_for_the_losers_worst_starter():
+    game = {"winner": "A", "team_1": _team("A", 8, _p("Filler A", 1.0)),
+            "team_2": _team("B", 8, _p("Tony Snell", 0.0))}
+    desk = {"tony snell": {"url": "https://desk/snell.jpg", "caption": "",
+                           "credit": ""}}
+    assert newspaper.auto_photo_for_game(game, desk)["url"] == "https://desk/snell.jpg"
+    hero = newspaper.auto_hero_photo([game], desk)
+    assert hero["url"] == "https://desk/snell.jpg"
+
+
+def test_a_bench_player_does_not_get_his_photo_in():
+    game = dict(GAME)
+    game["team_2"] = {"team_name": "B", "all_starters": [_p("Puka Nacua", 20.0)],
+                      "all_bench": [_p("Benchy", 40.0)]}
+    desk = {"benchy": {"url": "https://desk/benchy.jpg", "caption": "", "credit": ""}}
+    assert newspaper.auto_photo_for_game(game, desk)["url"] != "https://desk/benchy.jpg"
+
+
+def test_the_same_photo_is_not_used_twice_when_there_is_another():
+    desk = {"drake london": {"url": "https://desk/london.jpg", "caption": "", "credit": ""},
+            "puka nacua": {"url": "https://desk/puka.jpg", "caption": "", "credit": ""}}
+    shot = newspaper.auto_photo_for_game(GAME, desk, avoid={"https://desk/london.jpg"})
+    assert shot["url"] == "https://desk/puka.jpg"
+    # ...but the only desk photo in a game still runs even if the hero has it.
+    only = {"drake london": desk["drake london"]}
+    shot = newspaper.auto_photo_for_game(GAME, only, avoid={"https://desk/london.jpg"})
+    assert shot["url"] == "https://desk/london.jpg"
