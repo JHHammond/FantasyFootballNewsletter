@@ -13,6 +13,23 @@
 #}
 <dialog class="offer letter-prompt" id="letter-prompt" aria-labelledby="letter-title">
     <button type="button" class="letter-close" id="letter-close" aria-label="Cancel">&times;</button>
+  {# STEP ONE (27 Sep): the week's news. Always printed: an item that names a
+     team goes in that team's recap, anything else in the front page's
+     "From the group chat" box. Never guessed onto a game. #}
+  <div id="news-step">
+    <div class="offer-eyebrow">Before the presses run</div>
+    <h2 class="offer-title">Any breaking news from the group chat?</h2>
+    <p class="offer-sub">
+        Trash talk, trades, meltdowns, bets. Tell us and it goes in the paper.
+        One thing per line.
+    </p>
+    <textarea id="news-text" rows="5" maxlength="3000" aria-label="This week's news"></textarea>
+    <button type="button" class="btn btn-primary offer-cta" id="news-use" disabled>
+        Put it in the paper
+    </button>
+    <button type="button" class="offer-later" id="news-skip">Nothing new, just write it</button>
+  </div>
+  <div id="letter-step" hidden>
     <div class="offer-eyebrow">Before the presses run</div>
     <h2 class="offer-title" id="letter-title">Would you like to add a letter from the desk of the commissioner?</h2>
     <p class="offer-sub">
@@ -29,6 +46,7 @@ Three weeks in and I am the only one of you who can set a lineup..."></textarea>
         Put it on the front page
     </button>
     <button type="button" class="offer-later" id="letter-skip">No thanks, write it for me</button>
+  </div>
 </dialog>
 <script>
 (function () {
@@ -39,6 +57,37 @@ Three weeks in and I am the only one of you who can set a lineup..."></textarea>
     var useBtn = document.getElementById("letter-use");
     var BASE = "/l/{{ league.admin_token }}/letter/";
     var pending = null;
+    var news = document.getElementById("news-text");
+    var newsUse = document.getElementById("news-use");
+    var newsStep = document.getElementById("news-step");
+    var letterStep = document.getElementById("letter-step");
+    // A different example each time, so the box never reads like a form.
+    var EXAMPLES = [
+        "Boman crashed out in the group chat after losing by 0.6.",
+        "Mike called his shot on Thursday and still lost.",
+        "Hank offered Bijan for two kickers. Seriously.",
+        "Nick benched Purdy for Mac Jones. On purpose.",
+        "Sims is going to be a dad.",
+        "Somebody still owes the league $50 from last year."
+    ];
+    function examples() {
+        var start = Math.floor(Math.random() * EXAMPLES.length);
+        return [0, 1, 2].map(function (i) {
+            return EXAMPLES[(start + i) % EXAMPLES.length];
+        }).join("\n");
+    }
+    function updateNews() { newsUse.disabled = !news.value.trim(); }
+    news.addEventListener("input", updateNews);
+    function toLetter() {
+        newsStep.hidden = true;
+        letterStep.hidden = false;
+        text.focus();
+    }
+    newsUse.addEventListener("click", toLetter);
+    document.getElementById("news-skip").addEventListener("click", function () {
+        news.value = "";
+        toLetter();
+    });
 
     function update() {
         count.textContent = text.value.length.toLocaleString();
@@ -55,7 +104,12 @@ Three weeks in and I am the only one of you who can set a lineup..."></textarea>
             event.stopImmediatePropagation();
             pending = { form: form, submitter: event.submitter };
             text.value = "";
+            news.value = "";
+            news.placeholder = examples();
             update();
+            updateNews();
+            newsStep.hidden = false;
+            letterStep.hidden = true;
             dlg.showModal();
             // A redo of a week that already has his letter: bring it back
             // rather than make him type it again.
@@ -65,6 +119,7 @@ Three weeks in and I am the only one of you who can set a lineup..."></textarea>
                     .then(function (r) { return r.ok ? r.json() : null; })
                     .then(function (d) {
                         if (d && d.letter && !text.value) { text.value = d.letter; update(); }
+                        if (d && d.news && !news.value) { news.value = d.news; updateNews(); }
                     })
                     .catch(function () {});
             }
@@ -83,6 +138,14 @@ Three weeks in and I am the only one of you who can set a lineup..."></textarea>
             form.appendChild(input);
         }
         input.value = letter;
+        var newsInput = form.querySelector("input[name=news]");
+        if (!newsInput) {
+            newsInput = document.createElement("input");
+            newsInput.type = "hidden";
+            newsInput.name = "news";
+            form.appendChild(newsInput);
+        }
+        newsInput.value = news.value.trim();
         form.dataset.letterDone = "1";
         dlg.close();
         if (typeof form.requestSubmit === "function") {

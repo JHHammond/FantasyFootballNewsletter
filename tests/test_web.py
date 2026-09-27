@@ -5547,9 +5547,23 @@ def test_a_redo_brings_the_letter_back(client, league):
                        {"lead_by_commissioner": True,
                                  "lead_story": "<p>Fixed in the editor.</p><p>Two</p>"})
     r = client.get("/l/secret-admin-token/letter/3")
-    assert r.json() == {"letter": "Fixed in the editor.\n\nTwo"}
-    assert client.get("/l/secret-admin-token/letter/9").json() == {"letter": ""}
+    assert r.json() == {"letter": "Fixed in the editor.\n\nTwo", "news": ""}
+    assert client.get("/l/secret-admin-token/letter/9").json() == {"letter": "", "news": ""}
     assert client.get("/l/wrong-token/letter/3").status_code == 404
+
+
+def test_a_redo_brings_the_group_chat_news_back(client, league):
+    demo_db.save_paper(league["id"], 4, league["season"], "u", "p",
+                       {"news_raw": "Sims is going to be a dad."})
+    assert client.get("/l/secret-admin-token/letter/4").json()["news"] == \
+        "Sims is going to be a dad."
+
+
+def test_the_manage_page_asks_for_group_chat_news_first(client, league):
+    page = client.get("/l/secret-admin-token").text
+    if "letter-prompt" in page:
+        assert "Any breaking news from the group chat?" in page
+        assert page.index('id="news-step"') < page.index('id="letter-step"')
 
 
 def test_the_letter_prints_under_its_own_kicker_and_signature():

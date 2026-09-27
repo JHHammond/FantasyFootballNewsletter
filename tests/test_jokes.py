@@ -45,13 +45,13 @@ def test_whole_words_only():
     assert "superchaser" not in out and out[""]
 
 
-def test_jokes_land_on_the_right_recap_and_loose_ones_are_dealt_round():
+def test_jokes_land_on_the_right_recap_and_unnamed_ones_stay_out_of_the_games():
     contexts = [{"winner": "Sell the Falcons", "loser": "Champ's Team"},
                 {"winner": "superchaser", "loser": "Sims Squad"}]
-    got = writer.assign_jokes(contexts, {"Sims Squad": ["dad joke"],
-                                         "": ["one", "two", "three"]})
-    assert got[1][0] == "dad joke"
-    assert got[0] == ["one", "three"] and got[1][1:] == ["two"]
+    per_game, loose = writer.assign_jokes(contexts, {"Sims Squad": ["dad joke"],
+                                                    "": ["one", "two"]})
+    assert per_game == [[], ["dad joke"]], "unnamed items are never guessed onto a game"
+    assert loose == ["one", "two"]
 
 
 def test_the_recap_prompt_insists_on_them(monkeypatch):
@@ -84,3 +84,25 @@ def test_the_house_voice_is_in_the_system_prompt():
     assert "THE HOUSE VOICE" in text
     assert "Talk TO the managers" in text
     assert "never means slurs" in text
+
+
+def test_unnamed_news_becomes_the_group_chat_box(monkeypatch):
+    import json
+    import newspaper
+    monkeypatch.setattr(writer, "call_claude", lambda prompt, **k: json.dumps(
+        ["Breaking: the league voted to ban kickers. Chaos."]) if "GROUP CHAT" in prompt else "x")
+    out = writer.generate_group_chat(["The league voted to ban kickers."])
+    assert out == ["Breaking: the league voted to ban kickers. Chaos."]
+    html = newspaper.render_group_chat_html(out + ["<b>x</b>"])
+    assert "From the group chat" in html and "&lt;b&gt;" in html
+    assert newspaper.render_group_chat_html([]) == ""
+
+
+def test_a_failed_group_chat_call_still_prints_what_he_sent(monkeypatch):
+    monkeypatch.setattr(writer, "call_claude", lambda prompt, **k: "not json")
+    assert writer.generate_group_chat(["Sims is going to be a dad."]) == ["Sims is going to be a dad."]
+
+
+def test_the_news_box_splits_lines():
+    from web.generate import split_news
+    assert split_news("- one\n\n• two\n  three  ") == ["one", "two", "three"]

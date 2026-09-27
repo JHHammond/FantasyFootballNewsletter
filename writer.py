@@ -2314,17 +2314,17 @@ def generate_obituaries(dead, system=None, model=None):
     return out
 
 
-def assign_jokes(contexts, must_use) -> list[list[str]]:
+def assign_jokes(contexts, must_use) -> tuple[list[list[str]], list[str]]:
     """Which game recap carries each of the commissioner's jokes.
 
     `must_use` is {team name: [jokes about that team]} plus "" for jokes that
-    name nobody on the schedule. A team's jokes go to that team's game; the
-    unclaimed ones are dealt round the games starting with the first (the
-    game at the top of the page), so no single recap carries all of them.
+    name nobody on the schedule. A team's jokes go to that team's game.
+
+    The unclaimed ones are NOT guessed onto a game (John, 27 Sep: "a high
+    probability it would be in the wrong story"). They come back separately
+    and go in the front page's "From the group chat" box instead.
     """
     out: list[list[str]] = [[] for _ in contexts]
-    if not contexts:
-        return out
     where = {}
     for i, ctx in enumerate(contexts):
         for side in ("winner", "loser"):
@@ -2338,9 +2338,38 @@ def assign_jokes(contexts, must_use) -> list[list[str]]:
             out[where[team]].extend(jokes)
         else:
             loose.extend(jokes)
-    for n, joke in enumerate(loose):
-        out[n % len(contexts)].append(joke)
-    return out
+    return out, loose
+
+
+def generate_group_chat(items, system=None, model=None):
+    """FROM THE GROUP CHAT: the news the commissioner sent in that names no
+    one team, written up as briefs. One brief per item, nothing added."""
+    if not items:
+        return []
+    listing = "\n".join(f"{i + 1}. {item}" for i, item in enumerate(items))
+    raw = call_claude(f"""
+Write FROM THE GROUP CHAT: a column of briefs on the front page, built from
+news the commissioner sent in this week.
+
+One brief per item below, in the same order. Each is one or two sentences in
+the house voice: deadpan, savage, like a wire service reporting nonsense with
+a straight face. Keep every fact exactly as given and add none. If an item
+is already funny, barely touch it.
+
+{listing}
+
+Answer with a JSON array of strings, one per item, and nothing else.
+""", max_tokens=1200, system=system, model=model)
+    cleaned = (raw or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    try:
+        parsed = [str(x).strip() for x in json.loads(cleaned) if str(x).strip()]
+        if parsed:
+            return parsed[:len(items)]
+    except Exception:  # noqa: BLE001
+        pass
+    return list(items)
 
 
 #: When the main model's cache was last known warm, and how long to trust it.
@@ -2397,9 +2426,11 @@ def generate_full_newspaper_content(league_name, week, games, summary,
             "loser_avatar": loser_avatar,
         })
 
-    # The commissioner's must-use jokes, onto the games they belong to.
-    for gc, jokes in zip(game_contexts, assign_jokes(
-            [gc["ctx"] for gc in game_contexts], must_use or {})):
+    # The commissioner's must-use jokes, onto the games they belong to; the
+    # ones that name no team go in the group chat box, never a guessed game.
+    per_game, group_chat_items = assign_jokes(
+        [gc["ctx"] for gc in game_contexts], must_use or {})
+    for gc, jokes in zip(game_contexts, per_game):
         if jokes:
             gc["ctx"]["must_use"] = jokes
 
@@ -2439,6 +2470,9 @@ def generate_full_newspaper_content(league_name, week, games, summary,
             summary, commissioner_name, inside_jokes, sys_prompt, model_for("awards"),
             custom_awards=custom_awards, games_brief=games_brief)
     tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, inside_jokes, sys_prompt, model_for("fraud_watch"))
+    if group_chat_items:
+        tasks["group_chat"] = lambda: generate_group_chat(
+            group_chat_items, sys_prompt, model_for("group_chat"))
     tasks["classifieds"] = lambda: generate_classifieds(
         summary, [gc["ctx"] for gc in game_contexts], commissioner_name,
         inside_jokes, sys_prompt, model=model_for("classifieds"))
@@ -2652,6 +2686,10 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         "matchup_content": matchup_content,
         "awards": _label_custom_awards(results.get("awards") or [], custom_awards),
         "fraud_watch": results.get("fraud_watch") or "No fraud detected.",
+        # The commissioner's news that named no team. If the call failed,
+        # print what he sent rather than lose it.
+        "group_chat": (results.get("group_chat") or list(group_chat_items))
+                      if group_chat_items else [],
         "power_rankings_comments": rankings_notes,
         "classifieds": results.get("classifieds") or [],
         # Older callers and edits treat the pull quote as a string, so the

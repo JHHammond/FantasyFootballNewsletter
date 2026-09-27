@@ -1023,6 +1023,21 @@ def _trial_note(last, base=None):
         </div>"""
 
 
+def render_group_chat_html(items):
+    """FROM THE GROUP CHAT: the commissioner's news that named no one team."""
+    items = [i for i in (items or []) if str(i).strip()]
+    if not items:
+        return ""
+    import html as _html
+    lis = "".join(f"<li>{_html.escape(str(i))}</li>" for i in items)
+    return f"""
+    <div class="group-chat">
+        <div class="col-section-label">From the group chat</div>
+        <ul>{lis}</ul>
+    </div>
+    """
+
+
 def render_stack_up_html(national):
     """HOW YOU STACK UP: this league's week against every league on the site.
     Frozen into ai_content when the paper is written; absent, nothing prints."""
@@ -1976,6 +1991,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             if ((ai_content or {}).get("trends") or {}).get("teams") else ""),
         "top_scorers_html": build_top_scorers(matchups),
         "stack_up_html": render_stack_up_html((ai_content or {}).get("national")),
+        "group_chat_html": render_group_chat_html((ai_content or {}).get("group_chat")),
         "week_ticker_html": build_week_ticker(summary),
         "honor_roll_html": build_honor_roll_and_detention(matchups)[0],
         "detention_html": build_honor_roll_and_detention(matchups)[1],
@@ -2235,6 +2251,16 @@ def _render_html(edition, theme=None):
             letter-spacing: 0.5px;
             text-transform: none;
         }}
+
+        /* ── FROM THE GROUP CHAT (27 Sep) ── */
+        .group-chat {{ margin-top: 18px; padding: 10px 14px 6px; border: 2px solid #111;
+                       background: rgba(0,0,0,.025); }}
+        .group-chat ul {{ list-style: none; margin: 0; padding: 0; }}
+        .group-chat li {{ padding: 7px 0 7px 18px; position: relative; font-size: 14px;
+                          line-height: 1.45; border-top: 1px dotted #bbb; }}
+        .group-chat li:first-child {{ border-top: 0; }}
+        .group-chat li::before {{ content: "\25A0"; position: absolute; left: 0; top: 8px;
+                                  font-size: 9px; color: var(--accent, #b3141c); }}
 
         /* ── HOW YOU STACK UP (26 Sep) ── */
         .stack-up {{ margin-top: 18px; padding-top: 4px; border-top: 3px double #111; }}
@@ -3224,6 +3250,7 @@ def _render_html(edition, theme=None):
                 {edition.get('lead_kicker', '')}
                 <div class="lead-story{' is-letter' if edition.get('lead_kicker') else ''}"{edition['ed_lead']}>{edition['lead_story']}</div>
                 {edition.get('lead_sign', '')}
+                {edition.get('group_chat_html', '')}
             </div>
 
             <!-- RIGHT COL: Standings + stats -->

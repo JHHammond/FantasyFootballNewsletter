@@ -674,8 +674,19 @@ def player_nicknames_for(db, week_data) -> str:
     return "\n".join(keep)
 
 
+def split_news(text: str) -> list[str]:
+    """The group chat box: one item per line, bullets stripped, capped."""
+    out = []
+    for line in (text or "").splitlines():
+        line = line.strip().lstrip("-\u2022*").strip()
+        if line:
+            out.append(line[:500])
+    return out[:10]
+
+
 def generate_and_store(db, league: dict[str, Any], week: int,
-                       letter: str = "", trial_last: bool = False) -> dict[str, Any]:
+                       letter: str = "", trial_last: bool = False,
+                       news: str = "") -> dict[str, Any]:
     """Fetch, write with Claude, render, upload, record.
 
     `letter` is the commissioner's own front-page story, if he wrote one.
@@ -709,7 +720,10 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         league, lore_entries, managers,
         {m["handle"]: m["team_name"] for m in directory},
     )
-    must_use = route_jokes(must_lore, week_data, managers)
+    # "Any breaking news from the group chat?" (27 Sep): always printed. Items
+    # naming a team go in that team's recap; the rest get the front-page box.
+    news_items = split_news(news)
+    must_use = route_jokes(must_lore + news_items, week_data, managers)
 
     annotate_draft(games, _draft_picks(league))
 
@@ -749,6 +763,9 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     )
     if stack_up:
         ai_content["national"] = stack_up
+    # Kept as typed, so a redo of this week offers it back.
+    if news_items:
+        ai_content["news_raw"] = "\n".join(news_items)
 
     # Stored as HTML, like an edited story: escaped here, once, so what he
     # typed can never be read as markup, and the editor handles it exactly
