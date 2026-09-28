@@ -17,7 +17,55 @@
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 {% if saved %}<div class="alert alert-success">Added. Papers written from now on will use it.</div>{% endif %}
 
+<section class="card" id="front">
+    <h2 class="card-title">Front-page photo</h2>
+    <p class="card-sub">
+        The lead-off photo at the top of <strong>every</strong> paper for one
+        week, instead of the week&rsquo;s top scorer. A photo a commissioner
+        uploads to their own paper still wins in theirs. If you add more than
+        one for a week, the newest is used. Papers already written keep their
+        photo until they&rsquo;re re-rendered.
+    </p>
+    {% for p in fronts %}
+    <div class="paper-row" style="align-items:center;">
+        <div style="display:flex;gap:12px;align-items:center;">
+            <img src="{{ p.image_url }}" alt="" style="width:120px;height:72px;object-fit:cover;border-radius:6px;" />
+            <div>
+                <div><strong>Week {{ p.week }}</strong>{% if loop.first %} &middot; in use{% endif %}</div>
+                <div class="paper-meta">{% if p.caption %}{{ p.caption }}{% else %}No caption{% endif %}{% if p.credit %} &middot; Photo: {{ p.credit }}{% endif %}</div>
+            </div>
+        </div>
+        <form method="post" action="/staff/photos/{{ p.id }}/delete">
+            <input type="hidden" name="week" value="{{ week }}" />
+            <button type="submit" class="btn btn-sm">Delete</button>
+        </form>
+    </div>
+    {% endfor %}
+    <form method="post" action="/staff/photos/front" enctype="multipart/form-data" class="stack">
+        <label class="field">
+            <span class="field-label">Week</span>
+            <select name="week">
+                {% for w in weeks %}<option value="{{ w }}" {% if w == next_week %}selected{% endif %}>Week {{ w }}{% if w == next_week %} (next week){% endif %}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="field">
+            <span class="field-label">Photo</span>
+            <input type="file" name="photo" accept="image/jpeg,image/png,image/gif,image/webp" required />
+        </label>
+        <label class="field">
+            <span class="field-label">Caption <span class="paper-meta">(optional)</span></span>
+            <input type="text" name="caption" maxlength="200" />
+        </label>
+        <label class="field">
+            <span class="field-label">Credit <span class="paper-meta">(optional)</span></span>
+            <input type="text" name="credit" maxlength="80" placeholder="@whoever" />
+        </label>
+        <div><button type="submit" class="btn btn-primary">Set front-page photo</button></div>
+    </form>
+</section>
+
 <section class="card">
+    <h2 class="card-title">Player photos</h2>
     <p class="card-sub">
         A photo tied to a player. When that player is one of the standouts in a
         game (or the week&rsquo;s top scorer), every paper uses this instead of

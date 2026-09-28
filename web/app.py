@@ -1120,10 +1120,56 @@ def staff_photos(request: Request, week: int = 0, error: str = "",
     season = nfl_week.current_season()
     week = week or nfl_week.current_week()
     ready = db.player_photos_ready()
-    photos = db.player_photos(season, week) if ready else []
+    rows = db.player_photos(season, week) if ready else []
+    from newspaper import FRONT_PAGE_KEY
+    photos = [p for p in rows if p.get("player_name") != FRONT_PAGE_KEY]
+    fronts = [p for p in rows if p.get("player_name") == FRONT_PAGE_KEY
+              and p.get("week") == week]
     return _render(request, "staff_photos.html", ready=ready, season=season,
                    week=week, weeks=list(range(1, 19)), photos=photos,
+                   fronts=fronts, next_week=min(18, nfl_week.current_week() + 1),
                    error=error, saved=bool(saved))
+
+
+@app.post("/staff/photos/front")
+async def staff_photos_front(request: Request, photo: UploadFile = File(...),
+                             week: str = Form(""), caption: str = Form(""),
+                             credit: str = Form("")):
+    """The lead-off photo for every paper of one week (John, 28 Sep). Beats
+    the automatic top photo everywhere; a commissioner's own upload still
+    wins in their paper."""
+    _require_staff(request)
+    import nfl_week
+    from newspaper import FRONT_PAGE_KEY
+    season = nfl_week.current_season()
+    if not week.isdigit() or not 1 <= int(week) <= 18:
+        return RedirectResponse(f"/staff/photos?error={quote('Pick a week.')}",
+                                status_code=303)
+    back = int(week)
+
+    def fail(message: str):
+        return RedirectResponse(f"/staff/photos?week={back}&error={quote(message)}",
+                                status_code=303)
+
+    data = await photo.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        return fail("That file is over 8MB.")
+    kind = images.sniff(data)
+    if kind is None:
+        return fail(images.describe_rejection(data))
+
+    path, url = await run_in_threadpool(
+        db.upload_player_photo, f"front.{kind.extension}", data, kind.mime, season)
+    await run_in_threadpool(db.add_player_photo, {
+        "season": season,
+        "week": back,
+        "player_name": FRONT_PAGE_KEY,
+        "image_url": url,
+        "storage_path": path,
+        "caption": clean_text(caption, max_length=200).strip() or None,
+        "credit": clean_text(credit, max_length=80).strip() or None,
+    })
+    return RedirectResponse(f"/staff/photos?week={back}&saved=1#front", status_code=303)
 
 
 @app.post("/staff/photos")

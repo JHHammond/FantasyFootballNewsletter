@@ -88,6 +88,23 @@ def plain_player_name(name) -> str:
     return _NAME_SUFFIX.sub("", re.sub(r"\s+", " ", name)).strip()
 
 
+#: The photo desk's key for a week's front-page photo (28 Sep). Stored in the
+#: same table as the player photos, under a name no player can have, so a
+#: staff "lead-off photo for every paper this week" needs no new table.
+FRONT_PAGE_KEY = "__front_page__"
+
+
+def front_page_shot(desk):
+    """The staff front-page photo for this week, as a photo entry, or None."""
+    hit = (desk or {}).get(FRONT_PAGE_KEY)
+    if not hit or not hit.get("url"):
+        return None
+    caption = (hit.get("caption") or "").strip()
+    if (hit.get("credit") or "").strip():
+        caption = (caption + " " if caption else "") + f"(Photo: {hit['credit'].strip()})"
+    return {"url": hit["url"], "caption": caption}
+
+
 def _desk_shot(player, desk):
     """The photo desk's picture of this player, as a photo entry, or None."""
     if not player or not desk:
@@ -152,7 +169,11 @@ def auto_photo_for_game(game, desk=None, avoid=None):
 
 
 def auto_hero_photo(matchups, desk=None):
-    """Whoever had the biggest day in the league, for the top of the page."""
+    """Whoever had the biggest day in the league, for the top of the page.
+    A staff front-page photo for the week beats everything (28 Sep)."""
+    front = front_page_shot(desk)
+    if front:
+        return front
     if desk:
         everyone = [p for game in matchups or [] for key in ("team_1", "team_2")
                     for p in _desk_candidates(game.get(key))]

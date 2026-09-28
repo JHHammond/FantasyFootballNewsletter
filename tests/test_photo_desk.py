@@ -168,3 +168,48 @@ def test_the_same_photo_is_not_used_twice_when_there_is_another():
     only = {"drake london": desk["drake london"]}
     shot = newspaper.auto_photo_for_game(GAME, only, avoid={"https://desk/london.jpg"})
     assert shot["url"] == "https://desk/london.jpg"
+
+
+# --- the week's front-page photo (John, 28 Sep) ------------------------------
+
+def test_a_front_page_photo_leads_every_paper_that_week(web):
+    import nfl_week
+    _sign_up(web, "staff")
+    r = web.post("/staff/photos/front", data={"week": "4", "caption": "Week 4.",
+                                              "credit": "@memes"},
+                 files={"photo": ("front.png", PNG, "image/png")},
+                 follow_redirects=False)
+    assert r.status_code == 303
+    season = nfl_week.current_season()
+
+    desk = _photo_desk(demo_db, season, 4)
+    hero = newspaper.auto_hero_photo([GAME], desk)
+    assert hero["url"].startswith(demo_db.player_photos(season)[0]["image_url"][:10])
+    assert hero["caption"] == "Week 4. (Photo: @memes)"
+    # ...and not the week before or after.
+    for other in (3, 5):
+        hero = newspaper.auto_hero_photo([GAME], _photo_desk(demo_db, season, other))
+        assert hero["url"] == "https://cdn/Drake London.png"
+    # A front-page photo is never a game's photo.
+    assert newspaper.auto_photo_for_game(GAME, desk)["url"] == "https://cdn/Drake London.png"
+
+    page = web.get("/staff/photos?week=4").text
+    assert "Front-page photo" in page and "in use" in page
+
+
+def test_the_newest_front_page_photo_wins():
+    demo_db.add_player_photo({"season": 2026, "week": 4,
+                              "player_name": newspaper.FRONT_PAGE_KEY,
+                              "image_url": "old.jpg", "created_at": "2026-09-28T01"})
+    demo_db.add_player_photo({"season": 2026, "week": 4,
+                              "player_name": newspaper.FRONT_PAGE_KEY,
+                              "image_url": "new.jpg", "created_at": "2026-09-28T02"})
+    assert newspaper.front_page_shot(_photo_desk(demo_db, 2026, 4))["url"] == "new.jpg"
+
+
+def test_a_front_page_photo_needs_a_week(web):
+    _sign_up(web, "staff")
+    r = web.post("/staff/photos/front", data={"week": ""},
+                 files={"photo": ("front.png", PNG, "image/png")},
+                 follow_redirects=False)
+    assert r.status_code == 303 and "error=" in r.headers["location"]
