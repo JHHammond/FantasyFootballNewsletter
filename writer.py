@@ -338,7 +338,8 @@ stops being their league's paper. These are banned outright:
   showcase, harness, elevate, resonate, foster, pivotal, crucial, robust,
   seamless, myriad, plethora, "a stark reminder", "speaks volumes",
   "earlier this season", "so far this season", "on the season",
-  "at the end of the day", "make no mistake", "let that sink in".
+  "at the end of the day", "make no mistake", "let that sink in",
+  "laugher".
 - Opening a sentence with "In a league where", "When it comes to", "There's
   something to be said for", or "Here's the thing".
 - Ending a paragraph on a short portentous fragment. "Brutal." "Ouch."
@@ -1382,6 +1383,13 @@ _TELL_PATTERNS = [
     # "Alex lost this one on Tuesday, not Sunday" / "lost this before kickoff"
     r"\b(?:lost|won) this one (?:on|before|in|at)\b",
 ]
+#: Words the editor has banned outright (John). Add to this list; the
+#: checker rewrites any sentence that uses one.
+BANNED_WORDS = [
+    "laugher",      # 28 Sep: "it doesn't really make sense"
+]
+_TELL_PATTERNS += [r"\b" + re.escape(w) + r"s?\b" for w in BANNED_WORDS]
+
 _TELLS = [re.compile(p, re.IGNORECASE) for p in _TELL_PATTERNS]
 
 
@@ -1469,6 +1477,7 @@ keep the voice, and state things directly:
   need to be X, just Y" — no setting something up to knock it down;
 - at most two numbers in a sentence: split it in two, or drop a number;
 - no number with two decimals;
+- none of these words: {", ".join(BANNED_WORDS)};
 - a projection is a "projection", never his "number" ("beat his
   projection by 13", "a 16-point projection");
 - no player called another player's "backup", "handcuff" or "teammate" —

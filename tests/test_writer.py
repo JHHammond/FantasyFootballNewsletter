@@ -2811,3 +2811,9 @@ def test_a_projection_called_a_number_is_caught(sentence):
 def test_a_projection_called_a_projection_is_fine():
     assert not writer.find_ai_tells("Kyler Murray missed his projection by six.")
     assert not writer.find_ai_tells("That number deserves its own paragraph.")
+
+
+def test_banned_words_are_caught():
+    """John, 28 Sep: "laugher" doesn't really make sense."""
+    assert writer.find_ai_tells("Smith-Njigba turned a lifeless lineup into a laugher.")
+    assert not writer.find_ai_tells("The league's laughter could be heard from Ohio.")
