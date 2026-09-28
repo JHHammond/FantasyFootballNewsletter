@@ -53,11 +53,20 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
         "errors": [],
     }
 
-    for league in db.leagues_for_weekly_send():
+    import time as _time
+    started = _time.monotonic()
+    leagues = list(db.leagues_for_weekly_send())
+    print(f"[weekly] week {week}: {len(leagues)} league(s) due", flush=True)
+
+    for i, league in enumerate(leagues, 1):
         owner = league.pop("_owner", None) or {}
         report["leagues"] += 1
         name = paper_name_for(league)
         season = league["season"]
+        # One line per league, live in the Render log (28 Sep): watching the
+        # job means watching this count go up.
+        print(f"[weekly] {i}/{len(leagues)} {name} "
+              f"({_time.monotonic() - started:.0f}s in)", flush=True)
 
         paper = db.get_paper(league["id"], season, week)
 
@@ -324,6 +333,17 @@ def main() -> int:
 
     from . import db
 
+    # Say it started, so a missing email means the job never ran at all.
+    try:
+        due = len(list(db.leagues_for_weekly_send()))
+        emailer.send_ops_alert(f"Weekly job, week {week}: started",
+                               {"leagues": due, "errors": [
+                                   "Collecting Around the Leagues first (about "
+                                   "half an hour), then writing and mailing "
+                                   f"{due} paper(s). A 'done' email follows."]})
+    except Exception as exc:  # noqa: BLE001 — never stops the job
+        print(f"[weekly] could not send the start email: {exc}", flush=True)
+
     # Around the Leagues FIRST (26 Sep): the papers' "How you stack up" box
     # ranks each league against the whole country, and the country has to be
     # collected before it can be ranked against. About half an hour of paced
@@ -355,11 +375,13 @@ def main() -> int:
     for line in report["errors"]:
         print(f"  ERROR:   {line}")
 
-    # A cron whose failures go only to a log nobody reads is a cron you don't
-    # have. Mail the operator when anything went wrong.
-    if report["errors"] or report.get("warnings"):
-        emailer.send_ops_alert(f"Weekly job, week {week}",
-                               {**report, "errors": report["errors"] + report.get("warnings", [])})
+    # The operator hears EVERY time, not only on errors (28 Sep): silence
+    # used to mean either "all fine" or "the job never ran", and those need
+    # telling apart on a Tuesday morning.
+    problems = report["errors"] + report.get("warnings", [])
+    status = "PROBLEMS" if report["errors"] else ("done, with warnings" if problems else "done, all good")
+    emailer.send_ops_alert(f"Weekly job, week {week}: {status}",
+                           {**report, "errors": problems})
 
     return 1 if report["errors"] else 0
 

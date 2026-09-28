@@ -5960,3 +5960,23 @@ def test_the_manage_page_marks_the_week_in_progress(client, league, monkeypatch)
     body = client.get("/l/secret-admin-token").text
     assert '<option value="2" selected>' in body
     assert "Week 3 (in progress)" in body
+
+
+# --- the operator hears when the job starts and when it ends (28 Sep) --------
+
+def test_the_weekly_job_emails_ops_at_the_start_and_the_end(monkeypatch):
+    from web import db as real_db, emailer, league_stats, tasks
+    monkeypatch.setenv("RESEND_API_KEY", "re_x")
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    monkeypatch.setattr("sys.argv", ["web.tasks", "4"])
+    monkeypatch.setattr(real_db, "leagues_for_weekly_send", lambda: [{}, {}])
+    monkeypatch.setattr(league_stats, "collect_week", lambda db, week: {})
+    monkeypatch.setattr(tasks, "send_weekly", lambda db, week, regenerate=False: {
+        "week": week, "leagues": 2, "generated": 2, "emails_sent": 2,
+        "skipped": [], "errors": []})
+    alerts = []
+    monkeypatch.setattr(emailer, "send_ops_alert",
+                        lambda subject, report: alerts.append(subject))
+    assert tasks.main() == 0
+    assert alerts == ["Weekly job, week 4: started",
+                      "Weekly job, week 4: done, all good"]
