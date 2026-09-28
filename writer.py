@@ -1476,6 +1476,8 @@ HOW A HEADLINE WORKS
   a player's surname is also the name of anybody in this league ({names}),
   use the player's full name, or the reader thinks it means their friend.
 - 5 to 10 words. A number is good if it is the point (a score, a margin).
+  A bare number after "scores" means points: "Gibbs scores three" reads as
+  three points. Say "three touchdowns".
 - "Barely", "survives", "edges", "squeaks by", "needed every bit of it" only
   for a margin under ten. A 35-point win is not close, however big the
   loser's score was.
@@ -1931,7 +1933,13 @@ HOW IT SHOULD READ:
 - No injuries, illnesses or anything physical unless the line carries an
   injury tag. "He was limping", "a hamstring issue", "banged up" are
   invented facts. The same for plays, snap counts, quotes and game
-  situations: if it is not in the data, you do not know it.
+  situations: if it is not in the data, you do not know it. That includes
+  WHEN things happened: no "by halftime", "before the late window", "in the
+  fourth quarter" — you have final scores, not a game clock. And no "best
+  day of his career", "season high" or streak longer than this week's number:
+  you only have this season.
+- A benched player "sat on the bench" or "was on the bench". Never "didn't
+  play" — that says he missed the NFL game, which is a different fact.
 - Say what it means for each team going forward only if the data actually
   supports it. Two weeks is not a season.
 {earlier}
@@ -1956,8 +1964,9 @@ THE VOICE, WHICH IS THE POINT (John, 27 Sep: "the new tone is not being
 enforced"). Accurate is the floor, not the job. This recap MUST have:
 - At least one line said straight TO a manager, by name: "Chase, what are we
   doing?" / "Will, you've done it again."
-- At least one blunt verdict of a few words: "Barkley is cooked." "That
-  lineup is a crime scene."
+- At least one blunt verdict of a few words, in your own words. (The
+  example that used to sit here, "that lineup is a crime scene", turned up
+  word for word in two papers running, so there isn't one.)
 - At least one absurd escalation hung on a real number from this game.
 - A clear opinion on each team's future: contender, fraud, toilet bowl.
 It should read like the funniest person in the group chat wrote it after
