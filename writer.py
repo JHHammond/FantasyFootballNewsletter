@@ -1253,6 +1253,9 @@ _TELL_PATTERNS = [
     r"\bnot a typo\b",
     # "X didn't need to be good, just less self-destructive" (Test 4, 28 Sep)
     r"\b(?:didn't|did not|didn\u2019t) need to (?:be|do)\b[^.!?]{0,60}[,;\u2014-]\s*(?:just|only)\b",
+    # "Achane's own backup — Aaron Jones, sitting on the bench" (28 Sep): two
+    # players on one FANTASY roster are not each other's NFL backup.
+    r"\b(?:'s|\u2019s|his|their) (?:own )?(?:backup|handcuff|understudy|teammate)\b",
     # "Here's the thing that should keep Will up at night:" (Test 6, 28 Sep)
     r"\bhere(?:'s|\u2019s| is) the thing\b",
     # "Alex lost this one on Tuesday, not Sunday" / "lost this before kickoff"
@@ -1324,7 +1327,9 @@ keep the voice, and state things directly:
 - no "it's not X, it's Y", "isn't X. It's Y", "not just X but Y", or "didn't
   need to be X, just Y" — no setting something up to knock it down;
 - at most two numbers in a sentence: split it in two, or drop a number;
-- no number with two decimals.
+- no number with two decimals;
+- no player called another player's "backup", "handcuff" or "teammate" —
+  they only share a fantasy roster ("X sat on the bench with 14").
 Never add a fact that is not in the original.
 
 THE STORY:
@@ -1996,6 +2001,10 @@ HOW IT SHOULD READ:
   you only have this season.
 - A benched player "sat on the bench" or "was on the bench". Never "didn't
   play" — that says he missed the NFL game, which is a different fact.
+- Players are connected ONLY by the fantasy roster they share. Never call
+  one player another's backup, handcuff or teammate: "Achane's own backup,
+  Aaron Jones" reads as an NFL depth chart and is false. Say "Aaron Jones sat
+  on Will's bench with 14".
 - Say what it means for each team going forward only if the data actually
   supports it. Two weeks is not a season.
 {earlier}

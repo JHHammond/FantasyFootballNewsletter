@@ -2702,3 +2702,10 @@ def test_a_long_isnt_x_its_y_is_caught():
         "TV this year, or even Henry hitting six touchdowns in three games. "
         "It's the bench.")
     assert writer.find_ai_tells("Here's the thing that should keep Will up at night: he lost.")
+
+
+def test_a_fantasy_benchmate_called_an_nfl_backup_is_caught():
+    """28 Sep: "Achane's own backup — Aaron Jones, sitting on the bench"."""
+    assert writer.find_ai_tells(
+        "Achane finished with less than two, and Achane's own backup, Aaron Jones, put up 14.")
+    assert not writer.find_ai_tells("Aaron Jones sat on Will's bench with 14.")
