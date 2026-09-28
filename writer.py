@@ -2055,6 +2055,20 @@ FIXED_AWARD_INTROS = {
         "On February 24, 2017, Tony Snell played 28 minutes for the Milwaukee "
         "Bucks. He logged 0 points, 0 rebounds, 0 assists, 0 blocks, and 0 "
         "steals. It is truly one of the greatest nonperformances of all time."),
+    # The other three, in the league's own words (John, 28 Sep: "every award
+    # aside from the wind sprint award needs the brief description"). The
+    # writer was asked for a fresh explanation each week and gave vague ones —
+    # "Every dynasty league has that one guy who drafts hope" says nothing
+    # about what the award is for. Printed word for word instead.
+    "KYLE PITTS AWARD": (
+        "Every year, we think it's his year. We think he'll finally put it "
+        "together. We know he won't, but we just can't help ourselves."),
+    "NICK FOLES AWARD": (
+        "Every league has a Nick Foles: the backup who could have won it all, "
+        "sitting there the whole time."),
+    "JOE BURROW AWARD": (
+        "Joe Burrow always balls out, and the rest of the roster always lets "
+        "him down."),
 }
 
 
@@ -2074,6 +2088,13 @@ def _with_fixed_intro(award: dict) -> dict:
         rest = [x for x in re.split(r"(?<=[.!?])\s+", body)
                 if "Snell" not in x and "2017" not in x and "nonperformance" not in x]
         body = " ".join(rest).strip()
+    # Any sentence of the intro the writer echoed anyway comes out.
+    said = {re.sub(r"\W+", " ", x).strip().lower()
+            for x in re.split(r"(?<=[.!?:])\s+", intro)}
+    said |= {re.sub(r"\W+", " ", x).strip().lower()
+             for x in re.split(r"(?<=[.!?])\s+", intro)}
+    body = " ".join(x for x in re.split(r"(?<=[.!?])\s+", body)
+                    if re.sub(r"\W+", " ", x).strip().lower() not in said).strip()
     return dict(award, body=(intro + " " + body).strip())
 
 

@@ -1331,9 +1331,23 @@ def test_the_tony_snell_intro_is_printed_word_for_word():
         "body": "Tony Snell once played 28 minutes and did nothing. "
                 "This week it's Sell the Falcons."})
     assert echoed["body"] == SNELL + " This week it's Sell the Falcons."
-    # Other awards untouched.
-    other = {"title": "KYLE PITTS AWARD", "body": "x"}
+    # A league's own award is untouched.
+    other = {"title": "SECOND BIGGEST LOSER", "body": "x"}
     assert writer._with_fixed_intro(other) == other
+
+
+def test_every_standing_award_gets_its_description_word_for_word():
+    """John, 28 Sep: every award aside from the Windsprint needs the brief
+    description of what it is — printed, not left to the writer."""
+    for title in ("KYLE PITTS AWARD", "NICK FOLES AWARD", "JOE BURROW AWARD"):
+        intro = writer.FIXED_AWARD_INTROS[title]
+        out = writer._with_fixed_intro({"title": title, "body": "This week: Will."})
+        assert out["body"] == intro + " This week: Will."
+    # An echo of the intro isn't printed twice.
+    foles = writer.FIXED_AWARD_INTROS["NICK FOLES AWARD"]
+    out = writer._with_fixed_intro({"title": "NICK FOLES AWARD",
+                                    "body": "Every league has a Nick Foles: the backup who could have won it all, sitting there the whole time. Purdy scored 31."})
+    assert out["body"] == foles + " Purdy scored 31."
 
 
 def test_the_writer_is_told_not_to_write_the_snell_intro(swap_client, no_sleeping):
