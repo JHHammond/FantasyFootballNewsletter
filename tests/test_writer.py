@@ -2794,3 +2794,20 @@ def test_record_tiers_are_johns(rec, tier):
     """Above .750 strong, above .500 contender, .500 mid, below struggling,
     below .250 needs to get it together (John, 28 Sep)."""
     assert tier in writer._record_note("T", rec, [(6, 6, 0)] * 12)
+
+
+@pytest.mark.parametrize("sentence", [
+    "Kyler Murray missed his number by six.",
+    "Chase Brown was quiet at 9 on a 16-point number.",
+    "Jared Goff landed his number almost to the decimal.",
+    "Wilson went off for 26 against a 12 number.",
+])
+def test_a_projection_called_a_number_is_caught(sentence):
+    """John, 28 Sep: "It keeps saying his 'number'... that is just not what
+    people say." """
+    assert writer.find_ai_tells(sentence), sentence
+
+
+def test_a_projection_called_a_projection_is_fine():
+    assert not writer.find_ai_tells("Kyler Murray missed his projection by six.")
+    assert not writer.find_ai_tells("That number deserves its own paragraph.")

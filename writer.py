@@ -1373,6 +1373,10 @@ _TELL_PATTERNS = [
     # "Achane's own backup — Aaron Jones, sitting on the bench" (28 Sep): two
     # players on one FANTASY roster are not each other's NFL backup.
     r"\b(?:'s|\u2019s|his|their) (?:own )?(?:backup|handcuff|understudy|teammate)\b",
+    # A projection called a "number" (John, 28 Sep: "that is just not what
+    # people say"): "missed his number by six", "a 16-point number".
+    r"\b(?:his|her|their|its)\s+(?:own\s+)?number\b",
+    r"\b(?:a|an|the)\s+(?:near-|nearly\s+|near\s+)?\d+(?:\.\d+)?(?:-point)?\s+number\b",
     # "Here's the thing that should keep Will up at night:" (Test 6, 28 Sep)
     r"\bhere(?:'s|\u2019s| is) the thing\b",
     # "Alex lost this one on Tuesday, not Sunday" / "lost this before kickoff"
@@ -1465,6 +1469,8 @@ keep the voice, and state things directly:
   need to be X, just Y" — no setting something up to knock it down;
 - at most two numbers in a sentence: split it in two, or drop a number;
 - no number with two decimals;
+- a projection is a "projection", never his "number" ("beat his
+  projection by 13", "a 16-point projection");
 - no player called another player's "backup", "handcuff" or "teammate" —
   they only share a fantasy roster ("X sat on the bench with 14").
 Never add a fact that is not in the original. Each "new" replaces only its
@@ -2124,7 +2130,9 @@ HOW IT SHOULD READ:
   the combined number from the position totals. Never string three players
   together each with his own number.
 - A projection only when missing or beating it is the point, and not for
-  every player you name.
+  every player you name. Call it a projection — "beat his projection by
+  13", "a 16-point projection". Never his "number", "a 16-point number" or
+  "his line": nobody talks like that.
 - Kickers and defenses are the special teams unit. Mention the unit only if
   it mattered, and don't make fun of it.
 - If a sentence needs reading twice, it is wrong: split it. No mixed
