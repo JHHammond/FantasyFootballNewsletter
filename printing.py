@@ -723,6 +723,30 @@ PRINT_SCRIPT = (
     }));
   }
 
+  // THE @media print RULES GO TOO (28 Sep: a test PDF came out as one long
+  // page plus a second, equally long, page holding only the footer). The page
+  // height is measured on SCREEN, but printing switches on the paged-print
+  // stylesheet — different padding, sizes and forced page breaks — so the
+  // printed paper came out taller than the page it was measured for, and
+  // the overflow became a whole extra page. This PDF is meant to look
+  // exactly like the screen anyway, so with those rules gone the measurement
+  // and the print agree.
+  function stripPrintRules(doc) {
+    for (var i = 0; i < doc.styleSheets.length; i++) {
+      var sheet = doc.styleSheets[i], rules;
+      if (sheet.media && sheet.media.mediaText &&
+          /\bprint\b/.test(sheet.media.mediaText) &&
+          !/\bscreen\b|\ball\b/.test(sheet.media.mediaText)) {
+        sheet.disabled = true; continue;
+      }
+      try { rules = sheet.cssRules; } catch (e) { continue; }
+      for (var r = rules.length - 1; r >= 0; r--) {
+        var rule = rules[r];
+        if (rule.media && /\bprint\b/.test(rule.media.mediaText)) sheet.deleteRule(r);
+      }
+    }
+  }
+
   function stripNarrowRules(doc) {
     for (var i = 0; i < doc.styleSheets.length; i++) {
       var sheet = doc.styleSheets[i], rules;
@@ -777,12 +801,13 @@ PRINT_SCRIPT = (
         // The copy is only ever desktop width, so its narrow-screen rules
         // are dead weight anyway: take them out, and screen and print agree.
         stripNarrowRules(doc);
+        stripPrintRules(doc);
         var page = doc.querySelector(".page");
         // Any sliver below the paper shows the body, so make it the paper.
         if (page) doc.body.style.background = win.getComputedStyle(page).backgroundColor;
         var root = doc.documentElement;
         var h = Math.max(Math.ceil(root.getBoundingClientRect().height),
-                         root.scrollHeight) + 4;
+                         root.scrollHeight) + 12;
         var size = doc.createElement("style");
         size.textContent = "@page { size: " + WIDTH + "px " + h + "px; margin: 0; }";
         doc.head.appendChild(size);
