@@ -1238,7 +1238,7 @@ _TELL_PATTERNS = [
     # it's not X, it's Y / this isn't X. It's Y / that wasn't X — it was Y
     r"\b(?:it|this|that)(?:'s| is| was|\u2019s)? ?(?:not|n't|n\u2019t)\b[^.!?]{0,90}"
     r"[,;:.\u2014-]\s*(?:it|this|that)(?:'s|\u2019s| is| was)\b",
-    r"\b(?:isn't|wasn't|isn\u2019t|wasn\u2019t)\b[^.!?]{0,90}[.;\u2014-]\s*"
+    r"\b(?:isn't|wasn't|isn\u2019t|wasn\u2019t)\b[^.!?]{0,260}[.;\u2014-]\s*"
     r"(?:It|This|That)(?:'s|\u2019s| is| was)\b",
     # "Ninety-seven points is not a lineup, it's a bye week" — any subject
     r"\b(?:is|was|are|were)(?: not|n't|n\u2019t)\b[^.!?]{0,80}[,;:\u2014-]\s*"
@@ -1253,6 +1253,8 @@ _TELL_PATTERNS = [
     r"\bnot a typo\b",
     # "X didn't need to be good, just less self-destructive" (Test 4, 28 Sep)
     r"\b(?:didn't|did not|didn\u2019t) need to (?:be|do)\b[^.!?]{0,60}[,;\u2014-]\s*(?:just|only)\b",
+    # "Here's the thing that should keep Will up at night:" (Test 6, 28 Sep)
+    r"\bhere(?:'s|\u2019s| is) the thing\b",
     # "Alex lost this one on Tuesday, not Sunday" / "lost this before kickoff"
     r"\b(?:lost|won) this one (?:on|before|in|at)\b",
 ]
@@ -1520,6 +1522,10 @@ HOW A HEADLINE WORKS
 - 5 to 10 words. A number is good if it is the point (a score, a margin).
   A bare number after "scores" means points: "Gibbs scores three" reads as
   three points. Say "three touchdowns".
+- Every player named belongs to the team the headline is about, unless it
+  plainly says he was on the other side. Never "despite" the OTHER team's
+  player: "CHAMP DROPS 188 DESPITE BIJAN ROBINSON'S 35 IN LOSS" reads as if
+  Bijan played for Champ and cost him. Pick one team's story.
 - "Barely", "survives", "edges", "squeaks by", "needed every bit of it" only
   for a margin under ten. A 35-point win is not close, however big the
   loser's score was.
@@ -2014,9 +2020,9 @@ THE VOICE, WHICH IS THE POINT (John, 27 Sep: "the new tone is not being
 enforced"). Accurate is the floor, not the job. This recap MUST have:
 - At least one line said straight TO a manager, by name: "Chase, what are we
   doing?" / "Will, you've done it again."
-- At least one blunt verdict of a few words, in your own words. (The
-  example that used to sit here, "that lineup is a crime scene", turned up
-  word for word in two papers running, so there isn't one.)
+- At least one blunt verdict of a few words, in your own words. No stock
+  phrases: if it sounds like something every sports writer says, it is
+  wrong.
 - At least one absurd escalation hung on a real number from this game.
 - A clear opinion on each team's future: contender, fraud, toilet bowl.
 It should read like the funniest person in the group chat wrote it after

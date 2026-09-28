@@ -371,3 +371,20 @@ def test_a_tie_does_not_break_a_record():
     rs = _game(1, "ann", 150, "bob", 100) + _game(2, "bob", 150, "ann", 90)
     hi = next(r for r in history.record_book(rs, 2) if r["label"] == "Highest score")
     assert hi["team"] == "Ann" and hi["new"] is False
+
+
+def test_the_kyle_pitts_goes_to_someone_other_than_the_tony_snell():
+    """28 Sep: Barkley won both off one zero."""
+    import storylines
+    a = _legacy_team("A", 90, [
+        {"name": "Zero RB", "position": "RB", "actual": 0.0, "projected": 16.0,
+         "beat_projection_by": -16.0},
+        {"name": "Flop WR", "position": "WR", "actual": 4.0, "projected": 15.0,
+         "beat_projection_by": -11.0}])
+    b = _legacy_team("B", 120, [
+        {"name": "Allen", "position": "QB", "actual": 40.0, "projected": 22.0,
+         "beat_projection_by": 18.0}])
+    s = storylines.get_weekly_storylines(
+        [{"team_1": a, "team_2": b, "winner": "B", "margin": 30.0}])
+    assert s["tony_snell"]["player"]["name"] == "Zero RB"
+    assert s["kyle_pitts"]["player"]["name"] == "Flop WR"

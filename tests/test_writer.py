@@ -2692,3 +2692,13 @@ def test_a_recap_is_told_to_use_every_note_about_its_players(swap_client, no_sle
     writer.generate_matchup_body(ctx)
     assert "Use EVERY one of these" in seen["p"]
     assert "Josh Allen played through a sprained ankle." in seen["p"]
+
+
+def test_a_long_isnt_x_its_y_is_caught():
+    """Test 6, 28 Sep: the set-up ran past the old 90-character window."""
+    assert writer.find_ai_tells(
+        "Carson, what happened here isn't really about Mahomes managing a quiet "
+        "17, or Bijan going off for 35 behind a Falcons offense that's must-see "
+        "TV this year, or even Henry hitting six touchdowns in three games. "
+        "It's the bench.")
+    assert writer.find_ai_tells("Here's the thing that should keep Will up at night: he lost.")

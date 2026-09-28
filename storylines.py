@@ -105,8 +105,14 @@ def get_weekly_storylines(games):
         tony_snell = {"player": p, "team": team}
 
     kyle_pitts = None
-    missed = [(p, t) for p, t in starters
-              if isinstance(p.get("beat_projection_by"), (int, float))]
+    # Not the Tony Snell winner again (28 Sep: Barkley won both with one
+    # zero, and the awards read as the same paragraph twice).
+    snell_player = tony_snell["player"] if tony_snell else None
+    missed_all = [(p, t) for p, t in starters
+                  if isinstance(p.get("beat_projection_by"), (int, float))]
+    # ...unless he is the only one who missed at all.
+    missed = [(p, t) for p, t in missed_all
+              if p is not snell_player and p["beat_projection_by"] < 0] or missed_all
     if missed:
         p, team = min(missed, key=lambda pt: pt[0]["beat_projection_by"])
         kyle_pitts = {"player": p, "team": team}
