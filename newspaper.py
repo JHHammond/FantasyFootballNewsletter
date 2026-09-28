@@ -3225,6 +3225,21 @@ def _render_html(edition, theme=None):
             }}
             .ticker-label {{ letter-spacing: 0.5px; word-break: break-word; }}
             .ticker-value {{ font-size: 19px; }}
+
+            /* Two across, so five boxes left the fifth alone in the left
+               column (John, 28 Sep). It sits centred under the others. */
+            .player-grid > :last-child:nth-child(odd) {{
+                grid-column: 1 / -1;
+                justify-self: center;
+                width: calc(50% - 5px);
+                box-sizing: border-box;
+            }}
+            .week-ticker > :last-child:nth-child(odd) {{
+                grid-column: 1 / -1;
+                justify-self: center;
+                width: calc(50% - 4px);
+                box-sizing: border-box;
+            }}
         }}
 
         /* Nothing may push the document wider than the screen. A single
