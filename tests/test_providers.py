@@ -1453,3 +1453,12 @@ def test_sleeper_trades_carry_picks_and_faab_and_pick_only_trades_survive(tmp_pa
     assert first.to_dict()["picks"] == [["Jagan34", "2027 1st-round pick (johnhenryhammond's)"]]
     from providers.sleeper import _possessive
     assert _possessive("Hank's Heroes") == "Hank's Heroes'" and _possessive("Satan") == "Satan's"
+
+
+def test_espn_live_score_is_used_while_total_points_is_still_zero():
+    """28 Sep: Monday night of week 3, ESPN's totalPoints was 0 and the score
+    was in totalPointsLive; the paper printed every game 0.0-0.0."""
+    from providers.espn import _points
+    assert _points({"totalPoints": 0, "totalPointsLive": 118.34}) == 118.34
+    assert _points({"totalPoints": 121.2, "totalPointsLive": 0}) == 121.2
+    assert _points({"totalPoints": 0}) == 0.0

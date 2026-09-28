@@ -2709,3 +2709,44 @@ def test_a_fantasy_benchmate_called_an_nfl_backup_is_caught():
     assert writer.find_ai_tells(
         "Achane finished with less than two, and Achane's own backup, Aaron Jones, put up 14.")
     assert not writer.find_ai_tells("Aaron Jones sat on Will's bench with 14.")
+
+
+# --- thinking off (28 Sep: recaps spent their whole budget thinking) ---------
+
+def test_every_call_turns_thinking_off(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.update(k) or _reply("x"))
+    writer.call_claude("write", max_tokens=100)
+    assert seen.get("thinking") == {"type": "disabled"}
+
+
+def test_a_refused_thinking_setting_costs_one_retry_not_a_paper(monkeypatch, no_sleeping):
+    import anthropic
+    monkeypatch.setattr(writer, "_THINKING_REFUSED", False)
+    calls = []
+
+    class Response:
+        status_code = 400
+        request = None
+        headers = {}
+
+    def create(**kw):
+        calls.append(kw)
+        if "thinking" in kw:
+            raise anthropic.APIStatusError("thinking: unsupported value",
+                                           response=Response(), body=None)
+        return _reply("Some prose.")
+
+    monkeypatch.setattr(writer.client, "messages",
+                        type("M", (), {"create": staticmethod(create)}))
+    assert writer.call_claude("write", max_tokens=100) == "Some prose."
+    assert writer.call_claude("again", max_tokens=100) == "Some prose."
+    assert len(calls) == 3 and "thinking" not in calls[2]
+    monkeypatch.setattr(writer, "_THINKING_REFUSED", False)
+
+
+def test_a_sentence_repeated_by_a_fix_is_dropped():
+    t = ("Kittle carried it. Every position matched up almost exactly except one tight end. "
+         "Every position matched up almost to the decimal except one tight end. Done.")
+    assert writer._drop_repeats(t) == ("Kittle carried it. Every position matched up almost "
+                                       "exactly except one tight end. Done.")

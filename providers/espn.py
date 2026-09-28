@@ -530,11 +530,18 @@ class ESPNProvider(FantasyProvider):
             lineup, bench = self._roster_lines(side, meta, week)
             record = records.get(int(team_id), {"wins": 0, "losses": 0, "ties": 0})
 
+            # Last resort: both totals at 0 while the starters plainly
+            # scored. The starters' sum is the score (the module docstring's
+            # check: they add up to ESPN's own total to the cent).
+            points = _points(side)
+            if not points:
+                points = round(sum(p.points or 0 for p in lineup), 2)
+
             return Team(
                 team_id=str(team_id),
                 team_name=_team_name(meta),
                 manager=manager,
-                points=_points(side),
+                points=points,
                 lineup=lineup,
                 bench=bench,
                 wins=record["wins"],
@@ -915,13 +922,19 @@ class ESPNProvider(FantasyProvider):
 
 
 def _points(side: dict) -> float:
+    """The team's score. ESPN leaves `totalPoints` at 0 — present, not
+    missing — until the matchup period is processed, and keeps the running
+    score in `totalPointsLive` (28 Sep: a week-3 paper written Monday night
+    printed every game as 0.0-0.0 and every one a tie). So the first NONZERO
+    of the two, not the first present one."""
     for key in ("totalPoints", "totalPointsLive"):
         value = side.get(key)
-        if value is not None:
-            try:
-                return round(float(value), 2)
-            except (TypeError, ValueError):
-                continue
+        try:
+            number = round(float(value), 2)
+        except (TypeError, ValueError):
+            continue
+        if number:
+            return number
     return 0.0
 
 

@@ -698,6 +698,18 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     paper_name = paper_name_for(league)
 
     week_data = load_week(league["provider"], league["platform_league_id"], season, week)
+
+    # NO SCORES, NO PAPER (28 Sep). A week whose every team scored 0.0 is a
+    # platform that hasn't published the week yet, not a week of ties — and
+    # written anyway it is a paper of 0.0-0.0 "ties" with a recap for each,
+    # paid for and mailed. Refusing is a ProviderError, which the weekly job
+    # reports and its evening run retries.
+    teams = [t for m in getattr(week_data, "matchups", None) or [] for t in m.teams]
+    if teams and not any((t.points or 0) for t in teams):
+        from providers import ProviderError as _PE
+        raise _PE(f"no scores yet for week {week}: every team shows 0.0. "
+                  f"Try again once the platform has published the week.")
+
     games = week_to_legacy_games(week_data)
     summary = get_weekly_storylines(games)
 

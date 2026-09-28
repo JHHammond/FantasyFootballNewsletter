@@ -14,6 +14,34 @@ load_dotenv()
 # paper for most of an hour. The longest legitimate call (a recap at the
 # 4,800-token ceiling) finishes well inside two minutes.
 REQUEST_TIMEOUT = float(os.getenv("WRITER_REQUEST_TIMEOUT", "120"))
+
+# THINKING OFF (28 Sep). Sonnet 5 thinks by default — adaptive, at "high"
+# effort — where Sonnet 4.6 did not, and thinking comes out of the same
+# max_tokens as the prose. A test paper had two recaps spend all 3,000 and
+# then all 4,800 tokens thinking and never write a word ("Recap
+# unavailable"), and the whole paper cost $0.56 and 198 seconds, most of it
+# thinking nobody reads. The voice, the rules and the data are all in the
+# prompt; a recap does not need to reason its way there.
+# WRITER_THINKING=adaptive turns it back on (with WRITER_EFFORT to set how
+# hard it thinks) without a deploy of code.
+_THINKING = os.getenv("WRITER_THINKING", "disabled").strip().lower()
+_EFFORT = os.getenv("WRITER_EFFORT", "").strip().lower()
+
+
+#: Set if the API ever refuses the thinking setting, so a bad setting costs
+#: one retry, never a paper: every later call just leaves it out.
+_THINKING_REFUSED = False
+
+
+def _thinking_args() -> dict:
+    if _THINKING_REFUSED:
+        return {}
+    if _THINKING == "adaptive":
+        args = {"thinking": {"type": "adaptive"}}
+        if _EFFORT in ("low", "medium", "high"):
+            args["output_config"] = {"effort": _EFFORT}
+        return args
+    return {"thinking": {"type": "disabled"}}
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"),
                              timeout=REQUEST_TIMEOUT, max_retries=0)
 
@@ -1311,6 +1339,26 @@ def _replace_loosely(text: str, old: str, new: str) -> str:
     return pattern.sub(lambda m: new, text, count=1)
 
 
+def _drop_repeats(text: str) -> str:
+    """A rewrite that restated the next sentence leaves it twice in a row
+    (28 Sep: "Every position matched up almost exactly except one tight
+    end..." printed back to back). Drop a sentence that shares most of its
+    words with the one before it."""
+    def words(sent):
+        return set(re.sub(r"[^\w\s]", "", sent.lower()).split())
+    out = []
+    for para in text.split("\n"):
+        kept, last = [], set()
+        for sent in re.split(r"(?<=[.!?])\s+", para):
+            w = words(sent)
+            if len(w) >= 6 and last and len(w & last) / len(w | last) >= 0.6:
+                continue
+            kept.append(sent)
+            last = w
+        out.append(" ".join(kept))
+    return "\n".join(out)
+
+
 def fix_tells(text: str, tells: list[str], system=None) -> str:
     """Rewrite ONLY the offending sentences, on the small model (28 Sep).
 
@@ -1330,7 +1378,8 @@ keep the voice, and state things directly:
 - no number with two decimals;
 - no player called another player's "backup", "handcuff" or "teammate" —
   they only share a fantasy roster ("X sat on the bench with 14").
-Never add a fact that is not in the original.
+Never add a fact that is not in the original. Each "new" replaces only its
+"old": do not repeat anything from the sentences around it.
 
 THE STORY:
 {text}
@@ -1349,7 +1398,7 @@ Reply with JSON only, no other text:
             old, new = (item.get("old") or "").strip(), (item.get("new") or "").strip()
             if old and new:
                 fixed = _replace_loosely(fixed, old, new)
-        return fixed
+        return _drop_repeats(fixed)
     except Exception as exc:  # noqa: BLE001 — the original is still a story
         print(f"[writer] !! could not fix tells ({type(exc).__name__}); "
               f"printing as written.", flush=True)
@@ -1395,6 +1444,7 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
             message = client.messages.create(
                 model=model or MODEL,
                 max_tokens=max_tokens,
+                **_thinking_args(),
                 # The system prompt is IDENTICAL across all eighteen calls
                 # that make one paper, and it is 74% of the paper's entire
                 # input bill. Marking it cacheable means it is billed in full
@@ -1489,6 +1539,16 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
             # Falling back to the model that is definitely working turns that
             # into a paper that costs what it used to. Loud, because a silent
             # fallback is a bill that quietly goes back up and nobody notices.
+            global _THINKING_REFUSED
+            if (exc.status_code == 400 and not _THINKING_REFUSED
+                    and "thinking" in str(exc).lower()):
+                _THINKING_REFUSED = True
+                print(f"[writer] !! the API refused the thinking setting "
+                      f"({str(exc)[:120]}); leaving it out from now on.",
+                      flush=True)
+                return call_claude(prompt, max_tokens=max_tokens,
+                                   system=system, attempts=attempts,
+                                   model=model, avoid_tells=avoid_tells)
             attempted = model or MODEL
             if (exc.status_code in (400, 403, 404) and attempted != MODEL
                     and _looks_like_a_model_problem(exc)):

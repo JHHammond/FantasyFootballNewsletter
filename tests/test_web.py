@@ -6019,3 +6019,20 @@ def test_the_weekly_send_passes_the_paper_and_its_name(client, league, sent_emai
     assert len(sent_emails) == 2
     for e in sent_emails:
         assert e["from_name"] and e["text"] and "100.0" in e["body"]
+
+
+def test_a_week_with_no_scores_is_refused_not_written(league, monkeypatch):
+    """28 Sep: an ESPN week read before it was published came back all 0.0,
+    and the paper printed five 0.0-0.0 ties."""
+    import types
+    import web.generate as generate
+    from providers import ProviderError
+    team = types.SimpleNamespace(points=0.0)
+    wd = types.SimpleNamespace(matchups=[types.SimpleNamespace(teams=(team, team))])
+    monkeypatch.setattr(generate, "load_week", lambda *a, **k: wd)
+    wrote = []
+    monkeypatch.setattr(generate, "generate_full_newspaper_content",
+                        lambda **kw: wrote.append(1) or {})
+    with pytest.raises(ProviderError):
+        generate.generate_and_store(demo_db, league, 3)
+    assert wrote == []
