@@ -908,6 +908,43 @@ def route_wire(games, nfl_notes: str) -> list[list[str]]:
     return out
 
 
+def _ordinal(n: int) -> str:
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def add_week_context(ctxs: list[dict]) -> None:
+    """Give each game the league-wide view of its two scores: where each
+    ranked this week, and how many teams it would have beaten."""
+    scores = []
+    for c in ctxs:
+        for side in ("winner", "loser"):
+            if isinstance(c.get(f"{side}_score"), (int, float)):
+                scores.append(c[f"{side}_score"])
+    if len(scores) < 4:
+        return
+    top = max(scores)
+    for c in ctxs:
+        lines = []
+        for side in ("winner", "loser"):
+            pts = c.get(f"{side}_score")
+            if not isinstance(pts, (int, float)):
+                continue
+            rank = 1 + sum(1 for s in scores if s > pts)
+            beaten = sum(1 for s in scores if s < pts)
+            line = (f"{c.get(side)}'s {pts:.1f} was the {_ordinal(rank)}-highest "
+                    f"of {len(scores)} scores this week (it beats {beaten} of the "
+                    f"other {len(scores) - 1} teams)")
+            if side == "loser" and rank <= max(3, len(scores) // 3):
+                line += (" — a good week that ran into a better one. Losing "
+                         "this way is bad luck, not a bad team")
+            if pts == top:
+                line += " — the best score in the league"
+            lines.append(line + ".")
+        if lines:
+            c["week_context"] = "\n".join(lines)
+
+
 def build_game_context(game):
     """Convert a game dict into a clean text summary for the prompt."""
     t1 = game["team_1"]
@@ -1996,7 +2033,7 @@ Write the recap of this game for the paper.
 {ctx.get('winner')} beat {ctx.get('loser')}, \
 {ctx.get('winner_score')} to {ctx.get('loser_score')}, \
 by {ctx.get('margin')}.
-{_records_line(ctx)}{decider}
+{_records_line(ctx)}{(ctx.get('week_context') + chr(10)) if ctx.get('week_context') else ''}{decider}
 
 {ctx.get('winner')} — what they started:
 {winner_lineup or "  (lineup unavailable)"}
@@ -2066,7 +2103,10 @@ HOW IT SHOULD READ:
   Aaron Jones" reads as an NFL depth chart and is false. Say "Aaron Jones sat
   on Will's bench with 14".
 - Say what it means for each team going forward only if the data actually
-  supports it. Two weeks is not a season.
+  supports it. Two weeks is not a season. Judge a team by its SCORE against
+  the whole league (given above), not by one result: a team that put up one
+  of the week's best scores and lost to a better one is not "grim", "in
+  trouble" or a "fraud". Say it ran into a buzzsaw.
 {earlier}
 
 THE FIRST SENTENCE sums up the game the way you'd text it to the group chat:
@@ -2823,6 +2863,12 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     # The commissioner's must-use jokes, onto the games they belong to; the
     # ones that name no team go in the group chat box, never a guessed game.
+    # WHERE EACH SCORE RANKED THIS WEEK (John, 28 Sep: a 2-1 team with a good
+    # week was called grim because it happened to draw the best team in the
+    # league). One game's result says little about a team; its score against
+    # the whole league says a lot, so every recap gets both teams' place.
+    add_week_context([gc["ctx"] for gc in game_contexts])
+
     # The NFL wire, onto the games whose players it is about (28 Sep).
     for gc, notes in zip(game_contexts, route_wire(games, nfl_notes)):
         if notes:

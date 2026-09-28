@@ -2750,3 +2750,17 @@ def test_a_sentence_repeated_by_a_fix_is_dropped():
          "Every position matched up almost to the decimal except one tight end. Done.")
     assert writer._drop_repeats(t) == ("Kittle carried it. Every position matched up almost "
                                        "exactly except one tight end. Done.")
+
+
+def test_a_loser_with_a_top_score_is_told_it_was_bad_luck():
+    """28 Sep: a 2-1 team with a good week was called grim for losing to the
+    best team in the league."""
+    def c(w, ws, l, ls):
+        return {"winner": w, "winner_score": ws, "loser": l, "loser_score": ls}
+    ctxs = [c("Champ", 188.4, "Carson", 152.8), c("Mike", 122.5, "Alex", 84.1),
+            c("Colby", 136.7, "John", 124.6), c("Chase", 117.0, "Will", 100.0)]
+    writer.add_week_context(ctxs)
+    assert "Carson's 152.8 was the 2nd-highest of 8" in ctxs[0]["week_context"]
+    assert "bad luck, not a bad team" in ctxs[0]["week_context"]
+    assert "the best score in the league" in ctxs[0]["week_context"]
+    assert "bad luck" not in ctxs[1]["week_context"]      # Alex just scored 84
