@@ -446,8 +446,10 @@ NFL_WIRE_HEADER = (
     "THE NFL WIRE — real news from this week in the NFL, supplied by the "
     "editor. These are FACTS, and they explain WHY things happened that the "
     "box score cannot. Use one when a player it names is in a story you are "
-    "writing and it genuinely explains his week — work it in naturally, in "
-    "your own words, once per paper at most per note. Never mention a note "
+    "writing — the editor wants AS MANY of these in the paper as fit. Work "
+    "each in naturally, in your own words, once per paper per note. A recap "
+    "is told which notes are about its players; use every one of those there. "
+    "Never mention a note "
     "about a player who isn't in this paper. Never add injury, trade or "
     "lineup news of your own that isn't here or in the data: if it isn't on "
     "the wire, you don't know it.\n")
@@ -836,6 +838,46 @@ def _records_line(ctx) -> str:
     return (f"Records AFTER this game: {ctx.get('winner')} {w}, "
             f"{ctx.get('loser')} {l}. If you mention a record, use exactly "
             f"these; never work one out yourself.\n")
+
+
+def _wire_name(name) -> str:
+    name = re.sub(r"[.'\u2019]", "", str(name or "").strip().lower())
+    return re.sub(r"\s+(jr|sr|ii|iii|iv|v)$", "", re.sub(r"\s+", " ", name)).strip()
+
+
+def route_wire(games, nfl_notes: str) -> list[list[str]]:
+    """The NFL wire notes that belong to each game's recap (John, 28 Sep:
+    "it didn't use all of them. I'd like it to incorporate as many as it
+    can"). A note goes to the game whose STARTERS it names in full — or a
+    benched player the recap is shown — first match wins, so no note is
+    told to two recaps. Nicknames are not news and are not routed.
+
+    Told generally, "use a note when it fits", the writer used some; told
+    per recap, "these are about your players, use each", it uses them.
+    """
+    lines = [l.strip() for l in (nfl_notes or "").splitlines()
+             if l.strip() and "NICKNAME:" not in l]
+    out: list[list[str]] = [[] for _ in games]
+    if not lines:
+        return out
+    rosters = []
+    for game in games:
+        names = set()
+        for side in ("team_1", "team_2"):
+            team = game.get(side) or {}
+            for p in team.get("all_starters") or []:
+                names.add(_wire_name(p.get("name")))
+            for m in bench_mistakes(team):
+                names.add(_wire_name(m["bench"].get("name")))
+        rosters.append({n for n in names if " " in n})
+    for line in lines:
+        plain = " " + re.sub(r"[.'\u2019]", "", line.lower()) + " "
+        for i, names in enumerate(rosters):
+            if any(re.search(r"(?<![a-z])" + re.escape(n) + r"(?![a-z])", plain)
+                   for n in names):
+                out[i].append(line.lstrip("- ").strip())
+                break
+    return out
 
 
 def build_game_context(game):
@@ -1869,9 +1911,17 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
                 "soften one into something polite.\n"
                 + "\n".join(f"- {j}" for j in ctx["must_use"]) + "\n")
 
+    wire = ""
+    if ctx.get("wire"):
+        wire = ("\nNFL WIRE — real news this week about players in THIS game, "
+                "from the editor. It is the reason behind their numbers and the "
+                "best material you have. Use EVERY one of these in this recap, "
+                "in your own words, tied to the player's score:\n"
+                + "\n".join(f"- {n}" for n in ctx["wire"]) + "\n")
+
     return call_claude(f"""
 Write the recap of this game for the paper.
-{must}
+{must}{wire}
 {ctx.get('winner')} beat {ctx.get('loser')}, \
 {ctx.get('winner_score')} to {ctx.get('loser_score')}, \
 by {ctx.get('margin')}.
@@ -2677,6 +2727,11 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     # The commissioner's must-use jokes, onto the games they belong to; the
     # ones that name no team go in the group chat box, never a guessed game.
+    # The NFL wire, onto the games whose players it is about (28 Sep).
+    for gc, notes in zip(game_contexts, route_wire(games, nfl_notes)):
+        if notes:
+            gc["ctx"]["wire"] = notes
+
     per_game, group_chat_items = assign_jokes(
         [gc["ctx"] for gc in game_contexts], must_use or {})
     for gc, jokes in zip(game_contexts, per_game):

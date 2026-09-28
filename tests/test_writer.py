@@ -2653,3 +2653,28 @@ def test_a_missing_recap_gets_one_more_go(swap_client, no_sleeping):
         "The Kevlarville Times", 3, GAMES, SUMMARY)
     bodies = [m["body"] for m in paper["matchup_content"]]
     assert bodies and all(b != "Recap unavailable." for b in bodies)
+
+
+# --- every wire note that fits goes in (John, 28 Sep) -------------------------
+
+def test_wire_notes_go_to_the_game_whose_players_they_name():
+    games = [GAME, {**GAME, "team_1": {**GAME["team_1"], "all_starters": [
+        _player("Drake London", "WR", "ATL", 28.4, 13.5)]},
+        "team_2": {**GAME["team_2"], "all_starters": [], "all_bench": []}}]
+    notes = ("- Josh Allen played through a sprained ankle.\n"
+             "- Michael Penix returned, and Drake London went off.\n"
+             "- Somebody Else was traded.\n"
+             "- NICKNAME: Josh Allen is \"Big Game Josh\". Use it now and then.")
+    routed = writer.route_wire(games, notes)
+    assert routed[0] == ["Josh Allen played through a sprained ankle."]
+    assert routed[1] == ["Michael Penix returned, and Drake London went off."]
+
+
+def test_a_recap_is_told_to_use_every_note_about_its_players(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    ctx = writer.build_game_context(GAME)
+    ctx["wire"] = ["Josh Allen played through a sprained ankle."]
+    writer.generate_matchup_body(ctx)
+    assert "Use EVERY one of these" in seen["p"]
+    assert "Josh Allen played through a sprained ankle." in seen["p"]
