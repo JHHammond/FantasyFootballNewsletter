@@ -1354,8 +1354,9 @@ def test_every_recap_opens_with_a_one_sentence_summary(swap_client, no_sleeping)
     seen = {}
     swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
     writer.generate_matchup_body(writer.build_game_context(GAME))
-    assert "START WITH ONE SENTENCE THAT SUMS UP THE WHOLE MATCHUP" in seen["p"]
-    assert "flow straight into the breakdown" in seen["p"]
+    assert "THE FIRST SENTENCE sums up the game" in seen["p"]
+    assert "go straight into the breakdown" in seen["p"]
+    assert "didn't need to be good, just Y" in seen["p"]   # the banned shape
 
 
 def test_the_writer_is_told_not_to_remember_rosters():
@@ -2020,19 +2021,45 @@ def test_ordinary_sentences_are_not_flagged(sentence):
 
 
 def test_a_tell_gets_one_redraft_pointed_at_the_sentence(swap_client, no_sleeping):
-    prompts = []
+    """28 Sep: only the offending sentences are rewritten, on the small model,
+    and swapped in — not the whole recap redrafted on the main model."""
+    import json as _json
+    prompts, models = [], []
 
     def behaviour(kwargs):
         prompts.append(kwargs["messages"][0]["content"])
+        models.append(kwargs["model"])
         if len(prompts) == 1:
             return _message(_Text(_PRINTED))
-        return _message(_Text("Caleb Williams went for 37.3 and it was not enough."))
+        return _message(_Text(_json.dumps({"fixes": [
+            {"old": "LAC Defense scored 1.0 point, which is not a typo.",
+             "new": "LAC Defense scored one point."}]})))
 
     swap_client(behaviour)
     out = writer.call_claude("write the recap", max_tokens=3000, avoid_tells=True)
-    assert out == "Caleb Williams went for 37.3 and it was not enough."
-    assert len(prompts) == 2
+    assert "LAC Defense scored one point." in out
+    assert "not a typo" not in out
+    assert out.startswith("Caleb Williams went off for 37.3.")   # the rest kept
+    assert len(prompts) == 2 and models[1] == writer.SMALL_MODEL
     assert "not a typo" in prompts[1]
+
+
+def test_a_failed_fix_prints_the_original(swap_client, no_sleeping):
+    calls = []
+
+    def behaviour(kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return _message(_Text(_PRINTED))
+        raise KeyError("boom")
+
+    swap_client(behaviour)
+    assert writer.call_claude("write", max_tokens=3000, avoid_tells=True) == _PRINTED
+
+
+def test_the_new_opener_shapes_are_caught():
+    assert writer.find_ai_tells("superchaser didn't need to be good, just less self-destructive.")
+    assert writer.find_ai_tells("Alex lost this one on Tuesday, setting the lineup.")
 
 
 def test_the_redraft_happens_once_only(swap_client, no_sleeping):
@@ -2531,7 +2558,7 @@ def test_the_recap_ends_on_the_voice_it_must_have(swap_client, no_sleeping):
     p = seen["p"]
     tail = p[p.index("THE VOICE, WHICH IS THE POINT"):]
     assert "said straight TO a manager" in tail and "absurd escalation" in tail
-    assert p.rstrip().endswith('phone away before waivers run."')
+    assert p.rstrip().endswith('For four\n  yards."')
 
 
 def test_any_subject_is_not_x_its_y_is_caught():
@@ -2604,3 +2631,25 @@ def test_no_bench_worth_mentioning_means_no_bench(swap_client, no_sleeping):
     ctx["loser_bench_cost"] = 0.0
     writer.generate_matchup_body(ctx)
     assert "Do not bring up anybody's bench" in seen["p"]
+
+
+def test_a_missing_recap_gets_one_more_go(swap_client, no_sleeping):
+    """Test 4 (28 Sep) printed "Recap unavailable." for a whole game."""
+    seen = {}
+    lock = __import__("threading").Lock()
+
+    def behaviour(kwargs):
+        p = kwargs["messages"][0]["content"]
+        if p.lstrip().startswith("Write the recap"):
+            with lock:
+                seen[p] = seen.get(p, 0) + 1
+                n = seen[p]
+            if n <= 3:            # every attempt of the first try fails
+                raise _connection_error()
+        return _reply("A recap.")
+
+    swap_client(behaviour)
+    paper = writer.generate_full_newspaper_content(
+        "The Kevlarville Times", 3, GAMES, SUMMARY)
+    bodies = [m["body"] for m in paper["matchup_content"]]
+    assert bodies and all(b != "Recap unavailable." for b in bodies)

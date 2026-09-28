@@ -8,7 +8,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# A hard ceiling per request, and no hidden retries (28 Sep). The SDK's
+# defaults are a TEN-MINUTE timeout and two silent retries of its own, on top
+# of the three attempts call_claude makes — so one stuck request could hold a
+# paper for most of an hour. The longest legitimate call (a recap at the
+# 4,800-token ceiling) finishes well inside two minutes.
+REQUEST_TIMEOUT = float(os.getenv("WRITER_REQUEST_TIMEOUT", "120"))
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"),
+                             timeout=REQUEST_TIMEOUT, max_retries=0)
 
 #: The model that writes the prose. Overridable so a league can be moved
 #: without a deploy if pricing or quality changes.
@@ -1202,6 +1209,10 @@ _TELL_PATTERNS = [
     r"\b(?:should|would|could) have been enough\.\s*It (?:wasn't|was not|wasn\u2019t)",
     # "which is not a typo" / "that's not a typo"
     r"\bnot a typo\b",
+    # "X didn't need to be good, just less self-destructive" (Test 4, 28 Sep)
+    r"\b(?:didn't|did not|didn\u2019t) need to (?:be|do)\b[^.!?]{0,60}[,;\u2014-]\s*(?:just|only)\b",
+    # "Alex lost this one on Tuesday, not Sunday" / "lost this before kickoff"
+    r"\b(?:lost|won) this one (?:on|before|in|at)\b",
 ]
 _TELLS = [re.compile(p, re.IGNORECASE) for p in _TELL_PATTERNS]
 
@@ -1241,6 +1252,61 @@ def find_ai_tells(text: str) -> list[str]:
     return found
 
 
+def _replace_loosely(text: str, old: str, new: str) -> str:
+    """Swap `old` for `new` in `text`, tolerating a newline where `old` has a
+    space (a two-sentence tell is joined with a space when it is found)."""
+    if old in text:
+        return text.replace(old, new, 1)
+    words = [re.escape(w) for w in old.split()]
+    if not words:
+        return text
+    pattern = re.compile(r"\s+".join(words))
+    return pattern.sub(lambda m: new, text, count=1)
+
+
+def fix_tells(text: str, tells: list[str], system=None) -> str:
+    """Rewrite ONLY the offending sentences, on the small model (28 Sep).
+
+    This used to redraft the whole recap on the main model — a second full
+    minute for one bad sentence, on a check that fires on a lot of recaps.
+    That is most of why a test paper took five minutes. Fixing two sentences
+    takes a few seconds, keeps everything else the writer got right, and if
+    it fails for any reason the original stands.
+    """
+    listed = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(tells[:6]))
+    prompt = f"""Some sentences in this newspaper story break the paper's style rules.
+Rewrite ONLY those sentences. Keep every fact, name and number they need,
+keep the voice, and state things directly:
+- no "it's not X, it's Y", "isn't X. It's Y", "not just X but Y", or "didn't
+  need to be X, just Y" — no setting something up to knock it down;
+- at most two numbers in a sentence: split it in two, or drop a number;
+- no number with two decimals.
+Never add a fact that is not in the original.
+
+THE STORY:
+{text}
+
+THE SENTENCES TO REWRITE:
+{listed}
+
+Reply with JSON only, no other text:
+{{"fixes": [{{"old": "<the sentence exactly as numbered above>", "new": "<your rewrite>"}}]}}"""
+    try:
+        raw = call_claude(prompt, max_tokens=1200, system=system,
+                          model=SMALL_MODEL, attempts=2)
+        data = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+        fixed = text
+        for item in data.get("fixes") or []:
+            old, new = (item.get("old") or "").strip(), (item.get("new") or "").strip()
+            if old and new:
+                fixed = _replace_loosely(fixed, old, new)
+        return fixed
+    except Exception as exc:  # noqa: BLE001 — the original is still a story
+        print(f"[writer] !! could not fix tells ({type(exc).__name__}); "
+              f"printing as written.", flush=True)
+        return text
+
+
 def redraft_instruction(tells: list[str]) -> str:
     quoted = "\n".join(f"  - {t}" for t in tells[:4])
     return f"""
@@ -1276,6 +1342,7 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
     last: BaseException | None = None
     for attempt in range(attempts):
         try:
+            started = time.time()
             message = client.messages.create(
                 model=model or MODEL,
                 max_tokens=max_tokens,
@@ -1292,6 +1359,10 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
                 ]
             )
             _record_usage(model or MODEL, message)
+            elapsed = time.time() - started
+            if elapsed > 40:
+                print(f"[writer] slow call: {elapsed:.0f}s on {model or MODEL} "
+                      f"({prompt.strip()[:50]!r})", flush=True)
             text = first_text_block(message)
 
             # CUT OFF MID-WORD. A response that ran out of budget AFTER it
@@ -1335,14 +1406,9 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
             if avoid_tells:
                 tells = find_ai_tells(text)
                 if tells:
-                    print(f"[writer] !! redrafting to remove "
-                          f"{len(tells)} tell(s): {tells[0][:80]!r}",
-                          flush=True)
-                    redraft = call_claude(
-                        prompt + redraft_instruction(tells),
-                        max_tokens=max_tokens, system=system,
-                        attempts=attempts, model=model, avoid_tells=False)
-                    return redraft or text
+                    print(f"[writer] fixing {len(tells)} tell(s): "
+                          f"{tells[0][:80]!r}", flush=True)
+                    return fix_tells(text, tells, system=system)
 
             return text
         except NoRoomToWrite as exc:
@@ -1410,6 +1476,9 @@ HOW A HEADLINE WORKS
   a player's surname is also the name of anybody in this league ({names}),
   use the player's full name, or the reader thinks it means their friend.
 - 5 to 10 words. A number is good if it is the point (a score, a margin).
+- "Barely", "survives", "edges", "squeaks by", "needed every bit of it" only
+  for a margin under ten. A 35-point win is not close, however big the
+  loser's score was.
 - No quotation marks, no full stop at the end, no emoji, no hashtags.
 
 NO:  CARSON DEMOLISHES WILL BY FIFTY, HENRY UNSTOPPABLE
@@ -1642,6 +1711,8 @@ One paragraph, flowing prose, no bullets and no headings.
 
 Every player in top_performers STARTED, and his points counted for the team
 named beside him. None of them was on a bench. Never say or suggest one was.
+A game decided by more than ten points was not close: never "barely",
+"survived", "edged" or "needed every bit of it" about it.
 {national_block}
 Week data: {_compact(context)}
 """
@@ -1697,18 +1768,18 @@ Write the headline for this game story.
 #: same way — a formula nobody chose. Assigning a different way in to each
 #: game is the cheapest way to make a page of them read like a writer.
 OPENINGS = (
-    # The ANGLE for the one-sentence summary that opens every recap (John,
-    # 25 Sep). Each paper's games rotate through these, so no two recaps in
-    # one paper sum up their game the same way.
-    "the single moment or decision the game turned on",
-    "a short, flat verdict on the losing team",
-    "the bench, if the loser's bench would have changed the result; "
-    "otherwise the player who carried the winner",
-    "what the league will be saying to the losing manager in the group chat",
-    "the score, and what kind of Sunday that score means",
-    "the winning team, and whether they had a plan or just got lucky",
-    "two players, one on each side, who tell the whole game between them",
-    "the question the losing manager is asking himself this morning",
+    # WHERE the first sentence starts (John, 28 Sep: the openers "feel AI and
+    # weird"). The old list was abstract angles — "a verdict", "the question
+    # the manager is asking himself" — and abstract angles produced abstract
+    # sentences: "superchaser didn't need to be good, just less
+    # self-destructive". These are concrete things to start WITH, so the
+    # first sentence has a name and a fact in it. Rotated per game.
+    "the player who won it, and what he scored",
+    "the losing manager's worst decision or worst player, and the number",
+    "the final score, and one plain word on what kind of game it was",
+    "the one number from this game the league will bring up",
+    "the winning manager and the player who carried them",
+    "the losing team's best player, and what went wrong around him",
 )
 
 
@@ -1865,10 +1936,15 @@ HOW IT SHOULD READ:
   supports it. Two weeks is not a season.
 {earlier}
 
-START WITH ONE SENTENCE THAT SUMS UP THE WHOLE MATCHUP: who won, and the real
-reason why, the way you'd answer "what happened in that one?" Come at it from
-this angle: {opening}. Then flow straight into the breakdown, so that sentence
-leads somewhere instead of standing alone.
+THE FIRST SENTENCE sums up the game the way you'd text it to the group chat:
+short, plain, concrete. Under twenty words, with a name and a fact in it.
+Start with {opening}. Then go straight into the breakdown.
+It is NOT a thesis or a clever framing. None of these shapes:
+  - "X didn't need to be good, just Y."
+  - "X lost this one on Tuesday, not Sunday." / "X lost this before kickoff."
+  - "X lost by 17, and the bench outscored the lineup by enough to make that
+    margin embarrassing." (two ideas, and it says nothing a person would say)
+  - anything about "the story of this game", or that needs reading twice.
 Do not end on the two teams' records — they are printed beside the story.
 End on whatever the last real point is.
 
@@ -1888,7 +1964,7 @@ It should read like the funniest person in the group chat wrote it after
 watching every snap, not like a wire report. For the register only (never
 reuse these lines):
   "Chase, buddy. You started a tight end who caught one pass. One. For four
-  yards. Somebody take his phone away before waivers run."
+  yards."
 """, max_tokens=3000, system=system, model=model, avoid_tells=True)
 
 
@@ -2753,6 +2829,23 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     _LAST_WARM = time.time()
     print(f"[writer] main wave ({len(remaining)} calls) {time.time() - stage:.1f}s")
     stage = time.time()
+
+    # A MISSING RECAP GETS ONE MORE GO (28 Sep: Test 4 printed "Recap
+    # unavailable." for a whole game). A game story is the paper; one second
+    # try, all missing ones at once, before the headlines that sit over them.
+    retry = {k: tasks[k] for k in tasks
+             if k.startswith("matchup_body_") and not results.get(k)}
+    if retry and len(failures) < total_calls:   # not a total outage
+        print(f"[writer] retrying {len(retry)} missing recap(s)", flush=True)
+        for k in retry:
+            failures.pop(k, None)
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            futures = [executor.submit(record, key, fn)
+                       for key, fn in retry.items()]
+            for future in as_completed(futures):
+                future.result()
+        print(f"[writer] recap retry {time.time() - stage:.1f}s")
+        stage = time.time()
 
     if letter:
         results["lead_story"] = letter
