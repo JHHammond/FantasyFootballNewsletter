@@ -913,14 +913,56 @@ def _ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
+def _parse_record(rec) -> "tuple[int, int, int] | None":
+    m = re.match(r"^\s*(\d+)-(\d+)(?:-(\d+))?\s*$", str(rec or ""))
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+
+
+#: Below this many games a record says nothing, and the writer is told so.
+RECORD_MEANS_SOMETHING = 4
+
+
+def _record_note(team: str, rec, all_records: list[tuple[int, int, int]]) -> str:
+    """How much one week should move the outlook, given the season so far
+    (John, 28 Sep: "an 8-4 team putting up the lowest points in the league
+    on a week is very different than a 4-8 team doing so")."""
+    parsed = _parse_record(rec)
+    if not parsed:
+        return ""
+    w, l, t = parsed
+    games = w + l + t
+    pct = (w + 0.5 * t) / games if games else 0
+    if games < RECORD_MEANS_SOMETHING:
+        return (f"{team} is {rec} after this game: {games} games is too few "
+                f"to call anyone a contender or a lost cause.")
+    place = 1 + sum(1 for (w2, l2, t2) in all_records
+                    if (w2 + 0.5 * t2) / max(1, w2 + l2 + t2) > pct)
+    of = len(all_records)
+    if pct >= 0.6:
+        verdict = ("a good team: one bad week is a blip, not a collapse. "
+                   "A big week just confirms it")
+    elif pct <= 0.4:
+        verdict = ("a struggling team: a bad week is the pattern, not a "
+                   "surprise, and one good week is not a turnaround")
+    else:
+        verdict = "a middle-of-the-pack team: this week can move them either way"
+    return (f"{team} is {rec} after this game, {_ordinal(place)} of {of} by "
+            f"record — {verdict}.")
+
+
 def add_week_context(ctxs: list[dict]) -> None:
     """Give each game the league-wide view of its two scores: where each
-    ranked this week, and how many teams it would have beaten."""
+    ranked this week, and how many teams it would have beaten — and each
+    team's record, so the outlook weighs one week against the season."""
     scores = []
     for c in ctxs:
         for side in ("winner", "loser"):
             if isinstance(c.get(f"{side}_score"), (int, float)):
                 scores.append(c[f"{side}_score"])
+    records = [r for c in ctxs for side in ("winner", "loser")
+               for r in [_parse_record(c.get(f"{side}_record"))] if r]
     if len(scores) < 4:
         return
     top = max(scores)
@@ -941,6 +983,9 @@ def add_week_context(ctxs: list[dict]) -> None:
             if pts == top:
                 line += " — the best score in the league"
             lines.append(line + ".")
+            note = _record_note(c.get(side), c.get(f"{side}_record"), records)
+            if note:
+                lines.append(note)
         if lines:
             c["week_context"] = "\n".join(lines)
 
@@ -2106,7 +2151,9 @@ HOW IT SHOULD READ:
   supports it. Two weeks is not a season. Judge a team by its SCORE against
   the whole league (given above), not by one result: a team that put up one
   of the week's best scores and lost to a better one is not "grim", "in
-  trouble" or a "fraud". Say it ran into a buzzsaw.
+  trouble" or a "fraud". Say it ran into a buzzsaw. And weigh the week
+  against the RECORD (also given above): the league's worst score from an
+  8-4 team is an off week; from a 4-8 team it is who they are.
 {earlier}
 
 THE FIRST SENTENCE sums up the game the way you'd text it to the group chat:

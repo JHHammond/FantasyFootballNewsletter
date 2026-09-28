@@ -2764,3 +2764,21 @@ def test_a_loser_with_a_top_score_is_told_it_was_bad_luck():
     assert "bad luck, not a bad team" in ctxs[0]["week_context"]
     assert "the best score in the league" in ctxs[0]["week_context"]
     assert "bad luck" not in ctxs[1]["week_context"]      # Alex just scored 84
+
+
+def test_the_outlook_weighs_the_record():
+    """John, 28 Sep: an 8-4 team with the week's lowest score is very
+    different from a 4-8 team doing the same."""
+    def c(w, ws, wr, l, ls, lr):
+        return {"winner": w, "winner_score": ws, "winner_record": wr,
+                "loser": l, "loser_score": ls, "loser_record": lr}
+    ctxs = [c("A", 140, "9-3", "Good", 70, "8-4"),
+            c("B", 130, "5-7", "Bad", 72, "4-8"),
+            c("C", 120, "6-6", "D", 110, "6-6")]
+    writer.add_week_context(ctxs)
+    assert "Good is 8-4" in ctxs[0]["week_context"]
+    assert "blip" in ctxs[0]["week_context"]
+    assert "the pattern" in ctxs[1]["week_context"]
+    early = [c("A", 140, "2-1", "B", 70, "1-2"), c("C", 120, "2-1", "D", 110, "1-2")]
+    writer.add_week_context(early)
+    assert "too few" in early[0]["week_context"]
