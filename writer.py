@@ -940,14 +940,21 @@ def _record_note(team: str, rec, all_records: list[tuple[int, int, int]]) -> str
     place = 1 + sum(1 for (w2, l2, t2) in all_records
                     if (w2 + 0.5 * t2) / max(1, w2 + l2 + t2) > pct)
     of = len(all_records)
-    if pct >= 0.6:
-        verdict = ("a good team: one bad week is a blip, not a collapse. "
-                   "A big week just confirms it")
-    elif pct <= 0.4:
-        verdict = ("a struggling team: a bad week is the pattern, not a "
-                   "surprise, and one good week is not a turnaround")
+    # John's tiers (28 Sep), by winning percentage, ties counting half.
+    if pct > 0.75:
+        verdict = ("strong: one bad week is a blip, not a collapse, and a big "
+                   "week just confirms it")
+    elif pct > 0.5:
+        verdict = ("a playoff contender: a bad week stings but doesn't change "
+                   "that, a good one strengthens the case")
+    elif pct == 0.5:
+        verdict = "right in the middle: this week can move them either way"
+    elif pct >= 0.25:
+        verdict = ("struggling: a bad week is the pattern, not a surprise, and "
+                   "one good week is not a turnaround yet")
     else:
-        verdict = "a middle-of-the-pack team: this week can move them either way"
+        verdict = ("a team that needs to get it together and figure some "
+                   "things out: say so, and a win is a rare bright spot")
     return (f"{team} is {rec} after this game, {_ordinal(place)} of {of} by "
             f"record — {verdict}.")
 

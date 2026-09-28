@@ -2777,8 +2777,20 @@ def test_the_outlook_weighs_the_record():
             c("C", 120, "6-6", "D", 110, "6-6")]
     writer.add_week_context(ctxs)
     assert "Good is 8-4" in ctxs[0]["week_context"]
-    assert "blip" in ctxs[0]["week_context"]
-    assert "the pattern" in ctxs[1]["week_context"]
+    assert "a playoff contender" in ctxs[0]["week_context"]   # 8-4 = .667
+    assert "struggling" in ctxs[1]["week_context"]            # 4-8 = .333
+    assert "right in the middle" in ctxs[2]["week_context"]   # 6-6
     early = [c("A", 140, "2-1", "B", 70, "1-2"), c("C", 120, "2-1", "D", 110, "1-2")]
     writer.add_week_context(early)
     assert "too few" in early[0]["week_context"]
+
+
+@pytest.mark.parametrize("rec,tier", [
+    ("10-2", "strong"), ("9-3", "a playoff contender"), ("7-5", "a playoff contender"),
+    ("6-6", "right in the middle"), ("3-9", "struggling"), ("2-10", "get it together"),
+    ("5-5-2", "right in the middle"),
+])
+def test_record_tiers_are_johns(rec, tier):
+    """Above .750 strong, above .500 contender, .500 mid, below struggling,
+    below .250 needs to get it together (John, 28 Sep)."""
+    assert tier in writer._record_note("T", rec, [(6, 6, 0)] * 12)
