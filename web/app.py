@@ -3579,6 +3579,26 @@ def unsubscribe(request: Request, token: str):
                    body="No more emails. You can still read every edition on the web.")
 
 
+@app.get("/stop/{token}", response_class=HTMLResponse)
+@app.post("/stop/{token}", response_class=HTMLResponse)
+def stop_reminders(request: Request, token: str):
+    """Unsubscribe from reminder emails. One click, no login; POST is the
+    one-click List-Unsubscribe that Gmail's own button sends."""
+    from web import reminders
+    email = reminders.email_from_token(token)
+    if not email:
+        return _render(request, "message.html", heading="That link didn't work",
+                       body="It may have been cut off. Reply to any of our emails "
+                            "and we'll take you off by hand.")
+    try:
+        db.add_email_optout(email)
+    except Exception:  # noqa: BLE001
+        pass
+    return _render(request, "message.html", heading="You're off the list",
+                   body="No more reminders. Your papers and your league are "
+                        "untouched, and you can still make one any time.")
+
+
 # ---------------------------------------------------------------------------
 # Magic-link recovery — this is the entirety of "authentication"
 # ---------------------------------------------------------------------------
@@ -3706,6 +3726,7 @@ def robots():
         "Disallow: /recover\n"
         "Disallow: /subscribe/\n"
         "Disallow: /unsubscribe/\n"
+        "Disallow: /stop/\n"
         "Allow: /$\n"
         f"\nSitemap: {public_base_url()}/sitemap.xml\n"
     )

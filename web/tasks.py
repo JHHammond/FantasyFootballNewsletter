@@ -293,6 +293,37 @@ def main() -> int:
     regenerate = "--regenerate" in sys.argv
     dry_run = "--dry-run" in sys.argv
 
+    # The reminder to commissioners who aren't paying (28 Sep):
+    #   python -m web.tasks --remind [week] [--dry-run] [--test-to=you@x.com]
+    if "--remind" in sys.argv:
+        from . import db, reminders
+        import nfl_week
+        week = int(args[0]) if args else resolve_week()
+        if not db.reminders_ready():
+            print("Run migrations/027_reminders.sql in Supabase first.")
+            return 1
+        if not dry_run and not os.getenv("RESEND_API_KEY"):
+            print("RESEND_API_KEY is not set; nothing can be sent.")
+            return 1
+        if not dry_run and not os.getenv("SESSION_SECRET"):
+            # The unsubscribe links are signed with it; signed with anything
+            # else, the web service can't read them. Run this from the WEB
+            # service's shell, which has it.
+            print("SESSION_SECRET is not set here, so unsubscribe links would "
+                  "not work. Run this from the web service's Shell.")
+            return 1
+        test_to = next((a.split("=", 1)[1] for a in sys.argv[1:]
+                        if a.startswith("--test-to=")), "")
+        report = reminders.send(db, nfl_week.current_season(), week,
+                                dry_run=dry_run, test_to=test_to)
+        if not dry_run and not test_to:
+            emailer.send_ops_alert(
+                f"Reminder emails, week {week}: {report['sent']} sent",
+                {"leagues": report["audience"], "emails_sent": report["sent"],
+                 "errors": report["errors"]})
+        return 1 if report["failed"] else 0
+
+
     if dry_run:
         import nfl_week
         from . import db

@@ -903,3 +903,40 @@ def delete_award(league_id: str, award_id: str) -> None:
         row = _AWARDS.get(award_id)
         if row and row["league_id"] == league_id:
             del _AWARDS[award_id]
+
+
+# --- reminder emails, mirroring db.py ----------------------------------------
+_OPTOUTS: set = set()
+_REMINDERS: set = set()
+
+
+def leagues_for_reminders(season: int) -> list[dict[str, Any]]:
+    return [dict(l) for l in _LEAGUES.values() if l.get("season") == int(season)]
+
+
+def all_users() -> list[dict[str, Any]]:
+    return [dict(u) for u in _USERS.values()]
+
+
+def league_ids_with_paper(season: int, week: int) -> set:
+    return {k[0] for k in _PAPERS if k[1] == int(season) and k[2] == int(week)}
+
+
+def email_optouts() -> set:
+    return set(_OPTOUTS)
+
+
+def add_email_optout(email: str) -> None:
+    _OPTOUTS.add(email.strip().lower())
+
+
+def reminders_sent(campaign: str) -> set:
+    return {e for e, c in _REMINDERS if c == campaign}
+
+
+def record_reminder(email: str, campaign: str) -> None:
+    _REMINDERS.add((email.strip().lower(), campaign))
+
+
+def reminders_ready() -> bool:
+    return True

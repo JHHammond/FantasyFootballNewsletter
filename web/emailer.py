@@ -383,6 +383,61 @@ def send_weekly_edition_to_owner(
                  from_name=paper_name)
 
 
+def send_reminder(to: str, week: int, leagues: list[dict],
+                  unsubscribe_token: str) -> SendResult:
+    """The weekly nudge to a commissioner who isn't on a paid plan: their
+    league's paper for the week hasn't been written yet (web/reminders.py).
+    Marketing mail, so unsubscribe and the mailing address, always."""
+    _, _, base, address = _config()
+    e = html.escape
+    unsubscribe_url = f"{base}/stop/{unsubscribe_token}"
+    leagues = leagues[:6]
+    first = leagues[0]["name"] if leagues else "your league's paper"
+    buttons = "".join(f"""
+    <tr><td align="center" style="padding:8px 28px;">
+      <a href="{base}/l/{e(l['admin_token'])}" style="{_BUTTON}">{("Make my Week " + str(int(week)) + " paper") if len(leagues) == 1 else ("Make " + e(l['name']))}</a>
+    </td></tr>""" for l in leagues)
+    address_line = (f'<div style="margin-top:6px;">{e(address)}</div>' if address else "")
+    footer = f"""
+  <div style="margin-top:12px;padding-top:16px;border-top:1px solid #d8d0c0;
+              font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b6050;">
+    You made a league paper at The Commissioner&rsquo;s Desk.
+    <a href="{unsubscribe_url}" style="color:#6b6050;">Unsubscribe</a> from these reminders.
+    {address_line}
+  </div>"""
+    waiting = (f"<strong>{e(first)}</strong> hasn&rsquo;t been written yet."
+               if len(leagues) == 1 else
+               "Your leagues&rsquo; papers haven&rsquo;t been written yet.")
+    body = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light only"></head>
+<body style="margin:0;padding:0;background:#e9e4d8;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Week {int(week)} is in the books. Come back, make your paper, and find out.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e9e4d8;">
+<tr><td align="center" style="padding:20px 10px;">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#fffdf8;border:1px solid #d8d0c0;">
+    <tr><td style="background:#b3141c;height:6px;line-height:6px;font-size:0;">&nbsp;</td></tr>
+    <tr><td align="center" style="padding:20px 28px 6px;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:3px;color:#6b6050;">THE COMMISSIONER&rsquo;S DESK &nbsp;&bull;&nbsp; WEEK {int(week)}</td></tr>
+    <tr><td align="center" style="padding:10px 28px 4px;font-family:Georgia,'Times New Roman',serif;font-size:32px;line-height:1.1;font-weight:900;text-transform:uppercase;color:#111;">Whose team flopped?<br>Whose team balled out?</td></tr>
+    <tr><td align="center" style="padding:14px 36px 10px;font-family:Georgia,serif;font-size:17px;line-height:1.55;color:#222;">
+      Week {int(week)} is in the books, and {waiting}
+      Come back, make your paper, and find out.
+    </td></tr>{buttons}
+    <tr><td style="padding:22px 28px 24px;">{footer}</td></tr>
+  </table>
+</td></tr></table>
+</body></html>"""
+    text = "\n".join(
+        [f"Week {week}: whose team flopped? Whose team balled out?", "",
+         f"Week {week} is in the books, and your paper hasn't been written yet.",
+         "Come back, make your paper, and find out.", ""]
+        + [f"{l['name']}: {base}/l/{l['admin_token']}" for l in leagues]
+        + ["", f"Unsubscribe: {unsubscribe_url}"] + ([address] if address else []))
+    return _send(to, f"Week {week}: Whose team flopped?", body,
+                 unsubscribe_url=unsubscribe_url, text_body=text,
+                 from_name="The Commissioner's Desk")
+
+
 # ---------------------------------------------------------------------------
 # Operational
 # ---------------------------------------------------------------------------

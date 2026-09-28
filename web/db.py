@@ -1419,3 +1419,63 @@ def update_award(league_id: str, award_id: str, fields: dict) -> None:
 def delete_award(league_id: str, award_id: str) -> None:
     (client().table("league_awards").delete()
      .eq("league_id", league_id).eq("id", award_id).execute())
+
+
+# ---------------------------------------------------------------------------
+# Reminder emails (migration 027)
+# ---------------------------------------------------------------------------
+
+def _paged(table: str, columns: str, **eq) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    start, page = 0, 1000
+    while True:
+        q = client().table(table).select(columns)
+        for k, v in eq.items():
+            q = q.eq(k, v)
+        rows = q.range(start, start + page - 1).execute().data or []
+        out.extend(rows)
+        if len(rows) < page:
+            return out
+        start += page
+
+
+def leagues_for_reminders(season: int) -> list[dict[str, Any]]:
+    return _paged("leagues", "id, league_name, paper_name, admin_token, "
+                  "owner_email, user_id, season", season=int(season))
+
+
+def all_users() -> list[dict[str, Any]]:
+    return _paged("users", "*")
+
+
+def league_ids_with_paper(season: int, week: int) -> set[str]:
+    rows = _paged("newspapers", "league_id", season=int(season), week=int(week))
+    return {r["league_id"] for r in rows}
+
+
+def email_optouts() -> set[str]:
+    return {r["email"] for r in _paged("email_optouts", "email")}
+
+
+def add_email_optout(email: str) -> None:
+    client().table("email_optouts").upsert(
+        {"email": email.strip().lower()}, on_conflict="email").execute()
+
+
+def reminders_sent(campaign: str) -> set[str]:
+    return {r["email"] for r in _paged("reminders_sent", "email", campaign=campaign)}
+
+
+def record_reminder(email: str, campaign: str) -> None:
+    client().table("reminders_sent").upsert(
+        {"email": email.strip().lower(), "campaign": campaign},
+        on_conflict="email,campaign").execute()
+
+
+def reminders_ready() -> bool:
+    try:
+        client().table("reminders_sent").select("email").limit(1).execute()
+        client().table("email_optouts").select("email").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False

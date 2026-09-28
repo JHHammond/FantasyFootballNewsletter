@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 
 #: Bump when the substance changes, not when the wording is tidied.
-LAST_UPDATED = "18 September 2026"
+LAST_UPDATED = "28 September 2026"
 
 SERVICE_NAME = "The Commissioner's Desk"
 
@@ -81,8 +81,10 @@ PRIVACY_SECTIONS = [
             "material for the paper; without it there is nothing to write about.",
             "<strong>Email addresses</strong>, when someone gives one. A "
             "commissioner's address is used to send back the private link to "
-            "their paper if they lose it. A reader's address is used to send "
-            "the weekly edition they asked for, and nothing else.",
+            "their paper if they lose it, and for occasional reminders when a "
+            "new week's paper is ready to be made — each with a one-click "
+            "unsubscribe. A reader's address is used to send the weekly "
+            "edition they asked for, and nothing else.",
             "<strong>Read counts</strong> — how many times each published paper "
             "was opened. A number per edition, not a record of who opened it.",
             "<strong>Weekly scores, combined across leagues.</strong> We keep "
@@ -104,10 +106,11 @@ PRIVACY_SECTIONS = [
         "title": "What it is never used for",
         "paragraphs": [
             "Email addresses are not sold, rented, or shared with advertisers. "
-            "They are not used to send anything other than the specific message "
-            "they were given for. Nobody is added to a list without confirming "
-            "from their own inbox first, and every edition carries a one-click "
-            "unsubscribe that works immediately.",
+            "A reader is never added to a league's list without confirming "
+            "from their own inbox first. Commissioners may get the reminders "
+            "described above and nothing else of a marketing kind. Every "
+            "edition and every reminder carries a one-click unsubscribe that "
+            "works immediately.",
         ],
     },
     {
