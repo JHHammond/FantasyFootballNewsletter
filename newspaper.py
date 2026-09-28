@@ -2642,6 +2642,16 @@ def _render_html(edition, theme=None):
             gap: 16px;
         }}
 
+        /* An odd one out sits centred under the others, at the same width
+           (John, 28 Sep), instead of alone in the left column. */
+        .awards-grid-full > .award-card:last-child:nth-child(odd),
+        .awards-grid > .award-card:last-child:nth-child(odd) {{
+            grid-column: 1 / -1;
+            justify-self: center;
+            width: calc(50% - 8px);
+            box-sizing: border-box;
+        }}
+
         /* ── POWER RANKINGS GRID ── */
         .rankings-section {{
             background: #f7f4ee;
@@ -3126,6 +3136,8 @@ def _render_html(edition, theme=None):
             .front-col {{ border: none !important; padding: 0 !important; margin-bottom: 16px; }}
             .awards-grid-full {{ grid-template-columns: 1fr; }}
             .awards-grid {{ grid-template-columns: 1fr; }}
+            .awards-grid-full > .award-card:last-child:nth-child(odd),
+            .awards-grid > .award-card:last-child:nth-child(odd) {{ width: auto; justify-self: stretch; }}
             .rankings-row {{ grid-template-columns: repeat(2, 1fr); }}
             .paired-stories {{ grid-template-columns: 1fr; }}
             .paper-name {{ font-size: 42px; }}
