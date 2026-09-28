@@ -91,10 +91,12 @@ def sent_emails(monkeypatch):
     """Capture outgoing mail instead of printing it."""
     captured = []
 
-    def fake_send(to, subject, html_body, *, unsubscribe_url=None):
+    def fake_send(to, subject, html_body, *, unsubscribe_url=None,
+                  text_body=None, from_name=None):
         captured.append({
             "to": to, "subject": subject, "body": html_body,
-            "unsubscribe_url": unsubscribe_url,
+            "unsubscribe_url": unsubscribe_url, "text": text_body,
+            "from_name": from_name,
         })
         return emailer.SendResult(ok=True)
 
@@ -5980,3 +5982,40 @@ def test_the_weekly_job_emails_ops_at_the_start_and_the_end(monkeypatch):
     assert tasks.main() == 0
     assert alerts == ["Weekly job, week 4: started",
                       "Weekly job, week 4: done, all good"]
+
+
+# --- the weekly email is the front page in miniature (28 Sep) ----------------
+
+def test_the_weekly_email_carries_the_scores_and_a_plain_text_part():
+    ai = {"headline": "CHAMP GOES NUCLEAR, BURIES CARSON BY 35.5",
+          "lead_story": "Gibbs went for 41. Champ is 3-0.",
+          "matchup_content": [{"winner": "champayyy", "loser": "In Bijan We Trust",
+                               "winner_score": 188.4, "loser_score": 152.8,
+                               "teaser": "Champ goes nuclear"}]}
+    m = emailer.weekly_edition("The Times", 3, ai["headline"], "https://x/p", ai)
+    assert m["subject"] == "Week 3: Champ Goes Nuclear, Buries Carson by 35.5"
+    assert "188.4" in m["html"] and "Champ goes nuclear" in m["html"]
+    assert "Gibbs went for 41." in m["html"]
+    assert "champayyy 188.4 def. In Bijan We Trust 152.8" in m["text"]
+    assert "https://x/p" in m["text"]
+    # No paper data (an old paper): still a sane email.
+    bare = emailer.weekly_edition("The Times", 3, "HEADLINE", "https://x/p", None)
+    assert "HEADLINE" in bare["html"] and "Read the full paper" in bare["html"]
+
+
+def test_the_email_comes_from_the_papers_name():
+    assert (emailer._from_paper("The Commissioner's Desk <papers@cd.com>", "The Kevlarville Times")
+            == '"The Kevlarville Times" <papers@cd.com>')
+
+
+def test_the_weekly_send_passes_the_paper_and_its_name(client, league, sent_emails):
+    from web.tasks import send_weekly
+    _subscribe_and_confirm(client, league)
+    demo_db.save_paper(league["id"], 3, 2025, "path", "url",
+                       {"headline": "CHAOS", "matchup_content": [
+                           {"winner": "A", "loser": "B", "winner_score": 100, "loser_score": 90}]})
+    sent_emails.clear()
+    send_weekly(demo_db, 3)
+    assert len(sent_emails) == 2
+    for e in sent_emails:
+        assert e["from_name"] and e["text"] and "100.0" in e["body"]

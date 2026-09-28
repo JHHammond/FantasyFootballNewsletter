@@ -53,8 +53,11 @@ def _config() -> tuple[Optional[str], str, str, str]:
 def _send(
     to: str, subject: str, html_body: str,
     *, unsubscribe_url: Optional[str] = None,
+    text_body: Optional[str] = None, from_name: Optional[str] = None,
 ) -> SendResult:
     api_key, sender, _, _ = _config()
+    if from_name:
+        sender = _from_paper(sender, from_name)
 
     headers_extra = {}
     if unsubscribe_url:
@@ -71,6 +74,8 @@ def _send(
         return SendResult(ok=True, detail="logged only", logged_only=True)
 
     payload = {"from": sender, "to": [to], "subject": subject, "html": html_body}
+    if text_body:
+        payload["text"] = text_body
     if headers_extra:
         payload["headers"] = headers_extra
 
@@ -181,53 +186,201 @@ def send_magic_link(to: str, token: str, league_count: int) -> SendResult:
 # Marketing
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# The weekly edition (28 Sep redesign)
+#
+# The old email was a headline and a button: the reader had to click to find
+# out whether anything in it was about them. The new one is the front page in
+# miniature — masthead, headline, the first lines of the lead, every score
+# with its one-line hook — and THEN the button. The scores are what make
+# somebody open it in the group chat.
+#
+# Written for email clients, not browsers: one 600px table, inline styles,
+# web-safe fonts, no CSS the Gmail app strips, images only by absolute URL,
+# and a plain-text part beside the HTML (spam filters score HTML-only mail
+# lower, and some people read in plain text).
+# ---------------------------------------------------------------------------
+
+import re as _re
+from datetime import date as _date
+
+_SMALL_WORDS = {"a", "an", "and", "as", "at", "but", "by", "for", "in", "of",
+                "on", "or", "the", "to", "vs", "with", "from", "over"}
+
+
+def subject_case(headline: str) -> str:
+    """ALL-CAPS headline -> Title Case for a subject line. All caps in a
+    subject reads as spam to people and to filters alike."""
+    words = (headline or "").split()
+    out = []
+    for i, w in enumerate(words):
+        low = w.lower()
+        if w.startswith("["):
+            out.append(w)
+        elif i and low in _SMALL_WORDS:
+            out.append(low)
+        elif any(c.isdigit() for c in w):
+            out.append(low)
+        else:
+            out.append(low[:1].upper() + low[1:])
+    return " ".join(out)
+
+
+def _first_sentences(text: str, limit: int = 260) -> str:
+    text = _re.sub(r"\s+", " ", (text or "")).strip()
+    if len(text) <= limit:
+        return text
+    parts = _re.split(r"(?<=[.!?])\s+", text)
+    out = ""
+    for p in parts:
+        if out and len(out) + len(p) + 1 > limit:
+            break
+        out = (out + " " + p).strip()
+    return out or text[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def _score(v) -> str:
+    try:
+        return f"{float(v):.1f}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _from_paper(sender: str, paper_name: str) -> str:
+    """The paper's own name as the sender: people open mail from their league,
+    not from a company. The address stays ours (it has to be the verified
+    domain)."""
+    m = _re.search(r"<([^>]+)>", sender or "")
+    address = m.group(1) if m else (sender or "").strip()
+    name = _re.sub(r'["<>\\\r\n]', "", paper_name or "").strip()
+    return f'"{name}" <{address}>' if name and address else sender
+
+
+def weekly_edition(paper_name: str, week: int, headline: str, paper_url: str,
+                   ai: Optional[dict] = None, *, image_url: str = "",
+                   for_owner: bool = False, footer_html: str = "",
+                   footer_text: str = "") -> dict:
+    """{subject, html, text} for one week's paper."""
+    ai = ai if isinstance(ai, dict) else {}
+    e = html.escape
+    lead = "" if ai.get("lead_by_commissioner") else _first_sentences(ai.get("lead_story") or "")
+    games = [g for g in (ai.get("matchup_content") or []) if isinstance(g, dict)]
+    dateline = _date.today().strftime("%B %-d, %Y").upper()
+    preheader = lead or (f"{len(games)} games, every score inside." if games else "")
+
+    rows = []
+    for g in games:
+        hook = (g.get("teaser") or "").strip()
+        rows.append(f"""
+      <tr><td style="padding:12px 0;border-bottom:1px solid #e3dccd;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:Helvetica,Arial,sans-serif;font-size:15px;color:#111;">
+          <tr><td style="padding:1px 0;"><strong>{e(str(g.get('winner') or ''))}</strong></td>
+              <td align="right" style="padding:1px 0;white-space:nowrap;"><strong>{_score(g.get('winner_score'))}</strong></td></tr>
+          <tr><td style="padding:1px 0;color:#5a5245;">{e(str(g.get('loser') or ''))}</td>
+              <td align="right" style="padding:1px 0;white-space:nowrap;color:#5a5245;">{_score(g.get('loser_score'))}</td></tr>
+        </table>
+        {f'<div style="font-family:Georgia,serif;font-size:14px;font-style:italic;color:#5a5245;margin-top:4px;">{e(hook)}</div>' if hook else ''}
+      </td></tr>""")
+    scoreboard = ""
+    if rows:
+        scoreboard = f"""
+    <tr><td style="padding:26px 28px 6px;">
+      <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:2px;color:#b3141c;border-bottom:2px solid #111;padding-bottom:6px;">THIS WEEK</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">{''.join(rows)}</table>
+    </td></tr>"""
+
+    photo = ""
+    if image_url:
+        photo = f"""
+    <tr><td style="padding:0 28px 6px;">
+      <a href="{e(paper_url)}"><img src="{e(image_url)}" width="544" alt="" style="display:block;width:100%;max-width:544px;height:auto;border:0;"></a>
+    </td></tr>"""
+
+    share = ""
+    if for_owner:
+        share = f"""
+    <tr><td style="padding:4px 28px 0;">
+      <div style="background:#f3eee3;border-left:4px solid #b3141c;padding:14px 16px;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3a3a;">
+        <strong>For the group chat:</strong> copy this link and drop it in.<br>
+        <a href="{e(paper_url)}" style="color:#b3141c;word-break:break-all;">{e(paper_url)}</a>
+      </div>
+    </td></tr>"""
+
+    body = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light only"><title>{e(headline)}</title></head>
+<body style="margin:0;padding:0;background:#e9e4d8;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#e9e4d8;">{e(preheader)}&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e9e4d8;">
+<tr><td align="center" style="padding:20px 10px;">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#fffdf8;border:1px solid #d8d0c0;">
+    <tr><td style="background:#b3141c;height:6px;line-height:6px;font-size:0;">&nbsp;</td></tr>
+    <tr><td align="center" style="padding:22px 28px 10px;">
+      <div style="font-family:Georgia,'Times New Roman',serif;font-size:34px;line-height:1.05;font-weight:900;color:#111;text-transform:uppercase;letter-spacing:1px;">{e(paper_name)}</div>
+      <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:2px;color:#6b6050;border-top:1px solid #111;border-bottom:1px solid #111;padding:6px 0;margin-top:12px;">WEEK {int(week)} EDITION &nbsp;&bull;&nbsp; {dateline}</div>
+    </td></tr>
+    <tr><td style="padding:14px 28px 8px;">
+      <a href="{e(paper_url)}" style="text-decoration:none;color:#111;"><div style="font-family:Georgia,'Times New Roman',serif;font-size:30px;line-height:1.1;font-weight:900;text-transform:uppercase;color:#111;">{e(headline)}</div></a>
+    </td></tr>{photo}
+    {f'<tr><td style="padding:8px 28px 0;font-family:Georgia,serif;font-size:17px;line-height:1.55;color:#222;">{e(lead)}</td></tr>' if lead else ''}
+    {scoreboard}
+    <tr><td align="center" style="padding:26px 28px 22px;">
+      <a href="{e(paper_url)}" style="{_BUTTON}">Read the full paper</a>
+      <div style="font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#6b6050;margin-top:10px;">Full recaps, awards, power rankings and the obituaries.</div>
+    </td></tr>{share}
+    <tr><td style="padding:10px 28px 24px;">{footer_html}</td></tr>
+  </table>
+</td></tr></table>
+</body></html>"""
+
+    lines = [paper_name.upper(), f"Week {week}", "", headline, ""]
+    if lead:
+        lines += [lead, ""]
+    for g in games:
+        lines.append(f"{g.get('winner')} {_score(g.get('winner_score'))} def. "
+                     f"{g.get('loser')} {_score(g.get('loser_score'))}")
+        if g.get("teaser"):
+            lines.append(f"  {g['teaser']}")
+    lines += ["", f"Read the full paper: {paper_url}", "", footer_text]
+    return {"subject": f"Week {week}: {subject_case(headline)}",
+            "html": body, "text": "\n".join(lines).strip() + "\n"}
+
+
 def send_weekly_edition(
     to: str, paper_name: str, week: int, headline: str,
-    paper_url: str, unsubscribe_token: str,
+    paper_url: str, unsubscribe_token: str, ai: Optional[dict] = None,
+    image_url: str = "",
 ) -> SendResult:
-    _, _, base, _ = _config()
+    _, _, base, address = _config()
     unsubscribe_url = f"{base}/unsubscribe/{unsubscribe_token}"
-    body = f"""
-  <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#6b6050;">
-    Week {week}
-  </div>
-  <h1 style="font-size:28px;line-height:1.15;margin:8px 0 18px;font-weight:900;">
-    {html.escape(headline)}
-  </h1>
-  <p>This week&rsquo;s edition of <strong>{html.escape(paper_name)}</strong> is out.</p>
-  <p style="margin:24px 0;"><a href="{paper_url}" style="{_BUTTON}">Read the paper</a></p>"""
-    return _send(
-        to,
-        f"{paper_name} — Week {week}",
-        _shell(body, _marketing_footer(unsubscribe_url)),
-        unsubscribe_url=unsubscribe_url,
-    )
+    mail = weekly_edition(
+        paper_name, week, headline, paper_url, ai, image_url=image_url,
+        footer_html=_marketing_footer(unsubscribe_url),
+        footer_text=f"Unsubscribe: {unsubscribe_url}" + (f"\n{address}" if address else ""))
+    return _send(to, mail["subject"], mail["html"], unsubscribe_url=unsubscribe_url,
+                 text_body=mail["text"], from_name=paper_name)
 
 
 def send_weekly_edition_to_owner(
     to: str, paper_name: str, week: int, headline: str, paper_url: str,
+    ai: Optional[dict] = None, image_url: str = "",
 ) -> SendResult:
     """The commissioner's own copy: the delivery they are paying for, so it is
     a service email rather than marketing — no unsubscribe footer, but it says
     plainly why it came and where to turn it off."""
     _, _, base, _ = _config()
-    body = f"""
-  <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#6b6050;">
-    Week {week}
-  </div>
-  <h1 style="font-size:28px;line-height:1.15;margin:8px 0 18px;font-weight:900;">
-    {html.escape(headline)}
-  </h1>
-  <p>This week&rsquo;s <strong>{html.escape(paper_name)}</strong> is written and
-     published. Drop the link in your league chat:</p>
-  <p style="margin:24px 0;"><a href="{paper_url}" style="{_BUTTON}">Read the paper</a></p>
-  <p style="font-size:14px;color:#3a3a3a;word-break:break-all;">{html.escape(paper_url)}</p>
-  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #d8d0c0;
+    footer = f"""
+  <div style="padding-top:16px;border-top:1px solid #d8d0c0;
               font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b6050;">
     You&rsquo;re getting this because weekly delivery is on for your league.
     Change it any time from <a href="{base}/account" style="color:#6b6050;">your papers</a>.
   </div>"""
-    return _send(to, f"{paper_name} — Week {week} is out", _shell(body))
+    mail = weekly_edition(
+        paper_name, week, headline, paper_url, ai, image_url=image_url,
+        for_owner=True, footer_html=footer,
+        footer_text=f"Weekly delivery is on for your league. Change it at {base}/account")
+    return _send(to, mail["subject"], mail["html"], text_body=mail["text"],
+                 from_name=paper_name)
 
 
 # ---------------------------------------------------------------------------

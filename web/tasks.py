@@ -32,6 +32,24 @@ from . import emailer  # noqa: E402
 from .generate import generate_and_store, paper_name_for  # noqa: E402
 
 
+def _email_photo(db, ai: dict, season: int, week: int) -> str:
+    """The picture at the top of the email: the commissioner's own front-page
+    upload if there is one, else the staff front-page photo for the week,
+    else none. Never raises."""
+    try:
+        hero = ((ai or {}).get("images") or {}).get("hero")
+        url = hero.get("url") if isinstance(hero, dict) else hero
+        if isinstance(url, str) and url.startswith("http"):
+            return url
+        from newspaper import FRONT_PAGE_KEY
+        for row in db.player_photos(season, week) or []:
+            if row.get("player_name") == FRONT_PAGE_KEY and row.get("week") == week:
+                return row.get("image_url") or ""
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
     """Run the weekly job. Returns a summary suitable for logging or a response.
 
@@ -119,10 +137,12 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
             db.mark_emailed(league["id"], season, week)
             continue
 
+        ai = paper.get("ai_cache") if isinstance(paper.get("ai_cache"), dict) else {}
+        photo = _email_photo(db, ai, season, week)
         sent = failed = 0
         if owner_email:
             result = emailer.send_weekly_edition_to_owner(
-                owner_email, name, week, headline, paper_url)
+                owner_email, name, week, headline, paper_url, ai, photo)
             if result.ok:
                 sent += 1
             else:
@@ -131,7 +151,7 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
         for subscriber in subscribers:
             result = emailer.send_weekly_edition(
                 subscriber["email"], name, week, headline,
-                paper_url, subscriber["unsubscribe_token"],
+                paper_url, subscriber["unsubscribe_token"], ai, photo,
             )
             if result.ok:
                 sent += 1
@@ -222,11 +242,13 @@ def test_send(db, week: int, league_slug: str, to: str) -> dict[str, Any]:
                 if isinstance((paper or {}).get("ai_cache"), dict) else None)
     headline = f"[TEST] {headline or f'Week {week} is out'}"
 
+    ai = (paper or {}).get("ai_cache") if isinstance((paper or {}).get("ai_cache"), dict) else {}
+    photo = _email_photo(db, ai, season, week)
     for label, send in (
         ("commissioner copy", lambda: emailer.send_weekly_edition_to_owner(
-            to, name, week, headline, paper_url)),
+            to, name, week, headline, paper_url, ai, photo)),
         ("subscriber copy", lambda: emailer.send_weekly_edition(
-            to, name, week, headline, paper_url, "test-not-a-real-token")),
+            to, name, week, headline, paper_url, "test-not-a-real-token", ai, photo)),
     ):
         result = send()
         if result.ok and not result.logged_only:
