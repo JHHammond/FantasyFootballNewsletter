@@ -203,7 +203,8 @@ def resolve_week() -> int:
     return nfl_week.completed_week()
 
 
-def test_send(db, week: int, league_slug: str, to: str) -> dict[str, Any]:
+def test_send(db, week: int, league_slug: str, to: str,
+              regenerate: bool = False) -> dict[str, Any]:
     """Send this week's email for ONE league to ONE test address.
 
         python -m web.tasks --league=<public slug> --test-to=you@example.com
@@ -227,7 +228,7 @@ def test_send(db, week: int, league_slug: str, to: str) -> dict[str, Any]:
     name = paper_name_for(league)
     season = league["season"]
     paper = db.get_paper(league["id"], season, week)
-    if not paper:
+    if not paper or regenerate:     # --regenerate writes it again first
         try:
             generate_and_store(db, league, week)
             report["generated"] = True
@@ -333,7 +334,8 @@ def main() -> int:
             return 1
         from . import db
         week = int(args[0]) if args else resolve_week()
-        report = test_send(db, week, flags["league"], flags["test-to"])
+        report = test_send(db, week, flags["league"], flags["test-to"],
+                           regenerate=regenerate)
         print(f"TEST SEND, week {week}, league {flags['league']} -> {flags['test-to']}"
               f"{' (paper was written for this test)' if report['generated'] else ''}")
         for label in report["sent"]:
