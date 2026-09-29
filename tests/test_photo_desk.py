@@ -213,3 +213,17 @@ def test_a_front_page_photo_needs_a_week(web):
                  files={"photo": ("front.png", PNG, "image/png")},
                  follow_redirects=False)
     assert r.status_code == 303 and "error=" in r.headers["location"]
+
+
+def test_a_defense_card_shows_its_team_logo():
+    """28 Sep: a defense in Detention had a broken photo."""
+    url, logo = newspaper.card_photo({"position": "DEF", "player_id": "GB", "headshot_url": None})
+    assert logo and url.endswith("/gb.png")
+    url, logo = newspaper.card_photo({"position": "D/ST", "nfl_team": "PHI"})
+    assert logo and url.endswith("/phi.png")
+
+
+def test_an_espn_player_card_uses_espns_own_headshot():
+    url, logo = newspaper.card_photo({"position": "WR", "player_id": "4241479",
+                                      "headshot_url": "https://a.espncdn.com/x.png"})
+    assert url == "https://a.espncdn.com/x.png" and not logo

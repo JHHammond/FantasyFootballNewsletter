@@ -1487,6 +1487,29 @@ def build_top_scorers(matchups, players_data=None, n=5):
     </table>"""
 
 
+_TEAM_LOGO = "https://sleepercdn.com/images/team_logos/nfl/{}.png"
+
+
+def card_photo(p) -> tuple[str, bool]:
+    """(url, is_a_team_logo) for an Honor Roll / Detention card (28 Sep).
+
+    It used to build a Sleeper headshot URL from the player id for everybody —
+    which is a broken image for a defense (its "id" is a team abbreviation)
+    and for every ESPN or Yahoo player (their ids aren't Sleeper's). The
+    provider's own picture comes first; a defense without one gets its team
+    logo."""
+    pos = (p.get("position") or "").upper()
+    url = p.get("headshot_url") or ""
+    if pos in ("DEF", "DST", "D/ST"):
+        if url:
+            return url, "team_logos" in url or "logo" in url
+        abbr = (p.get("nfl_team") or p.get("player_id") or "").strip().lower()
+        return (_TEAM_LOGO.format(abbr), True) if abbr else ("", True)
+    if url:
+        return url, False
+    return get_player_headshot_url(p.get("player_id")), False
+
+
 def get_player_headshot_url(player_id):
     """Sleeper CDN URL for player headshots."""
     return f"https://sleepercdn.com/content/nfl/players/{player_id}.jpg"
@@ -1643,6 +1666,8 @@ def build_honor_roll_and_detention(matchups, n=5):
                     "beat_by": float(actual - projected) if projected is not None else None,
                     "team_name": team_name,
                     "player_id": str(player_id),
+                    "headshot_url": p.get("headshot_url"),
+                    "nfl_team": p.get("nfl_team"),
                 }
                 all_performers.append(entry)
 
@@ -1659,7 +1684,7 @@ def build_honor_roll_and_detention(matchups, n=5):
     )[:n]
 
     def player_card(p, highlight_color, show_stat, stat_label):
-        headshot = get_player_headshot_url(p["player_id"])
+        headshot, is_logo = card_photo(p)
         proj_str = f"{p['projected']:.1f}" if p.get("projected") is not None else "—"
         # Each line carries a class as well as its inline style. Themes need to
         # recolour these — gameday is white-on-black, print is black-on-white —
@@ -1670,7 +1695,8 @@ def build_honor_roll_and_detention(matchups, n=5):
         <div class="player-card">
             <img class="player-card-shot" src="{headshot}"
                  onerror="this.style.display='none'"
-                 style="width:60px;height:60px;object-fit:cover;object-position:top;
+                 style="width:60px;height:60px;object-fit:{'contain' if is_logo else 'cover'};object-position:{'center' if is_logo else 'top'};
+                        background:#fff;box-sizing:border-box;padding:{'6px' if is_logo else '0'};
                         border-radius:50%;border:3px solid {highlight_color};
                         display:block;margin:0 auto 6px;" />
             <div class="player-card-name"
