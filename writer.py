@@ -42,7 +42,9 @@ def _thinking_args() -> dict:
             args["output_config"] = {"effort": _EFFORT}
         return args
     return {"thinking": {"type": "disabled"}}
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"),
+# .strip(): a key pasted into a dashboard with a trailing newline is an
+# "Illegal header value" on every single call (29 Sep, the whole Tuesday run).
+client = anthropic.Anthropic(api_key=(os.getenv("ANTHROPIC_API_KEY") or "").strip() or None,
                              timeout=REQUEST_TIMEOUT, max_retries=0)
 
 #: The model that writes the prose. Overridable so a league can be moved

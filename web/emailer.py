@@ -43,7 +43,7 @@ class SendResult:
 
 def _config() -> tuple[Optional[str], str, str, str]:
     return (
-        os.getenv("RESEND_API_KEY"),
+        (os.getenv("RESEND_API_KEY") or "").strip() or None,
         os.getenv("EMAIL_FROM", "The Commissioner's Desk <onboarding@resend.dev>"),
         os.getenv("BASE_URL", "http://localhost:8000").rstrip("/"),
         os.getenv("MAILING_ADDRESS", ""),
