@@ -6073,3 +6073,21 @@ def test_staff_can_spot_check_this_weeks_papers(client, league):
     demo_db.update_user(user["id"], {"plan": "staff"})
     r = client.get("/staff/papers?week=3&sample=5")
     assert r.status_code == 200 and "/week-3" in r.text and "1 written" in r.text
+
+
+def test_an_email_ending_in_one_letter_is_refused():
+    """29 Sep: "harriman...@hotmail.c" paid, and couldn't be sent his paper."""
+    from web import auth
+    assert auth.clean_email("someone@hotmail.c") is None
+    assert auth.clean_email(" Someone@Hotmail.com ") == "someone@hotmail.com"
+
+
+def test_a_league_with_no_games_is_refused_plainly(league, monkeypatch):
+    import types
+    import web.generate as generate
+    from providers import ProviderError
+    team = types.SimpleNamespace(points=120.0)
+    monkeypatch.setattr(generate, "load_week", lambda *a, **k:
+                        types.SimpleNamespace(matchups=[], byes=[team] * 18))
+    with pytest.raises(ProviderError, match="no head-to-head"):
+        generate.generate_and_store(demo_db, league, 3)

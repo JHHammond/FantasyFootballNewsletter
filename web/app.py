@@ -2477,8 +2477,8 @@ def save_owner_email(token: str, email: str = Form(...)):
     button, and it's the recovery mechanism that makes going accountless safe.
     """
     league = _require_league(token)
-    address = email.strip().lower()
-    if not address or "@" not in address:
+    address = auth.clean_email(email) or ""
+    if not address:
         return RedirectResponse(f"/l/{token}?error=That+doesn't+look+like+an+email.",
                                 status_code=303)
 
@@ -3578,8 +3578,8 @@ def subscribe(request: Request, slug: str, email: str = Form(...)):
     if _rate_limited(f"sub:{_client_ip(request)}", SUBSCRIBES_PER_HOUR):
         return RedirectResponse(f"/p/{slug}?error=Slow+down+a+second.", status_code=303)
 
-    address = email.strip().lower()
-    if "@" not in address:
+    address = auth.clean_email(email) or ""
+    if not address:
         return RedirectResponse(f"/p/{slug}?error=That+doesn't+look+like+an+email.",
                                 status_code=303)
 

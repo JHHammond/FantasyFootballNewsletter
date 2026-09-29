@@ -721,6 +721,17 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     # written anyway it is a paper of 0.0-0.0 "ties" with a recap for each,
     # paid for and mailed. Refusing is a ProviderError, which the weekly job
     # reports and its evening run retries.
+    # NO HEAD-TO-HEAD GAMES AT ALL (29 Sep: a Sleeper "Chopped" league — a
+    # guillotine league, where everybody plays the whole league and the
+    # lowest score is cut — came back as 0 matchups and 18 byes, and crashed
+    # further down). The paper is built around games; say so plainly.
+    if (not (getattr(week_data, "matchups", None) or [])
+            and (getattr(week_data, "byes", None) or [])):
+        from providers import ProviderError as _PE
+        raise _PE("This league has no head-to-head games (a chopped or "
+                  "guillotine league?). Papers for that format aren't "
+                  "supported yet.")
+
     teams = [t for m in getattr(week_data, "matchups", None) or [] for t in m.teams]
     if teams and not any((t.points or 0) for t in teams):
         from providers import ProviderError as _PE

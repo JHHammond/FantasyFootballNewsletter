@@ -167,7 +167,9 @@ def password_problem(password: str, email: str = "") -> Optional[str]:
 #: Deliberately loose. Validating addresses by regex is a famous way to reject
 #: real ones; the only check that proves an address works is sending to it,
 #: which the verification mail does.
-_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# The ending has to be two letters or more (29 Sep: "someone@hotmail.c" got
+# through signup, paid, and his paper couldn't be delivered).
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$")
 
 
 def clean_email(value: str) -> Optional[str]:
