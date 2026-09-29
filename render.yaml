@@ -187,6 +187,11 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
+      # Print every log line the moment it happens (29 Sep: the first half
+      # hour of the run showed an empty log, because Python holds output in a
+      # buffer when it isn't writing to a terminal).
+      - key: PYTHONUNBUFFERED
+        value: "1"
       - key: BASE_URL
         sync: false
       - key: SUPABASE_URL
