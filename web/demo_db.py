@@ -940,3 +940,8 @@ def record_reminder(email: str, campaign: str) -> None:
 
 def reminders_ready() -> bool:
     return True
+
+
+def team_weeks_for_week(season: int, week: int) -> list[dict[str, Any]]:
+    return [dict(r) for r in _TEAM_WEEKS.values()
+            if r.get("season") == int(season) and r.get("week") == int(week)]

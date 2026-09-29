@@ -56,8 +56,38 @@ def campaign_for(season: int, week: int) -> str:
     return f"{season}-w{week}"
 
 
+def teasers_for(rows: list[dict[str, Any]]) -> list[str]:
+    """Real facts from one league's week, with nobody named (John, 28 Sep:
+    "tease the real number"). Built from the stats the Tuesday job already
+    collects, so no Claude call: "Somebody in your league put up 71.4."
+    Lowest score first, because that is the one people click to find out."""
+    played = [r for r in rows if r.get("result") in ("W", "L", "T")
+              and (r.get("points") or 0) > 0]
+    if len(played) < 4:
+        return []
+    out = []
+    low = min(r["points"] for r in played)
+    out.append(f"Somebody in your league put up {low:.1f}.")
+    margins = [abs(r["margin"]) for r in played
+               if r.get("result") == "L" and isinstance(r.get("margin"), (int, float))]
+    if margins and min(margins) < 10:
+        out.append(f"Somebody lost by {min(margins):.1f}.")
+    bench = [r["bench_left"] for r in played
+             if isinstance(r.get("bench_left"), (int, float))]
+    if bench and max(bench) >= 20:
+        out.append(f"Somebody left {max(bench):.1f} points on their bench.")
+    tops = [r["top_player_points"] for r in played
+            if isinstance(r.get("top_player_points"), (int, float))]
+    if len(out) < 3 and tops and max(tops) >= 30:
+        out.append(f"Somebody started a player who scored {max(tops):.1f}.")
+    high = max(r["points"] for r in played)
+    if len(out) < 3:
+        out.append(f"Somebody put up {high:.1f}.")
+    return out[:3]
+
+
 def audience(db, season: int, week: int) -> list[dict[str, Any]]:
-    """[{email, leagues: [{name, admin_token}]}], one entry per address."""
+    """[{email, leagues: [{name, admin_token, teasers}]}], one per address."""
     import plans
     from .generate import paper_name_for
 
@@ -66,6 +96,14 @@ def audience(db, season: int, week: int) -> list[dict[str, Any]]:
               if plans.plan_for(u).key in (plans.PAID, plans.STAFF)}
     done = db.league_ids_with_paper(season, week)
     skip = db.email_optouts() | db.reminders_sent(campaign_for(season, week))
+
+    stats: dict[tuple, list] = {}
+    try:
+        for row in db.team_weeks_for_week(season, week):
+            key = (row.get("provider"), str(row.get("platform_league_id")))
+            stats.setdefault(key, []).append(row)
+    except Exception:  # noqa: BLE001 — no stats means the plain version
+        pass
 
     by_email: dict[str, list[dict[str, Any]]] = {}
     for league in db.leagues_for_reminders(season):
@@ -78,8 +116,11 @@ def audience(db, season: int, week: int) -> list[dict[str, Any]]:
         email = email.strip().lower()
         if "@" not in email or email in paying or email in skip:
             continue
+        key = (league.get("provider"), str(league.get("platform_league_id")))
         by_email.setdefault(email, []).append(
-            {"name": paper_name_for(league), "admin_token": league["admin_token"]})
+            {"name": paper_name_for(league), "admin_token": league["admin_token"],
+             "league_name": (league.get("league_name") or "").strip(),
+             "teasers": teasers_for(stats.get(key, []))})
     return [{"email": e, "leagues": ls} for e, ls in sorted(by_email.items())]
 
 

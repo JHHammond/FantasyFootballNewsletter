@@ -1441,7 +1441,15 @@ def _paged(table: str, columns: str, **eq) -> list[dict[str, Any]]:
 
 def leagues_for_reminders(season: int) -> list[dict[str, Any]]:
     return _paged("leagues", "id, league_name, paper_name, admin_token, "
-                  "owner_email, user_id, season", season=int(season))
+                  "owner_email, user_id, season, provider, platform_league_id",
+                  season=int(season))
+
+
+def team_weeks_for_week(season: int, week: int) -> list[dict[str, Any]]:
+    """Every collected team row for one week — the reminder's teasers."""
+    return _paged("team_weeks", "provider, platform_league_id, points, margin, "
+                  "result, bench_left, top_player_points",
+                  season=int(season), week=int(week))
 
 
 def all_users() -> list[dict[str, Any]]:
