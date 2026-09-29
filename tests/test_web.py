@@ -5947,7 +5947,7 @@ def test_the_picker_defaults_to_the_latest_finished_week(monkeypatch):
     import nfl_week
     from datetime import datetime, timezone
     # Week 3 still being played; weeks 1 and 2 done.
-    monkeypatch.setattr(nfl_week, "week_final", lambda w, s: datetime(2026, 9, 29, 8, tzinfo=timezone.utc)
+    monkeypatch.setattr(nfl_week, "week_final", lambda w, s: datetime(2099, 9, 29, 8, tzinfo=timezone.utc)
                         if w == 3 else datetime(2026, 9, 1, tzinfo=timezone.utc))
     assert webapp.unfinished_weeks([1, 2, 3], 2026) == {3}
     assert webapp.default_week([1, 2, 3], 2026) == 2

@@ -2092,15 +2092,25 @@ def homepage_wire(season: int, week: int) -> dict:
     try:
         if not db.team_weeks_ready():
             return {}
+        # A week still being collected is not the week yet (29 Sep: the
+        # ticker went from "Week 2: 18,000 teams" to "Week 3: 327 teams" at
+        # 7am, because papers written after 4am save their own league's
+        # rows before the Tuesday collection has run). The new week takes
+        # over once it has at least half the previous week's teams.
+        found = []
         for wk in (week, week - 1):
             if wk < 1:
                 continue
-            data = league_stats.leaderboards(db, season, wk, limit=1)
-            summary = data.get("summary") or {}
-            if summary.get("teams"):
-                break
-        else:
+            d = league_stats.leaderboards(db, season, wk, limit=1)
+            s = d.get("summary") or {}
+            if s.get("teams"):
+                found.append((wk, d, s))
+        if not found:
             return {}
+        wk, data, summary = found[0]
+        if (len(found) == 2
+                and found[0][2]["teams"] < 0.5 * found[1][2]["teams"]):
+            wk, data, summary = found[1]
     except Exception:  # noqa: BLE001 — a ticker is never worth a 500
         return {}
 

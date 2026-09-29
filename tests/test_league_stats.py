@@ -277,3 +277,15 @@ def test_leagues_in_print_counts_every_league_not_just_collected_ones(web):
     webapp._LEAGUE_COUNT.update(at=0.0, n=0)
     page = web.get("/").text
     assert "<strong>5</strong><span>leagues in print</span>" in page
+
+
+def test_the_homepage_ticker_waits_for_the_new_week_to_fill_in(monkeypatch):
+    """29 Sep: 327 early rows of week 3 replaced 18,000 of week 2 at 7am."""
+    from web import app as webapp
+    monkeypatch.setattr(webapp, "db", demo_db)
+    counts = {3: 327, 2: 18000}
+    monkeypatch.setattr(league_stats, "leaderboards", lambda db, s, w, limit=10: {
+        "boards": [], "summary": {"teams": counts.get(w, 0), "leagues": 1}})
+    assert webapp.homepage_wire(SEASON, 3)["week"] == 2
+    counts[3] = 17000
+    assert webapp.homepage_wire(SEASON, 3)["week"] == 3
