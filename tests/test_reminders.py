@@ -154,3 +154,22 @@ def test_the_audience_carries_each_leagues_teasers():
     person = reminders.audience(demo_db, SEASON, WEEK)[0]
     assert person["leagues"][0]["teasers"][:2] == [
         "Somebody in your league put up 90.0.", "Somebody lost by 2.0."]
+
+
+# --- who the Tuesday job writes for (28 Sep) ---------------------------------
+
+def test_weekly_send_covers_every_league_of_a_paying_owner_this_season_only():
+    paid = _user("paid@x.com", "paid")
+    a = _league("A", user=paid)
+    b = _league("B", user=paid)
+    _league("Dup", user=paid)
+    dup2 = _league("Dup2", user=paid)
+    demo_db.update_league(dup2["id"], {"platform_league_id": "Dup"})   # same real league
+    unlinked = _league("Unlinked", owner_email="PAID@x.com")          # never linked
+    old = _league("Old", user=paid)
+    demo_db.update_league(old["id"], {"season": SEASON - 1})          # last season
+    _league("Free", user=_user("free@x.com"))
+
+    names = sorted(l["league_name"] for l in demo_db.leagues_for_weekly_send())
+    assert names == ["A", "B", "Dup", "Unlinked"]
+    assert all(l["_owner"]["email"] == "paid@x.com" for l in demo_db.leagues_for_weekly_send())

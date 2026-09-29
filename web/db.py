@@ -1010,8 +1010,17 @@ def leagues_for_weekly_send() -> list[dict[str, Any]]:
 
     A league qualifies when its OWNER is on a plan that includes weekly
     delivery right now — so a lapsed card stops the papers the same week — and
-    the owner hasn't switched delivery off (migration 018). Asked per owner
-    rather than per league: a handful of paying accounts, not every league.
+    the owner hasn't switched delivery off (migration 018).
+
+    28 Sep, three fixes:
+      * THIS SEASON ONLY. A paying owner's leagues from last year were rows
+        too, and would have been written up and mailed again.
+      * LEAGUES NEVER LINKED TO THE ACCOUNT. A league made before signing up
+        only joins the account when its link is opened while signed in, so
+        somebody who paid without doing that had zero leagues and would get
+        nothing. A league with no owner whose typed email is a paying
+        customer's is theirs.
+      * ONE PAPER PER REAL LEAGUE per owner, however many times it was added.
     """
     import plans
     owners = (client().table("users").select("*")
@@ -1019,13 +1028,36 @@ def leagues_for_weekly_send() -> list[dict[str, Any]]:
     owners = {u["id"]: u for u in owners if plans.plan_for(u).auto_send}
     if not owners:
         return []
-    leagues = (client().table("leagues").select("*")
-               .in_("user_id", list(owners)).execute().data or [])
-    out = []
-    for league in leagues:
+    linked = (client().table("leagues").select("*")
+              .in_("user_id", list(owners)).execute().data or [])
+    by_email = {(u.get("email") or "").strip().lower(): u for u in owners.values()}
+    unlinked = [l for l in (client().table("leagues").select("*")
+                            .is_("user_id", "null")
+                            .not_.is_("owner_email", "null").execute().data or [])
+                if (l.get("owner_email") or "").strip().lower() in by_email]
+    return _weekly_rows(linked, unlinked, owners, by_email)
+
+
+def _weekly_rows(linked, unlinked, owners, by_email) -> list[dict[str, Any]]:
+    # The newest season any of these leagues is in — this season, in practice
+    # — and nothing older.
+    rows = list(linked) + list(unlinked)
+    newest = max((int(l.get("season") or 0) for l in rows), default=0)
+    out, seen = [], set()
+    for league in rows:
+        if int(league.get("season") or 0) != newest:
+            continue
         if league.get("auto_send_off"):
             continue
-        out.append({**league, "_owner": owners[league["user_id"]]})
+        owner = (owners.get(league.get("user_id") or "")
+                 or by_email.get((league.get("owner_email") or "").strip().lower()))
+        if not owner:
+            continue
+        key = (owner["id"], league.get("provider"), str(league.get("platform_league_id")))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({**league, "_owner": owner})
     return out
 
 
