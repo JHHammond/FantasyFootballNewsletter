@@ -398,15 +398,31 @@ def send_reminder(to: str, week: int, leagues: list[dict],
     w = int(week)
     unsubscribe_url = f"{base}/stop/{unsubscribe_token}"
     leagues = leagues[:6]
-    teasers = next((l["teasers"] for l in leagues if l.get("teasers")), [])
+    facts = next((l["teasers"] for l in leagues if l.get("teasers")), {})
 
-    if teasers:
-        subject = teasers[0].rstrip(".")
-        preheader = f"Week {w}'s paper has thoughts."
-        lines = "".join(f'<div style="margin:0 0 6px;">{e(t)}</div>' for t in teasers)
-        pitch = (f'<div style="font-size:21px;line-height:1.4;font-weight:700;color:#111;">{lines}</div>'
-                 f'<div style="margin-top:16px;">The paper knows who. It hasn&rsquo;t been written yet.</div>')
-        text_pitch = teasers + ["", "The paper knows who. It hasn't been written yet."]
+    # John's copy (29 Sep), numbers in red so they jump out.
+    red = lambda v: f'<span style="color:#b3141c;">{v:.1f}</span>'
+    if facts:
+        subject = f"Oof. Someone in Your League Put Up {facts['low']:.1f}"
+        preheader = f"The group chat is waiting for Week {w}."
+        html_lines = [f"Someone put up {red(facts['low'])}."]
+        text_lines = [f"Someone put up {facts['low']:.1f}."]
+        if facts.get("bench"):
+            html_lines.append(f"Someone left {red(facts['bench'])} on the bench.")
+            text_lines.append(f"Someone left {facts['bench']:.1f} on the bench.")
+        if facts.get("top"):
+            html_lines.append(f"Somebody started a player who scored {red(facts['top'])}, "
+                              f"and somebody is doing a fantasy punishment this year.")
+            text_lines.append(f"Somebody started a player who scored {facts['top']:.1f}, "
+                              f"and somebody is doing a fantasy punishment this year.")
+        else:
+            html_lines.append("And somebody is doing a fantasy punishment this year.")
+            text_lines.append("And somebody is doing a fantasy punishment this year.")
+        lines = "".join(f'<div style="margin:0 0 8px;">{l}</div>' for l in html_lines)
+        pitch = (f'<div style="font-size:20px;line-height:1.4;font-weight:700;color:#111;">{lines}</div>'
+                 f'<div style="margin-top:14px;font-size:15px;color:#5a5245;">'
+                 f'The group chat is waiting for Week {w}.</div>')
+        text_pitch = text_lines + ["", f"The group chat is waiting for Week {w}."]
         single_label = f"Write Week {w}"
     else:
         subject = f"Your league's Week {w} paper is ready to write"

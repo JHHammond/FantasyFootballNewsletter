@@ -99,13 +99,16 @@ def test_the_email_teases_real_numbers_and_names_nobody(monkeypatch):
                         got.update(subject=subject, body=body, **kw) or emailer.SendResult(ok=True))
     emailer.send_reminder("a@b.com", 3, [{"name": "The Alpha Times", "admin_token": "tok",
                                           "league_name": "Alpha",
-                                          "teasers": ["Somebody in your league put up 71.4.",
-                                                      "Somebody lost by 0.3."]}], "t.sig")
-    assert got["subject"] == "Somebody in your league put up 71.4"
-    assert "Somebody lost by 0.3." in got["body"] and "The paper knows who" in got["body"]
-    assert "Alpha" not in got["body"]                   # no names
-    assert "/l/tok" in got["body"] and "Write Week 3" in got["body"]
-    assert "/stop/t.sig" in got["unsubscribe_url"] and "Unsubscribe" in got["body"]
+                                          "teasers": {"low": 71.4, "bench": 31.2, "top": 41.4}}],
+                          "t.sig")
+    assert got["subject"] == "Oof. Someone in Your League Put Up 71.4"
+    body = got["body"]
+    assert 'Someone put up <span style="color:#b3141c;">71.4</span>.' in body
+    assert "left <span" in body and "31.2</span> on the bench." in body
+    assert "41.4</span>, and somebody is doing a fantasy punishment this year." in body
+    assert "The group chat is waiting for Week 3." in body
+    assert "Write Week 3" in body and "Alpha" not in body
+    assert "/stop/t.sig" in got["unsubscribe_url"] and "Unsubscribe" in body
 
 
 def test_without_stats_it_falls_back_to_the_plain_pitch(monkeypatch):
@@ -118,15 +121,12 @@ def test_without_stats_it_falls_back_to_the_plain_pitch(monkeypatch):
 
 
 def test_teasers_come_from_the_leagues_own_week():
-    rows = [{"result": "W", "points": 140.0, "margin": 0.3, "bench_left": 5, "top_player_points": 41.4},
-            {"result": "L", "points": 139.7, "margin": -0.3, "bench_left": 31.2, "top_player_points": 20},
-            {"result": "W", "points": 120.0, "margin": 48.6, "bench_left": 2, "top_player_points": 18},
-            {"result": "L", "points": 71.4, "margin": -48.6, "bench_left": 9, "top_player_points": 15}]
-    assert reminders.teasers_for(rows) == [
-        "Somebody in your league put up 71.4.",
-        "Somebody lost by 0.3.",
-        "Somebody left 31.2 points on their bench."]
-    assert reminders.teasers_for(rows[:2]) == []       # too little to go on
+    rows = [{"result": "W", "points": 140.0, "bench_left": 5, "top_player_points": 41.4},
+            {"result": "L", "points": 139.7, "bench_left": 31.2, "top_player_points": 20},
+            {"result": "W", "points": 120.0, "bench_left": 2, "top_player_points": 18},
+            {"result": "L", "points": 71.4, "bench_left": 9, "top_player_points": 15}]
+    assert reminders.teasers_for(rows) == {"low": 71.4, "bench": 31.2, "top": 41.4}
+    assert reminders.teasers_for(rows[:2]) == {}
 
 
 def test_the_stop_link_unsubscribes():
@@ -152,8 +152,7 @@ def test_the_audience_carries_each_leagues_teasers():
         for i, (p, res, m) in enumerate([(120, "W", 30), (90, "L", -30),
                                          (110, "W", 2), (108, "L", -2)])])
     person = reminders.audience(demo_db, SEASON, WEEK)[0]
-    assert person["leagues"][0]["teasers"][:2] == [
-        "Somebody in your league put up 90.0.", "Somebody lost by 2.0."]
+    assert person["leagues"][0]["teasers"]["low"] == 90.0
 
 
 # --- who the Tuesday job writes for (28 Sep) ---------------------------------

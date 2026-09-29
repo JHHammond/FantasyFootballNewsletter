@@ -56,34 +56,24 @@ def campaign_for(season: int, week: int) -> str:
     return f"{season}-w{week}"
 
 
-def teasers_for(rows: list[dict[str, Any]]) -> list[str]:
-    """Real facts from one league's week, with nobody named (John, 28 Sep:
-    "tease the real number"). Built from the stats the Tuesday job already
-    collects, so no Claude call: "Somebody in your league put up 71.4."
-    Lowest score first, because that is the one people click to find out."""
+def teasers_for(rows: list[dict[str, Any]]) -> dict:
+    """Real numbers from one league's week, with nobody named (John, 28-29
+    Sep): the lowest score, the most points left on a bench, and the best
+    single player. {} when there's too little to go on. No Claude call."""
     played = [r for r in rows if r.get("result") in ("W", "L", "T")
               and (r.get("points") or 0) > 0]
     if len(played) < 4:
-        return []
-    out = []
-    low = min(r["points"] for r in played)
-    out.append(f"Somebody in your league put up {low:.1f}.")
-    margins = [abs(r["margin"]) for r in played
-               if r.get("result") == "L" and isinstance(r.get("margin"), (int, float))]
-    if margins and min(margins) < 10:
-        out.append(f"Somebody lost by {min(margins):.1f}.")
+        return {}
+    out = {"low": min(r["points"] for r in played)}
     bench = [r["bench_left"] for r in played
-             if isinstance(r.get("bench_left"), (int, float))]
-    if bench and max(bench) >= 20:
-        out.append(f"Somebody left {max(bench):.1f} points on their bench.")
+             if isinstance(r.get("bench_left"), (int, float)) and r["bench_left"] > 0]
+    if bench:
+        out["bench"] = max(bench)
     tops = [r["top_player_points"] for r in played
             if isinstance(r.get("top_player_points"), (int, float))]
-    if len(out) < 3 and tops and max(tops) >= 30:
-        out.append(f"Somebody started a player who scored {max(tops):.1f}.")
-    high = max(r["points"] for r in played)
-    if len(out) < 3:
-        out.append(f"Somebody put up {high:.1f}.")
-    return out[:3]
+    if tops:
+        out["top"] = max(tops)
+    return out
 
 
 def audience(db, season: int, week: int) -> list[dict[str, Any]]:
