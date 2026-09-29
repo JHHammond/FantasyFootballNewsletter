@@ -97,8 +97,18 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
         # the week (25 Sep: eight leagues had a "week 3" on the Friday of week
         # 3). Rewrite it — unless a person has edited it, because rewriting
         # would throw their work away; that one is sent as-is and flagged.
+        notice = ""
         if paper and not regenerate and _written_early(paper, week, season):
             if paper.get("edited_at"):
+                # Sent as they left it — but told so, with the way to fix it
+                # (John, 28 Sep: "they will be disappointed to see that it
+                # makes no sense").
+                notice = (f"Heads up: this edition was written before week "
+                          f"{week}'s last game finished, and you edited it by "
+                          f"hand, so we sent it exactly as you left it rather "
+                          f"than overwrite your changes. If any scores look "
+                          f"short, regenerate it from your league page and "
+                          f"send the new link to the group chat.")
                 report.setdefault("warnings", []).append(
                     f"{name}: week {week} was written before the week ended and then "
                     f"edited by hand, so it was sent as-is")
@@ -142,7 +152,8 @@ def send_weekly(db, week: int, *, regenerate: bool = False) -> dict[str, Any]:
         sent = failed = 0
         if owner_email:
             result = emailer.send_weekly_edition_to_owner(
-                owner_email, name, week, headline, paper_url, ai, photo)
+                owner_email, name, week, headline, paper_url, ai, photo,
+                notice=notice)
             if result.ok:
                 sent += 1
             else:

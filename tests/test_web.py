@@ -6050,3 +6050,26 @@ def test_paper_names_lose_their_doubled_words(stored, expected):
     """28 Sep dry run: "The The boys Times" and friends."""
     from web.generate import paper_name_for
     assert paper_name_for({"paper_name": stored, "league_name": "x"}) == expected
+
+
+def test_a_hand_edited_early_paper_tells_its_owner(client, league, sent_emails):
+    """28 Sep: sent as-is, but the commissioner is told why and how to fix it."""
+    from web.tasks import send_weekly
+    _early(league["id"], edited=True)
+    sent_emails.clear()
+    send_weekly(demo_db, 3)
+    owner = [e for e in sent_emails if e["to"] == "owner@example.com"]
+    assert owner and "Heads up" in owner[0]["body"] and "regenerate it" in owner[0]["body"]
+
+
+def test_staff_can_spot_check_this_weeks_papers(client, league):
+    import nfl_week
+    demo_db.save_paper(league["id"], 3, nfl_week.current_season(), "p", "u", {"headline": "X"})
+    client.post("/signup", data={"email": "staffer@example.com",
+                                 "password": "correct horse battery 9",
+                                 "confirm": "correct horse battery 9"})
+    user = demo_db.user_by_email("staffer@example.com")
+    assert client.get("/staff/papers?week=3").status_code == 404   # not staff
+    demo_db.update_user(user["id"], {"plan": "staff"})
+    r = client.get("/staff/papers?week=3&sample=5")
+    assert r.status_code == 200 and "/week-3" in r.text and "1 written" in r.text

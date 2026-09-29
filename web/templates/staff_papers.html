@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}This week's papers{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="eyebrow"><a href="/staff/around">Staff</a> &middot; <a href="/staff/wire">NFL wire</a> &middot; <a href="/staff/photos">Photo desk</a> &rsaquo; Papers</div>
+    <h1 class="page-title">Week {{ week }} papers</h1>
+    <p class="card-sub">{{ total }} written &middot; {{ emailed }} emailed</p>
+</div>
+
+<section class="card">
+    <form method="get" action="/staff/papers" class="inline-form" style="gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <label class="field">
+            <span class="field-label">Week</span>
+            <select name="week">
+                {% for w in weeks %}<option value="{{ w }}" {% if w == week %}selected{% endif %}>Week {{ w }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="field">
+            <span class="field-label">Show</span>
+            <select name="sent">
+                <option value="0" {% if not sent %}selected{% endif %}>All written</option>
+                <option value="1" {% if sent %}selected{% endif %}>Only emailed</option>
+            </select>
+        </label>
+        <button type="submit" class="btn">Show</button>
+        <button type="submit" name="sample" value="5" class="btn btn-primary">5 at random</button>
+    </form>
+</section>
+
+<section class="card">
+    {% for p in papers %}
+    <div class="paper-row" style="align-items:center;">
+        <div>
+            <div><a href="{{ p.url }}" target="_blank" rel="noopener"><strong>{{ p.name }}</strong></a></div>
+            <div class="paper-meta">Written {{ p.generated_at }} UTC{% if p.edited %} &middot; edited by hand{% endif %}{% if p.emailed %} &middot; emailed{% endif %}{% if not p.owned %} &middot; no account{% endif %}</div>
+        </div>
+        <a href="{{ p.url }}" target="_blank" rel="noopener" class="btn btn-sm">Open</a>
+    </div>
+    {% else %}
+    <p class="card-sub">No papers for week {{ week }} yet.</p>
+    {% endfor %}
+</section>
+{% endblock %}

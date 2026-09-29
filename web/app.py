@@ -991,6 +991,42 @@ def _require_staff(request: Request) -> dict:
     return user
 
 
+@app.get("/staff/papers", response_class=HTMLResponse)
+def staff_papers(request: Request, week: int = 0, sample: int = 0,
+                 sent: int = 0):
+    """This week's papers, to open and spot-check (John, 28 Sep). `sent=1`
+    only the ones already emailed; `sample=5` five at random."""
+    _require_staff(request)
+    import random
+    import nfl_week
+    season = nfl_week.current_season()
+    week = week or nfl_week.completed_week()
+    rows = db.papers_for_week(season, week)
+    papers = []
+    for r in rows:
+        lg = r.get("leagues") or {}
+        if not lg.get("public_slug"):
+            continue
+        papers.append({
+            "name": paper_name_for({"paper_name": lg.get("paper_name"),
+                                    "league_name": lg.get("league_name") or ""}),
+            "url": f"/p/{lg['public_slug']}/{season}/week-{week}",
+            "generated_at": (r.get("generated_at") or "")[:16].replace("T", " "),
+            "edited": bool(r.get("edited_at")),
+            "emailed": bool(r.get("emailed_at")),
+            "owned": bool(lg.get("user_id")),
+        })
+    total, emailed = len(papers), sum(p["emailed"] for p in papers)
+    if sent:
+        papers = [p for p in papers if p["emailed"]]
+    papers.sort(key=lambda p: p["generated_at"], reverse=True)
+    if sample:
+        papers = random.sample(papers, min(sample, len(papers)))
+    return _render(request, "staff_papers.html", papers=papers, week=week,
+                   weeks=list(range(1, 19)), total=total, emailed=emailed,
+                   sample=sample, sent=sent)
+
+
 @app.get("/staff/around", response_class=HTMLResponse)
 def staff_around(request: Request, week: int = 0, season: int = 0,
                  scope: str = "week"):

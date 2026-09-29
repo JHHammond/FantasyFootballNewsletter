@@ -259,7 +259,7 @@ def _from_paper(sender: str, paper_name: str) -> str:
 def weekly_edition(paper_name: str, week: int, headline: str, paper_url: str,
                    ai: Optional[dict] = None, *, image_url: str = "",
                    for_owner: bool = False, footer_html: str = "",
-                   footer_text: str = "") -> dict:
+                   footer_text: str = "", notice: str = "") -> dict:
     """{subject, html, text} for one week's paper."""
     ai = ai if isinstance(ai, dict) else {}
     e = html.escape
@@ -319,6 +319,7 @@ def weekly_edition(paper_name: str, week: int, headline: str, paper_url: str,
       <div style="font-family:Georgia,'Times New Roman',serif;font-size:34px;line-height:1.05;font-weight:900;color:#111;text-transform:uppercase;letter-spacing:1px;">{e(paper_name)}</div>
       <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:2px;color:#6b6050;border-top:1px solid #111;border-bottom:1px solid #111;padding:6px 0;margin-top:12px;">WEEK {int(week)} EDITION &nbsp;&bull;&nbsp; {dateline}</div>
     </td></tr>
+    {f'<tr><td style="padding:14px 28px 0;"><div style="background:#fff4d6;border:1px solid #e0c46c;padding:12px 14px;font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.45;color:#3a3a3a;">{e(notice)}</div></td></tr>' if notice else ''}
     <tr><td style="padding:14px 28px 8px;">
       <a href="{e(paper_url)}" style="text-decoration:none;color:#111;"><div style="font-family:Georgia,'Times New Roman',serif;font-size:30px;line-height:1.1;font-weight:900;text-transform:uppercase;color:#111;">{e(headline)}</div></a>
     </td></tr>{photo}
@@ -333,7 +334,7 @@ def weekly_edition(paper_name: str, week: int, headline: str, paper_url: str,
 </td></tr></table>
 </body></html>"""
 
-    lines = [paper_name.upper(), f"Week {week}", "", headline, ""]
+    lines = [paper_name.upper(), f"Week {week}", ""] + ([notice, ""] if notice else []) + [headline, ""]
     if lead:
         lines += [lead, ""]
     for g in games:
@@ -363,7 +364,7 @@ def send_weekly_edition(
 
 def send_weekly_edition_to_owner(
     to: str, paper_name: str, week: int, headline: str, paper_url: str,
-    ai: Optional[dict] = None, image_url: str = "",
+    ai: Optional[dict] = None, image_url: str = "", notice: str = "",
 ) -> SendResult:
     """The commissioner's own copy: the delivery they are paying for, so it is
     a service email rather than marketing — no unsubscribe footer, but it says
@@ -377,7 +378,7 @@ def send_weekly_edition_to_owner(
   </div>"""
     mail = weekly_edition(
         paper_name, week, headline, paper_url, ai, image_url=image_url,
-        for_owner=True, footer_html=footer,
+        for_owner=True, footer_html=footer, notice=notice,
         footer_text=f"Weekly delivery is on for your league. Change it at {base}/account")
     return _send(to, mail["subject"], mail["html"], text_body=mail["text"],
                  from_name=paper_name)

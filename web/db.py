@@ -1519,3 +1519,20 @@ def reminders_ready() -> bool:
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+def papers_for_week(season: int, week: int) -> list[dict[str, Any]]:
+    """Every paper written for one week, with its league, for the staff
+    spot-check page."""
+    out, start = [], 0
+    while True:
+        rows = (client().table("newspapers")
+                .select("league_id, season, week, generated_at, edited_at, "
+                        "emailed_at, leagues(public_slug, league_name, "
+                        "paper_name, user_id)")
+                .eq("season", int(season)).eq("week", int(week))
+                .range(start, start + 999).execute().data or [])
+        out.extend(rows)
+        if len(rows) < 1000:
+            return out
+        start += 1000

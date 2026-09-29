@@ -944,3 +944,14 @@ def reminders_ready() -> bool:
 def team_weeks_for_week(season: int, week: int) -> list[dict[str, Any]]:
     return [dict(r) for r in _TEAM_WEEKS.values()
             if r.get("season") == int(season) and r.get("week") == int(week)]
+
+
+def papers_for_week(season: int, week: int) -> list[dict[str, Any]]:
+    out = []
+    for (lid, s, w), p in _PAPERS.items():
+        if s == int(season) and w == int(week):
+            lg = _LEAGUES.get(lid, {})
+            out.append({**dict(p), "league_id": lid, "season": s, "week": w,
+                        "leagues": {k: lg.get(k) for k in
+                                    ("public_slug", "league_name", "paper_name", "user_id")}})
+    return out
