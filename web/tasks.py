@@ -304,6 +304,37 @@ def main() -> int:
     regenerate = "--regenerate" in sys.argv
     dry_run = "--dry-run" in sys.argv
 
+    # Re-send the commissioner's copy of every paper of theirs this week, to
+    # the address on file now (29 Sep: an account whose email was mistyped
+    # at signup). Owner copy only, no [TEST], nothing marked:
+    #   python -m web.tasks 3 --resend-owner=someone@example.com
+    resend = next((a.split("=", 1)[1] for a in sys.argv[1:]
+                   if a.startswith("--resend-owner=")), "")
+    if resend:
+        from . import db
+        week = int(args[0]) if args else resolve_week()
+        to = resend.strip().lower()
+        base = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+        count = 0
+        for league in db.leagues_for_weekly_send():
+            owner = league.pop("_owner", None) or {}
+            if (owner.get("email") or "").strip().lower() != to:
+                continue
+            paper = db.get_paper(league["id"], league["season"], week)
+            if not paper:
+                print(f"  no week {week} paper for {paper_name_for(league)}")
+                continue
+            ai = paper.get("ai_cache") if isinstance(paper.get("ai_cache"), dict) else {}
+            url = f"{base}/p/{league['public_slug']}/{league['season']}/week-{week}"
+            result = emailer.send_weekly_edition_to_owner(
+                to, paper_name_for(league), week,
+                ai.get("headline") or f"Week {week} is out", url, ai,
+                _email_photo(db, ai, league["season"], week))
+            print(f"  {paper_name_for(league)}: {'sent' if result.ok else result.detail}")
+            count += bool(result.ok)
+        print(f"{count} paper(s) re-sent to {to}.")
+        return 0 if count else 1
+
     # The reminder to commissioners who aren't paying (28 Sep):
     #   python -m web.tasks --remind [week] [--dry-run] [--test-to=you@x.com]
     if "--remind" in sys.argv:
