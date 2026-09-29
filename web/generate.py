@@ -54,8 +54,25 @@ def paper_url_for(league: dict[str, Any], week: int) -> str:
             f"/{league['season']}/week-{week}")
 
 
+def default_paper_name(league_name: str) -> str:
+    """"The boys" -> "The Boys Times", not "The The boys Times" (28 Sep: the
+    dry run was full of them)."""
+    return tidy_paper_name(f"The {league_name or 'League'} Times")
+
+
+def tidy_paper_name(name: str) -> str:
+    """Fix the doubled words the automatic name makes, in stored names too:
+    "The The IVY League Times", "The Amigos Dynasty League  Times",
+    "The Toxic Times Times". A name somebody typed is otherwise left alone."""
+    name = re.sub(r"\s+", " ", str(name or "")).strip()
+    name = re.sub(r"^(?:the\s+)+the\b", "The", name, flags=re.IGNORECASE)
+    name = re.sub(r"\b(times)\s+times$", r"\1", name, flags=re.IGNORECASE)
+    return name
+
+
 def paper_name_for(league: dict[str, Any]) -> str:
-    return league.get("paper_name") or f"The {league['league_name']} Times"
+    return tidy_paper_name(league.get("paper_name")
+                           or default_paper_name(league["league_name"]))
 
 
 #: How many lore entries reach the writer. Everything stored is kept and

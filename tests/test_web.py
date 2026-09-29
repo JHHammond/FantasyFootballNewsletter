@@ -6036,3 +6036,17 @@ def test_a_week_with_no_scores_is_refused_not_written(league, monkeypatch):
     with pytest.raises(ProviderError):
         generate.generate_and_store(demo_db, league, 3)
     assert wrote == []
+
+
+@pytest.mark.parametrize("stored,expected", [
+    ("The The boys Times", "The boys Times"),
+    ("The The IVY Fantasy Football League Times", "The IVY Fantasy Football League Times"),
+    ("The Amigos Dynasty League  Times", "The Amigos Dynasty League Times"),
+    ("The Toxic Times Times", "The Toxic Times"),
+    ("The Dictatorial Digest", "The Dictatorial Digest"),
+    ("No Punt Intended Times", "No Punt Intended Times"),
+])
+def test_paper_names_lose_their_doubled_words(stored, expected):
+    """28 Sep dry run: "The The boys Times" and friends."""
+    from web.generate import paper_name_for
+    assert paper_name_for({"paper_name": stored, "league_name": "x"}) == expected
