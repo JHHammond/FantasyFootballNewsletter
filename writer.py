@@ -99,9 +99,9 @@ SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 #: the writing people actually read, and it is 53% of the output budget —
 #: simultaneously the biggest saving available and the worst place to take one.
 #:
-#: pull_quote joined on 23 Sep (John's call, to cut cost). It had been moved to
-#: the big model as "invented comedy"; one line in a box, and a weak one costs
-#: little. If it starts printing flat, it is the first to move back.
+#: pull_quote was here from 23 Sep to 1 Oct (to cut cost) and printed flat
+#: every week, as this note predicted. Back on the main model, written after
+#: the lead game's story, from it.
 #:
 #: power_rankings_comments and obituaries are not model calls at all any more
 #: (23 Sep): the rankings carry a factual line built from the box score, and
@@ -109,7 +109,6 @@ SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 SMALL_MODEL_TASKS = frozenset({
     "game_teasers",
     "classifieds",
-    "pull_quote",
 })
 
 
@@ -2625,7 +2624,8 @@ Inside jokes: {inside_jokes}
             for t, _, _ in STANDING_AWARDS if facts.get(t)]
 
 
-def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=None):
+def generate_pull_quote(game_contexts, commissioner_name="", system=None,
+                        model=None, body=""):
     """The line blown up beside the lead story: a quote from a manager.
 
     It used to be a sentence summarising the lead game, which is the same
@@ -2635,8 +2635,14 @@ def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=
     made up, and a manager "saying" something in character is a joke the
     recap cannot make, because the recap is not allowed to invent quotes.
 
-    Returns {"quote": ..., "by": ...}, `by` being one of the two managers in
-    the lead game — never a name the model made up.
+    1 Oct ("they're never very good"): it had four handicaps at once — the
+    cheap model, a handful of facts, one shot, and a lead game picked by the
+    platform's matchup number. Now: the main model, the finished recap of the
+    lead game (now the week's best game, see storylines.order_games) plus both
+    records, and three tries with the model picking its best.
+
+    Returns {"quote": ..., "by": ..., "team": ...}, `by` being one of the two
+    managers in the lead game — never a name the model made up.
     """
     if not game_contexts:
         return {}
@@ -2651,7 +2657,8 @@ def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=
         return {}
 
     facts = [
-        f"{names['winner']} beat {names['loser']} "
+        f"{names['winner']} ({ctx.get('winner_record') or '?'}) beat "
+        f"{names['loser']} ({ctx.get('loser_record') or '?'}) "
         f"{ctx['winner_score']:.1f} to {ctx['loser_score']:.1f}."
     ]
     for side in ("winner", "loser"):
@@ -2663,6 +2670,13 @@ def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=
     gap = ctx.get("loser_bench_cost", ctx.get("loser_lineup_gap"))
     if isinstance(gap, (int, float)) and gap >= BENCH_MISTAKE_MIN:
         facts.append(f"{names['loser']} left {gap:.1f} points on the bench.")
+    if ctx.get("week_context"):
+        facts.append(str(ctx["week_context"]))
+
+    story = re.sub(r"<[^>]+>", " ", body or "")
+    story = re.sub(r"\s+", " ", story).strip()
+    story_block = (f"\nThe paper's story on this game, which the quote runs "
+                   f"beside:\n{story[:2500]}\n" if story else "")
 
     commissioner_line = ""
     commish = owners.get(commissioner_name, commissioner_name)
@@ -2671,35 +2685,53 @@ def generate_pull_quote(game_contexts, commissioner_name="", system=None, model=
                              f"you quote them, they sound statesmanlike.\n")
 
     raw = call_claude(f"""
-Make up ONE thing a manager in this game said to reporters in the locker room
+Make up something a manager in this game said to reporters in the locker room
 afterwards. It runs in large type beside the lead story, like a real paper's
 pull quote.
 
 {chr(10).join(facts)}
-{commissioner_line}
+{story_block}{commissioner_line}
 Everyone reading knows the quote is invented, so it has to be funny: in
 character for how that manager's week went, and about something specific
 above — a player, a score, a benching. Deadpan beats wacky. The best ones
 sound like a coach at a podium who doesn't realise what they just admitted,
-or a line about a player that is obviously a dig.
+or a line about a player that is obviously a dig. It should add a joke the
+story doesn't already make: never restate the score or the headline, and
+never repeat a line from the story.
 
 Usually the loser has the better line. Pick whoever is funnier.
 First person, 8 to 25 words, no hashtags, no emoji.
 
-Reply with exactly two lines and nothing else:
-QUOTE: what they said, without quotation marks
-BY: {names['winner']} or {names['loser']}, exactly as written
-""", max_tokens=400, system=system, model=model)
+Write three different quotes, each from a different angle, then pick the
+funniest. Reply with exactly these seven lines and nothing else:
+QUOTE 1: what they said, without quotation marks
+BY 1: {names['winner']} or {names['loser']}, exactly as written
+QUOTE 2: ...
+BY 2: ...
+QUOTE 3: ...
+BY 3: ...
+BEST: 1, 2 or 3
+""", max_tokens=600, system=system, model=model)
 
-    quote, by = "", ""
+    quotes, bys, best = {}, {}, None
     for line in (raw or "").splitlines():
         head, _, rest = line.partition(":")
-        if head.strip().upper() == "QUOTE":
-            quote = rest.strip().strip('"\u201c\u201d')
-        elif head.strip().upper() == "BY":
-            by = rest.strip()
-    if not quote:
+        bits = head.strip().upper().split()
+        if not bits:
+            continue
+        n = bits[1] if len(bits) > 1 and bits[1].isdigit() else "1"
+        if bits[0] == "QUOTE":
+            quotes.setdefault(n, rest.strip().strip('"\u201c\u201d'))
+        elif bits[0] == "BY":
+            bys.setdefault(n, rest.strip())
+        elif bits[0] == "BEST":
+            m = re.search(r"\d", rest)
+            best = m.group(0) if m else None
+    quotes = {k: v for k, v in quotes.items() if v}
+    if not quotes:
         return {}
+    pick = best if best in quotes else sorted(quotes)[0]
+    quote, by = quotes[pick], bys.get(pick, "")
 
     # Only ever one of the two people in the game. Anything else — a player,
     # a made-up coach, a name spelled differently — becomes the loser, whose
@@ -3251,9 +3283,6 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     tasks["classifieds"] = lambda: generate_classifieds(
         summary, [gc["ctx"] for gc in game_contexts], commissioner_name,
         inside_jokes, sys_prompt, model=model_for("classifieds"))
-    tasks["pull_quote"] = lambda: generate_pull_quote(
-        [gc["ctx"] for gc in game_contexts], commissioner_name, sys_prompt,
-        model_for("pull_quote"))
     # Build full team list for power rankings (all teams, not just winners).
     # Each team carries its best and worst performance, because a ranking
     # comment with only a score behind it can only ever restate the score —
@@ -3396,6 +3425,11 @@ def generate_full_newspaper_content(league_name, week, games, summary,
             lead_story=results.get("lead_story") or "", names=names,
             games=games),
     }
+    # The pull quote too (1 Oct): written from the lead game's finished story,
+    # so it can play off the story's best line instead of restating the score.
+    headline_tasks["pull_quote"] = lambda: generate_pull_quote(
+        [gc["ctx"] for gc in game_contexts], commissioner_name, sys_prompt,
+        model_for("pull_quote"), body=results.get("matchup_body_0") or "")
     for i, game_data in enumerate(game_contexts):
         headline_tasks[f"matchup_headline_{i}"] = (
             lambda c=game_data["ctx"], i=i: generate_matchup_headline(

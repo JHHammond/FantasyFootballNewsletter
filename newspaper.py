@@ -2008,6 +2008,33 @@ def build_fraud_case(summary, matchups):
             </div>"""
 
 
+def _in_story_order(matchups, ai_content):
+    """The games in the order the stories print (1 Oct).
+
+    The writer stores its stories in the order it wrote them, which since
+    1 Oct is best-story-first rather than the platform's. The photos are
+    picked per game and placed by position, so they follow the stories, not
+    the platform. Games the stories don't mention keep their place at the end.
+    """
+    games = list(matchups or [])
+    content = (ai_content or {}).get("matchup_content") or []
+    if not content:
+        return games
+
+    def key(names):
+        return frozenset(n for n in names if n)
+    by_names = {}
+    for g in games:
+        by_names.setdefault(key(((g.get("team_1") or {}).get("team_name"),
+                                 (g.get("team_2") or {}).get("team_name"))), g)
+    out = []
+    for c in content:
+        g = by_names.pop(key((c.get("winner"), c.get("loser"))), None)
+        if g is not None:
+            out.append(g)
+    return out + [g for g in games if g not in out]
+
+
 def build_edition(league_name, week, summary, matchups, power_rankings,
                   ai_content=None, ads=None, subscribe_slug=None,
                   transactions=None, publisher_ads=None,
@@ -2025,7 +2052,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     auto_hero = auto_hero_photo(matchups, photo_desk)
     used = {auto_hero["url"]} if auto_hero else set()
     auto_photos = {}
-    for idx, game in enumerate(matchups or []):
+    for idx, game in enumerate(_in_story_order(matchups, ai_content)):
         shot = auto_photo_for_game(game, photo_desk, avoid=used)
         if shot:
             auto_photos[idx] = shot

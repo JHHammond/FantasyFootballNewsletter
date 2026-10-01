@@ -572,3 +572,12 @@ def test_the_over_of_the_week_only_runs_when_sponsored():
     assert "OVER OF THE WEEK" not in awards(None)
     assert "OVER OF THE WEEK" in awards(SPONSOR)
     assert "OVER OF THE WEEK" not in awards(dict(SPONSOR, award=False))
+
+
+def test_photos_follow_the_story_order_not_the_platforms():
+    g1 = {"team_1": {"team_name": "A"}, "team_2": {"team_name": "B"}}
+    g2 = {"team_1": {"team_name": "C"}, "team_2": {"team_name": "D"}}
+    content = {"matchup_content": [{"winner": "D", "loser": "C"},
+                                   {"winner": "A", "loser": "B"}]}
+    assert newspaper._in_story_order([g1, g2], content) == [g2, g1]
+    assert newspaper._in_story_order([g1, g2], {}) == [g1, g2]

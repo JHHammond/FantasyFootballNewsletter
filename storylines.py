@@ -231,3 +231,100 @@ def get_weekly_storylines(games):
         "nick_foles": nick_foles,
         "over_of_week": over_of_week,
     }
+
+# --- Which game leads (1 Oct) -------------------------------------------------
+#
+# The paper used to print the games in whatever order the platform listed them
+# (on Sleeper, its matchup number), so the lead story, the pull quote and the
+# feature box went to whichever game happened to be matchup 1. John: "how is
+# what story goes where decided?" — it wasn't. Now each game gets points for
+# the things that make a game worth reading about, and the best one leads.
+
+def _proj(team):
+    total = 0.0
+    for p in team.get("all_starters") or []:
+        if isinstance(p.get("projected"), (int, float)):
+            total += p["projected"]
+    return total
+
+
+def game_drama(game, games, rivalries=(), commissioner=""):
+    """How much of a story this game is. Arithmetic only, no model call."""
+    t1, t2 = game.get("team_1") or {}, game.get("team_2") or {}
+    margin = float(game.get("margin") or 0)
+    s = 0.0
+
+    # Close games are the best stories; a tie is the closest of all.
+    if game.get("winner") == "Tie":
+        s += 6
+    elif margin < 3:
+        s += 6
+    elif margin < 6:
+        s += 4
+    elif margin < 10:
+        s += 1.5
+
+    margins = [float(g.get("margin") or 0) for g in games]
+    if margin == max(margins) and margin >= 30:
+        s += 3                      # the week's blowout
+    scores = [float(t.get("points") or 0) for g in games
+              for t in (g.get("team_1") or {}, g.get("team_2") or {})]
+    mine = (float(t1.get("points") or 0), float(t2.get("points") or 0))
+    if scores and max(scores) in mine:
+        s += 3                      # the week's high score
+    if scores and min(scores) in mine:
+        s += 2.5                    # the week's low score
+
+    if game.get("winner") != "Tie":
+        if game.get("winner") == t1.get("team_name"):
+            w, l = t1, t2
+        else:
+            w, l = t2, t1
+        # An upset by record (records as they stood at kickoff).
+        edge = ((l.get("wins") or 0) - (l.get("losses") or 0)) - \
+               ((w.get("wins") or 0) - (w.get("losses") or 0))
+        if edge >= 4:
+            s += 3
+        elif edge >= 2:
+            s += 1.5
+        # An upset by projection.
+        pw, pl = _proj(w), _proj(l)
+        if pw and pl and pl - pw >= 8:
+            s += 2
+        # The bench cost the loser the game.
+        gap = l.get("lineup_gap")
+        if isinstance(gap, (int, float)) and gap > margin and gap >= 10:
+            s += 3
+
+    names = {t1.get("team_name"), t2.get("team_name")}
+    if frozenset(names) in set(rivalries or ()):
+        s += 1.5                    # these two have history
+    if commissioner and commissioner in (
+            names | {t1.get("owner_name"), t2.get("owner_name")}):
+        s += 1                      # the commissioner played
+    return s
+
+
+def order_games(games, last_lead=(), rivalries=(), commissioner=""):
+    """The games, best story first. Ties keep the platform's order.
+
+    One rule on top of the points: a team that led last week's paper does not
+    lead this one, unless every game involves one of last week's two teams.
+    """
+    games = list(games or [])
+    if len(games) < 2:
+        return games
+    ranked = [g for _, _, g in sorted(
+        ((-game_drama(g, games, rivalries, commissioner), i, g)
+         for i, g in enumerate(games)), key=lambda x: (x[0], x[1]))]
+    last = {n for n in (last_lead or ()) if n}
+    if last:
+        def led_last_week(g):
+            return bool({(g.get("team_1") or {}).get("team_name"),
+                         (g.get("team_2") or {}).get("team_name")} & last)
+        if led_last_week(ranked[0]):
+            fresh = next((g for g in ranked if not led_last_week(g)), None)
+            if fresh is not None:
+                ranked.remove(fresh)
+                ranked.insert(0, fresh)
+    return ranked

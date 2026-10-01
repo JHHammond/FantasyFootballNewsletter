@@ -28,7 +28,7 @@ from providers import (  # noqa: E402
     load_week,
     week_to_legacy_games,
 )
-from storylines import get_weekly_storylines  # noqa: E402
+from storylines import get_weekly_storylines, order_games  # noqa: E402
 import history  # noqa: E402
 from writer import WriterError, generate_full_newspaper_content  # noqa: E402
 
@@ -584,6 +584,12 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
         except Exception as exc:  # noqa: BLE001
             print(f"[history] streaks/record book skipped: "
                   f"{type(exc).__name__}: {exc}", flush=True)
+        # Last week's lead game, so the same team doesn't lead twice running.
+        try:
+            first = ((last_paper or {}).get("matchup_content") or [{}])[0]
+            out["last_lead"] = [first.get("winner") or "", first.get("loser") or ""]
+        except Exception:  # noqa: BLE001
+            out["last_lead"] = []
         out["briefing"] = history.previously_on(results, week, pairs, last_paper)
         out["memories"] = {
             frozenset((m.teams[0].team_name, m.teams[1].team_name)):
@@ -832,6 +838,14 @@ def generate_and_store(db, league: dict[str, Any], week: int,
             "Never list records, and never write \"earlier this season\".\n"
             + season_so_far["briefing"]
             + ("\n\n" + league_context if league_context else ""))
+
+    # BEST STORY LEADS (1 Oct). The games used to run in the platform's
+    # matchup order. Ranked once here, before anything is written, and the
+    # written order is stored, so every later render follows it.
+    games = order_games(
+        games, last_lead=season_so_far.get("last_lead") or (),
+        rivalries=[k for k, v in (season_so_far.get("memories") or {}).items() if v],
+        commissioner=league.get("commissioner_name") or "")
 
     # How you stack up (26 Sep): this league against the country, frozen into
     # the paper. None until enough of the week is collected.

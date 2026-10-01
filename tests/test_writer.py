@@ -795,7 +795,7 @@ def test_the_mechanical_calls_are_on_the_cheap_model():
     awards and fraud_watch used to be in this list and are not any more; see
     test_the_sections_that_judge_stay_on_the_big_model for what they did.
     """
-    for task in ("game_teasers", "classifieds", "pull_quote"):
+    for task in ("game_teasers", "classifieds"):
         assert writer.model_for(task) == writer.SMALL_MODEL, (
             f"{task} is still on the expensive model")
 
@@ -2103,9 +2103,33 @@ def test_the_long_prose_calls_ask_for_the_check():
         assert "avoid_tells=True" in inspect.getsource(fn), fn.__name__
 
 
-def test_the_pull_quote_is_on_the_cheap_model():
-    """John, 23 Sep: one line in a box, moved to the cheap model to cut cost."""
-    assert writer.model_for("pull_quote") == writer.SMALL_MODEL
+def test_the_pull_quote_is_back_on_the_main_model():
+    """John, 1 Oct: "they're never very good." Off the cheap model."""
+    assert writer.model_for("pull_quote") == writer.MODEL
+
+
+def test_the_pull_quote_picks_the_best_of_three(swap_client, no_sleeping):
+    ctx, winner, loser = _pq_names()
+    swap_client(lambda _k: _reply(
+        f"QUOTE 1: First one, fairly fine as these things go.\nBY 1: {winner}\n"
+        f"QUOTE 2: We had a plan. The plan was Kyler Murray.\nBY 2: {loser}\n"
+        f"QUOTE 3: Third one, also perfectly serviceable.\nBY 3: {winner}\n"
+        f"BEST: 2"))
+    out = writer.generate_pull_quote([ctx])
+    assert out["quote"] == "We had a plan. The plan was Kyler Murray."
+    assert out["by"] == loser
+
+
+def test_the_pull_quote_is_written_from_the_lead_story(swap_client, no_sleeping):
+    ctx, winner, loser = _pq_names()
+    seen = {}
+
+    def behaviour(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply(f"QUOTE 1: Fine, fine, all of it fine.\nBY 1: {winner}\nBEST: 1")
+    swap_client(behaviour)
+    writer.generate_pull_quote([ctx], body="<p>The kicker outscored the quarterback.</p>")
+    assert "The kicker outscored the quarterback." in seen["prompt"]
 
 
 # ---------------------------------------------------------------------------
