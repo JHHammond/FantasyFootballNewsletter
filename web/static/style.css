@@ -2291,3 +2291,174 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
     font-family: "Playfair Display", Georgia, serif; font-size: 19px; font-weight: 900;
     margin: 26px 0 6px; padding-top: 16px; border-top: 1px solid var(--line);
 }
+
+
+/* =====================================================================
+   Around the Leagues (30 Sep). Built from the homepage's parts: the
+   dateline, the double rules, Anton figures and taped clippings. Ink for
+   data, the red only for the one thing to look at.
+   ===================================================================== */
+
+.ar-staffbar { background: var(--ink); color: #fff; border-bottom: 3px solid var(--accent); }
+.ar-staffbar-in {
+    max-width: 1040px; margin: 0 auto; padding: 8px 24px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px;
+    font-family: "Barlow Condensed", sans-serif; font-size: 13px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.4px;
+}
+.ar-staffbar a { color: #fff; text-decoration: none; }
+.ar-staffbar a:hover { text-decoration: underline; }
+.ar-staffbar-links { opacity: .8; }
+.ar-weeks { display: flex; gap: 4px; flex-wrap: wrap; }
+.ar-weeks a { padding: 2px 8px; border: 1px solid rgba(255,255,255,.3); }
+.ar-weeks a.on { background: var(--accent); border-color: var(--accent); }
+.ar-mode { margin-left: auto; color: #fff; border-bottom: 1px solid var(--accent); }
+
+.around .front { margin-bottom: 10px; }
+.around .figures { margin-top: 26px; }
+.ar-note { max-width: 860px; margin: 0 auto 24px; }
+
+.ar-sec { margin-top: 64px; }
+.ar-intro, .ar-empty {
+    font-family: Georgia, serif; font-size: 15px; color: var(--ink-2);
+    text-align: center; max-width: 620px; margin: -8px auto 22px;
+}
+.ar-empty { padding: 26px; border: 1px dashed var(--line); background: var(--paper); }
+
+/* ---------- rank lookup ---------- */
+.ar-rank {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: 24px; align-items: center;
+    background: var(--paper); padding: 24px 26px;
+    box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 10px 22px -14px rgba(40, 30, 10, .45);
+    border-top: 3px solid var(--accent);
+}
+.ar-rank-form { display: flex; flex-direction: column; gap: 14px; }
+.ar-rank-field { display: flex; flex-direction: column; gap: 4px; }
+.ar-rank-field span {
+    font-family: "Barlow Condensed", sans-serif; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.8px; color: var(--muted);
+}
+.ar-rank-field input, .ar-rank-field select {
+    font: 600 20px "Barlow", sans-serif; padding: 9px 12px;
+    border: 1px solid var(--ink); background: #fff; color: var(--ink); width: 100%;
+}
+.ar-rank-field input { font-family: "Anton", sans-serif; font-weight: 400; font-size: 30px; padding: 6px 12px; }
+.ar-rank-field input:focus, .ar-rank-field select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ar-rank-out { display: flex; flex-direction: column; gap: 6px; }
+.ar-rank-big { font-family: "Anton", sans-serif; font-size: 88px; line-height: .95; color: var(--accent); }
+.ar-rank-line { font-family: Georgia, serif; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
+.ar-rank-line b { color: var(--ink); }
+
+/* ---------- charts ---------- */
+.ar-chart { margin: 22px 0 0; }
+.ar-chart-cap {
+    font-family: "Barlow Condensed", sans-serif; font-size: 13px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.6px; color: var(--muted);
+    padding-bottom: 6px; border-bottom: 1px solid var(--ink); margin-bottom: 10px;
+}
+.ar-chart-box { position: relative; }
+.ar-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.ar-axis { stroke: var(--ink); stroke-width: 1; }
+.ar-grid { stroke: var(--line); stroke-width: 1; }
+.ar-bar { fill: var(--ink-2); transition: fill .12s ease; }
+.ar-col.hot .ar-bar { fill: var(--accent); }
+.ar-hit { fill: transparent; }
+.ar-tick { font: 600 11px "Barlow Condensed", sans-serif; fill: var(--muted); letter-spacing: .8px; font-variant-numeric: tabular-nums; }
+.ar-end { font: 400 15px "Anton", sans-serif; fill: var(--ink); }
+.ar-marker line { stroke: var(--accent); stroke-width: 2; }
+.ar-marker-label { font: 700 12px "Barlow Condensed", sans-serif; fill: var(--accent); text-transform: uppercase; letter-spacing: 1.4px; }
+.ar-path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ar-dot { fill: var(--accent); stroke: var(--cream); stroke-width: 2; }
+.ar-col.hot .ar-dot { r: 7; }
+.ar-tip {
+    position: absolute; transform: translate(-50%, -110%);
+    background: var(--ink); color: #fff; padding: 5px 9px; white-space: nowrap;
+    font: 600 13px "Barlow", sans-serif; pointer-events: none; z-index: 2;
+}
+
+/* ---------- lineup desk clippings ---------- */
+.ar-clips { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ar-clip-num {
+    font-family: "Anton", sans-serif !important; font-weight: 400 !important;
+    font-size: 46px !important; line-height: 1 !important; margin: 4px 0 8px !important;
+}
+
+/* ---------- boards ---------- */
+.ar-boards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin-bottom: 22px; }
+.ar-boards-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ar-board {
+    background: var(--paper); padding: 18px 20px 14px;
+    box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 10px 22px -14px rgba(40, 30, 10, .45);
+}
+.ar-board-head {
+    font-family: "Playfair Display", Georgia, serif; font-size: 20px; font-weight: 900;
+    line-height: 1.15; padding-bottom: 8px; border-bottom: 3px double var(--ink); margin-bottom: 4px;
+}
+.ar-board-sub { font-size: 13px; color: var(--muted); margin: 6px 0 2px; }
+.ar-list { list-style: none; counter-reset: ar; }
+.ar-list li {
+    counter-increment: ar;
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--line);
+}
+.ar-list li:last-child { border-bottom: 0; }
+.ar-list li::before {
+    content: counter(ar); flex: none; width: 18px;
+    font-family: "Anton", sans-serif; font-size: 17px; color: var(--accent);
+}
+.ar-list li.ar-none::before { content: ""; width: 0; }
+.ar-none { color: var(--muted); font-size: 14px; }
+.ar-name { flex: 1; min-width: 0; font-weight: 600; line-height: 1.3; }
+.ar-name small { display: block; font-weight: 400; font-size: 13px; color: var(--muted); }
+.ar-pos {
+    display: inline-block; margin-left: 6px; padding: 0 5px;
+    font: 700 10.5px "Barlow Condensed", sans-serif; letter-spacing: 1px;
+    color: #fff; background: var(--ink); vertical-align: 2px;
+}
+.ar-val { flex: none; text-align: right; font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ar-val b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 21px; color: var(--ink); margin-right: 2px; }
+.ar-teams .ar-who { font-weight: 600; }
+.ar-staff {
+    display: inline-block; margin-left: 6px; padding: 0 6px;
+    font: 600 11.5px "Barlow Condensed", sans-serif; letter-spacing: .6px;
+    color: var(--accent); border: 1px dashed var(--accent);
+}
+
+/* ---------- face-offs ---------- */
+.ar-face { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
+.ar-face-top { display: flex; justify-content: space-between; align-items: baseline; }
+.ar-face-key { font-weight: 600; }
+.ar-face-n { font-size: 12px; color: var(--muted); }
+.ar-face-bar { display: flex; align-items: center; gap: 8px; margin: 4px 0 3px; }
+.ar-face-bar i { display: block; height: 14px; background: var(--ink-2); border-radius: 0 4px 4px 0; min-width: 2px; }
+.ar-face-row.lead .ar-face-bar i { background: var(--accent); }
+.ar-face-bar b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 18px; }
+.ar-face-meta { font-size: 12.5px; color: var(--muted); }
+
+.ar-figs { margin: 0 auto 6px; }
+.ar-collect { margin-top: 70px; }
+.ar-log { white-space: pre-wrap; font-size: 12px; margin-top: 12px; max-height: 320px; overflow: auto; }
+
+@media (max-width: 860px) {
+    .ar-clips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ar-boards { grid-template-columns: minmax(0, 1fr); }
+    .ar-rank { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+    .ar-clips { grid-template-columns: minmax(0, 1fr); }
+    .ar-rank-big { font-size: 64px; }
+    .ar-mode { margin-left: 0; }
+    .ar-sec { margin-top: 48px; }
+    .around .figures { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+    .around .figure + .figure { border-left: 0; }
+    .around .figure:nth-child(even) { border-left: 1px solid var(--line); }
+}
+@media (max-width: 560px) {
+    /* The charts scale down with the page; their words mustn't. */
+    .ar-chart .ar-tick { font-size: 24px; }
+    .ar-chart .ar-end { font-size: 30px; }
+    .ar-chart .ar-marker-label { font-size: 26px; }
+    .ar-chart .ar-marker line, .ar-chart .ar-path { stroke-width: 4; }
+    .around .figure:last-child:nth-child(odd) { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
+}

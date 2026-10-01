@@ -1,12 +1,36 @@
 {% extends "base.html" %}
-{% block title %}Around the Leagues{% endblock %}
+{% block title %}Around the Leagues &middot; Week {{ week }}{% endblock %}
+{% block wrapclass %}home around{% endblock %}
+
+{% macro who(r) -%}
+<span class="ar-who">{{ describe(r, true) }}</span>{% if not a.public %}<span class="ar-staff">{{ r.team_name or 'unnamed' }}{% if r.manager %} &middot; {{ r.manager }}{% endif %}</span>{% endif %}
+{%- endmacro %}
+
+{% macro pts(v) -%}{{ '%.1f'|format(v|float) if v is not none else '–' }}{%- endmacro %}
+
+{% macro player(p) -%}
+<span class="ar-player">{{ p.name }}</span>{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}
+{%- endmacro %}
+
+{% block under_masthead %}
+<div class="ar-staffbar">
+    <div class="ar-staffbar-in">
+        <span class="ar-staffbar-links">
+            Staff &middot; <a href="/staff/stats">Stats</a> &middot; <a href="/staff/papers">Papers</a>
+            &middot; <a href="/staff/wire">NFL wire</a> &middot; <a href="/staff/photos">Photo desk</a>
+        </span>
+        <span class="ar-weeks">
+            {% for w in weeks %}<a href="?week={{ w }}{% if a and a.public %}&preview=public{% endif %}" class="{{ 'on' if w == week }}">Wk {{ w }}</a>{% endfor %}
+        </span>
+        {% if a %}
+        <a class="ar-mode" href="?week={{ week }}{% if not a.public %}&preview=public{% endif %}">
+            {{ 'Back to staff view' if a.public else 'Preview as the public sees it' }}</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
 
 {% block content %}
-<div class="page-head">
-    <div class="eyebrow">Staff &middot; <a href="/staff/stats">Stats</a> &middot; <a href="/staff/papers">Papers</a> &middot; <a href="/staff/wire">NFL wire</a> &middot; <a href="/staff/photos">Photo desk</a></div>
-    <h1 class="page-title">Around the Leagues</h1>
-</div>
-
 {% if not ready %}
 <div class="alert alert-error">
     The <code>team_weeks</code> table doesn&rsquo;t exist yet. Run
@@ -14,100 +38,431 @@
 </div>
 {% else %}
 
-<section class="card">
-    <form method="get" action="/staff/around" class="inline-form" style="gap:10px;flex-wrap:wrap;">
-        <label class="field">
-            <span class="field-label">Week</span>
-            <select name="week">
-                {% for w in weeks %}<option value="{{ w }}" {% if w == week %}selected{% endif %}>Week {{ w }}</option>{% endfor %}
-            </select>
-        </label>
-        <label class="field">
-            <span class="field-label">Scope</span>
-            <select name="scope">
-                <option value="week" {% if scope != 'season' %}selected{% endif %}>That week</option>
-                <option value="season" {% if scope == 'season' %}selected{% endif %}>Whole season</option>
-            </select>
-        </label>
-        <button type="submit" class="btn">Show</button>
-    </form>
+{% if not lineups_ready %}
+<div class="alert alert-error ar-note">
+    <strong>One step first:</strong> run <code>migrations/029_lineups_and_ppr.sql</code> in the
+    Supabase SQL Editor. Until then this page can&rsquo;t standardize scores or read lineups.
+</div>
+{% endif %}
 
-    {% set s = data.summary %}
-    <p class="card-sub" style="margin-top:14px;">
-        {% if s and s.teams %}
-        <strong>{{ '{:,}'.format(s.teams) }}</strong> team-weeks across
-        <strong>{{ '{:,}'.format(s.leagues) }}</strong> leagues &middot;
-        average <strong>{{ s.avg_points }}</strong> &middot; median <strong>{{ s.median_points }}</strong>
-        {% else %}
-        Nothing collected for this {{ 'season' if scope == 'season' else 'week' }} yet &mdash; use the buttons below.
-        {% endif %}
+<section class="front">
+    <p class="dateline">
+        <span>{{ season }} season</span>
+        <span class="dateline-mid">Week {{ week }} &middot; final</span>
+        <span>Every league, one scoring system</span>
     </p>
-</section>
-
-{% for board in data.boards %}
-<section class="card">
-    <h2 class="card-title">{{ board.title }}{% if scope != 'season' %} &middot; week {{ week }}{% endif %}</h2>
-    {% if board.rows %}
-    <table style="width:100%;border-collapse:collapse;font-size:14px;">
-        <tr style="text-align:left;">
-            <th>#</th><th>Team</th><th>League</th>{% if scope == 'season' %}<th>Wk</th>{% endif %}
-            <th style="text-align:right;">
-                {% if board.key in ('players', 'bench_players') %}Player{% elif board.key in ('blowouts', 'closest') %}Score{% else %}Pts{% endif %}
-            </th>
-            <th style="text-align:right;">
-                {% if board.key in ('blowouts', 'closest') %}Margin{% elif board.key == 'bench' %}Left{% elif board.key in ('players', 'bench_players') %}Pts{% else %}Result{% endif %}
-            </th>
-        </tr>
-        {% for r in board.rows %}
-        <tr style="border-top:1px solid rgba(127,127,127,.2);">
-            <td>{{ loop.index }}</td>
-            <td>{{ r.team_name }}{% if r.empty_slots %} <span class="paper-meta">({{ r.empty_slots }} empty)</span>{% endif %}</td>
-            <td class="paper-meta">{{ (r.leagues or {}).league_name or '' }} &middot; {{ r.provider }}{% if r.team_count %} &middot; {{ r.team_count }}-team{% endif %}{% if r.scoring_type %} {{ r.scoring_type|upper }}{% endif %}</td>
-            {% if scope == 'season' %}<td>{{ r.week }}</td>{% endif %}
-            {% if board.key in ('players', 'bench_players') %}
-                {% set name = r.top_player if board.key == 'players' else r.best_bench_player %}
-                {% set pts = r.top_player_points if board.key == 'players' else r.best_bench_points %}
-                <td style="text-align:right;">{{ name }}{% if board.key == 'players' and r.top_player_pos %} <span class="paper-meta">{{ r.top_player_pos }}</span>{% endif %}</td>
-                <td style="text-align:right;"><strong>{{ '%.2f'|format(pts|float) }}</strong></td>
-            {% elif board.key in ('blowouts', 'closest') %}
-                <td style="text-align:right;">{{ '%.2f'|format(r.points|float) }}&ndash;{{ '%.2f'|format(r.opponent_points|float) }} <span class="paper-meta">vs {{ r.opponent_name }}</span></td>
-                <td style="text-align:right;"><strong>{{ '%.2f'|format(r.margin|float) }}</strong></td>
-            {% elif board.key == 'bench' %}
-                <td style="text-align:right;">{{ '%.2f'|format(r.points|float) }}</td>
-                <td style="text-align:right;"><strong>{{ '%.2f'|format(r.bench_left|float) }}</strong>{% if r.best_bench_player %} <span class="paper-meta">({{ r.best_bench_player }})</span>{% endif %}</td>
-            {% else %}
-                <td style="text-align:right;"><strong>{{ '%.2f'|format(r.points|float) }}</strong></td>
-                <td style="text-align:right;">{{ r.result }}{% if r.opponent_points is not none %} <span class="paper-meta">{{ '%.2f'|format(r.opponent_points|float) }}</span>{% endif %}</td>
-            {% endif %}
-        </tr>
-        {% endfor %}
-    </table>
+    <div class="front-head-wrap">
+        <h1 class="front-head">Around the <span class="marked">Leagues<svg class="marked-line" viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true"><path d="M3 15 C 60 5, 110 20, 160 11 S 250 6, 297 13" /></svg></span></h1>
+    </div>
+    {% if a.teams %}
+    <p class="front-deck">
+        {{ '{:,}'.format(a.teams) }} fantasy teams in {{ '{:,}'.format(a.summary.leagues) }} leagues
+        {%- if a.standardized %}, every lineup scored in plain PPR so a 130 means the same thing everywhere{% endif %}.
+    </p>
     {% else %}
-    <p class="card-sub">Nothing yet.</p>
+    <p class="front-deck">Nothing collected for week {{ week }} yet.{% if not a.public %} Use the collector at the bottom of the page.{% endif %}</p>
     {% endif %}
 </section>
-{% endfor %}
 
-<section class="card">
-    <h2 class="card-title">Collecting</h2>
+{% if a.figures %}
+<section class="figures" aria-label="This week">
+    {% for f in a.figures %}<div class="figure"><strong>{{ f.value }}</strong><span>{{ f.label }}</span></div>{% endfor %}
+</section>
+{% endif %}
+
+{% if a.teams %}
+
+{# ------------------------------------------------------------ rank lookup #}
+<section class="ar-sec" id="rank">
+    <h2 class="section-head"><span>Where does your score rank?</span></h2>
+    <div class="ar-rank">
+        <form class="ar-rank-form" onsubmit="return false">
+            <label class="ar-rank-field">
+                <span>Your score</span>
+                <input type="number" step="0.01" min="0" max="400" id="ar-score" inputmode="decimal" placeholder="112.4" />
+            </label>
+            <label class="ar-rank-field">
+                <span>Your league scores</span>
+                <select id="ar-format">
+                    {% if a.standardized %}<option value="all">Any format, in PPR</option>{% endif %}
+                    {% for key, label in [('ppr', 'PPR'), ('half_ppr', 'Half-PPR'), ('std', 'Standard')] %}
+                    {% if a.pct.get(key) and a.pct.get('n_' ~ key, 0) >= a.min_group %}<option value="{{ key }}">{{ label }}</option>{% endif %}
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
+        <div class="ar-rank-out" id="ar-out" aria-live="polite">
+            <span class="ar-rank-big">&mdash;</span>
+            <span class="ar-rank-line">Type a score to see where it lands among this week&rsquo;s teams.</span>
+        </div>
+    </div>
+
+    {% set h = a.hist %}
+    {% if h %}
+    <figure class="ar-chart">
+        <figcaption class="ar-chart-cap">How {{ '{:,}'.format(a.teams) }} teams scored in week {{ week }}{% if a.standardized %}, in PPR{% endif %}</figcaption>
+        <div class="ar-chart-box">
+        <svg viewBox="0 0 {{ h.width }} {{ h.height }}" class="ar-hist" role="img"
+             aria-label="Distribution of week {{ week }} scores, median {{ a.summary.median_ppr }}">
+            <line x1="0" x2="{{ h.width }}" y1="{{ h.base }}" y2="{{ h.base }}" class="ar-axis" />
+            {% for c in h.cols %}
+            <g class="ar-col" data-tip="{{ c.label }} points: {{ '{:,}'.format(c.n) }} team{{ '' if c.n == 1 else 's' }}">
+                <rect x="{{ c.x - 1 }}" y="0" width="{{ c.w + 2 }}" height="{{ h.base }}" class="ar-hit" />
+                {% if c.h > 0 %}<path d="M{{ c.x }},{{ h.base }} V{{ c.y + [4, c.h]|min }} Q{{ c.x }},{{ c.y }} {{ c.x + [4, c.h]|min }},{{ c.y }} H{{ c.x + c.w - [4, c.h]|min }} Q{{ c.x + c.w }},{{ c.y }} {{ c.x + c.w }},{{ c.y + [4, c.h]|min }} V{{ h.base }} Z" class="ar-bar" />{% endif %}
+                {% if c.tick %}<text x="{{ c.x + c.w / 2 }}" y="{{ h.base + 18 }}" class="ar-tick" text-anchor="middle">{{ c.lo }}{{ '+' if c.lo == 250 }}</text>{% endif %}
+            </g>
+            {% endfor %}
+            <g id="ar-marker" class="ar-marker" style="display:none">
+                <line x1="0" x2="0" y1="6" y2="{{ h.base }}" />
+                <text x="0" y="4" text-anchor="middle" class="ar-marker-label">You</text>
+            </g>
+        </svg>
+        <div class="ar-tip" id="ar-tip" hidden></div>
+        </div>
+    </figure>
+    {% endif %}
+</section>
+
+{# ------------------------------------------------------------ lineup desk #}
+{% set lu = a.lineup %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>The lineup desk</span></h2>
+    <ul class="clippings ar-clips">
+        <li class="clip">
+            <span class="clip-kicker">Lineup losses</span>
+            <strong class="ar-clip-num">{{ a.lineup_share or '0' }}</strong>
+            <p>{{ 'losses' if a.lineup_share and a.lineup_share.startswith('1 in') else 'of losses' }} this week were lineup losses: {{ '{:,}'.format(lu.lineup_losses or 0) }} teams lost a game their own bench would have won.</p>
+        </li>
+        <li class="clip">
+            <span class="clip-kicker">Perfect lineups</span>
+            <strong class="ar-clip-num">{{ pct(a.perfect_share) }}</strong>
+            <p>of teams started their best possible lineup, with no points left on the bench.</p>
+        </li>
+        <li class="clip">
+            <span class="clip-kicker">Left on the bench</span>
+            <strong class="ar-clip-num">{{ pts(lu.avg_bench_left) }}</strong>
+            <p>points a team, on average, sitting on benches across the country.</p>
+        </li>
+        <li class="clip">
+            <span class="clip-kicker">Ghost managers</span>
+            <strong class="ar-clip-num">{{ '{:,}'.format(lu.ghosts or 0) }}</strong>
+            <p>teams started the week with an empty slot in their lineup. Set your lineup.</p>
+        </li>
+    </ul>
+</section>
+
+{# ------------------------------------------------------------ the players #}
+{% set P = a.players %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>The players</span></h2>
+    {% if not a.has_lineups %}
+    <p class="ar-empty">Lineups for week {{ week }} haven&rsquo;t been collected yet.{% if not a.public %} Once migration 029 is in, run the collector below for this week and this section fills in.{% endif %}</p>
+    {% else %}
+    <div class="ar-boards">
+        <article class="ar-board">
+            <h3 class="ar-board-head">Best player on the most teams</h3>
+            <ol class="ar-list">
+                {% for p in P.top_on %}
+                <li><span class="ar-name">{{ player(p) }}</span><span class="ar-val"><b>{{ '{:,}'.format(p.teams) }}</b> teams</span></li>
+                {% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            <h3 class="ar-board-head">Most points left on benches</h3>
+            <ol class="ar-list">
+                {% for p in P.benched %}
+                <li><span class="ar-name">{{ player(p) }}<small>{{ pts(p.bench_avg) }} on {{ '{:,}'.format(p.benched) }} benches</small></span><span class="ar-val"><b>{{ '{:,.0f}'.format(p.bench_total) }}</b> pts</span></li>
+                {% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            <h3 class="ar-board-head">Most started</h3>
+            <ol class="ar-list">
+                {% for p in P.started %}
+                <li><span class="ar-name">{{ player(p) }}<small>started on {{ pct(p.start_pct) }} of rosters{% if p.ppr is not none %}, scored {{ pts(p.ppr) }}{% endif %}</small></span><span class="ar-val"><b>{{ '{:,}'.format(p.started) }}</b></span></li>
+                {% endfor %}
+            </ol>
+        </article>
+    </div>
+
+    <div class="ar-boards ar-boards-2">
+        <article class="ar-board">
+            <h3 class="ar-board-head">Win rate when started: best</h3>
+            <p class="ar-board-sub">Players started on at least {{ P.min_starts }} teams this week.</p>
+            <ol class="ar-list">
+                {% for p in P.win_best %}
+                <li><span class="ar-name">{{ player(p) }}<small>{{ '{:,}'.format(p.started) }} starts</small></span><span class="ar-val"><b>{{ pct(p.win_pct) }}</b> won</span></li>
+                {% else %}<li class="ar-none">Nobody cleared {{ P.min_starts }} starts.</li>{% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            <h3 class="ar-board-head">Win rate when started: worst</h3>
+            <p class="ar-board-sub">Same rule. Starting these players was a coin flip you mostly lost.</p>
+            <ol class="ar-list">
+                {% for p in P.win_worst %}
+                <li><span class="ar-name">{{ player(p) }}<small>{{ '{:,}'.format(p.started) }} starts</small></span><span class="ar-val"><b>{{ pct(p.win_pct) }}</b> won</span></li>
+                {% else %}<li class="ar-none">Nobody cleared {{ P.min_starts }} starts.</li>{% endfor %}
+            </ol>
+        </article>
+    </div>
+
+    <div class="ar-boards ar-boards-2">
+        <article class="ar-board">
+            <h3 class="ar-board-head">Everybody started him. He did nothing.</h3>
+            <ol class="ar-list">
+                {% for p in P.flops %}
+                <li><span class="ar-name">{{ player(p) }}<small>{{ pts(p.ppr) }} PPR points</small></span><span class="ar-val"><b>{{ '{:,}'.format(p.started) }}</b> starts</span></li>
+                {% else %}<li class="ar-none">No flops this week.</li>{% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            <h3 class="ar-board-head">Nobody started him. He went off.</h3>
+            <ol class="ar-list">
+                {% for p in P.sleepers %}
+                <li><span class="ar-name">{{ player(p) }}<small>started on {{ pct(p.start_pct) }} of {{ '{:,}'.format(p.rostered) }} rosters</small></span><span class="ar-val"><b>{{ pts(p.ppr) }}</b> pts</span></li>
+                {% else %}<li class="ar-none">Nobody under-started went off this week.</li>{% endfor %}
+            </ol>
+        </article>
+    </div>
+    {% endif %}
+</section>
+
+{# ------------------------------------------------------------ luck #}
+<section class="ar-sec">
+    <h2 class="section-head"><span>Luck</span></h2>
+    <div class="ar-boards ar-boards-2">
+        <article class="ar-board">
+            <h3 class="ar-board-head">Highest scores that lost</h3>
+            <ol class="ar-list ar-teams">
+                {% for r in a.unlucky %}
+                <li><span class="ar-name">{{ who(r) }}<small>lost {{ pts(r.points) }}&ndash;{{ pts(r.opponent_points) }} in its league&rsquo;s scoring</small></span><span class="ar-val"><b>{{ pts(r.ppr_points if r.ppr_points is not none else r.points) }}</b>{% if r.ppr_points is not none %} PPR{% endif %}</span></li>
+                {% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            <h3 class="ar-board-head">Lowest scores that won</h3>
+            <ol class="ar-list ar-teams">
+                {% for r in a.lucky %}
+                <li><span class="ar-name">{{ who(r) }}<small>won {{ pts(r.points) }}&ndash;{{ pts(r.opponent_points) }} in its league&rsquo;s scoring</small></span><span class="ar-val"><b>{{ pts(r.ppr_points if r.ppr_points is not none else r.points) }}</b>{% if r.ppr_points is not none %} PPR{% endif %}</span></li>
+                {% endfor %}
+            </ol>
+        </article>
+    </div>
+    {% set S = a.season_data %}
+    {% if S.unluckiest %}
+    <div class="ar-boards ar-boards-2">
+        <article class="ar-board">
+            <h3 class="ar-board-head">Unluckiest teams of the season</h3>
+            <p class="ar-board-sub">Wins against the wins they&rsquo;d have if they played every team in their league every week.</p>
+            <ol class="ar-list ar-teams">
+                {% for r in S.unluckiest %}
+                <li><span class="ar-name">{{ who(r) }}<small>{{ r.w }}-{{ r.l }}{% if r.t %}-{{ r.t }}{% endif %}, scored like a {{ '%.1f'|format(r.expected) }}-win team</small></span><span class="ar-val"><b>{{ '%+.1f'|format(r.luck) }}</b></span></li>
+                {% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            <h3 class="ar-board-head">Luckiest teams of the season</h3>
+            <p class="ar-board-sub">Same sum, the other way round.</p>
+            <ol class="ar-list ar-teams">
+                {% for r in S.luckiest %}
+                <li><span class="ar-name">{{ who(r) }}<small>{{ r.w }}-{{ r.l }}{% if r.t %}-{{ r.t }}{% endif %}, scored like a {{ '%.1f'|format(r.expected) }}-win team</small></span><span class="ar-val"><b>{{ '%+.1f'|format(r.luck) }}</b></span></li>
+                {% endfor %}
+            </ol>
+        </article>
+    </div>
+    {% endif %}
+</section>
+
+{# ------------------------------------------------------------ face-offs #}
+{% set F = a.faceoffs %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>Face-offs</span></h2>
+    <p class="ar-intro">Average score in PPR, and points left on the bench, by platform, scoring format and league size. Groups under {{ a.min_group }} teams aren&rsquo;t shown.</p>
+    <div class="ar-boards">
+        {% for dim, title in [('provider', 'By platform'), ('scoring', 'By scoring format'), ('size', 'By league size')] %}
+        <article class="ar-board">
+            <h3 class="ar-board-head">{{ title }}</h3>
+            <div class="ar-face">
+                {% for g in F.groups[dim] %}
+                <div class="ar-face-row{{ ' lead' if g.leader }}">
+                    <div class="ar-face-top"><span class="ar-face-key">{{ g.label }}</span><span class="ar-face-n">{{ '{:,}'.format(g.n) }} teams</span></div>
+                    <div class="ar-face-bar" title="Average {{ g.avg_ppr }} points"><i style="width:{{ g.ppr_w }}%"></i><b>{{ pts(g.avg_ppr) }}</b></div>
+                    <div class="ar-face-meta">{{ pts(g.avg_bench) }} left on the bench &middot; {{ pct(g.perfect_pct) }} perfect lineups</div>
+                </div>
+                {% else %}<p class="ar-none">Not enough teams yet.</p>{% endfor %}
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+
+{# ------------------------------------------------------------ the season #}
+<section class="ar-sec">
+    <h2 class="section-head"><span>The season so far</span></h2>
+    {% set T = a.tracker %}
+    {% if T.teams %}
+    <section class="figures ar-figs" aria-label="Season tracker">
+        <div class="figure"><strong>{{ '{:,}'.format(T.unbeaten) }}</strong><span>unbeaten teams</span></div>
+        <div class="figure"><strong>{{ '{:,}'.format(T.winless) }}</strong><span>still winless</span></div>
+        <div class="figure"><strong>{{ S.through }}</strong><span>weeks played</span></div>
+    </section>
+    {% endif %}
+
+    {% set L = a.season_line %}
+    {% if L and L.dots|length > 1 %}
+    <figure class="ar-chart">
+        <figcaption class="ar-chart-cap">Average score each week, in PPR</figcaption>
+        <div class="ar-chart-box">
+        <svg viewBox="0 0 {{ L.width }} {{ L.height }}" class="ar-line" role="img" aria-label="Average score by week">
+            {% for g in L.grid %}
+            <line x1="{{ L.left }}" x2="{{ L.right }}" y1="{{ g.y }}" y2="{{ g.y }}" class="ar-grid" />
+            <text x="{{ L.left - 8 }}" y="{{ g.y + 4 }}" class="ar-tick" text-anchor="end">{{ g.v }}</text>
+            {% endfor %}
+            <path d="{{ L.path }}" class="ar-path" />
+            {% for d in L.dots %}
+            <g class="ar-col" data-tip="Week {{ d.week }}: {{ '%.1f'|format(d.v) }} average">
+                <rect x="{{ d.x - 18 }}" y="0" width="36" height="{{ L.base }}" class="ar-hit" />
+                <circle cx="{{ d.x }}" cy="{{ d.y }}" r="5" class="ar-dot" />
+                <text x="{{ d.x }}" y="{{ L.base + 20 }}" class="ar-tick" text-anchor="middle">Wk {{ d.week }}</text>
+                {% if loop.last %}<text x="{{ d.x }}" y="{{ d.y - 12 }}" class="ar-end" text-anchor="middle">{{ '%.1f'|format(d.v) }}</text>{% endif %}
+            </g>
+            {% endfor %}
+        </svg>
+        <div class="ar-tip" hidden></div>
+        </div>
+    </figure>
+    {% endif %}
+
+    {% if S.win_streaks or S.loss_streaks %}
+    <div class="ar-boards ar-boards-2">
+        <article class="ar-board">
+            <h3 class="ar-board-head">Longest winning streaks</h3>
+            <ol class="ar-list ar-teams">
+                {% for r in S.win_streaks %}<li><span class="ar-name">{{ who(r) }}<small>{{ r.w }}-{{ r.l }}{% if r.t %}-{{ r.t }}{% endif %}</small></span><span class="ar-val"><b>W{{ r.streak }}</b></span></li>{% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            <h3 class="ar-board-head">Longest losing streaks</h3>
+            <ol class="ar-list ar-teams">
+                {% for r in S.loss_streaks %}<li><span class="ar-name">{{ who(r) }}<small>{{ r.w }}-{{ r.l }}{% if r.t %}-{{ r.t }}{% endif %}</small></span><span class="ar-val"><b>L{{ r.streak }}</b></span></li>{% endfor %}
+            </ol>
+        </article>
+    </div>
+    {% endif %}
+</section>
+
+{# ------------------------------------------------------------ halls #}
+{% if boards %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>Halls of fame and shame</span></h2>
+    <div class="ar-boards ar-boards-2">
+        {% for b in boards %}
+        <article class="ar-board">
+            <h3 class="ar-board-head">{{ b.title }}</h3>
+            <ol class="ar-list ar-teams">
+                {% for r in b.rows[:5] %}
+                <li><span class="ar-name">{{ who(r) }}
+                    <small>{% if b.key in ('blowouts', 'closest') %}{{ pts(r.points) }}&ndash;{{ pts(r.opponent_points) }}{% elif b.key == 'bench' %}scored {{ pts(r.points) }}{% if r.best_bench_player %}, benched {{ r.best_bench_player }}{% endif %}{% elif b.key == 'players' %}{{ r.top_player }}{% else %}{{ r.result }} {{ pts(r.points) }}&ndash;{{ pts(r.opponent_points) }}{% endif %}</small></span>
+                    <span class="ar-val"><b>{% if b.key in ('blowouts', 'closest') %}{{ pts(r.margin) }}{% elif b.key == 'bench' %}{{ pts(r.bench_left) }}{% elif b.key == 'players' %}{{ pts(r.top_player_points) }}{% else %}{{ pts(r.points) }}{% endif %}</b></span></li>
+                {% endfor %}
+            </ol>
+        </article>
+        {% endfor %}
+    </div>
+    <p class="ar-intro">These use each league&rsquo;s own scoring.</p>
+</section>
+{% endif %}
+
+{% endif %}{# a.teams #}
+
+{% if not a.public %}
+<section class="card ar-collect">
+    <h2 class="card-title">Collecting &middot; staff only</h2>
     <p class="card-sub">
-        The Tuesday job collects the week that just finished for every connected
-        league, automatically. These buttons are for filling in earlier weeks.
-        Only finished weeks can be collected (the latest is week {{ latest }}). A
-        run skips leagues it already has, so it&rsquo;s safe to press again.
+        The Tuesday job collects the week that just finished for every connected league.
+        {% if lineups_ready %}Weeks collected before lineups were stored get collected again, once,
+        for their lineups and PPR scores.{% endif %}
+        Only finished weeks can be collected (the latest is week {{ latest }}). A run skips leagues
+        it already has, so it&rsquo;s safe to press again.
+        {% if a.teams %}<br>Week {{ week }}: {{ '{:,}'.format(a.summary.standardized or 0) }} of {{ '{:,}'.format(a.teams) }} teams standardized
+        {%- if a.coverage is not none %}, {{ pct(a.coverage) }} of their starters matched to a real stat line{% endif %};
+        lineups for {{ '{:,}'.format(a.summary.lineup_teams or 0) }} teams.{% endif %}
     </p>
     {% if job.running %}
     <div class="alert alert-success">Running since {{ job.started[:16]|replace('T', ' ') }} UTC. Reload to see progress.</div>
     <form method="post" action="/staff/around/stop"><button type="submit" class="btn">Stop</button></form>
     {% else %}
-    <form method="post" action="/staff/around/collect" class="inline-form" style="gap:10px;">
+    <form method="post" action="/staff/around/collect" class="inline-form" style="gap:10px;flex-wrap:wrap;">
         <input type="hidden" name="weeks" value="1-{{ latest }}" />
-        <button type="submit" class="btn btn-primary">Backfill weeks 1&ndash;{{ latest }}</button>
+        <button type="submit" class="btn btn-primary">Collect weeks 1&ndash;{{ latest }}</button>
     </form>
     {% endif %}
     {% if job.log %}
-    <pre style="white-space:pre-wrap;font-size:12px;margin-top:12px;max-height:320px;overflow:auto;">{{ job.log|join('\n') }}</pre>
+    <pre class="ar-log">{{ job.log|join('\n') }}</pre>
     {% endif %}
 </section>
 {% endif %}
+{% endif %}{# ready #}
+
+<script>
+(function () {
+    var P = {{ (a.pct if a else {})|tojson }};
+    var H = {{ ({'lo': a.hist.lo, 'hi': a.hist.hi, 'x0': a.hist.x0, 'w': a.hist.plot_w} if a and a.hist else {})|tojson }};
+    var NAMES = {all: "teams", ppr: "PPR teams", half_ppr: "half-PPR teams", std: "standard teams"};
+    var score = document.getElementById("ar-score"), fmt = document.getElementById("ar-format"),
+        out = document.getElementById("ar-out"), marker = document.getElementById("ar-marker");
+
+    function below(arr, v) {            // share of teams scoring less than v
+        if (!arr || !arr.length) return null;
+        if (v <= arr[0]) return 0;
+        if (v >= arr[arr.length - 1]) return 1;
+        for (var i = 1; i < arr.length; i++) {
+            if (v <= arr[i]) {
+                var span = arr[i] - arr[i - 1];
+                var f = span > 0 ? (v - arr[i - 1]) / span : 0;
+                return (i - 1 + f) / (arr.length - 1);
+            }
+        }
+        return 1;
+    }
+    function update() {
+        if (!score || !fmt) return;
+        var v = parseFloat(score.value), key = fmt.value;
+        if (isNaN(v)) { if (marker) marker.style.display = "none"; return; }
+        var share = below(P[key], v), n = P["n_" + key] || 0;
+        if (share === null) return;
+        var beat = Math.round(share * n), p = Math.round(share * 100);
+        var verdict = p >= 90 ? "That's a top-10% week." : p >= 75 ? "A strong week." :
+                      p >= 50 ? "Better than most." : p >= 25 ? "Below the middle." :
+                      p >= 10 ? "A rough one." : "One of the worst in the country.";
+        out.innerHTML = '<span class="ar-rank-big">' + p + '%</span>' +
+            '<span class="ar-rank-line">' + v.toFixed(2) + ' beat <b>' + beat.toLocaleString() +
+            '</b> of ' + n.toLocaleString() + ' ' + NAMES[key] + ' in week {{ week }}. ' + verdict + '</span>';
+        if (marker && H.w && key === "all") {
+            var x = H.x0 + Math.max(0, Math.min(1, (v - H.lo) / (H.hi - H.lo))) * H.w;
+            marker.setAttribute("transform", "translate(" + x.toFixed(1) + ",0)");
+            marker.style.display = "";
+        } else if (marker) { marker.style.display = "none"; }
+    }
+    if (score) { score.addEventListener("input", update); fmt.addEventListener("change", update); }
+
+    // Hover tooltips for the columns and the week dots.
+    document.querySelectorAll(".ar-chart-box").forEach(function (box) {
+        var tip = box.querySelector(".ar-tip");
+        box.querySelectorAll(".ar-col").forEach(function (g) {
+            function show(e) {
+                tip.textContent = g.getAttribute("data-tip");
+                tip.hidden = false;
+                var r = box.getBoundingClientRect(), mr = g.getBoundingClientRect();
+                tip.style.left = (mr.left - r.left + mr.width / 2) + "px";
+                tip.style.top = "0px";
+                g.classList.add("hot");
+            }
+            function hide() { tip.hidden = true; g.classList.remove("hot"); }
+            g.addEventListener("mouseenter", show); g.addEventListener("mouseleave", hide);
+            g.addEventListener("touchstart", show, {passive: true});
+        });
+    });
+})();
+</script>
 {% endblock %}

@@ -500,6 +500,44 @@ def team_weeks_ready() -> bool:
     return True
 
 
+_LINEUPS: dict[tuple, dict[str, Any]] = {}
+_NFL_PLAYERS: dict[str, dict[str, Any]] = {}
+
+
+def upsert_lineups(rows: list[dict[str, Any]]) -> None:
+    with _lock:
+        for r in rows:
+            _LINEUPS[(r["league_id"], int(r["season"]), int(r["week"]),
+                      r["team_id"], r["player_key"])] = dict(r)
+
+
+def upsert_nfl_players(rows: list[dict[str, Any]]) -> None:
+    with _lock:
+        for r in rows:
+            _NFL_PLAYERS[r["player_key"]] = dict(r)
+
+
+def lineups_ready() -> bool:
+    return True
+
+
+def lineup_league_ids(season: int, week: int) -> set[str]:
+    return {r["league_id"] for r in _LINEUPS.values()
+            if r["season"] == int(season) and r["week"] == int(week)}
+
+
+def around_week(season: int, week: int, min_starts: int = 150) -> dict[str, Any]:
+    """The SQL function's twin (web.league_stats.compute_week)."""
+    from web.league_stats import compute_week
+    return compute_week(list(_TEAM_WEEKS.values()), list(_LINEUPS.values()),
+                        dict(_NFL_PLAYERS), int(season), int(week), min_starts)
+
+
+def around_season(season: int) -> dict[str, Any]:
+    from web.league_stats import compute_season
+    return compute_season(list(_TEAM_WEEKS.values()), int(season))
+
+
 _NFL_NOTES: dict[str, dict[str, Any]] = {}
 
 

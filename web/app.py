@@ -1121,22 +1121,33 @@ def staff_papers(request: Request, week: int = 0, sample: int = 0,
 
 @app.get("/staff/around", response_class=HTMLResponse)
 def staff_around(request: Request, week: int = 0, season: int = 0,
-                 scope: str = "week"):
+                 preview: str = ""):
+    """Around the Leagues. Staff-only for now; ?preview=public shows it the
+    way readers would see it, with no team or manager names."""
     _require_staff(request)
     import nfl_week
-    from . import league_stats
+    from . import around, league_stats
 
     season = season or nfl_week.current_season()
     latest = nfl_week.completed_week()
-    week = week or latest
+    week = min(max(week or latest, 1), max(latest, 1))
     ready = db.team_weeks_ready()
-    data = None
+    lineups_ready = ready and db.lineups_ready()
+    a, boards = None, []
     if ready:
-        data = league_stats.leaderboards(
-            db, season, None if scope == "season" else week)
-    return _render(request, "staff_around.html", ready=ready, data=data,
-                   season=season, week=week, latest=latest, scope=scope,
+        if lineups_ready:
+            a = around.build(db, season, week, public=preview == "public")
+        else:
+            a = {"public": preview == "public", "teams": 0, "summary": {},
+                 "pct": {}, "hist": {}, "season_data": {}}
+        keep = ("highest", "lowest", "blowouts", "bench")
+        boards = [b for b in league_stats.leaderboards(db, season, week)["boards"]
+                  if b["key"] in keep]
+    return _render(request, "staff_around.html", ready=ready,
+                   lineups_ready=lineups_ready, a=a, boards=boards,
+                   season=season, week=week, latest=latest,
                    weeks=list(range(1, max(latest, 1) + 1)),
+                   describe=around.describe, pct=around.pct,
                    job=league_stats.job_status())
 
 
@@ -1157,6 +1168,8 @@ def staff_around_collect(request: Request, weeks: str = Form("")):
     if chosen and db.team_weeks_ready():
         league_stats.start_background(db, chosen)
         league_stats.clear_cache()
+        from . import around
+        around.clear_cache()
     return RedirectResponse("/staff/around", status_code=303)
 
 

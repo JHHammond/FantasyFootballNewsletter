@@ -29,7 +29,7 @@ SEASON = 2026
 
 @pytest.fixture(autouse=True)
 def clean():
-    for store in (demo_db._LEAGUES, demo_db._USERS, demo_db._TEAM_WEEKS,
+    for store in (demo_db._LEAGUES, demo_db._USERS, demo_db._TEAM_WEEKS, demo_db._LINEUPS, demo_db._NFL_PLAYERS,
                   demo_db._RATE_EVENTS):
         store.clear()
     league_stats.clear_cache()
@@ -232,7 +232,7 @@ def test_staff_page_renders_boards(web):
     r = web.get("/staff/around?week=3")
     assert r.status_code == 200
     assert "Lowest scores" in r.text and "Sad Sacks" in r.text
-    assert "Backfill weeks 1" in r.text
+    assert "Collect weeks 1" in r.text
 
 
 def test_backfill_button_starts_a_background_run(web, monkeypatch):

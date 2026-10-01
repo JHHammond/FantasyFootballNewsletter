@@ -871,6 +871,66 @@ def team_weeks_summary(season: int, week: Optional[int]) -> dict[str, Any]:
     return row or {}
 
 
+# ---- Lineups and standardized PPR (migration 029) ----------------------------
+
+def _rpc_json(name: str, params: dict[str, Any]) -> Any:
+    data = client().rpc(name, params).execute().data
+    if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict) \
+            and name in data[0]:
+        data = data[0][name]
+    if isinstance(data, dict) and name in data and len(data) == 1:
+        data = data[name]
+    return data
+
+
+_PLAYERS_SAVED: set[str] = set()
+_LINEUPS_READY = False
+
+
+def upsert_lineups(rows: list[dict[str, Any]]) -> None:
+    for i in range(0, len(rows), 1000):
+        client().table("lineup_players").upsert(
+            rows[i:i + 1000],
+            on_conflict="league_id,season,week,team_id,player_key").execute()
+
+
+def upsert_nfl_players(rows: list[dict[str, Any]]) -> None:
+    """Names change rarely; each process writes a player once."""
+    fresh = [r for r in rows if r["player_key"] not in _PLAYERS_SAVED]
+    for i in range(0, len(fresh), 1000):
+        client().table("nfl_players").upsert(
+            fresh[i:i + 1000], on_conflict="player_key").execute()
+    _PLAYERS_SAVED.update(r["player_key"] for r in fresh)
+
+
+def lineups_ready() -> bool:
+    """Has migration 029 been run? Once yes, yes for the process."""
+    global _LINEUPS_READY
+    if _LINEUPS_READY:
+        return True
+    try:
+        client().table("lineup_players").select("league_id").limit(1).execute()
+        client().table("team_weeks").select("ppr_points").limit(1).execute()
+        _LINEUPS_READY = True
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
+def lineup_league_ids(season: int, week: int) -> set[str]:
+    data = _rpc_json("lineup_league_ids", {"p_season": int(season), "p_week": int(week)})
+    return {str(x) for x in (data or [])}
+
+
+def around_week(season: int, week: int, min_starts: int = 150) -> dict[str, Any]:
+    return _rpc_json("around_week", {"p_season": int(season), "p_week": int(week),
+                                     "p_min_starts": int(min_starts)}) or {}
+
+
+def around_season(season: int) -> dict[str, Any]:
+    return _rpc_json("around_season", {"p_season": int(season)}) or {}
+
+
 def team_weeks_ready() -> bool:
     try:
         client().table("team_weeks").select("league_id").limit(1).execute()
