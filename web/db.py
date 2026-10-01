@@ -1003,6 +1003,11 @@ def luck_search(season: int, name: str) -> list[dict[str, Any]]:
     return _rpc_json("luck_search", {"p_season": int(season), "p_name": name}) or []
 
 
+def luck_team(season: int, league_id: str, team_id: str) -> dict[str, Any]:
+    return _rpc_json("luck_team", {"p_season": int(season), "p_league": str(league_id),
+                                   "p_team": str(team_id)}) or {}
+
+
 def luck_ready() -> bool:
     try:
         _rpc_json("luck_search", {"p_season": 0, "p_name": ""})

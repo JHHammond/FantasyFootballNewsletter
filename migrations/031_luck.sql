@@ -141,15 +141,111 @@ returns json language sql stable as $$
 $$;
 
 
--- The whole country, as percentiles of total luck (for "luckier than 96%"),
--- and the three luckiest and unluckiest teams for the page's footer.
+-- The whole country: percentiles of total luck (for "luckier than 96%"), a
+-- histogram in half-win steps, how many are blessed and cursed, and the three
+-- luckiest and unluckiest teams in America.
 create or replace function public.luck_national(p_season integer)
 returns json language sql stable as $$
-    with r as (select * from public.luck_rows(p_season, null))
+    with r as materialized (select * from public.luck_rows(p_season, null)),
+    c as (
+        select r.*, json_build_object(
+            'league_id', league_id, 'team_id', team_id, 'team_name', team_name,
+            'manager', manager, 'provider', provider, 'team_count', team_count,
+            'scoring_type', scoring_type, 'w', w, 'l', l, 't', t,
+            'total', total, 'schedule', schedule, 'players', players) as card
+          from r
+    )
     select json_build_object(
         'teams', (select count(*) from r),
         'pct', (select percentile_cont(array(select g / 100.0 from generate_series(0, 100) g)::float8[])
-                         within group (order by total) from r));
+                         within group (order by total) from r),
+        'blessed', (select count(*) from r where total >= 1.5),
+        'cursed', (select count(*) from r where total <= -1.5),
+        'hist', (select coalesce(json_agg(json_build_object('lo', lo, 'n', n) order by lo), '[]'::json)
+                   from (select greatest(-4.0, least(3.5, floor(total * 2) / 2.0)) as lo, count(*) as n
+                           from r group by 1) h),
+        'luckiest', (select coalesce(json_agg(card order by total desc, league_id, team_id collate "C"), '[]'::json)
+                       from (select * from c order by total desc, league_id, team_id collate "C" limit 3) x),
+        'unluckiest', (select coalesce(json_agg(card order by total, league_id, team_id collate "C"), '[]'::json)
+                         from (select * from c order by total, league_id, team_id collate "C" limit 3) x));
+$$;
+
+
+-- One team's season, week by week and player by player: the raw material
+-- for the Luck Report's cards (its unluckiest week, the opponent who played
+-- out of his mind, the starter who went missing).
+create or replace function public.luck_team(p_season integer, p_league uuid, p_team text)
+returns json language sql stable as $$
+with g as (
+    select t.*, avg(t.points) over (partition by t.team_id) as team_avg
+      from public.team_weeks t
+     where t.season = p_season and t.league_id = p_league
+       and t.result in ('W', 'L', 'T') and t.points > 0
+),
+pavg as (
+    select lp.player_key, avg(lp.points) as avg_pts
+      from public.lineup_players lp
+     where lp.season = p_season and lp.league_id = p_league and lp.points > 0
+     group by lp.player_key
+),
+dev as (
+    select lp.team_id, lp.week, sum(lp.points - pa.avg_pts) as dev
+      from public.lineup_players lp join pavg pa on pa.player_key = lp.player_key
+     where lp.season = p_season and lp.league_id = p_league and lp.started
+     group by lp.team_id, lp.week
+),
+gw as (
+    select g.*, d.dev, g.points - coalesce(d.dev, 0) as adj,
+           count(*) over (partition by g.week) as n,
+           rank() over (partition by g.week order by g.points desc) as place
+      from g left join dev d on d.team_id = g.team_id and d.week = g.week
+),
+mine as (select * from gw where gw.team_id = p_team),
+ap as (
+    select a.week,
+           sum(case when b.points < a.points then 1.0
+                    when b.points = a.points then 0.5 else 0 end) / (a.n - 1) as ap_real,
+           sum(case when b.points < a.adj - 0.000001 then 1.0
+                    when abs(b.points - a.adj) <= 0.000001 then 0.5 else 0 end) / (a.n - 1) as ap_adj
+      from mine a join gw b on b.week = a.week and b.team_id <> a.team_id
+     where a.n > 1
+     group by a.week, a.n
+),
+opp as (
+    select distinct on (a.week) a.week, o.team_id as opp_id, o.team_name as opp_name,
+           o.team_avg as opp_avg
+      from mine a
+      join g o on o.week = a.week and o.team_id <> a.team_id
+              and o.points = a.opponent_points and o.opponent_points = a.points
+     order by a.week, o.team_id collate "C"
+),
+pl as (
+    select lp.player_key, lp.week, lp.points, lp.points - pa.avg_pts as dev
+      from public.lineup_players lp join pavg pa on pa.player_key = lp.player_key
+     where lp.season = p_season and lp.league_id = p_league
+       and lp.team_id = p_team and lp.started
+)
+select json_build_object(
+    'weeks', (select coalesce(json_agg(json_build_object(
+                  'week', m.week, 'points', m.points, 'opponent_points', m.opponent_points,
+                  'result', m.result, 'place', m.place, 'n', m.n,
+                  'opp_id', o.opp_id, 'opp_name', coalesce(o.opp_name, m.opponent_name),
+                  'opp_avg', round(o.opp_avg::numeric, 2),
+                  'ap_real', round(ap.ap_real::numeric, 3), 'ap_adj', round(ap.ap_adj::numeric, 3),
+                  'dev', round(m.dev::numeric, 2)) order by m.week), '[]'::json)
+                from mine m
+                left join ap on ap.week = m.week
+                left join opp o on o.week = m.week),
+    'players', (select coalesce(json_agg(x order by x.dev_total, x.player_key collate "C"), '[]'::json)
+                  from (select pl.player_key, coalesce(np.name, pl.player_key) as name,
+                               np.position, count(*) as starts,
+                               round(sum(pl.dev)::numeric, 2) as dev_total,
+                               round(avg(pl.dev)::numeric, 2) as dev_avg,
+                               round(min(pl.points)::numeric, 2) as worst,
+                               round(max(pl.points)::numeric, 2) as best
+                          from pl left join public.nfl_players np on np.player_key = pl.player_key
+                         group by pl.player_key, np.name, np.position) x)
+);
 $$;
 
 

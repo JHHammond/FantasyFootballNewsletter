@@ -157,7 +157,9 @@ def test_league_page_and_a_team_card(web, monkeypatch):
         assert name in page.text
     card = web.get(f"/luck/{lg['public_slug']}?team=b")
     assert "wins of luck" in card.text and "-0.7" in card.text
-    assert "Share my luck" in card.text and "played like a" in card.text
+    assert "Share my report" in card.text and "played like a" in card.text
+    assert "The Luck Report" in card.text and "Around the country" in card.text
+    assert f"/luck/{lg['public_slug']}/card/b.png?size=og" in card.text      # the link preview
     assert "Read this week&#39;s paper" in card.text
 
 
@@ -167,3 +169,47 @@ def test_a_duplicate_league_row_finds_the_stats(web, monkeypatch):
     twin = _league(name="Twin", pid="k1")          # same real league, second row
     page = web.get(f"/luck/{twin['public_slug']}")
     assert "Mike Vick Legal Team" in page.text
+
+
+def test_the_report_cards():
+    rows = luck.compute(_league4(), [], SEASON)
+    for r in rows:
+        r.update(verdict=luck.verdict(r["total"]), luckier_than=50,
+                 deserved_w=round(r["w"] + 0.5 * r["t"] - r["total"], 1),
+                 deserved_l=round(r["games"] - (r["w"] + 0.5 * r["t"] - r["total"]), 1))
+    b = next(r for r in rows if r["team_id"] == "b")
+    detail = luck.compute_team(_league4(), [], SEASON, "L", "b")
+    rep = luck.report(b, detail, rows)
+    kinds = [c["kind"] for c in rep["cards"]]
+    assert kinds[0] == "record" and "league" in kinds
+    week = next(c for c in rep["cards"] if c["kind"] == "week")
+    # week 1: b scored 130, 2nd of 4, and lost
+    assert week["big"] == "2nd of 4" and week["sub"] == "And you lost."
+    assert rep["highlights"][0].startswith("Week 1: the 2nd-highest score")
+    c = next(r for r in rows if r["team_id"] == "c")
+    skill = next(x for x in luck.report(c, luck.compute_team(_league4(), [], SEASON, "L", "c"), rows)["cards"]
+                 if x["kind"] == "skill")
+    assert skill["big"] == "1"                       # c's bench would have won week 2
+
+
+def test_share_images(web, monkeypatch):
+    monkeypatch.setenv("LUCK_PUBLIC", "1")
+    lg = _seed()
+    from PIL import Image
+    import io
+    for size, dims in (("story", (1080, 1920)), ("square", (1080, 1080)), ("og", (1200, 630))):
+        r = web.get(f"/luck/{lg['public_slug']}/card/b.png?size={size}")
+        assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+        assert Image.open(io.BytesIO(r.content)).size == dims
+    assert web.get(f"/luck/{lg['public_slug']}/card/nobody.png").status_code == 404
+
+
+def test_card_text_survives_emoji_and_long_names():
+    from web import luck_card
+    team = {"team_name": "\U0001F3C8 Win now or lifelong rebuild Dynasty forever and ever \U0001F3C8",
+            "manager": "x", "total": -0.02, "schedule": 0.0, "players": 0.0, "w": 1, "l": 1, "t": 0,
+            "deserved_w": 1.0, "deserved_l": 1.0, "verdict": "Fair", "luckier_than": 51}
+    for size in luck_card.SIZES:
+        assert luck_card.render(team, "League", 100, 3, size, ["A line."])[:8] == b"\x89PNG\r\n\x1a\n"
+    assert luck_card.signed(-0.02) == "0.0" and luck_card.signed(-1.25) == "\u22121.2"
+    assert luck_card.rank_line(4, 15726) == "Unluckier than 96% of 15,726 teams in America."

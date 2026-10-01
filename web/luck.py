@@ -170,11 +170,99 @@ def compute(team_rows: list[dict], lineup_rows: list[dict], season: int,
     return out
 
 
+_CARD_KEYS = ("league_id", "team_id", "team_name", "manager", "provider", "team_count",
+              "scoring_type", "w", "l", "t", "total", "schedule", "players")
+
+
 def national(rows: list[dict]) -> dict:
+    import math
     from web.league_stats import _pct
     totals = sorted(r["total"] for r in rows)
+    hist: dict = {}
+    for v in totals:
+        lo = max(-4.0, min(3.5, math.floor(v * 2) / 2.0))
+        hist[lo] = hist.get(lo, 0) + 1
+    card = lambda r: {k: r.get(k) for k in _CARD_KEYS}  # noqa: E731
+    tk = lambda r: (str(r["league_id"]), str(r["team_id"]))  # noqa: E731
     return {"teams": len(totals),
-            "pct": [_pct(totals, g / 100) for g in range(101)] if totals else None}
+            "pct": [_pct(totals, g / 100) for g in range(101)] if totals else None,
+            "blessed": sum(1 for v in totals if v >= 1.5),
+            "cursed": sum(1 for v in totals if v <= -1.5),
+            "hist": [{"lo": k, "n": hist[k]} for k in sorted(hist)],
+            "luckiest": [card(r) for r in sorted(rows, key=lambda r: (-r["total"], tk(r)))[:3]],
+            "unluckiest": [card(r) for r in sorted(rows, key=lambda r: (r["total"], tk(r)))[:3]]}
+
+
+def compute_team(team_rows: list[dict], lineup_rows: list[dict], season: int,
+                 league_id: str, team_id: str, names: Optional[dict] = None) -> dict:
+    """luck_team's twin: one team's weeks and starters."""
+    from web.league_stats import _r
+    g = [dict(r, points=_f(r["points"]), opponent_points=_f(r.get("opponent_points")))
+         for r in team_rows
+         if int(r["season"]) == season and r["league_id"] == league_id
+         and r["result"] in ("W", "L", "T") and (_f(r["points"]) or 0) > 0]
+    tavg: dict = {}
+    for r in g:
+        tavg.setdefault(r["team_id"], []).append(r["points"])
+    tavg = {k: sum(v) / len(v) for k, v in tavg.items()}
+    lu = [l for l in lineup_rows if int(l["season"]) == season and l["league_id"] == league_id]
+    pv: dict = {}
+    for l in lu:
+        if _f(l["points"]) and _f(l["points"]) > 0:
+            pv.setdefault(l["player_key"], []).append(_f(l["points"]))
+    pavg = {k: sum(v) / len(v) for k, v in pv.items()}
+    dev: dict = {}
+    for l in lu:
+        if l["started"] and l["player_key"] in pavg:
+            k = (l["team_id"], int(l["week"]))
+            dev[k] = dev.get(k, 0.0) + (_f(l["points"]) - pavg[l["player_key"]])
+    by_week: dict = {}
+    for r in g:
+        r["dev"] = dev.get((r["team_id"], int(r["week"])))
+        r["adj"] = r["points"] - (r["dev"] or 0.0)
+        by_week.setdefault(int(r["week"]), []).append(r)
+    weeks = []
+    for wk in sorted(by_week):
+        rows = by_week[wk]
+        mine = next((r for r in rows if r["team_id"] == team_id), None)
+        if mine is None:
+            continue
+        n = len(rows)
+        others = [b for b in rows if b["team_id"] != team_id]
+        ap_real = ap_adj = None
+        if n > 1:
+            ap_real = sum(1.0 if b["points"] < mine["points"] else
+                          0.5 if b["points"] == mine["points"] else 0.0 for b in others) / (n - 1)
+            ap_adj = sum(1.0 if b["points"] < mine["adj"] - 1e-6 else
+                         0.5 if abs(b["points"] - mine["adj"]) <= 1e-6 else 0.0
+                         for b in others) / (n - 1)
+        opps = sorted([o for o in others if o["points"] == mine["opponent_points"]
+                       and o["opponent_points"] == mine["points"]], key=lambda o: str(o["team_id"]))
+        o = opps[0] if opps else None
+        weeks.append({
+            "week": wk, "points": mine["points"], "opponent_points": mine["opponent_points"],
+            "result": mine["result"],
+            "place": 1 + sum(1 for b in rows if b["points"] > mine["points"]), "n": n,
+            "opp_id": o["team_id"] if o else None,
+            "opp_name": (o.get("team_name") if o else None) or mine.get("opponent_name"),
+            "opp_avg": _r(tavg.get(o["team_id"])) if o else None,
+            "ap_real": _r(ap_real, 3), "ap_adj": _r(ap_adj, 3),
+            "dev": _r(mine["dev"]),
+        })
+    pl: dict = {}
+    for l in lu:
+        if l["team_id"] == team_id and l["started"] and l["player_key"] in pavg:
+            pl.setdefault(l["player_key"], []).append(_f(l["points"]))
+    players = []
+    for k, pts in pl.items():
+        devs = [p - pavg[k] for p in pts]
+        meta = (names or {}).get(k) or {}
+        players.append({"player_key": k, "name": meta.get("name") or k,
+                        "position": meta.get("position"), "starts": len(pts),
+                        "dev_total": _r(sum(devs)), "dev_avg": _r(sum(devs) / len(devs)),
+                        "worst": _r(min(pts)), "best": _r(max(pts))})
+    players.sort(key=lambda p: (p["dev_total"], p["player_key"]))
+    return {"weeks": weeks, "players": players}
 
 
 # ---------------------------------------------------------------------------
@@ -210,23 +298,31 @@ def share_below(pct: Optional[list], value: float) -> Optional[float]:
     return 1.0
 
 
-def _league_rows(db, season: int, league: dict) -> list[dict]:
+def _league_rows(db, season: int, league: dict) -> tuple[list[dict], str]:
+    """(rows, the league id the stats are stored under)."""
     rows = db.luck_league(season, league["id"]) or []
     if rows:
-        return rows
+        return rows, league["id"]
     # The same real league connected twice: its stats live under one row.
     for other in db.sibling_league_ids(league.get("provider"),
                                        league.get("platform_league_id"), season):
         if other != league["id"]:
             rows = db.luck_league(season, other) or []
             if rows:
-                return rows
-    return []
+                return rows, other
+    return [], league["id"]
+
+
+def team_report(db, season: int, stats_league_id: str, team: dict,
+                league_rows: list[dict]) -> dict:
+    detail = _cached(("team", season, stats_league_id, str(team["team_id"])),
+                     lambda: db.luck_team(season, stats_league_id, str(team["team_id"])))
+    return report(team, detail or {}, league_rows)
 
 
 def league_page(db, season: int, league: dict) -> dict:
-    rows = _cached(("league", season, league["id"]),
-                   lambda: _league_rows(db, season, league))
+    rows, stats_id = _cached(("league", season, league["id"]),
+                             lambda: _league_rows(db, season, league))
     rows = [dict(r) for r in rows]
     # The whole country takes a few seconds and only changes on Tuesdays:
     # an hour's cache, and a page without it rather than no page.
@@ -249,6 +345,152 @@ def league_page(db, season: int, league: dict) -> dict:
         r["bar"] = round(50 * abs(r["total"]) / spread, 1)       # % of half the track
         r["deserved_w"] = round(r["w"] + 0.5 * r["t"] - r["total"], 1)
         r["deserved_l"] = round(r["games"] - r["deserved_w"], 1)
-    return {"teams": rows, "national": nat.get("teams") or 0,
+    for r in rows:
+        from web.luck_card import rank_line
+        r["rank_line"] = rank_line(r.get("luckier_than"), nat.get("teams") or 0)
+    return {"teams": rows, "national": nat.get("teams") or 0, "nat": nat,
+            "stats_league_id": stats_id,
             "has_players": any(r.get("has_players") for r in rows),
             "through": max((r["last_week"] for r in rows), default=None)}
+
+
+# ---------------------------------------------------------------------------
+# The Luck Report: one team's season as story cards (John, 1 Oct: "like a
+# Spotify Wrapped thing"). Each card is one sentence with one big number.
+# Cards that have nothing to say are left out rather than padded.
+# ---------------------------------------------------------------------------
+
+def _ordinal(n: int) -> str:
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _pts(v) -> str:
+    return f"{float(v):.1f}"
+
+
+def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
+    """{"cards": [...], "highlights": [...]} for one team. `team` is its row
+    from league_page (with verdict, luckier_than, deserved_w/l)."""
+    weeks = [w for w in (detail.get("weeks") or []) if w.get("ap_real") is not None]
+    players = detail.get("players") or []
+    cards: list[dict] = []
+    highlights: list[str] = []
+    rec = f"{team['w']}-{team['l']}" + (f"-{team['t']}" if team.get("t") else "")
+    dw, dl = team["deserved_w"], team["deserved_l"]
+
+    # 2. the record, and the record you earned
+    if abs(team["total"]) < 0.25:
+        cards.append({"kind": "record", "kicker": "The record", "big": rec,
+                      "line": "Right about what you earned. The football gods are even with you.",
+                      "sub": f"You played like a {dw:.1f}-{dl:.1f} team."})
+    else:
+        cards.append({"kind": "record", "kicker": "The record", "big": rec,
+                      "line": f"You played like a {dw:.1f}-{dl:.1f} team.",
+                      "sub": ("Somebody owes you." if team["total"] < 0
+                              else "Somebody up there likes you.")})
+
+    # 3. the unluckiest loss and the luckiest win
+    losses = [w for w in weeks if w["result"] == "L"]
+    wins = [w for w in weeks if w["result"] == "W"]
+    if losses:
+        w = max(losses, key=lambda x: (x["ap_real"], -x["week"]))
+        if w["ap_real"] >= 0.5:
+            line = (f"You scored {_pts(w['points'])}, the {_ordinal(w['place'])}-highest "
+                    f"score of {w['n']} in your league.")
+            cards.append({"kind": "week", "kicker": "Your unluckiest week",
+                          "eyebrow": f"Week {w['week']}", "big": f"{_ordinal(w['place'])} of {w['n']}",
+                          "line": line, "sub": "And you lost.", "tone": "down"})
+            highlights.append(f"Week {w['week']}: the {_ordinal(w['place'])}-highest score "
+                              f"in the league. Lost.")
+    if wins:
+        w = min(wins, key=lambda x: (x["ap_real"], x["week"]))
+        if w["ap_real"] <= 0.5:
+            cards.append({"kind": "week", "kicker": "Your luckiest week",
+                          "eyebrow": f"Week {w['week']}", "big": f"{_ordinal(w['place'])} of {w['n']}",
+                          "line": f"You scored {_pts(w['points'])}. That would have lost to "
+                                  f"{w['n'] - w['place']} teams in your league.",
+                          "sub": "You drew the one it beat.", "tone": "up"})
+            if not highlights:
+                highlights.append(f"Week {w['week']}: {_ordinal(w['place'])} of {w['n']} "
+                                  f"in the league. Won anyway.")
+
+    # 4. the opponent who found another gear (or forgot to show up)
+    faced = [w for w in weeks if w.get("opp_avg") is not None and w.get("opponent_points") is not None]
+    if faced:
+        hot = max(faced, key=lambda x: (x["opponent_points"] - x["opp_avg"], -x["week"]))
+        delta = hot["opponent_points"] - hot["opp_avg"]
+        if delta >= 8:
+            cards.append({"kind": "opponent", "kicker": "The opponent who found another gear",
+                          "eyebrow": f"Week {hot['week']} \u00b7 {hot['opp_name']}",
+                          "big": f"+{delta:.1f}",
+                          "line": f"{hot['opp_name']} averages {_pts(hot['opp_avg'])}. "
+                                  f"They scored {_pts(hot['opponent_points'])}.",
+                          "sub": "Against you, naturally.", "tone": "down"})
+            highlights.append(f"{hot['opp_name']} scored {delta:.0f} above their average. "
+                              f"Against you.")
+        cold = min(faced, key=lambda x: (x["opponent_points"] - x["opp_avg"], x["week"]))
+        cdelta = cold["opponent_points"] - cold["opp_avg"]
+        if cdelta <= -8 and cold["result"] == "W":
+            cards.append({"kind": "opponent", "kicker": "The opponent who didn't show up",
+                          "eyebrow": f"Week {cold['week']} \u00b7 {cold['opp_name']}",
+                          "big": f"\u2212{abs(cdelta):.1f}",
+                          "line": f"{cold['opp_name']} averages {_pts(cold['opp_avg'])}. "
+                                  f"Against you: {_pts(cold['opponent_points'])}.",
+                          "sub": "You'll take it.", "tone": "up"})
+
+    # 5. your players: the bust and the boom
+    if players:
+        bust = players[0]
+        if bust["dev_total"] <= -6:
+            cards.append({"kind": "player", "kicker": "Your biggest no-show",
+                          "eyebrow": bust.get("name") or bust["player_key"],
+                          "big": f"\u2212{abs(bust['dev_total']):.1f}",
+                          "line": f"Points below his own average, across {bust['starts']} "
+                                  f"start{'s' if bust['starts'] != 1 else ''} for you.",
+                          "sub": f"Low point: {_pts(bust['worst'])}.", "tone": "down",
+                          "position": bust.get("position")})
+        boom = players[-1]
+        if boom["dev_total"] >= 6 and boom is not bust:
+            cards.append({"kind": "player", "kicker": "The one who carried you",
+                          "eyebrow": boom.get("name") or boom["player_key"],
+                          "big": f"+{boom['dev_total']:.1f}",
+                          "line": f"Points above his own average, across {boom['starts']} "
+                                  f"start{'s' if boom['starts'] != 1 else ''} for you.",
+                          "sub": f"Best game: {_pts(boom['best'])}.", "tone": "up",
+                          "position": boom.get("position")})
+
+    # 6. close games
+    cw, cl = team.get("close_w") or 0, team.get("close_l") or 0
+    if cw + cl:
+        cards.append({"kind": "close", "kicker": "Coin flips", "big": f"{cw}-{cl}",
+                      "line": "In games decided by a few points.",
+                      "sub": ("The coin hates you." if cl > cw else
+                              "The coin loves you." if cw > cl else "Dead even."),
+                      "tone": "down" if cl > cw else "up" if cw > cl else None})
+
+    # 7. not luck
+    own = team.get("own_losses") or 0
+    bench = team.get("bench_avg")
+    if own:
+        cards.append({"kind": "skill", "kicker": "Not luck", "big": str(own),
+                      "line": f"Loss{'es' if own != 1 else ''} your own bench would have won.",
+                      "sub": "That one's on you." if own == 1 else "Those are on you.",
+                      "tone": "down"})
+        highlights.append(f"Your bench would have won {own} of your losses.")
+    elif bench is not None:
+        cards.append({"kind": "skill", "kicker": "Not luck", "big": _pts(bench),
+                      "line": "Points a week left on your bench.",
+                      "sub": "None of your losses were the lineup's fault." if team["l"]
+                             else "Never cost you a game. Yet."})
+
+    # 8. league place
+    if league_rows:
+        place = 1 + sum(1 for r in league_rows if r["total"] > team["total"])
+        cards.append({"kind": "league", "kicker": "In your league",
+                      "big": f"{_ordinal(place)} of {len(league_rows)}",
+                      "line": ("The luckiest team in the league." if place == 1 else
+                               "The unluckiest team in the league." if place == len(league_rows)
+                               else "On the luck table."),
+                      "sub": "One more card: the verdict."})
+    return {"cards": cards, "highlights": highlights[:3]}

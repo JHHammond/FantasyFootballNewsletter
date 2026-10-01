@@ -2,108 +2,181 @@
 {% from "_macros.html" import flow_button %}
 {% set lname = league.paper_name or league.league_name %}
 {% block title %}{% if chosen %}{{ chosen.team_name }}: {{ '%+.1f'|format(chosen.total) }} wins of luck{% else %}{{ league.league_name }} &middot; The Luck Index{% endif %}{% endblock %}
-{% block description %}{% if chosen %}{{ chosen.team_name }} is {{ chosen.verdict|lower }}{% if chosen.luckier_than is not none %}: luckier than {{ chosen.luckier_than }}% of teams in America{% endif %}. How lucky is your team?{% else %}Who got lucky in {{ league.league_name }}? The Luck Index, measured in wins.{% endif %}{% endblock %}
+{% block description %}{% if chosen %}{{ chosen.team_name }} is {{ chosen.verdict|lower }}. {{ chosen.rank_line }} How lucky is your team?{% else %}Who got lucky in {{ league.league_name }}? The Luck Index, measured in wins.{% endif %}{% endblock %}
 {% block wrapclass %}home around luck{% endblock %}
 {% block og_title %}{% if chosen %}{{ chosen.team_name }}: {{ '%+.1f'|format(chosen.total) }} wins of luck. {{ chosen.verdict }}.{% else %}Who got lucky in {{ league.league_name }}?{% endif %}{% endblock %}
-{% block og_description %}{% if chosen and chosen.luckier_than is not none %}Luckier than {{ chosen.luckier_than }}% of teams in America. How lucky is yours?{% else %}The Luck Index: the wins you have, minus the wins you earned.{% endif %}{% endblock %}
+{% block og_description %}{% if chosen and chosen.rank_line %}{{ chosen.rank_line }} How lucky is yours?{% else %}The Luck Index: the wins you have, minus the wins you earned.{% endif %}{% endblock %}
+{% block og_image %}{% if card_url %}{{ card_url }}?size=og{% else %}{{ public_base() }}/static/brand/og-image.png{% endif %}{% endblock %}
 
-
-{% macro signed(v) -%}{% if v is none %}–{% elif (v|float)|abs < 0.05 %}0.0{% else %}{{ '%+.1f'|format(v|float) }}{% endif %}{%- endmacro %}
+{% macro signed(v) -%}{% if v is none %}–{% elif (v|float)|abs < 0.05 %}0.0{% else %}{{ ('%+.1f'|format(v|float)).replace('-', '−') }}{% endif %}{%- endmacro %}
 {% macro bar(v, spread) -%}
 <span class="lk-bar" aria-hidden="true"><span class="lk-mid"></span>
-{%- if v is not none and v|float != 0 -%}
+{%- if v is not none and (v|float)|abs >= 0.05 -%}
 <i class="{{ 'up' if v|float > 0 else 'down' }}" style="width:{{ [50, 50 * (v|float)|abs / spread]|min }}%"></i>
 {%- endif -%}
 </span>
 {%- endmacro %}
+{% macro tone(total) -%}{{ 'up' if total > 0.5 else 'down' if total < -0.5 else 'even' }}{%- endmacro %}
 
 {% block content %}
 {% if not public %}<div class="alert alert-error ar-note"><strong>Staff preview.</strong> Set <code>LUCK_PUBLIC=1</code> on Render to open the Luck Index to everyone.</div>{% endif %}
 
 {% set teams = data.teams %}
 {% set spread = ([1.0] + teams|map(attribute='total')|map('abs')|list)|max %}
+{% set nat = data.nat or {} %}
 
+{% if chosen and report %}
+{# ================================================================ the report #}
+<section class="lr" id="lr" aria-roledescription="carousel" aria-label="The Luck Report for {{ chosen.team_name }}">
+    <div class="lr-frame">
+        <div class="lr-progress" aria-hidden="true">
+            {% for _ in range(report.cards|length + 2) %}<span><i></i></span>{% endfor %}
+        </div>
+        <div class="lr-track" id="lr-track" tabindex="0">
+
+            <article class="lr-slide lr-cover" aria-label="Cover">
+                <div class="lr-cover-top">
+                    <span>Special edition</span><span>Through week {{ data.through }}</span>
+                </div>
+                <div class="lr-cover-mid">
+                    <span class="lr-kicker">The Luck Report</span>
+                    <h1 class="lr-cover-name">{{ chosen.team_name }}</h1>
+                    <p class="lr-cover-league">{{ league.league_name }}{% if chosen.manager %} &middot; {{ chosen.manager }}{% endif %}</p>
+                </div>
+                <p class="lr-hint"><span class="lr-hint-touch">Swipe</span><span class="lr-hint-mouse">Click or use the arrow keys</span> &rarr;</p>
+            </article>
+
+            {% for c in report.cards %}
+            <article class="lr-slide lr-{{ c.kind }} {{ 'tone-' ~ c.tone if c.tone }}" aria-label="{{ c.kicker }}">
+                <span class="lr-kicker">{{ c.kicker }}</span>
+                {% if c.eyebrow %}<span class="lr-eyebrow">{{ c.eyebrow }}{% if c.position %} <b class="ar-pos">{{ c.position }}</b>{% endif %}</span>{% endif %}
+                <div class="lr-big{{ ' long' if c.big|length > 5 }}">{{ c.big }}</div>
+                <p class="lr-line">{{ c.line }}</p>
+                {% if c.sub %}<p class="lr-sub">{{ c.sub }}</p>{% endif %}
+            </article>
+            {% endfor %}
+
+            <article class="lr-slide lr-verdict tone-{{ tone(chosen.total) }}" aria-label="The verdict">
+                <span class="lr-kicker">The verdict</span>
+                <div class="lr-verdict-num">
+                    <span class="lr-big" data-count="{{ '%.1f'|format(chosen.total) }}">{{ signed(chosen.total) }}</span>
+                    <span class="lk-stamp {{ tone(chosen.total) }}"><span>{{ chosen.verdict }}</span></span>
+                </div>
+                <span class="lr-unit">wins of luck</span>
+                {% if chosen.rank_line %}<p class="lr-line">{{ chosen.rank_line }}</p>{% endif %}
+                <div class="lr-parts">
+                    <div class="lr-part"><span>Schedule luck</span>{{ bar(chosen.schedule, 1.5) }}<b>{{ signed(chosen.schedule) }}</b></div>
+                    <div class="lr-part"><span>Player luck</span>{{ bar(chosen.players, 1.5) }}<b>{{ signed(chosen.players) }}</b></div>
+                </div>
+                <div class="lr-share">
+                    <button type="button" class="flow-btn lr-share-btn" data-size="story">Share my report</button>
+                    <div class="lr-share-more">
+                        <a href="{{ card_url }}?size=story" download>Story image</a>
+                        <a href="{{ card_url }}?size=square" download>Square image</a>
+                        <button type="button" class="lr-copy">Copy link</button>
+                    </div>
+                    <span class="lr-copied" hidden>Link copied.</span>
+                </div>
+            </article>
+        </div>
+    </div>
+    <button type="button" class="lr-nav lr-prev" aria-label="Previous">&larr;</button>
+    <button type="button" class="lr-nav lr-next" aria-label="Next">&rarr;</button>
+</section>
+{% else %}
 <section class="front">
     <p class="dateline">
         <span>{{ league.league_name }}</span>
         <span class="dateline-mid">The Luck Index{% if data.through %} &middot; through week {{ data.through }}{% endif %}</span>
         <span><a href="/luck">Find another league</a></span>
     </p>
-    {% if chosen %}
-    <div class="lk-card">
-        <div class="lk-card-main">
-            <span class="lk-kicker">{{ chosen.team_name }}{% if chosen.manager %} &middot; {{ chosen.manager }}{% endif %}</span>
-            <div class="lk-total {{ 'up' if chosen.total > 0 else 'down' if chosen.total < 0 }}">{{ signed(chosen.total) }}</div>
-            <div class="lk-unit">wins of luck</div>
-            {% if chosen.luckier_than is not none and data.national %}
-            <p class="lk-rank">Luckier than <b>{{ chosen.luckier_than }}%</b> of {{ '{:,}'.format(data.national) }} teams in America.</p>
-            {% endif %}
-            <p class="lk-record">{{ chosen.w }}-{{ chosen.l }}{% if chosen.t %}-{{ chosen.t }}{% endif %} &middot; played like a
-                <b>{{ '%.1f'|format(chosen.deserved_w) }}-{{ '%.1f'|format(chosen.deserved_l) }}</b> team</p>
-        </div>
-        <div class="lk-stamp {{ 'up' if chosen.total > 0.5 else 'down' if chosen.total < -0.5 }}"><span>{{ chosen.verdict }}</span></div>
-
-        <div class="lk-break">
-            <div class="lk-row">
-                <span class="lk-row-name">Schedule luck<small>who you drew, and when</small></span>
-                {{ bar(chosen.schedule, 1.5) }}
-                <b class="lk-row-val">{{ signed(chosen.schedule) }}</b>
-            </div>
-            <div class="lk-row">
-                <span class="lk-row-name">Player luck<small>{% if chosen.has_players %}starters against their own averages{% else %}lineups still being collected{% endif %}</small></span>
-                {{ bar(chosen.players, 1.5) }}
-                <b class="lk-row-val">{{ signed(chosen.players) }}</b>
-            </div>
-        </div>
-
-        <ul class="lk-receipts">
-            {% if chosen.opp_luck is not none %}
-            <li>Opponents scored <b>{{ '%.1f'|format(chosen.opp_luck|abs) }} {{ 'less' if chosen.opp_luck > 0 else 'more' }}</b> than their own average against you, a week.</li>
-            {% endif %}
-            {% if chosen.has_players and chosen.player_dev is not none %}
-            <li>Your starters played <b>{{ '%.1f'|format(chosen.player_dev|abs) }} points a week {{ 'above' if chosen.player_dev > 0 else 'below' }}</b> their own averages.</li>
-            {% endif %}
-            <li><b>{{ chosen.close_w }}-{{ chosen.close_l }}</b> in close games.</li>
-            {% if chosen.gifts %}<li>Opponents&rsquo; own benches handed you <b>{{ chosen.gifts }} win{{ 's' if chosen.gifts != 1 }}</b>.</li>{% endif %}
-            <li class="lk-skill">Not luck: your bench would have won <b>{{ chosen.own_losses }}</b> of your losses{% if chosen.bench_avg is not none %}, and you left <b>{{ '%.1f'|format(chosen.bench_avg) }}</b> points a week on it{% endif %}.</li>
-        </ul>
-
-        <div class="lk-share">
-            <button type="button" class="flow-btn" id="lk-share"
-                    data-url="{{ share_url }}"
-                    data-text="{{ chosen.team_name }}: {{ signed(chosen.total) }} wins of luck. {{ chosen.verdict }}.{% if chosen.luckier_than is not none %} Luckier than {{ chosen.luckier_than }}% of teams in America.{% endif %} How lucky is yours?">Share my luck</button>
-            <span class="lk-copied" id="lk-copied" hidden>Link copied.</span>
-        </div>
-    </div>
-    {% else %}
     <div class="front-head-wrap">
         <h1 class="front-head lk-head">Who got lucky in {{ league.league_name }}?</h1>
     </div>
-    <p class="front-deck">Pick your team to see how much of your record was luck. Measured in wins.</p>
-    {% endif %}
+    <p class="front-deck">Pick your team for its Luck Report: your record, the wins you earned, and why they don&rsquo;t match.</p>
 </section>
+{% endif %}
 
+{# ================================================================ the league #}
 {% if teams %}
 <section class="ar-sec">
-    <h2 class="section-head"><span>The whole league</span></h2>
+    <h2 class="section-head"><span>{{ 'Your league' if chosen else 'The whole league' }}</span></h2>
     <div class="ar-board lk-table">
         <div class="lk-legend"><span><i class="down"></i> unlucky</span><span>wins of luck</span><span>lucky <i class="up"></i></span></div>
         <ol class="ar-list">
             {% for t in teams %}
             <li class="{{ 'on' if chosen and chosen.team_id == t.team_id }}">
-                <a class="ar-name" href="?team={{ t.team_id|urlencode }}">{{ t.team_name }}<small>{{ t.w }}-{{ t.l }}{% if t.t %}-{{ t.t }}{% endif %}{% if t.manager %} &middot; {{ t.manager }}{% endif %} &middot; {{ t.verdict }}</small></a>
+                <a class="ar-name" href="?team={{ t.team_id|urlencode }}#lr">{{ t.team_name }}<small>{{ t.w }}-{{ t.l }}{% if t.t %}-{{ t.t }}{% endif %}{% if t.manager %} &middot; {{ t.manager }}{% endif %} &middot; {{ t.verdict }}</small></a>
                 {{ bar(t.total, spread) }}
                 <span class="ar-val"><b>{{ signed(t.total) }}</b></span>
             </li>
             {% endfor %}
         </ol>
     </div>
-    <p class="ar-intro">Luck is the wins you have minus the wins you earned. Earned: how much of your
-        league you&rsquo;d beat each week with your starters playing to their own averages.
+    <p class="ar-intro">Tap any team for its report. Luck is the wins you have minus the wins you earned:
+        how much of your league you&rsquo;d beat each week with your starters playing to their own averages.
         {% if not data.has_players %}Player luck fills in once this league&rsquo;s lineups are collected.{% endif %}</p>
 </section>
 {% else %}
 <p class="ar-empty">No finished weeks collected for this league yet. Check back after Tuesday.</p>
+{% endif %}
+
+{# ================================================================ the country #}
+{% if nat.teams %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>Around the country</span></h2>
+    <section class="figures ar-figs" aria-label="The country">
+        <div class="figure"><strong>{{ '{:,}'.format(nat.teams) }}</strong><span>teams measured</span></div>
+        <div class="figure"><strong>{{ '{:,}'.format(nat.blessed or 0) }}</strong><span>blessed (+1.5 or more)</span></div>
+        <div class="figure"><strong>{{ '{:,}'.format(nat.cursed or 0) }}</strong><span>cursed (&minus;1.5 or worse)</span></div>
+    </section>
+
+    {% set bins = nat.hist or [] %}
+    {% if bins %}
+    {% set top = (bins|map(attribute='n')|list)|max %}
+    {% set n_bins = 16 %}
+    <figure class="ar-chart">
+        <figcaption class="ar-chart-cap">Every team in America, by wins of luck{% if chosen %} &middot; you&rsquo;re the dashed line{% endif %}</figcaption>
+        <div class="ar-chart-box">
+        <svg viewBox="0 0 720 220" class="ar-hist lk-nat" role="img" aria-label="Distribution of luck across {{ nat.teams }} teams">
+            <line x1="0" x2="720" y1="186" y2="186" class="ar-axis" />
+            {% for b in bins %}
+            {% set i = ((b.lo|float + 4.0) * 2)|int %}
+            {% set x = 6 + i * 44 + 10 %}
+            {% set h = 170 * b.n / top %}
+            <g class="ar-col" data-tip="{{ '%+.1f'|format(b.lo|float) }} to {{ '%+.1f'|format(b.lo|float + 0.5) }} wins: {{ '{:,}'.format(b.n) }} teams">
+                <rect x="{{ x - 4 }}" y="0" width="32" height="186" class="ar-hit" />
+                {% if h > 0 %}<rect x="{{ x }}" y="{{ 186 - h }}" width="24" height="{{ h }}" rx="3" class="lk-nbar {{ 'up' if b.lo|float >= 0 else 'down' }}" />{% endif %}
+            </g>
+            {% endfor %}
+            {% for v in [-4, -2, 0, 2, 4] %}
+            <text x="{{ 6 + (v + 4) * 2 * 44 + 10 - (0 if v < 4 else 10) }}" y="206" class="ar-tick" text-anchor="middle">{{ '%+d'|format(v) if v else '0' }}</text>
+            {% endfor %}
+            {% if chosen %}
+            {% set cx = 6 + ([[chosen.total, -4.0]|max, 4.0]|min + 4.0) * 2 * 44 + 10 %}
+            <line x1="{{ cx }}" x2="{{ cx }}" y1="10" y2="186" class="lk-you" />
+            <text x="{{ cx }}" y="8" text-anchor="middle" class="ar-marker-label">You</text>
+            {% endif %}
+        </svg>
+        <div class="ar-tip" hidden></div>
+        </div>
+    </figure>
+    {% endif %}
+
+    <div class="ar-boards ar-boards-2">
+        {% for key, title in [('luckiest', 'Luckiest teams in America'), ('unluckiest', 'Unluckiest teams in America')] %}
+        <article class="ar-board">
+            <h3 class="ar-board-head">{{ title }}</h3>
+            <ol class="ar-list ar-teams">
+                {% for r in nat[key] or [] %}
+                <li><span class="ar-name">{{ describe(r, true) }}<small>{{ r.w }}-{{ r.l }}{% if r.t %}-{{ r.t }}{% endif %}</small></span>
+                    <span class="ar-val"><b>{{ signed(r.total) }}</b></span></li>
+                {% endfor %}
+            </ol>
+        </article>
+        {% endfor %}
+    </div>
+</section>
 {% endif %}
 
 <section class="presses">
@@ -115,16 +188,96 @@
 
 <script>
 (function () {
-    var b = document.getElementById("lk-share");
-    if (!b) return;
-    b.addEventListener("click", function () {
-        var url = b.getAttribute("data-url"), text = b.getAttribute("data-text");
-        if (navigator.share) {
-            navigator.share({title: document.title, text: text, url: url}).catch(function () {});
-            return;
+    var root = document.getElementById("lr");
+    if (root) {
+        var track = document.getElementById("lr-track");
+        var slides = track.querySelectorAll(".lr-slide");
+        var bars = root.querySelectorAll(".lr-progress span");
+        var current = 0;
+        var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        function go(i) {
+            i = Math.max(0, Math.min(slides.length - 1, i));
+            track.scrollTo({left: i * track.clientWidth, behavior: still ? "auto" : "smooth"});
         }
-        var done = function () { var c = document.getElementById("lk-copied"); c.hidden = false; };
-        if (navigator.clipboard) { navigator.clipboard.writeText(text + " " + url).then(done, done); }
+        function mark() {
+            var i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+            if (i === current && root.dataset.ready) return;
+            current = i; root.dataset.ready = "1";
+            bars.forEach(function (b, k) { b.className = k < i ? "done" : k === i ? "on" : ""; });
+            root.classList.toggle("at-start", i === 0);
+            root.classList.toggle("at-end", i === slides.length - 1);
+            var s = slides[i];
+            if (s && s.classList.contains("lr-verdict")) countUp(s);
+        }
+        function countUp(s) {
+            var el = s.querySelector("[data-count]");
+            if (!el || el.dataset.done || still) return;
+            el.dataset.done = "1";
+            var end = parseFloat(el.dataset.count), t0 = null, dur = 900;
+            function fmt(v) { if (Math.abs(v) < 0.05) return "0.0"; return (v > 0 ? "+" : "−") + Math.abs(v).toFixed(1); }
+            function step(t) {
+                if (!t0) t0 = t;
+                var p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+                el.textContent = fmt(end * e);
+                if (p < 1) requestAnimationFrame(step);
+            }
+            requestAnimationFrame(step);
+        }
+        track.addEventListener("scroll", function () { window.requestAnimationFrame(mark); }, {passive: true});
+        root.querySelector(".lr-prev").addEventListener("click", function () { go(current - 1); });
+        root.querySelector(".lr-next").addEventListener("click", function () { go(current + 1); });
+        track.addEventListener("click", function (e) {
+            if (e.target.closest("a, button")) return;
+            var r = track.getBoundingClientRect();
+            go(current + ((e.clientX - r.left) < r.width / 3 ? -1 : 1));
+        });
+        document.addEventListener("keydown", function (e) {
+            var rr = root.getBoundingClientRect();
+            if (rr.bottom < 0 || rr.top > window.innerHeight) return;
+            if (e.key === "ArrowRight") { go(current + 1); e.preventDefault(); }
+            if (e.key === "ArrowLeft") { go(current - 1); e.preventDefault(); }
+        });
+        window.addEventListener("resize", function () { track.scrollLeft = current * track.clientWidth; });
+        mark();
+
+        // Sharing: the picture itself where the phone allows it, the link otherwise.
+        {% if chosen %}
+        var url = {{ share_url|tojson }};
+        var text = {{ ((chosen.team_name ~ ": " ~ signed(chosen.total) ~ " wins of luck. " ~ chosen.verdict ~ ". " ~ (chosen.rank_line or "") ~ " How lucky is yours?")|trim)|tojson }};
+        var card = {{ card_url|tojson }};
+        {% else %}var url = "", text = "", card = "";{% endif %}
+        function copied() { var c = root.querySelector(".lr-copied"); c.hidden = false; setTimeout(function () { c.hidden = true; }, 2400); }
+        function copy() {
+            if (navigator.clipboard) navigator.clipboard.writeText(text + " " + url).then(copied, copied);
+        }
+        root.querySelector(".lr-copy").addEventListener("click", copy);
+        root.querySelector(".lr-share-btn").addEventListener("click", function () {
+            var size = this.getAttribute("data-size");
+            if (!navigator.share) { window.location.href = card + "?size=" + size; return; }
+            fetch(card + "?size=" + size).then(function (r) { return r.blob(); }).then(function (blob) {
+                var file = new File([blob], "luck-report.png", {type: "image/png"});
+                if (navigator.canShare && navigator.canShare({files: [file]})) {
+                    return navigator.share({files: [file], text: text + " " + url});
+                }
+                return navigator.share({title: document.title, text: text, url: url});
+            }).catch(function () {});
+        });
+    }
+
+    // Hover tooltips for the country chart.
+    document.querySelectorAll(".ar-chart-box").forEach(function (box) {
+        var tip = box.querySelector(".ar-tip");
+        box.querySelectorAll(".ar-col").forEach(function (g) {
+            function show() {
+                tip.textContent = g.getAttribute("data-tip"); tip.hidden = false;
+                var r = box.getBoundingClientRect(), m = g.getBoundingClientRect();
+                tip.style.left = (m.left - r.left + m.width / 2) + "px"; tip.style.top = "0px";
+                g.classList.add("hot");
+            }
+            function hide() { tip.hidden = true; g.classList.remove("hot"); }
+            g.addEventListener("mouseenter", show); g.addEventListener("mouseleave", hide);
+            g.addEventListener("touchstart", show, {passive: true});
+        });
     });
 })();
 </script>

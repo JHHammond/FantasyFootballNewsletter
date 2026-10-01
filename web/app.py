@@ -1236,9 +1236,7 @@ def luck_home(request: Request, q: str = ""):
                    public=os.getenv("LUCK_PUBLIC", "").strip() == "1")
 
 
-@app.get("/luck/{slug}", response_class=HTMLResponse)
-def luck_league_page(request: Request, slug: str, team: str = ""):
-    _luck_open(request)
+def _luck_league_data(slug: str):
     import nfl_week
     from . import luck
     league = db.league_by_public_slug(slug)
@@ -1246,13 +1244,49 @@ def luck_league_page(request: Request, slug: str, team: str = ""):
         raise HTTPException(status_code=404)
     season = int(league.get("season") or nfl_week.current_season())
     data = luck.league_page(db, season, league) if db.luck_ready() else \
-        {"teams": [], "national": 0, "has_players": False, "through": None}
+        {"teams": [], "national": 0, "nat": {}, "has_players": False, "through": None,
+         "stats_league_id": league["id"]}
+    return league, season, data
+
+
+@app.get("/luck/{slug}", response_class=HTMLResponse)
+def luck_league_page(request: Request, slug: str, team: str = ""):
+    _luck_open(request)
+    from . import around, luck
+    league, season, data = _luck_league_data(slug)
     chosen = next((t for t in data["teams"] if str(t["team_id"]) == team), None)
+    rep = None
+    if chosen:
+        rep = luck.team_report(db, season, data["stats_league_id"], chosen, data["teams"])
+    base = public_base_url()
+    card = (f"{base}/luck/{slug}/card/{quote(str(chosen['team_id']))}.png"
+            if chosen else None)
     return _render(request, "luck_league.html", league=league, data=data,
-                   chosen=chosen, season=season,
+                   chosen=chosen, report=rep, season=season, describe=around.describe,
                    public=os.getenv("LUCK_PUBLIC", "").strip() == "1",
-                   share_url=f"{public_base_url()}/luck/{slug}"
+                   card_url=card,
+                   share_url=f"{base}/luck/{slug}"
                              + (f"?team={quote(team)}" if chosen else ""))
+
+
+@app.get("/luck/{slug}/card/{team_id}.png")
+def luck_card_image(request: Request, slug: str, team_id: str, size: str = "og"):
+    """The share card as a picture: ?size=story|square|og. Also the link
+    preview of a team's luck page, so a pasted link shows the card itself."""
+    _luck_open(request)
+    from . import luck, luck_card
+    league, season, data = _luck_league_data(slug)
+    chosen = next((t for t in data["teams"] if str(t["team_id"]) == team_id), None)
+    if not chosen:
+        raise HTTPException(status_code=404)
+    size = size if size in luck_card.SIZES else "og"
+    rep = luck.team_report(db, season, data["stats_league_id"], chosen, data["teams"])
+    png = luck_card.render(chosen, league.get("league_name") or "", data["national"],
+                           data["through"], size, rep["highlights"])
+    name = re.sub(r"[^a-z0-9]+", "-", (chosen.get("team_name") or "team").lower()).strip("-")
+    return Response(png, media_type="image/png", headers={
+        "Cache-Control": "public, max-age=3600",
+        "Content-Disposition": f'inline; filename="luck-{name or "team"}-{size}.png"'})
 
 
 # ---------------------------------------------------------------------------

@@ -623,6 +623,12 @@ def luck_search(season: int, name: str) -> list[dict[str, Any]]:
     return sorted(out, key=lambda x: x["league_name"] or "")
 
 
+def luck_team(season: int, league_id: str, team_id: str) -> dict[str, Any]:
+    from web.luck import compute_team
+    return compute_team(list(_TEAM_WEEKS.values()), list(_LINEUPS.values()), int(season),
+                        league_id, str(team_id), dict(_NFL_PLAYERS))
+
+
 def luck_ready() -> bool:
     return True
 
