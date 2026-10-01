@@ -2562,3 +2562,17 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
 .lk-kicker { display: block; padding-right: 150px; }
 .lk-table + .ar-intro { margin-top: 16px; }
 @media (max-width: 640px) { .lk-kicker { padding-right: 96px; } }
+
+
+/* ---------- the mark (John's logo, 1 Oct) ---------- */
+.masthead-logo { display: inline-flex; align-items: center; gap: 10px; }
+.masthead-mark { width: 58px; height: auto; flex: none; display: block; }
+@media (max-width: 560px) {
+    .masthead-mark { width: 44px; }
+    .masthead-logo { gap: 8px; }
+}
+@media (max-width: 420px) {
+    /* No room for the mark, the name and two buttons: the mark alone. */
+    .masthead-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .masthead-mark { width: 52px; }
+}

@@ -1988,6 +1988,10 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
     if og_image and not str(og_image).startswith("http"):
         og_image = f"{canonical_base}{og_image}" if canonical_base else None
 
+    # No photo of its own: the brand card, so the link never arrives bare.
+    if not og_image and canonical_base:
+        og_image = f"{canonical_base}/static/brand/og-image.png"
+
     og_url_tag = (f'<meta property="og:url" content="{canonical_url}" />'
                   if canonical_url else "")
     og_image_tag = (f'<meta property="og:image" content="{og_image}" />\n'
@@ -2134,6 +2138,9 @@ def _render_html(edition, theme=None):
          for somebody's actual name. The link preview tags below still work —
          noindex stops indexing, not unfurling. -->
     <meta name="robots" content="noindex, nofollow, max-image-preview:large" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/brand/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png" />
 
     <!-- Link preview. The product is shared by pasting a URL into a group
          chat; without these it arrives as bare text and nobody clicks it. -->

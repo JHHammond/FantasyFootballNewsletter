@@ -3,6 +3,9 @@
 {% block title %}The Luck Index &middot; How lucky is your team?{% endblock %}
 {% block description %}Measure exactly how lucky your fantasy football team has been this season, in wins, against every connected team in the country.{% endblock %}
 {% block wrapclass %}home around luck{% endblock %}
+{% block og_title %}How lucky is your fantasy team?{% endblock %}
+{% block og_description %}The Luck Index: the wins you have, minus the wins you earned, against every team in the country.{% endblock %}
+
 
 {% block content %}
 {% if not public %}<div class="alert alert-error ar-note"><strong>Staff preview.</strong> Set <code>LUCK_PUBLIC=1</code> on Render to open this page to everyone.</div>{% endif %}

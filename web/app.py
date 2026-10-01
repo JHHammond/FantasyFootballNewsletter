@@ -224,6 +224,15 @@ def static_url(name: str) -> str:
 
 
 templates.env.globals["static_url"] = static_url
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """Browsers ask for this at the root whatever the page says."""
+    from fastapi.responses import FileResponse
+    return FileResponse(BASE_DIR / "static" / "brand" / "favicon.ico",
+                        media_type="image/x-icon",
+                        headers={"Cache-Control": "public, max-age=604800"})
 # Templates build share links from this rather than request.base_url,
 # which behind a proxy reports http:// and the internal hostname.
 templates.env.globals["public_base"] = public_base_url

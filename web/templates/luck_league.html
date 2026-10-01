@@ -4,6 +4,9 @@
 {% block title %}{% if chosen %}{{ chosen.team_name }}: {{ '%+.1f'|format(chosen.total) }} wins of luck{% else %}{{ league.league_name }} &middot; The Luck Index{% endif %}{% endblock %}
 {% block description %}{% if chosen %}{{ chosen.team_name }} is {{ chosen.verdict|lower }}{% if chosen.luckier_than is not none %}: luckier than {{ chosen.luckier_than }}% of teams in America{% endif %}. How lucky is your team?{% else %}Who got lucky in {{ league.league_name }}? The Luck Index, measured in wins.{% endif %}{% endblock %}
 {% block wrapclass %}home around luck{% endblock %}
+{% block og_title %}{% if chosen %}{{ chosen.team_name }}: {{ '%+.1f'|format(chosen.total) }} wins of luck. {{ chosen.verdict }}.{% else %}Who got lucky in {{ league.league_name }}?{% endif %}{% endblock %}
+{% block og_description %}{% if chosen and chosen.luckier_than is not none %}Luckier than {{ chosen.luckier_than }}% of teams in America. How lucky is yours?{% else %}The Luck Index: the wins you have, minus the wins you earned.{% endif %}{% endblock %}
+
 
 {% macro signed(v) -%}{% if v is none %}–{% elif (v|float)|abs < 0.05 %}0.0{% else %}{{ '%+.1f'|format(v|float) }}{% endif %}{%- endmacro %}
 {% macro bar(v, spread) -%}
