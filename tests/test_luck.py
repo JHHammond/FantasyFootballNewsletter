@@ -157,7 +157,7 @@ def test_league_page_and_a_team_card(web, monkeypatch):
         assert name in page.text
     card = web.get(f"/luck/{lg['public_slug']}?team=b")
     assert "wins of luck" in card.text and "-0.7" in card.text
-    assert "Share my report" in card.text and "played like a" in card.text
+    assert "Share my report" in card.text and "Your play earned" in card.text
     assert "The Luck Report" in card.text and "Around the country" in card.text
     assert f"/luck/{lg['public_slug']}/card/b.png?size=og" in card.text      # the link preview
     assert "Read this week&#39;s paper" in card.text
@@ -277,3 +277,11 @@ def test_the_swap_that_would_have_won_it():
     # a kicker can't play wide receiver, and a swap that only ties doesn't count
     lu[2]["points"] = 15.0
     assert luck.winning_swap(luck.compute_team(rows, lu, SEASON, "L", "b", names)) is None
+
+
+def test_earned_wins_read_as_one_number():
+    assert luck.n_wins(0.3) == "0.3 wins" and luck.n_wins(1.0) == "1 win" and luck.n_wins(2) == "2 wins"
+    team = {"w": 0, "l": 3, "t": 0, "total": -0.3, "deserved_w": 0.3, "deserved_l": 2.7}
+    card = luck.report(team, {}, [])["cards"][0]
+    assert card["big"] == "0-3" and card["line"] == "Your play earned 0.3 wins."
+    assert card["sub"] == "Somebody owes you 0.3 wins."

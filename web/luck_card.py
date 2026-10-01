@@ -184,7 +184,8 @@ def render(team: dict, league_name: str, national_teams: int, through: Optional[
     league = _clean(league_name)
     manager = _clean(team.get("manager"))
     rec = f"{team['w']}-{team['l']}" + (f"-{team['t']}" if team.get("t") else "")
-    played = f"played like a {team['deserved_w']:.1f}-{team['deserved_l']:.1f} team"
+    from web.luck import n_wins
+    played = f"earned {n_wins(team['deserved_w'])}"
     rline = rank_line(team.get("luckier_than"), national_teams)
     kicker = "THE LUCK REPORT" + (f" · THROUGH WEEK {through}" if through else "")
 

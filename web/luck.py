@@ -477,6 +477,13 @@ def _swap_side(r: dict, role: str) -> dict:
             "photo": photo_url(r["player_key"], r.get("position"))}
 
 
+def n_wins(n: float) -> str:
+    """1.0 -> "1 win", 0.3 -> "0.3 wins", 2.0 -> "2 wins"."""
+    n = round(float(n), 1)
+    text = f"{n:.0f}" if n == int(n) else f"{n:.1f}"
+    return f"{text} win" + ("" if n == 1 else "s")
+
+
 def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
     """{"cards": [...], "highlights": [...]} for one team. `team` is its row
     from league_page (with verdict, luckier_than, deserved_w/l)."""
@@ -487,16 +494,17 @@ def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
     rec = f"{team['w']}-{team['l']}" + (f"-{team['t']}" if team.get("t") else "")
     dw, dl = team["deserved_w"], team["deserved_l"]
 
-    # 2. the record, and the record you earned
-    if abs(team["total"]) < 0.25:
-        cards.append({"kind": "record", "kicker": "The record", "big": rec,
-                      "line": "Right about what you earned. The football gods are even with you.",
-                      "sub": f"You played like a {dw:.1f}-{dl:.1f} team."})
+    # 2. the record, and the wins you earned. One number, not a W-L pair:
+    # "a 0.3-2.7 team" read as a range (John, 1 Oct).
+    owed = dw - (team["w"] + 0.5 * (team.get("t") or 0))
+    if abs(owed) < 0.25:
+        sub = "Right about what you earned. The football gods are even with you."
+    elif owed > 0:
+        sub = f"Somebody owes you {n_wins(owed)}."
     else:
-        cards.append({"kind": "record", "kicker": "The record", "big": rec,
-                      "line": f"You played like a {dw:.1f}-{dl:.1f} team.",
-                      "sub": ("Somebody owes you." if team["total"] < 0
-                              else "Somebody up there likes you.")})
+        sub = f"You're {n_wins(-owed)} ahead of what you earned. Somebody up there likes you."
+    cards.append({"kind": "record", "kicker": "The record", "big": rec,
+                  "line": f"Your play earned {n_wins(dw)}.", "sub": sub})
 
     # 3. the unluckiest loss and the luckiest win
     losses = [w for w in weeks if w["result"] == "L"]
