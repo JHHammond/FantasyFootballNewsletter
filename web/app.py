@@ -232,7 +232,7 @@ def favicon():
     from fastapi.responses import FileResponse
     return FileResponse(BASE_DIR / "static" / "brand" / "favicon.ico",
                         media_type="image/x-icon",
-                        headers={"Cache-Control": "public, max-age=604800"})
+                        headers={"Cache-Control": "public, max-age=86400"})
 # Templates build share links from this rather than request.base_url,
 # which behind a proxy reports http:// and the internal hostname.
 templates.env.globals["public_base"] = public_base_url
