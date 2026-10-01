@@ -124,6 +124,16 @@ def get_weekly_storylines(games):
         p, team = max(bench_all, key=lambda pt: pt[0]["actual"])
         nick_foles = {"player": p, "team": team}
 
+    # OVER OF THE WEEK (1 Oct): the starter who beat his projection by the
+    # most. Kickers and defenses out, as for the Snell. Nobody beat his
+    # projection at all: no award.
+    over_of_week = None
+    beat = [(p, t) for p, t in starters
+            if isinstance(p.get("beat_projection_by"), (int, float)) and p["beat_projection_by"] > 0]
+    if beat:
+        p, team = max(beat, key=lambda pt: (pt[0]["beat_projection_by"], pt[0].get("actual") or 0))
+        over_of_week = {"player": p, "team": team}
+
     # --- Empty lineup ---
     empty_teams = [t for t in all_teams if t["empty_slots"] > 0]
 
@@ -219,4 +229,5 @@ def get_weekly_storylines(games):
         "tony_snell": tony_snell,
         "kyle_pitts": kyle_pitts,
         "nick_foles": nick_foles,
+        "over_of_week": over_of_week,
     }

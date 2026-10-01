@@ -707,6 +707,7 @@ AWARD_DESCRIPTORS = {
     "KYLE PITTS AWARD": "Started the player who fell furthest short",
     "NICK FOLES AWARD": "Best performance off the bench",
     "JOE BURROW AWARD": "Best performance in a loss",
+    "OVER OF THE WEEK": "The starter who beat his projection by the most",
 }
 
 #: Which of the week's teams each award is about, for its avatar. The player
@@ -716,6 +717,7 @@ AWARD_SUBJECTS = {
     "KYLE PITTS AWARD": "kyle_pitts",
     "NICK FOLES AWARD": "nick_foles",
     "JOE BURROW AWARD": "best_loser",
+    "OVER OF THE WEEK": "over_of_week",
 }
 
 
@@ -744,27 +746,104 @@ def award_avatar(title, summary, winner=None, matchups=None):
     return None
 
 
+def award_detail(title, summary):
+    """What an award card shows besides its words (1 Oct: "make the awards a
+    bit better"): the player's picture, his team, and the numbers that won
+    it. None for an award with no one subject (the league's own)."""
+    key = _award_key(title)
+    subject = (summary or {}).get(AWARD_SUBJECTS.get(key, ""))
+    if not isinstance(subject, dict):
+        return None
+    if "player" in subject and "team" in subject:
+        p, team = subject["player"] or {}, subject["team"] or {}
+        url, logo = card_photo(p) if p else ("", False)
+        proj, act = p.get("projected"), p.get("actual")
+        stats = []
+        if key == "NICK FOLES AWARD":
+            if isinstance(act, (int, float)):
+                stats.append(("On the bench", f"{act:.1f}", "up"))
+        else:
+            if isinstance(proj, (int, float)):
+                stats.append(("Projected", f"{proj:.1f}", ""))
+            if isinstance(act, (int, float)):
+                stats.append(("Scored", f"{act:.1f}", ""))
+            if isinstance(proj, (int, float)) and isinstance(act, (int, float)) and key != "TONY SNELL WINDSPRINT AWARD":
+                d = act - proj
+                stats.append(("Over" if d >= 0 else "Short by",
+                              (f"+{d:.1f}" if d >= 0 else f"{abs(d):.1f}"), "up" if d >= 0 else "down"))
+        return {"name": p.get("name") or "", "pos": (p.get("position") or "").upper(),
+                "photo": url, "logo": logo, "team": get_team_name(team), "stats": stats}
+    if subject.get("team_name"):
+        game = (summary or {}).get("best_loser_game") or {}
+        stats = [("Scored", f"{get_team_points(subject):.1f}", "")]
+        if game.get("margin") is not None:
+            stats.append(("Lost by", f"{float(game['margin']):.1f}", "down"))
+        return {"name": get_team_name(subject), "pos": "", "photo": get_team_avatar(subject) or "",
+                "logo": False, "team": f"Lost to {game.get('winner', '')}" if game.get("winner") else "",
+                "stats": stats, "is_team": True}
+    return None
+
+
 def render_avatar_img(url, alt):
     if not url:
         return ""
     return f'<img src="{url}" alt="{alt}" class="avatar" />'
 
 
-def render_awards_html(awards, editable=False):
+def _award_figure(d):
+    if not d:
+        return ""
+    if d.get("photo"):
+        cls = "aw-photo aw-logo" if d.get("logo") or d.get("is_team") else "aw-photo"
+        pic = (f'<img class="{cls}" src="{html_escape(d["photo"])}" alt="" '
+               f'loading="lazy" onerror="this.style.visibility=\'hidden\'" />')
+    else:
+        pic = f'<span class="aw-photo aw-initial">{html_escape((d.get("name") or "?")[:1])}</span>'
+    pos = f'<span class="aw-pos">{html_escape(d["pos"])}</span>' if d.get("pos") else ""
+    team = f'<div class="aw-team">{html_escape(d["team"])}</div>' if d.get("team") else ""
+    stats = "".join(
+        f'<div class="aw-stat {tone}"><span>{html_escape(label)}</span><b>{html_escape(val)}</b></div>'
+        for label, val, tone in d.get("stats") or [])
+    return f"""
+            <div class="aw-figure">
+                {pic}
+                <div class="aw-who">
+                    <div class="aw-name">{html_escape(d.get("name") or "")}{pos}</div>
+                    {team}
+                    <div class="aw-stats">{stats}</div>
+                </div>
+            </div>"""
+
+
+def render_awards_html(awards, editable=False, sponsor=None):
     cards = []
 
     for i, award in enumerate(awards):
-        avatar = render_avatar_img(award.get("avatar"), award["title"])
         desc = award.get("desc") or award_descriptor(award["title"])
         desc_html = f'<div class="award-desc">{desc}</div>' if desc else ""
+        detail = award.get("detail")
+        sponsored = (_award_key(award["title"]) == "OVER OF THE WEEK"
+                     and _sponsor_on(sponsor, "award"))
+        badge = sponsor_badge(sponsor) if sponsored else ""
+        if detail:
+            figure, avatar = _award_figure(detail), ""
+        else:
+            figure, avatar = "", render_avatar_img(award.get("avatar"), award["title"])
+        cta = (sponsor_cta(sponsor, "Saw it coming?", "See this week's board")
+               if sponsored else "")
         cards.append(f"""
-        <div class="award-card">
-            <div class="award-title"{ed(f"award_title_{i}", editable)}>{award['title']}</div>
+        <div class="award-card{' award-sponsored' if sponsored else ''}{' has-figure' if figure else ''}">
+            <div class="award-head">
+                <div class="award-title"{ed(f"award_title_{i}", editable)}>{award['title']}</div>
+                {badge}
+            </div>
             {desc_html}
+            {figure}
             <div class="award-body">
                 {avatar}
                 <span{ed(f"award_body_{i}", editable)}>{award['body']}</span>
             </div>
+            {cta}
         </div>
         """)
 
@@ -830,6 +909,105 @@ def _promo_box(promo):
             {art}
             {code_html}
             <p class="promo-small">{PROMO_SMALL_PRINT}</p>"""
+
+
+#: A paid sponsor's placements (1 Oct: the PrizePicks talks). One dict, or
+#: None for no sponsor at all, which is every paper until one is signed:
+#:   {"brand": "PrizePicks", "code": "DESK", "link": "https://...",
+#:    "lines": True, "award": True, "numbers": True, "numbers_note": "..."}
+#: Each placement carries "Ad" and the small print; nothing about a reader
+#: ever goes to the sponsor.
+SPONSOR_SMALL_PRINT = ("Ad. Must be 18+ (19+ or 21+ in some states). Not "
+                       "available in all states. Terms apply. Gambling "
+                       "problem? Call 1-800-GAMBLER.")
+
+
+def _sponsor_on(sponsor, feature):
+    return bool(sponsor and sponsor.get("brand") and sponsor.get(feature, True))
+
+
+def sponsor_badge(sponsor, label="Presented by"):
+    if not (sponsor and sponsor.get("brand")):
+        return ""
+    return (f'<span class="sp-badge"><span class="sp-badge-by">{html_escape(label)}</span>'
+            f'<b>{html_escape(sponsor["brand"])}</b></span>')
+
+
+def sponsor_cta(sponsor, pitch, button="Make your picks"):
+    """The strip under a sponsored box: one line, the code, a button, the
+    small print."""
+    if not (sponsor and sponsor.get("brand")):
+        return ""
+    code = html_escape(sponsor.get("code") or "")
+    link = html_escape(sponsor.get("link") or "")
+    code_html = (f' New players: use code <b class="sp-code">{code}</b>.' if code else "")
+    btn = (f'<a class="sp-button" href="{link}" target="_blank" rel="sponsored noopener">'
+           f'{html_escape(button)}</a>') if link else ""
+    return f"""
+            <div class="sp-cta">
+                <div class="sp-cta-text"><b>{html_escape(pitch)}</b>{code_html}</div>
+                {btn}
+            </div>
+            <p class="sp-small">{SPONSOR_SMALL_PRINT}</p>"""
+
+
+def _half(x):
+    return round(float(x) * 2) / 2
+
+
+def build_numbers_box(team, sponsor=None, n=6):
+    """"By the numbers" (1 Oct): one team's starters against their lines,
+    over or under. The line is the player's projection to the half point
+    unless the sponsor supplies real ones. Kickers and defenses left out:
+    nobody argues about them."""
+    if not team:
+        return ""
+    rows = []
+    for p in team.get("all_starters") or []:
+        pos = (p.get("position") or "").upper()
+        if pos in ("K", "DEF", "DST", "D/ST"):
+            continue
+        proj, act = p.get("projected"), p.get("actual")
+        if not isinstance(proj, (int, float)) or not isinstance(act, (int, float)) or proj <= 0:
+            continue
+        line = _half(proj)
+        res = "over" if act > line else "under" if act < line else "push"
+        rows.append((p, line, float(act), res))
+    rows = sorted(rows, key=lambda r: -abs(r[2] - r[1]))[:n]
+    if len(rows) < 3:
+        return ""
+    rows.sort(key=lambda r: -r[1])
+    overs = sum(1 for r in rows if r[3] == "over")
+    unders = sum(1 for r in rows if r[3] == "under")
+    trs = []
+    for p, line, act, res in rows:
+        tag = {"over": "Over", "under": "Under", "push": "Push"}[res]
+        trs.append(f"""
+                <tr class="nb-{res}">
+                    <td class="nb-name">{html_escape(p.get("name") or "")}<span class="nb-pos">{html_escape((p.get("position") or "").upper())}</span></td>
+                    <td class="nb-num">{line:.1f}</td>
+                    <td class="nb-num">{act:.1f}</td>
+                    <td class="nb-res"><span>{tag}</span></td>
+                </tr>""")
+    name = html_escape(get_team_name(team))
+    badge = sponsor_badge(sponsor, "Lines presented by") if _sponsor_on(sponsor, "numbers") else ""
+    note = html_escape((sponsor or {}).get("numbers_note")
+                       or "Line: each player\u2019s projection, to the half point.")
+    cta = (sponsor_cta(sponsor, "Know your guys better than the line?", "See the board")
+           if _sponsor_on(sponsor, "numbers") else "")
+    return f"""
+        <aside class="numbers-box">
+            <div class="nb-kicker">By the numbers</div>
+            <div class="nb-title">{name}</div>
+            <div class="nb-record">{overs}&ndash;{unders} against the line</div>
+            {badge}
+            <table class="nb-table">
+                <thead><tr><th>Player</th><th class="nb-num">Line</th><th class="nb-num">Scored</th><th></th></tr></thead>
+                <tbody>{"".join(trs)}</tbody>
+            </table>
+            <p class="nb-note">{note}</p>
+            {cta}
+        </aside>"""
 
 
 def _line_side(name, avatar, points, css):
@@ -901,7 +1079,8 @@ def _record_book_html(records):
 
 
 def render_back_page(obituaries=None, promo=None, lines=None,
-                     transactions=None, editable=False, record_book=None):
+                     transactions=None, editable=False, record_book=None,
+                     sponsor=None):
     """The back page (John, 23 Sep):
 
         +--------------+-------------------------------+
@@ -959,7 +1138,14 @@ def render_back_page(obituaries=None, promo=None, lines=None,
                       f'Season Record Book</div>{records}</div>')
         parts.append(f'<div class="bp-obits{right}">{inner}</div>')
     if lines_html:
-        parts.append(f"""<div class="bp-preview">
+        if _sponsor_on(sponsor, "lines"):
+            parts.append(f"""<div class="bp-preview sponsored">
+            <div class="bp-label bp-label-sp"><span>Next Week&rsquo;s Lines</span>{sponsor_badge(sponsor)}</div>
+            <div class="bp-note">Made up from the projections. The Desk takes no bets.</div>
+            {lines_html}
+            {sponsor_cta(sponsor, "Like the board? Pick real players on " + str(sponsor["brand"]) + ".")}</div>""")
+        else:
+            parts.append(f"""<div class="bp-preview">
             <div class="bp-label">Next Week&rsquo;s Preview</div>
             <div class="bp-note">Made up from the projections. The Desk takes no bets.</div>
             {lines_html}</div>""")
@@ -1285,7 +1471,7 @@ CLASSIFIEDS_AFTER_BLOCKS = 3
 def render_matchup_stories_html(stories, editable=False, images=None,
                                 auto_photos=None, pull_quote=None,
                                 interleave="", pull_quote_by=None,
-                                pull_quote_team=None):
+                                pull_quote_team=None, side_boxes=None):
     """
     Render game stories in a varied newspaper layout:
     - Story 0: LEAD — full width, large headline, photo floated right, pull quote
@@ -1356,6 +1542,7 @@ def render_matchup_stories_html(stories, editable=False, images=None,
                 <div class="story-headline story-headline-feature"{ed(f"matchup_headline_{i}", editable)}>{story["headline"]}</div>
                 <div class="story-subhead">{story["subhead"]}</div>
                 {render_scorebar(story)}
+                {(side_boxes or {}).get(i) or ""}
                 {photo_html}
                 <div class="story-body"{ed(f"matchup_body_{i}", editable)}>{body}</div>
                 <div style="clear:both;"></div>
@@ -1786,7 +1973,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
                   ai_content=None, ads=None, subscribe_slug=None,
                   transactions=None, publisher_ads=None,
                   editable=False, canonical_url=None, canonical_base=None,
-                  promo=None, photo_desk=None):
+                  promo=None, photo_desk=None, sponsor=None):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
 
@@ -1872,8 +2059,9 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
                                         award.get("winner"), matchups)
                            or old_avatar_map.get(award["title"])),
                 "desc": award.get("desc"),
+                "detail": award_detail(award["title"], summary),
             })
-        awards_html = render_awards_html(merged_awards, editable=editable)
+        awards_html = render_awards_html(merged_awards, editable=editable, sponsor=sponsor)
     else:
         awards_html = render_awards_html(build_weekly_awards(summary), editable=editable)
 
@@ -1891,6 +2079,19 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         publisher_ads if publisher_ads is not None
         else (ai_content or {}).get("publisher_ads"),
         nested=True)
+
+    # --- "By the numbers" (1 Oct): one team's starters against their lines,
+    # beside the second game story. Only in a sponsored paper for now.
+    def _numbers_for(story):
+        if not _sponsor_on(sponsor, "numbers") or not story:
+            return ""
+        want = story.get("winner_name")
+        for g in matchups or []:
+            for side in ("team_1", "team_2"):
+                t = g.get(side) or {}
+                if get_team_name(t) == want:
+                    return build_numbers_box(t, sponsor)
+        return ""
 
     # --- Matchup stories ---
     if ai_content and ai_content.get("matchup_content"):
@@ -1920,7 +2121,8 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             pull_quote=(ai_content or {}).get("pull_quote"),
             pull_quote_by=(ai_content or {}).get("pull_quote_by"),
             pull_quote_team=(ai_content or {}).get("pull_quote_team"),
-            interleave=publisher_page)
+            interleave=publisher_page,
+            side_boxes={1: _numbers_for(stories[1] if len(stories) > 1 else None)})
     else:
         stories = build_matchup_stories(matchups)
         matchup_stories_html = render_matchup_stories_html(
@@ -1929,7 +2131,8 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             pull_quote=(ai_content or {}).get("pull_quote"),
             pull_quote_by=(ai_content or {}).get("pull_quote_by"),
             pull_quote_team=(ai_content or {}).get("pull_quote_team"),
-            interleave=publisher_page)
+            interleave=publisher_page,
+            side_boxes={1: _numbers_for(stories[1] if len(stories) > 1 else None)})
 
     # The front page hero used to fall back to a random bundled meme. Those are
     # gone: once a paper carries advertising, shipping images somebody else owns
@@ -2039,7 +2242,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             promo=promo,
             lines=(ai_content or {}).get("lines"),
             transactions=transactions,
-            editable=editable),
+            editable=editable, sponsor=sponsor),
         "standings_html": render_standings_html(
             build_standings(matchups), (ai_content or {}).get("trends")),
         "standings_trend_th": (
@@ -3054,6 +3257,84 @@ def _render_html(edition, theme=None):
             display: flex;
             gap: 8px;
             align-items: flex-start;
+        }}
+
+        /* ── AWARDS, the better cards (1 Oct) ── */
+        .award-card.has-figure {{ display: flex; flex-direction: column; }}
+        .award-head {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+                       border-bottom: 1px solid #ddd; margin-bottom: 6px; }}
+        .award-head .award-title {{ border-bottom: 0; margin-bottom: 0; }}
+        .aw-figure {{ display: flex; gap: 12px; align-items: center; margin: 4px 0 10px; }}
+        .aw-photo {{ width: 72px; height: 72px; flex-shrink: 0; object-fit: cover; object-position: 50% 15%;
+                     border: 2px solid #111; background: #ece6da; border-radius: 4px; }}
+        .aw-photo.aw-logo {{ object-fit: contain; padding: 6px; box-sizing: border-box; background: #fff; }}
+        .aw-initial {{ display: flex; align-items: center; justify-content: center; font-size: 30px;
+                       font-weight: 900; color: #777; }}
+        .aw-who {{ min-width: 0; display: flex; flex-direction: column; gap: 2px; }}
+        .aw-name {{ font-size: 18px; font-weight: 900; line-height: 1.15; color: inherit; }}
+        .aw-pos {{ display: inline-block; margin-left: 6px; padding: 1px 5px; font-size: 10px; font-weight: 800;
+                   letter-spacing: 1px; vertical-align: 3px; background: #111; color: #fff; }}
+        .aw-team {{ font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; opacity: .7; }}
+        .aw-stats {{ display: flex; gap: 14px; margin-top: 4px; flex-wrap: wrap; }}
+        .aw-stat {{ display: flex; flex-direction: column; line-height: 1.05; }}
+        .aw-stat span {{ font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; opacity: .65; }}
+        .aw-stat b {{ font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; }}
+        .aw-stat.up b {{ color: #1d6b2a; }}
+        .aw-stat.down b {{ color: #c0141c; }}
+        .award-sponsored {{ border: 2px solid #3d1a8a !important; }}
+
+        /* ── SPONSOR placements (1 Oct). Labelled, boxed, never mistaken
+           for the paper's own copy. ── */
+        .sp-badge {{ display: inline-flex; align-items: baseline; gap: 6px; flex-shrink: 0; white-space: nowrap;
+                     text-transform: none; letter-spacing: 0; font-style: normal;
+                     background: #3d1a8a; color: #fff; padding: 4px 9px 3px; border-radius: 3px; }}
+        .sp-badge-by {{ font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: #ddd3ff; }}
+        .sp-badge b {{ font-size: 13px; font-weight: 800; letter-spacing: .2px; }}
+        .sp-cta {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px;
+                   background: #f0eafc; border: 1px solid #c9b8f2; padding: 10px 12px; border-radius: 4px; color: #16130f; }}
+        .sp-cta-text {{ font-size: 13.5px; line-height: 1.4; }}
+        .sp-code {{ color: #3d1a8a; letter-spacing: 1px; }}
+        .sp-button {{ flex-shrink: 0; background: #3d1a8a; color: #fff !important; text-decoration: none;
+                      font-size: 12px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase;
+                      padding: 9px 12px; border-radius: 3px; }}
+        .sp-small {{ margin: 6px 0 0; font-size: 10.5px; line-height: 1.4; opacity: .7; }}
+        .bp-label-sp {{ display: flex; justify-content: space-between; align-items: center; gap: 10px; }}
+
+        /* ── BY THE NUMBERS: one team against the line, beside a story ── */
+        .numbers-box {{ float: right; width: 300px; margin: 0 0 14px 20px; padding: 12px 14px;
+                        border: 2px solid #111; background: #fafaf7; color: #16130f; box-sizing: border-box; }}
+        .nb-kicker {{ font-size: 11px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: var(--accent, #c40000); }}
+        .nb-title {{ font-size: 20px; font-weight: 900; line-height: 1.15; margin-top: 2px; }}
+        .nb-record {{ font-size: 12px; font-style: italic; opacity: .75; margin: 2px 0 8px; }}
+        .numbers-box .sp-badge {{ margin-bottom: 8px; }}
+        .nb-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+        .nb-table th {{ font-size: 10px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase;
+                        text-align: left; border-bottom: 2px solid #111; padding: 0 0 4px; opacity: .8; }}
+        .nb-table td {{ padding: 6px 0; border-bottom: 1px solid #ddd; vertical-align: middle; }}
+        .nb-num {{ text-align: right !important; font-variant-numeric: tabular-nums; padding-left: 8px !important; }}
+        .nb-table td.nb-num {{ font-weight: 700; }}
+        .nb-name {{ font-weight: 700; }}
+        .nb-pos {{ margin-left: 5px; font-size: 9.5px; font-weight: 800; letter-spacing: 1px; opacity: .55; }}
+        .nb-res {{ text-align: right; padding-left: 8px !important; }}
+        .nb-res span {{ display: inline-block; min-width: 44px; text-align: center; font-size: 10px; font-weight: 800;
+                        letter-spacing: 1.2px; text-transform: uppercase; padding: 3px 4px; border-radius: 2px; }}
+        .nb-over .nb-res span {{ background: #1d6b2a !important; color: #fff; }}
+        .nb-under .nb-res span {{ background: #b3141c; color: #fff; }}
+        .nb-push .nb-res span {{ background: #777; color: #fff; }}
+        .nb-note {{ margin: 8px 0 0; font-size: 10.5px; line-height: 1.4; opacity: .7; }}
+        .numbers-box .sp-cta {{ flex-direction: column; align-items: stretch; text-align: left; }}
+        .numbers-box .sp-button {{ text-align: center; }}
+        @media (max-width: 760px) {{
+            .numbers-box {{ float: none; width: auto; margin: 0 0 14px; }}
+        }}
+        @media (max-width: 600px) {{
+            .sp-cta {{ flex-direction: column; align-items: stretch; }}
+            .sp-button {{ text-align: center; }}
+            .aw-photo {{ width: 60px; height: 60px; }}
+        }}
+        @media print {{
+            .sp-button {{ display: none; }}
+            .numbers-box, .award-card, .sp-cta {{ break-inside: avoid; }}
         }}
 
         /* ── SIDEBAR ── */

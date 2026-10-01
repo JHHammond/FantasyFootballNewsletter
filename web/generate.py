@@ -8,6 +8,7 @@ store and the Supabase store are interchangeable here.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -343,6 +344,33 @@ def promo_settings() -> dict | None:
             "link": (os.getenv("PROMO_LINK") or os.getenv("PRIZEPICKS_LINK") or "").strip()}
 
 
+def sponsor_settings(league: dict[str, Any]) -> dict | None:
+    """A paid sponsor's placements in the paper (1 Oct). Off unless
+    PAPER_SPONSOR is set on Render, as JSON:
+
+        {"brand": "PrizePicks", "code": "DESK", "link": "https://...",
+         "lines": true, "award": true, "numbers": true,
+         "leagues": ["some-public-slug"]}
+
+    "leagues", when given, limits it to those papers (a staff preview);
+    left out, every paper carries it. Nothing about any reader is ever
+    passed to the sponsor; this only decides what the paper prints."""
+    raw = (os.getenv("PAPER_SPONSOR") or "").strip()
+    if not raw:
+        return None
+    try:
+        cfg = json.loads(raw)
+    except ValueError:
+        print("[sponsor] PAPER_SPONSOR is not valid JSON; ignored", flush=True)
+        return None
+    if not isinstance(cfg, dict) or not cfg.get("brand"):
+        return None
+    only = cfg.get("leagues")
+    if only and league.get("public_slug") not in only:
+        return None
+    return cfg
+
+
 def _photo_desk(db, season: int, week: int) -> dict:
     """{plain player name: photo} for this week. A photo for this exact week
     beats an any-week one. Never raises: no desk means headshots."""
@@ -393,6 +421,7 @@ def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
         publisher_ads=_snapshot_publisher_ads(db, ai_content, season, week),
         promo=promo_settings(),
         photo_desk=_photo_desk(db, season, week),
+        sponsor=sponsor_settings(league),
     )
     edition["paper_name"] = paper_name
     html = render_html(edition, theme=league.get("theme"))
@@ -441,6 +470,7 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
         # to edit — and this render is never stored, so nothing is frozen here.
         publisher_ads=_snapshot_publisher_ads(db, dict(ai_content), season, week),
         promo=promo_settings(),
+        sponsor=sponsor_settings(league),
     )
     edition["paper_name"] = paper_name
     return render_html(edition, theme=league.get("theme"))

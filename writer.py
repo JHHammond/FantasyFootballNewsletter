@@ -2387,6 +2387,9 @@ STANDING_AWARDS = [
     ("JOE BURROW AWARD", "Best performance in a loss",
      "Always balls out; the rest of the roster always lets him down. "
      "Sympathetic — this manager did their job."),
+    ("OVER OF THE WEEK", "The starter who beat his projection by the most",
+     "The experts set a number and he laughed at it. Credit the player, and "
+     "say whether his manager deserves any of it."),
 ]
 
 
@@ -2453,6 +2456,14 @@ def _player_bit(entry):
     return bits + f", for {t.get('team_name', '')}"
 
 
+def _over_bit(entry):
+    bit = _player_bit(entry)
+    beat = ((entry or {}).get("player") or {}).get("beat_projection_by")
+    if not bit or not isinstance(beat, (int, float)):
+        return None
+    return bit + f" — {beat:.1f} over his projection"
+
+
 def award_facts(summary):
     """Who wins each standing award this week, as one line of fact each —
     worked out in storylines.py, never left to the writer to decide."""
@@ -2469,6 +2480,7 @@ def award_facts(summary):
         "NICK FOLES AWARD": (_player_bit(summary.get("nick_foles")) or "")
                             .replace(" scored", " scored, from the bench,") or None,
         "JOE BURROW AWARD": burrow,
+        "OVER OF THE WEEK": _over_bit(summary.get("over_of_week")),
     }
 
 

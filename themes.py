@@ -409,6 +409,19 @@ body { background: #0b0d10 !important; color: #f2f4f7 !important; }
     color: #16f04e !important;
 }
 
+.numbers-box {
+    background: #1c2028 !important;
+    border-color: #2b313c !important;
+    color: #e8ecf2 !important;
+}
+.nb-table th { border-bottom-color: #2b313c !important; }
+.nb-table td { border-bottom-color: #2b313c !important; }
+.aw-pos { background: #16f04e !important; color: #0f1218 !important; }
+.aw-photo { border-color: #2b313c !important; }
+.aw-stat.up b { color: #16f04e !important; }
+.aw-stat.down b { color: #ff4d5e !important; }
+.award-sponsored { border-color: #8f6bff !important; }
+
 .fraud-callout {
     background: #2a0f12 !important;
     border: 2px solid #ff2d4a !important;

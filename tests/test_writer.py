@@ -1305,7 +1305,8 @@ def test_each_award_opens_with_one_line_on_what_it_is_about():
     import inspect
     titles = [t for t, _, _ in writer.STANDING_AWARDS]
     assert titles == ["TONY SNELL WINDSPRINT AWARD", "KYLE PITTS AWARD",
-                      "NICK FOLES AWARD", "JOE BURROW AWARD"]
+                      "NICK FOLES AWARD", "JOE BURROW AWARD",
+                      "OVER OF THE WEEK"]
     source = inspect.getsource(writer.generate_awards)
     assert "ONE short sentence saying what the award is about" in source
     assert "nothing current about the" in source

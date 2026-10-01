@@ -303,6 +303,7 @@ def test_each_named_award_says_what_it_is_for():
         {"title": "Joe Burrow Award", "body": "x"},
         {"title": "KYLE PITTS AWARD", "body": "x"},
         {"title": "NICK FOLES AWARD", "body": "x"},
+        {"title": "OVER OF THE WEEK", "body": "x"},
     ])
     for desc in newspaper.AWARD_DESCRIPTORS.values():
         assert desc in html
@@ -511,3 +512,48 @@ def test_no_trades_means_no_trades_section():
 def test_a_failed_trade_is_not_printed_as_a_trade():
     html = newspaper.render_back_page([], None, [], [dict(_TRADE, status="failed")])
     assert ">Trades<" not in html
+
+
+SPONSOR = {"brand": "PrizePicks", "code": "DESK", "link": "https://example.com"}
+
+
+def test_the_over_of_the_week_goes_to_the_biggest_beat():
+    from storylines import get_weekly_storylines
+    def p(name, act, proj, pos="WR"):
+        return {"name": name, "actual": act, "projected": proj,
+                "beat_projection_by": act - proj, "position": pos}
+    t1 = {"team_name": "A", "points": 120, "record": "1-0", "lineup_gap": 0, "empty_slots": 0,
+          "all_starters": [p("Brown", 35.2, 15.4), p("Kick", 30, 8, "K")], "all_bench": []}
+    t2 = {"team_name": "B", "points": 100, "record": "0-1", "lineup_gap": 0, "empty_slots": 0,
+          "all_starters": [p("Swift", 20.8, 10.8, "RB")], "all_bench": []}
+    s = get_weekly_storylines([{"team_1": t1, "team_2": t2, "winner": "A", "margin": 20}])
+    assert s["over_of_week"]["player"]["name"] == "Brown"      # kickers don't count
+
+
+def test_a_sponsored_paper_labels_every_placement():
+    awards = newspaper.render_awards_html(
+        [{"title": "OVER OF THE WEEK", "body": "x",
+          "detail": {"name": "A.J. Brown", "pos": "WR", "photo": "", "team": "Lamb Chops",
+                     "stats": [("Projected", "15.4", ""), ("Scored", "35.2", "")]}}],
+        sponsor=SPONSOR)
+    assert "Presented by" in awards and "PrizePicks" in awards and "1-800-GAMBLER" in awards
+    assert "A.J. Brown" in awards and "35.2" in awards
+    plain = newspaper.render_awards_html([{"title": "OVER OF THE WEEK", "body": "x"}])
+    assert "PrizePicks" not in plain                               # no sponsor, no ad
+    lines = [{"favorite": "A", "underdog": "B", "favorite_points": 120.0,
+              "underdog_points": 100.0, "spread": 20, "total": 220}]
+    back = newspaper.render_back_page(lines=lines, sponsor=SPONSOR)
+    assert "Next Week&rsquo;s Lines" in back and "DESK" in back and "1-800-GAMBLER" in back
+    assert "PrizePicks" not in newspaper.render_back_page(lines=lines)
+
+
+def test_the_numbers_box_calls_each_starter_over_or_under():
+    team = {"team_name": "Lamb Chops", "all_starters": [
+        {"name": "A.J. Brown", "position": "WR", "projected": 15.4, "actual": 35.2},
+        {"name": "Saquon Barkley", "position": "RB", "projected": 15.8, "actual": 5.6},
+        {"name": "Josh Allen", "position": "QB", "projected": 26.7, "actual": 17.7},
+        {"name": "Tyler Loop", "position": "K", "projected": 9.7, "actual": 2.0}]}
+    html = newspaper.build_numbers_box(team, SPONSOR)
+    assert "1&ndash;2 against the line" in html
+    assert "15.5" in html and "35.2" in html and "Tyler Loop" not in html
+    assert html.count("nb-over") == 1 and html.count("nb-under") == 2
