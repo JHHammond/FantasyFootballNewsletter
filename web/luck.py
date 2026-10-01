@@ -264,7 +264,15 @@ def compute_team(team_rows: list[dict], lineup_rows: list[dict], season: int,
     players.sort(key=lambda p: (p["dev_total"], p["player_key"]))
     scores = [{"team_id": r["team_id"], "week": int(r["week"]), "points": r["points"]}
               for r in sorted(g, key=lambda r: (int(r["week"]), str(r["team_id"])))]
-    return {"weeks": weeks, "players": players, "scores": scores}
+    mine_lu = []
+    for l in sorted((l for l in lu if l["team_id"] == team_id),
+                    key=lambda l: (int(l["week"]), str(l["player_key"]))):
+        meta = (names or {}).get(l["player_key"]) or {}
+        mine_lu.append({"week": int(l["week"]), "player_key": l["player_key"],
+                        "name": meta.get("name") or l["player_key"],
+                        "position": meta.get("position"), "slot": l.get("slot"),
+                        "started": bool(l["started"]), "points": _f(l["points"])})
+    return {"weeks": weeks, "players": players, "scores": scores, "lineups": mine_lu}
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +436,47 @@ def opponent_chart(detail: dict, wk: dict) -> Optional[dict]:
             "hit": hit}
 
 
+UNSWAPPABLE = frozenset({"BN", "IR", "TAXI", "RES", "NA"})
+
+
+def winning_swap(detail: dict) -> Optional[dict]:
+    """The one bench-for-starter swap that would have turned a loss into a
+    win (John, 1 Oct: "started Drake London and he got 5, Terry McLaurin on
+    the bench got 15"). The bench player has to be able to play the starter's
+    slot. Of all the losses one swap would have won, the closest loss; within
+    it, the swap that gains the most. None when no single swap does it."""
+    from providers.models import can_fill_slot
+    roster: dict = {}
+    for l in detail.get("lineups") or []:
+        roster.setdefault(int(l["week"]), []).append(l)
+    best = None
+    for w in detail.get("weeks") or []:
+        if w.get("result") != "L" or w.get("opponent_points") is None:
+            continue
+        rows = roster.get(int(w["week"])) or []
+        starters = [r for r in rows if r.get("started") and r.get("slot") not in UNSWAPPABLE]
+        bench = [r for r in rows if not r.get("started") and (r.get("slot") or "BN") == "BN"
+                 and r.get("position")]
+        margin = float(w["opponent_points"]) - float(w["points"])
+        for b in bench:
+            for st in starters:
+                gain = float(b["points"] or 0) - float(st["points"] or 0)
+                if gain <= margin or not can_fill_slot(b["position"], st["slot"]):
+                    continue
+                key = (margin, -gain, int(w["week"]), str(b["player_key"]), str(st["player_key"]))
+                if best is None or key < best[0]:
+                    best = (key, {"week": int(w["week"]), "margin": margin, "gain": gain,
+                                  "opp_name": w.get("opp_name"),
+                                  "out": st, "in": b, "slot": st["slot"]})
+    return best[1] if best else None
+
+
+def _swap_side(r: dict, role: str) -> dict:
+    return {"role": role, "name": r.get("name") or r["player_key"],
+            "position": r.get("position"), "pts": _pts(r.get("points") or 0),
+            "photo": photo_url(r["player_key"], r.get("position"))}
+
+
 def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
     """{"cards": [...], "highlights": [...]} for one team. `team` is its row
     from league_page (with verdict, luckier_than, deserved_w/l)."""
@@ -535,7 +584,22 @@ def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
     # 7. not luck
     own = team.get("own_losses") or 0
     bench = team.get("bench_avg")
-    if own:
+    swap = winning_swap(detail) if own else None
+    if swap:
+        o, i = swap["out"], swap["in"]
+        others = own - 1
+        cards.append({"kind": "swap", "kicker": "Not luck",
+                      "eyebrow": f"Week {swap['week']} \u00b7 lost by {_pts(swap['margin'])}",
+                      "swap": {"out": _swap_side(o, "Started"), "in": _swap_side(i, "On your bench")},
+                      "line": f"Start {i['name']} over {o['name']} and you win by "
+                              f"{_pts(swap['gain'] - swap['margin'])}.",
+                      "sub": ("That one's on you." if not others else
+                              "And your bench would have won another one." if others == 1 else
+                              f"And your bench would have won {others} more."),
+                      "tone": "down"})
+        highlights.append(f"Week {swap['week']}: {i['name']} scored {_pts(i['points'])} on your "
+                          f"bench. You lost by {_pts(swap['margin'])}.")
+    elif own:
         cards.append({"kind": "skill", "kicker": "Not luck", "big": str(own),
                       "line": f"Loss{'es' if own != 1 else ''} your own bench would have won.",
                       "sub": "That one's on you." if own == 1 else "Those are on you.",

@@ -246,3 +246,34 @@ def test_the_opponent_card_charts_their_season():
     assert [x["vs"] for x in ch["bars"]] == [False, False, True]
     assert ch["hit"]["pts"] == "150.0" and ch["avg"] == "120.0" and ch["you"] == "110.0"
     assert ch["hit"]["y"] < ch["avg_y"] < ch["base"]            # the bump, above the line
+
+
+def test_the_swap_that_would_have_won_it():
+    rows = _league4()
+    rows[1]["optimal_points"] = 147                         # b, week 1: lost 130-140
+    lu = [
+        {"league_id": "L", "season": SEASON, "week": 1, "team_id": "b", "player_key": k,
+         "slot": slot, "started": slot != "BN", "points": pts}
+        for k, slot, pts in (("london", "WR", 5.0), ("bijan", "RB", 25.0),
+                             ("mclaurin", "BN", 17.0), ("kicker", "BN", 30.0))
+    ]
+    names = {"london": {"name": "Drake London", "position": "WR"},
+             "bijan": {"name": "Bijan Robinson", "position": "RB"},
+             "mclaurin": {"name": "Terry McLaurin", "position": "WR"},
+             "kicker": {"name": "Some Kicker", "position": "K"}}
+    table = luck.compute(rows, lu, SEASON)
+    for r in table:
+        r.update(verdict=luck.verdict(r["total"]), luckier_than=50,
+                 deserved_w=round(r["w"] + 0.5 * r["t"] - r["total"], 1),
+                 deserved_l=round(r["games"] - (r["w"] + 0.5 * r["t"] - r["total"]), 1))
+    b = next(r for r in table if r["team_id"] == "b")
+    detail = luck.compute_team(rows, lu, SEASON, "L", "b", names)
+    swap = luck.winning_swap(detail)
+    assert swap["out"]["name"] == "Drake London" and swap["in"]["name"] == "Terry McLaurin"
+    card = next(c for c in luck.report(b, detail, table)["cards"] if c["kind"] == "swap")
+    assert card["eyebrow"] == "Week 1 · lost by 10.0"
+    assert card["line"] == "Start Terry McLaurin over Drake London and you win by 2.0."
+    assert card["swap"]["out"]["pts"] == "5.0" and card["swap"]["in"]["pts"] == "17.0"
+    # a kicker can't play wide receiver, and a swap that only ties doesn't count
+    lu[2]["points"] = 15.0
+    assert luck.winning_swap(luck.compute_team(rows, lu, SEASON, "L", "b", names)) is None

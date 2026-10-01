@@ -2874,3 +2874,53 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
     .lr-photo img { filter: none; transition: none; }
     .tone-down .lr-photo::after { clip-path: none; transition: none; }
 }
+
+
+/* The bench swap that would have won it (1 Oct): who started, who sat,
+   and an arrow between them. The starter is crossed out in red pencil. */
+.lr-pair {
+    display: grid; grid-template-columns: minmax(0, 1fr) 46px minmax(0, 1fr);
+    align-items: start; gap: 4px; margin: 10px auto 16px; width: 100%; max-width: 360px;
+}
+.lr-sw { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.lr-sw-role { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); }
+.lr-sw-pic {
+    position: relative; width: 100%; max-width: 140px; aspect-ratio: 4 / 3; margin: 0;
+    padding: 5px 5px 7px; background: #fff; border: 1px solid rgba(17,17,17,.18);
+    box-shadow: 0 10px 22px -12px rgba(40,30,10,.6);
+}
+.lr-sw.out .lr-sw-pic { rotate: -3deg; }
+.lr-sw.in .lr-sw-pic { rotate: 2.5deg; }
+.lr-sw-pic img {
+    position: relative; z-index: 1; display: block; width: 100%; height: 100%;
+    object-fit: cover; object-position: 50% 15%; background: linear-gradient(#efe9dc, #e2d9c6);
+}
+.lr-sw-pos {                             /* shows when there's no photo */
+    position: absolute; inset: 5px 5px 7px; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(#efe9dc, #e2d9c6); font: 400 30px "Anton", sans-serif; color: rgba(17,17,17,.3);
+}
+.lr-sw.out .lr-sw-pic img { filter: grayscale(1) contrast(1.05); }
+.lr-sw.out .lr-sw-pic::after {
+    content: ""; position: absolute; z-index: 2; inset: 5px 5px 7px;
+    background: linear-gradient(to top right, transparent calc(50% - 1.5px), rgba(179,20,28,.8) calc(50% - 1.5px), rgba(179,20,28,.8) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+    clip-path: inset(0 100% 0 0); transition: clip-path .5s 1.1s ease-out;
+}
+.lr-slide.seen .lr-sw.out .lr-sw-pic::after, .lr:not(.js) .lr-sw.out .lr-sw-pic::after { clip-path: inset(0); }
+.lr-sw.in .lr-sw-pic { box-shadow: 0 0 0 3px var(--lucky), 0 10px 22px -12px rgba(40,30,10,.6); }
+.lr-sw-name { font: 900 16px/1.15 "Playfair Display", Georgia, serif; text-align: center; overflow-wrap: anywhere; }
+.lr-sw-pts { font: 400 34px/1 "Anton", sans-serif; }
+.lr-sw.out .lr-sw-pts { color: var(--accent); }
+.lr-sw.in .lr-sw-pts { color: var(--lucky); }
+.lr-sw-arrow { align-self: center; margin-top: -30px; }
+.lr-sw-arrow svg { display: block; width: 40px; height: 28px; fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.lr-pair + .lr-line { font-size: 19px; }
+
+.lr.js .lr-sw.in .lr-sw-pic { transform: translateX(-24px) rotate(-6deg); opacity: 0; transition: transform .7s .55s cubic-bezier(.34, 1.4, .64, 1), opacity .4s .55s ease; }
+.lr.js .lr-slide.seen .lr-sw.in .lr-sw-pic { transform: none; opacity: 1; }
+.lr.js .lr-sw-arrow svg { opacity: 0; transform: scale(.6); transition: opacity .4s .45s ease, transform .5s .45s cubic-bezier(.34, 1.56, .64, 1); }
+.lr.js .lr-slide.seen .lr-sw-arrow svg { opacity: 1; transform: none; }
+@media (max-width: 380px) { .lr-sw-pts { font-size: 28px; } .lr-sw-name { font-size: 14.5px; } }
+@media (prefers-reduced-motion: reduce) {
+    .lr.js .lr-sw.in .lr-sw-pic, .lr.js .lr-sw-arrow svg { opacity: 1 !important; transform: none !important; transition: none !important; }
+    .lr-sw.out .lr-sw-pic::after { clip-path: none; transition: none; }
+}

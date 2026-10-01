@@ -17,6 +17,24 @@
 </span>
 {%- endmacro %}
 {% macro tone(total) -%}{{ 'up' if total > 0.5 else 'down' if total < -0.5 else 'even' }}{%- endmacro %}
+{% macro swap_side(p, cls) -%}
+<div class="lr-sw {{ cls }}">
+    <span class="lr-sw-role">{{ p.role }}</span>
+    <figure class="lr-sw-pic">
+        {% if p.photo %}<img src="{{ p.photo }}" alt="{{ p.name }}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />{% endif %}
+        <span class="lr-sw-pos" aria-hidden="true">{{ p.position or '' }}</span>
+    </figure>
+    <span class="lr-sw-name">{{ p.name }}</span>
+    <b class="lr-sw-pts">{{ p.pts }}</b>
+</div>
+{%- endmacro %}
+{% macro swap_pair(sw) -%}
+<div class="lr-pair" role="group" aria-label="Started {{ sw.out.name }}, {{ sw.out.pts }} points. On the bench, {{ sw.in.name }}, {{ sw.in.pts }} points.">
+    {{ swap_side(sw.out, 'out') }}
+    <span class="lr-sw-arrow" aria-hidden="true"><svg viewBox="0 0 40 28"><path d="M4 9h28l-6-6M36 19H8l6 6" /></svg></span>
+    {{ swap_side(sw['in'], 'in') }}
+</div>
+{%- endmacro %}
 {% macro opp_chart(ch, opp) -%}
 {% set hit = ch.hit %}
 <figure class="lr-chart">
@@ -78,7 +96,8 @@
                 <span class="lr-kicker">{{ c.kicker }}</span>
                 {% if c.photo %}<figure class="lr-photo"><img src="{{ c.photo }}" alt="{{ c.eyebrow }}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.closest('.lr-slide').classList.remove('has-photo'); this.parentNode.remove();" /></figure>{% endif %}
                 {% if c.eyebrow %}<span class="lr-eyebrow">{{ c.eyebrow }}{% if c.position %} <b class="ar-pos">{{ c.position }}</b>{% endif %}</span>{% endif %}
-                <div class="lr-big{{ ' long' if c.big|length > 5 }}">{{ c.big }}</div>
+                {% if c.big %}<div class="lr-big{{ ' long' if c.big|length > 5 }}">{{ c.big }}</div>{% endif %}
+                {% if c.swap %}{{ swap_pair(c.swap) }}{% endif %}
                 <p class="lr-line">{{ c.line }}</p>
                 {% if c.chart %}{{ opp_chart(c.chart, c.opp) }}{% endif %}
                 {% if c.sub %}<p class="lr-sub">{{ c.sub }}</p>{% endif %}

@@ -250,7 +250,18 @@ select json_build_object(
     'scores', (select coalesce(json_agg(json_build_object(
                   'team_id', g.team_id, 'week', g.week, 'points', g.points)
                   order by g.week, g.team_id collate "C"), '[]'::json)
-                 from g)
+                 from g),
+    -- this team's whole roster each week: the "not luck" card finds the one
+    -- bench swap that would have won a loss (1 Oct)
+    'lineups', (select coalesce(json_agg(json_build_object(
+                   'week', lp.week, 'player_key', lp.player_key,
+                   'name', coalesce(np.name, lp.player_key), 'position', np.position,
+                   'slot', lp.slot, 'started', lp.started, 'points', lp.points)
+                   order by lp.week, lp.player_key collate "C"), '[]'::json)
+                  from public.lineup_players lp
+                  left join public.nfl_players np on np.player_key = lp.player_key
+                 where lp.season = p_season and lp.league_id = p_league
+                   and lp.team_id = p_team)
 );
 $$;
 
