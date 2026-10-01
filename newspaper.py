@@ -1543,9 +1543,11 @@ def render_matchup_stories_html(stories, editable=False, images=None,
                 <div class="story-subhead">{story["subhead"]}</div>
                 {render_scorebar(story)}
                 {(side_boxes or {}).get(i) or ""}
+                <div class="feature-main">
                 {photo_html}
                 <div class="story-body"{ed(f"matchup_body_{i}", editable)}>{body}</div>
                 <div style="clear:both;"></div>
+                </div>
             </article>''')
 
         elif i in (2, 3) and i < len(stories):
@@ -3369,6 +3371,11 @@ def _render_html(edition, theme=None):
         .numbers-box .sp-button {{ text-align: center; }}
         @media (max-width: 760px) {{
             .numbers-box {{ float: none; width: auto; margin: 0 0 14px; }}
+            /* On a phone the box went between the headline and the story and
+               buried it. Keep headline, photo and story together; the box
+               follows the story. */
+            .story-feature {{ display: flex; flex-direction: column; }}
+            .story-feature > .numbers-box {{ order: 1; margin: 18px 0 4px; }}
         }}
         @media (max-width: 600px) {{
             .sp-cta {{ flex-direction: column; align-items: stretch; }}
@@ -3608,6 +3615,14 @@ def _render_html(edition, theme=None):
                 width: 100% !important;
                 margin: 0 0 14px !important;
             }}
+            /* The feature's photo is a thumbnail beside the first paragraph
+               instead of a full screen of face. */
+            .story-feature .feature-main .image-wrap {{
+                float: left !important;
+                width: 40% !important;
+                margin: 4px 14px 6px 0 !important;
+            }}
+            .story-feature .feature-main .photo-caption {{ font-size: 9.5px; line-height: 1.3; }}
             .full-section {{ padding: 0 12px; }}
             .classifieds-grid {{ grid-template-columns: 1fr; }}
             .subscribe-block {{ padding: 18px 14px; }}
