@@ -590,6 +590,35 @@ def nfl_notes_ready() -> bool:
     return True
 
 
+_EDITOR_BITS: dict[str, dict[str, Any]] = {}
+
+
+def editor_bits(season: int, week: int) -> list[dict[str, Any]]:
+    rows = [dict(b) for b in _EDITOR_BITS.values() if b["season"] == int(season)
+            and (b["week"] is None or b["week"] == int(week))]
+    rows.sort(key=lambda b: b["created_at"])
+    return rows
+
+
+def add_editor_bit(season, week, kind, players, body) -> None:
+    import uuid
+    with _lock:
+        bid = str(uuid.uuid4())
+        _EDITOR_BITS[bid] = {"id": bid, "season": int(season),
+                             "week": int(week) if week else None, "kind": kind,
+                             "players": list(players), "body": body,
+                             "created_at": _now()}
+
+
+def delete_editor_bit(bit_id: str) -> None:
+    with _lock:
+        _EDITOR_BITS.pop(bit_id, None)
+
+
+def editor_bits_ready() -> bool:
+    return True
+
+
 _PLAYER_PHOTOS: dict[str, dict[str, Any]] = {}
 
 

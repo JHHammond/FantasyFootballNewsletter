@@ -2874,3 +2874,33 @@ def test_team_names_in_the_brackets_are_not_outsiders():
                        "all_starters": [{"name": "Rico Dowdle"}]}, "team_2": {}}
     notes = writer.route_wire([game], "- Jaylen Warren took over after Rico Dowdle got hurt.")[0]
     assert writer.wire_outsiders(notes, game) == ["Jaylen Warren"]
+
+
+# --- the editor's desk (John, 30 Sep) -----------------------------------------
+
+def test_editor_bits_reach_every_game_with_the_player_and_say_whose():
+    g1 = {"team_1": {"team_name": "Hank", "all_starters": [{"name": "Marcus Mariota"}]},
+          "team_2": {"team_name": "Mid", "all_starters": []}}
+    g2 = {"team_1": {"team_name": "Kev", "all_starters": []},
+          "team_2": {"team_name": "Sad", "all_bench": [{"name": "Marcus Mariota"}]}}
+    g3 = {"team_1": {"team_name": "Nobody", "all_starters": [{"name": "Josh Allen"}]}}
+    bit = {"kind": "instruction", "players": ["Marcus Mariota"],
+           "body": "Nobody expected Mariota to play well; compliment whoever started him."}
+    routed = writer.route_editor_bits([g1, g2, g3], [bit])
+    assert routed[0][0]["owners"] == "Marcus Mariota started for Hank"
+    assert routed[1][0]["owners"] == "Marcus Mariota sat on the bench for Sad"
+    assert routed[2] == []
+
+
+def test_a_recap_gets_its_editor_bits(swap_client, no_sleeping):
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    ctx = writer.build_game_context(GAME)
+    ctx["editor_bits"] = [{"kind": "instruction", "body": "Compliment whoever started Mariota.",
+                           "owners": "Marcus Mariota started for A"},
+                          {"kind": "joke", "body": "Mariota is a time traveler.",
+                           "owners": "Marcus Mariota started for A"}]
+    writer.generate_matchup_body(ctx)
+    assert "- INSTRUCTION: Compliment whoever started Mariota. [Marcus Mariota started for A]" in seen["p"]
+    assert "- JOKE: Mariota is a time traveler." in seen["p"]
+    assert "never say the editor asked" in seen["p"]

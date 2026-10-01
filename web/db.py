@@ -988,6 +988,36 @@ def nfl_notes_ready() -> bool:
         return False
 
 
+# --- The editor's desk (030) ------------------------------------------------------
+
+def editor_bits(season: int, week: int) -> list[dict[str, Any]]:
+    """This week's bits plus the every-week ones."""
+    res = (client().table("editor_bits").select("*")
+           .eq("season", int(season))
+           .or_(f"week.eq.{int(week)},week.is.null")
+           .order("created_at").execute())
+    return res.data or []
+
+
+def add_editor_bit(season: int, week: Optional[int], kind: str,
+                   players: list[str], body: str) -> None:
+    client().table("editor_bits").insert({
+        "season": int(season), "week": int(week) if week else None,
+        "kind": kind, "players": players, "body": body}).execute()
+
+
+def delete_editor_bit(bit_id: str) -> None:
+    client().table("editor_bits").delete().eq("id", bit_id).execute()
+
+
+def editor_bits_ready() -> bool:
+    try:
+        client().table("editor_bits").select("id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 # --- The photo desk (023) -------------------------------------------------------
 
 def player_photos(season: int, week: Optional[int] = None) -> list[dict[str, Any]]:

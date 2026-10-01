@@ -70,6 +70,58 @@
     {% endfor %}
 </section>
 
+<section class="card" id="desk">
+    <h2 class="card-title">The editor&rsquo;s desk</h2>
+    {% if not bits_ready %}
+    <p class="card-sub">Run <code>migrations/030_editor_bits.sql</code> in Supabase to turn this on.</p>
+    {% else %}
+    <p class="card-sub">
+        Jokes and instructions for the writer, tied to players. Each one reaches the
+        recap of every game where a named player is on either roster, in every
+        league, and is told who started him and who benched him. Never forced into
+        a paper without those players. Full names, as the platforms spell them.
+    </p>
+    <form method="post" action="/staff/wire/desk" class="stack">
+        <input type="hidden" name="week" value="{{ week }}" />
+        <label class="field"><span class="field-label">Players</span>
+            <input type="text" name="players" required placeholder="Marcus Mariota" />
+            <span class="field-help">One or more, separated by commas.</span></label>
+        <label class="field"><span class="field-label">What should the writer do?</span>
+            <textarea name="body" rows="2" maxlength="500" required
+                placeholder="Nobody expected Marcus Mariota to play well, so compliment every manager who started him."></textarea></label>
+        <div class="inline-form" style="gap:18px;flex-wrap:wrap;">
+            <label class="field" style="flex-direction:row;gap:8px;align-items:center;">
+                <input type="radio" name="kind" value="instruction" checked /> <span>Instruction &mdash; followed wherever it applies</span></label>
+            <label class="field" style="flex-direction:row;gap:8px;align-items:center;">
+                <input type="radio" name="kind" value="joke" /> <span>Joke &mdash; used if it fits</span></label>
+        </div>
+        <label class="field" style="flex-direction:row;gap:8px;align-items:center;">
+            <input type="checkbox" name="every_week" value="1" />
+            <span>Every week until I remove it (otherwise week {{ week }} only)</span>
+        </label>
+        <div><button type="submit" class="btn btn-primary">Add to the desk</button></div>
+    </form>
+    {% for b in bits %}
+    <div class="paper-row" style="align-items:flex-start;">
+        <div>
+            <div>{{ b.body }}</div>
+            <div class="paper-meta">
+                {{ 'Instruction' if b.kind == 'instruction' else 'Joke' }}
+                &middot; {{ (b.players or [])|join(', ') }}
+                &middot; {{ 'every week' if b.week is none else 'week ' ~ b.week ~ ' only' }}
+            </div>
+        </div>
+        <form method="post" action="/staff/wire/desk/{{ b.id }}/delete">
+            <input type="hidden" name="week" value="{{ week }}" />
+            <button type="submit" class="btn btn-sm">Remove</button>
+        </form>
+    </div>
+    {% else %}
+    <p class="empty" style="margin-top:14px;">Nothing on the desk for week {{ week }}.</p>
+    {% endfor %}
+    {% endif %}
+</section>
+
 <section class="card" id="nicknames">
     <h2 class="card-title">Player nicknames</h2>
     {% if not nick_ready %}

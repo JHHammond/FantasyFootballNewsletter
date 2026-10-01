@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import re
 import time
 import sys
 import threading
@@ -1201,12 +1202,42 @@ def staff_wire(request: Request, week: int = 0, saved: int = 0):
     week = week or nfl_week.current_week()
     ready = db.nfl_notes_ready()
     nick_ready = db.player_nicknames_ready()
+    bits_ready = db.editor_bits_ready()
     return _render(request, "staff_wire.html", ready=ready, season=season,
                    week=week, latest=latest, saved=bool(saved),
                    weeks=list(range(1, 19)),
                    notes=db.nfl_notes(season, week) if ready else [],
                    nick_ready=nick_ready,
-                   nicknames=db.player_nicknames() if nick_ready else [])
+                   nicknames=db.player_nicknames() if nick_ready else [],
+                   bits_ready=bits_ready,
+                   bits=db.editor_bits(season, week) if bits_ready else [])
+
+
+@app.post("/staff/wire/desk")
+def staff_wire_bit_add(request: Request, week: int = Form(0), players: str = Form(""),
+                       body: str = Form(""), kind: str = Form("joke"),
+                       every_week: str = Form("")):
+    """The editor's desk (John, 30 Sep): a joke or an instruction tied to
+    players, for one week or every week."""
+    _require_staff(request)
+    import nfl_week
+    names = [clean_text(n, max_length=80).strip()
+             for n in re.split(r"[,;\n]", players or "")]
+    names = [n for n in names if " " in n][:10]
+    text = clean_text(body, max_length=500).strip()
+    kind = kind if kind in ("joke", "instruction") else "joke"
+    if names and text and db.editor_bits_ready():
+        db.add_editor_bit(nfl_week.current_season(),
+                          None if every_week else (week if 1 <= week <= 18 else None),
+                          kind, names, text)
+    return RedirectResponse(f"/staff/wire?week={week}#desk", status_code=303)
+
+
+@app.post("/staff/wire/desk/{bit_id}/delete")
+def staff_wire_bit_delete(request: Request, bit_id: str, week: int = Form(0)):
+    _require_staff(request)
+    db.delete_editor_bit(bit_id)
+    return RedirectResponse(f"/staff/wire?week={week}#desk", status_code=303)
 
 
 @app.post("/staff/wire/nicknames")

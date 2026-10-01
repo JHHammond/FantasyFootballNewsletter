@@ -640,6 +640,23 @@ def nfl_notes_for(db, season: int, week: int, week_data) -> str:
     return "\n".join(keep)
 
 
+def editor_bits_for(db, season: int, week: int, week_data) -> list[dict]:
+    """The editor's jokes and instructions that belong in THIS league's paper:
+    those naming, in full, a player on one of its rosters this week (John,
+    30 Sep: "it should be tied to specific players")."""
+    try:
+        bits = db.editor_bits(season, week)
+    except Exception:  # noqa: BLE001 — no table yet reads as no bits
+        return []
+    if not bits:
+        return []
+    rostered = {_plain_name(p.name) for t in week_data.teams for p in t.all_players
+                if p.name}
+    return [b for b in bits
+            if (b.get("body") or "").strip()
+            and any(_plain_name(n) in rostered for n in (b.get("players") or []))]
+
+
 def route_jokes(jokes: list[str], week_data, managers: list | None) -> dict[str, list[str]]:
     """{team name: [jokes naming that team or its manager]}, "" for the rest.
 
@@ -798,6 +815,7 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         nfl_notes="\n".join(x for x in (
             nfl_notes_for(db, season, week, week_data),
             player_nicknames_for(db, week_data)) if x),
+        editor_bits=editor_bits_for(db, season, week, week_data),
         national=_national.writer_facts(stack_up),
         must_use=must_use,
     )

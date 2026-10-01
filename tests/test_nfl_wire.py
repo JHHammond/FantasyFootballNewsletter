@@ -149,3 +149,41 @@ def test_a_nickname_needs_a_full_name(web):
     demo_db._NICKNAMES.clear()
     web.post("/staff/wire/nicknames", data={"player_name": "Walker", "nickname": "K9"})
     assert demo_db.player_nicknames() == []
+
+
+# --- the editor's desk (30 Sep) ------------------------------------------------
+
+def test_editor_bits_only_reach_leagues_with_the_player():
+    from types import SimpleNamespace as NS
+    from web import demo_db, generate
+    demo_db._EDITOR_BITS.clear()
+    demo_db.add_editor_bit(2026, 4, "instruction", ["Marcus Mariota"], "Compliment them.")
+    demo_db.add_editor_bit(2026, None, "joke", ["Josh Allen"], "Every week bit.")
+    demo_db.add_editor_bit(2026, 5, "joke", ["Marcus Mariota"], "Wrong week.")
+    team = NS(all_players=[NS(name="Marcus Mariota")])
+    wd = NS(teams=[team])
+    got = generate.editor_bits_for(demo_db, 2026, 4, wd)
+    assert [b["body"] for b in got] == ["Compliment them."]
+    wd2 = NS(teams=[NS(all_players=[NS(name="Josh Allen")])])
+    assert [b["body"] for b in generate.editor_bits_for(demo_db, 2026, 9, wd2)] == ["Every week bit."]
+    demo_db._EDITOR_BITS.clear()
+
+
+def test_staff_add_and_remove_an_editor_bit(web):
+    import nfl_week
+    _sign_up(web, "staff")
+    demo_db._EDITOR_BITS.clear()
+    web.post("/staff/wire/desk", data={
+        "week": 4, "players": "Marcus Mariota, Mariota", "kind": "instruction",
+        "body": "Nobody expected Marcus Mariota to play well, so compliment every manager who started him."})
+    rows = demo_db.editor_bits(nfl_week.current_season(), 4)
+    assert len(rows) == 1 and rows[0]["players"] == ["Marcus Mariota"]   # last name alone dropped
+    assert rows[0]["kind"] == "instruction" and rows[0]["week"] == 4
+    page = web.get("/staff/wire?week=4").text
+    assert "compliment every manager" in page and "week 4 only" in page
+    web.post(f"/staff/wire/desk/{rows[0]['id']}/delete", data={"week": 4})
+    assert demo_db.editor_bits(nfl_week.current_season(), 4) == []
+    web.post("/staff/wire/desk", data={"week": 4, "players": "Josh Allen",
+                                       "body": "Bit.", "every_week": "1"})
+    assert demo_db.editor_bits(nfl_week.current_season(), 9)[0]["week"] is None
+    demo_db._EDITOR_BITS.clear()

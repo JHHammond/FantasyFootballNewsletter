@@ -935,6 +935,26 @@ def _wire_owners(plain_note: str, game: dict) -> str:
     return "; ".join(said)
 
 
+def route_editor_bits(games, bits: list[dict] | None) -> list[list[dict]]:
+    """The editor's bits for each game: every bit naming a player on either
+    roster in that game (starters or bench). Unlike a wire note, a bit goes to
+    EVERY game it fits — "compliment every manager who started Mariota" is
+    about all of them. Each carries who in it is whose."""
+    out: list[list[dict]] = [[] for _ in games]
+    for bit in bits or []:
+        body = (bit.get("body") or "").strip()
+        names = [_wire_name(n) for n in (bit.get("players") or []) if n]
+        if not body or not names:
+            continue
+        plain = " " + " | ".join(names) + " "
+        for i, game in enumerate(games):
+            owners = _wire_owners(plain, game)
+            if owners:
+                out[i].append({"kind": bit.get("kind") or "joke",
+                               "body": body, "owners": owners})
+    return out
+
+
 #: Capitalized words in a note that are teams, places or events, not people.
 _NOT_PEOPLE = {
     "arizona", "atlanta", "baltimore", "buffalo", "carolina", "chicago",
@@ -2208,9 +2228,21 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
                      "this recap completely; use each note only for what it "
                      "says about the players in this game.\n")
 
+    desk = ""
+    if ctx.get("editor_bits"):
+        rows = []
+        for b in ctx["editor_bits"]:
+            label = "INSTRUCTION" if b.get("kind") == "instruction" else "JOKE"
+            rows.append(f"- {label}: {b['body']} [{b['owners']}]")
+        desk = ("\nFROM THE EDITOR, about players in this game. The brackets say "
+                "who started and who sat, and for which team. Follow each "
+                "INSTRUCTION wherever it applies to this game. Use a JOKE if it "
+                "fits the story, in your own words. Never explain one, and "
+                "never say the editor asked:\n" + "\n".join(rows) + "\n")
+
     text = call_claude(f"""
 Write the recap of this game for the paper.
-{must}{wire}
+{must}{wire}{desk}
 {ctx.get('winner')} beat {ctx.get('loser')}, \
 {ctx.get('winner_score')} to {ctx.get('loser_score')}, \
 by {ctx.get('margin')}.
@@ -3018,7 +3050,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      custom_awards=None,
                                      commissioner_letter=None,
                                      nfl_notes="", national="",
-                                     must_use=None):
+                                     must_use=None, editor_bits=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -3070,6 +3102,11 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         if notes:
             gc["ctx"]["wire"] = notes
             gc["ctx"]["wire_outsiders"] = wire_outsiders(notes, game)
+
+    # The editor's desk: jokes and instructions tied to players (30 Sep).
+    for gc, bits in zip(game_contexts, route_editor_bits(games, editor_bits)):
+        if bits:
+            gc["ctx"]["editor_bits"] = bits
 
     per_game, group_chat_items = assign_jokes(
         [gc["ctx"] for gc in game_contexts], must_use or {})
