@@ -16,6 +16,7 @@
 {%- endif -%}
 </span>
 {%- endmacro %}
+{% macro ordinal(n) -%}{{ n }}{{ 'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th') }}{%- endmacro %}
 {% macro tone(total) -%}{{ 'up' if total > 0.5 else 'down' if total < -0.5 else 'even' }}{%- endmacro %}
 {% macro swap_side(p, cls) -%}
 <div class="lr-sw {{ cls }}">
@@ -105,6 +106,12 @@
             </article>
             {% endfor %}
 
+            {% set quips = {'Blessed': 'Buy a lottery ticket. Today.', 'Lucky': 'Don\'t look a gift horse in the mouth.',
+                            'Fair': 'The football gods owe you nothing. You owe them nothing.',
+                            'Unlucky': 'The football gods have noticed you. Unfortunately.',
+                            'Cursed': 'Check your house for an ancient burial ground.'} %}
+            {% set strip = data.strip %}
+            {% set nteams = teams|length %}
             <article class="lr-slide lr-verdict tone-{{ tone(chosen.total) }}" aria-label="The verdict">
                 <span class="lr-kicker">The verdict</span>
                 <div class="lr-verdict-num">
@@ -112,7 +119,24 @@
                     <span class="lk-stamp {{ tone(chosen.total) }}"><span>{{ chosen.verdict }}</span></span>
                 </div>
                 <span class="lr-unit">wins of luck</span>
-                {% if chosen.rank_line %}<p class="lr-line">{{ chosen.rank_line }}</p>{% endif %}
+                <p class="lr-quip">{{ quips.get(chosen.verdict, '') }}</p>
+                {% if strip and strip.dots and nteams > 1 %}
+                <div class="lr-league">
+                    <p class="lr-league-head">{% if chosen.league_place == 1 %}The luckiest team in {{ league.league_name }}{% elif chosen.league_place == nteams %}The unluckiest team in {{ league.league_name }}{% else %}{{ ordinal(chosen.league_place) }} luckiest of {{ nteams }} in {{ league.league_name }}{% endif %}</p>
+                    <div class="lr-strip" role="img" aria-label="Every team in {{ league.league_name }} by wins of luck; you are {{ signed(chosen.total) }}">
+                        <span class="lr-strip-axis"></span><span class="lr-strip-zero"></span>
+                        {% for d in strip.dots %}
+                        {% set me = d.team_id == chosen.team_id|string %}
+                        <i class="lr-dot {{ 'up' if d.total > 0.05 else 'down' if d.total < -0.05 else 'even' }}{{ ' you' if me }}" style="--x: {{ d.x }}%; --lane: {{ 0 if me else d.lane }}; --k: {{ loop.index0 }}" title="{{ d.name }}: {{ signed(d.total) }}">{% if me %}<b>You</b>{% endif %}</i>
+                        {% endfor %}
+                    </div>
+                    <div class="lr-strip-ends"><span>&larr; Unlucky</span><span>Lucky &rarr;</span></div>
+                    {% set lo_name = chosen.team_name if chosen.league_place == nteams else strip.unluckiest.name %}
+                    {% set hi_name = chosen.team_name if chosen.league_place == 1 else strip.luckiest.name %}
+                    <p class="lr-strip-who"><span><b class="down">{{ signed(strip.unluckiest.total) }}</b> {{ lo_name }}</span><span>{{ hi_name }} <b class="up">{{ signed(strip.luckiest.total) }}</b></span></p>
+                </div>
+                {% endif %}
+                {% if chosen.rank_line %}<p class="lr-nat">{{ chosen.rank_line }}</p>{% endif %}
                 <div class="lr-parts">
                     <div class="lr-part"><span>Schedule luck</span>{{ bar(chosen.schedule, 1.5) }}<b>{{ signed(chosen.schedule) }}</b></div>
                     <div class="lr-part"><span>Player luck</span>{{ bar(chosen.players, 1.5) }}<b>{{ signed(chosen.players) }}</b></div>
@@ -270,9 +294,30 @@
                 if (!t0) t0 = t;
                 var p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
                 el.textContent = fmt(end * e);
-                if (p < 1) requestAnimationFrame(step);
+                if (p < 1) requestAnimationFrame(step); else celebrate(s);
             }
             requestAnimationFrame(step);
+        }
+        // The verdict lands: paper confetti for the lucky, a jolt for the cursed.
+        function celebrate(s) {
+            if (still) return;
+            if (s.classList.contains("tone-up")) {
+                var colors = ["#b3141c", "#2d6a1f", "#c8a200", "#111111", "#fffdf8"];
+                for (var k = 0; k < 46; k++) {
+                    var c = document.createElement("i");
+                    c.className = "lr-confetti";
+                    c.style.left = (8 + Math.random() * 84) + "%";
+                    c.style.background = colors[k % colors.length];
+                    c.style.setProperty("--dx", (Math.random() * 120 - 60) + "px");
+                    c.style.setProperty("--r", (Math.random() * 720 - 360) + "deg");
+                    c.style.animationDelay = (Math.random() * 0.35) + "s";
+                    c.style.animationDuration = (1.6 + Math.random() * 1.1) + "s";
+                    s.appendChild(c);
+                }
+                setTimeout(function () { s.querySelectorAll(".lr-confetti").forEach(function (c) { c.remove(); }); }, 3400);
+            } else if (s.classList.contains("tone-down")) {
+                setTimeout(function () { root.querySelector(".lr-frame").classList.add("jolt"); }, 330);
+            }
         }
         track.addEventListener("scroll", function () { window.requestAnimationFrame(mark); }, {passive: true});
         root.querySelector(".lr-prev").addEventListener("click", function () { go(current - 1); });

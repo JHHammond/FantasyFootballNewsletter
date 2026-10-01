@@ -181,7 +181,7 @@ def test_the_report_cards():
     detail = luck.compute_team(_league4(), [], SEASON, "L", "b")
     rep = luck.report(b, detail, rows)
     kinds = [c["kind"] for c in rep["cards"]]
-    assert kinds[0] == "record" and "league" in kinds
+    assert kinds[0] == "record" and "league" not in kinds   # the verdict carries the league
     week = next(c for c in rep["cards"] if c["kind"] == "week")
     # week 1: b scored 130, 2nd of 4, and lost
     assert week["big"] == "2nd of 4" and week["sub"] == "And you lost."
@@ -285,3 +285,15 @@ def test_earned_wins_read_as_one_number():
     card = luck.report(team, {}, [])["cards"][0]
     assert card["big"] == "0-3" and card["line"] == "Your play earned 0.3 wins."
     assert card["sub"] == "Somebody owes you 0.3 wins."
+
+
+def test_the_league_strip():
+    rows = luck.compute(_league4(), [], SEASON)
+    strip = luck.league_strip(rows)
+    xs = [d["x"] for d in strip["dots"]]
+    assert xs == sorted(xs) and all(4 <= x <= 96 for x in xs)
+    assert strip["luckiest"]["total"] == max(r["total"] for r in rows)
+    assert strip["unluckiest"]["total"] == min(r["total"] for r in rows)
+    crowd = luck.league_strip([{"team_id": str(i), "team_name": str(i), "total": 0.01 * i}
+                               for i in range(4)])
+    assert len({d["lane"] for d in crowd["dots"]}) == 3          # piled-up dots stack

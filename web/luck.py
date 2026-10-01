@@ -330,6 +330,27 @@ def team_report(db, season: int, stats_league_id: str, team: dict,
     return report(team, detail or {}, league_rows)
 
 
+def league_strip(rows: list[dict], lanes: int = 3, gap: float = 7.0) -> dict:
+    """Every team in the league on one line of luck, for the verdict card:
+    zero in the middle, unlucky to the left. Dots that would overlap move up
+    a lane. x is a percentage of the width."""
+    if not rows:
+        return {"dots": [], "spread": 1.0}
+    spread = max([abs(float(r["total"])) for r in rows] + [1.0])
+    dots = sorted(({"team_id": str(r["team_id"]), "name": r.get("team_name") or "",
+                    "total": float(r["total"]),
+                    "x": round(50 + 46 * float(r["total"]) / spread, 1)} for r in rows),
+                  key=lambda d: (d["x"], d["team_id"]))
+    last = [-100.0] * lanes
+    for d in dots:
+        lane = next((i for i in range(lanes) if d["x"] - last[i] >= gap),
+                    min(range(lanes), key=lambda i: last[i]))
+        d["lane"] = lane
+        last[lane] = d["x"]
+    return {"dots": dots, "spread": spread,
+            "luckiest": dots[-1], "unluckiest": dots[0]}
+
+
 def league_page(db, season: int, league: dict) -> dict:
     rows, stats_id = _cached(("league", season, league["id"]),
                              lambda: _league_rows(db, season, league))
@@ -358,7 +379,9 @@ def league_page(db, season: int, league: dict) -> dict:
     for r in rows:
         from web.luck_card import rank_line
         r["rank_line"] = rank_line(r.get("luckier_than"), nat.get("teams") or 0)
+        r["league_place"] = 1 + sum(1 for o in rows if o["total"] > r["total"])
     return {"teams": rows, "national": nat.get("teams") or 0, "nat": nat,
+            "strip": league_strip(rows),
             "stats_league_id": stats_id,
             "has_players": any(r.get("has_players") for r in rows),
             "through": max((r["last_week"] for r in rows), default=None)}
@@ -484,7 +507,7 @@ def n_wins(n: float) -> str:
     return f"{text} win" + ("" if n == 1 else "s")
 
 
-def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
+def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:  # noqa: ARG001
     """{"cards": [...], "highlights": [...]} for one team. `team` is its row
     from league_page (with verdict, luckier_than, deserved_w/l)."""
     weeks = [w for w in (detail.get("weeks") or []) if w.get("ap_real") is not None]
@@ -619,13 +642,4 @@ def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
                       "sub": "None of your losses were the lineup's fault." if team["l"]
                              else "Never cost you a game. Yet."})
 
-    # 8. league place
-    if league_rows:
-        place = 1 + sum(1 for r in league_rows if r["total"] > team["total"])
-        cards.append({"kind": "league", "kicker": "In your league",
-                      "big": f"{_ordinal(place)} of {len(league_rows)}",
-                      "line": ("The luckiest team in the league." if place == 1 else
-                               "The unluckiest team in the league." if place == len(league_rows)
-                               else "On the luck table."),
-                      "sub": "One more card: the verdict."})
     return {"cards": cards, "highlights": highlights[:3]}
