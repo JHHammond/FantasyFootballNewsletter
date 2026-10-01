@@ -17,6 +17,32 @@
 </span>
 {%- endmacro %}
 {% macro tone(total) -%}{{ 'up' if total > 0.5 else 'down' if total < -0.5 else 'even' }}{%- endmacro %}
+{% macro opp_chart(ch, opp) -%}
+{% set hit = ch.hit %}
+<figure class="lr-chart">
+    <svg viewBox="0 0 320 180" role="img" aria-label="{{ opp }} scored {{ hit.pts }} against you, against a {{ ch.avg }} average across {{ ch.bars|length }} weeks">
+        <line x1="8" x2="312" y1="{{ ch.base }}" y2="{{ ch.base }}" class="lr-c-axis" />
+        {% for b in ch.bars %}
+        <g class="lr-c-col{{ ' vs' if b.vs }}" style="--d: {{ '%.2f'|format(0.15 + 0.07 * loop.index0) }}s">
+            <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="2" class="lr-c-bar" />
+            <text x="{{ b.cx }}" y="166" text-anchor="middle" class="lr-c-wk">{{ 'vs you' if b.vs else 'Wk ' ~ b.week }}</text>
+            {% if b.vs %}<text x="{{ b.cx }}" y="{{ b.y - 7 }}" text-anchor="middle" class="lr-c-val">{{ b.pts }}</text>{% endif %}
+        </g>
+        {% endfor %}
+        <line x1="8" x2="312" y1="{{ ch.avg_y }}" y2="{{ ch.avg_y }}" class="lr-c-avg" />
+        {% set right = hit.cx < 160 %}
+        <text x="{{ 312 if right else 8 }}" y="{{ ch.avg_y - 6 }}" text-anchor="{{ 'end' if right else 'start' }}" class="lr-c-lab">Their average {{ ch.avg }}</text>
+        {% if ch.you_y is not none %}
+        {% set after = hit.cx < 240 %}
+        <g class="lr-c-you">
+            <line x1="{{ hit.x - 7 }}" x2="{{ hit.x + hit.w + 7 }}" y1="{{ ch.you_y }}" y2="{{ ch.you_y }}" />
+            <text x="{{ (hit.x + hit.w + 11) if after else (hit.x - 11) }}" y="{{ ch.you_y + 4 }}" text-anchor="{{ 'start' if after else 'end' }}">You {{ ch.you }}</text>
+        </g>
+        {% endif %}
+    </svg>
+    <figcaption class="lr-c-key"><span><i class="k-bar"></i>Their score</span><span><i class="k-avg"></i>Their average</span>{% if ch.you_y is not none %}<span><i class="k-you"></i>You, that week</span>{% endif %}</figcaption>
+</figure>
+{%- endmacro %}
 
 {% block content %}
 {% if not public %}<div class="alert alert-error ar-note"><strong>Staff preview.</strong> Set <code>LUCK_PUBLIC=1</code> on Render to open the Luck Index to everyone.</div>{% endif %}
@@ -46,13 +72,17 @@
                 <p class="lr-hint"><span class="lr-hint-touch">Swipe</span><span class="lr-hint-mouse">Click or use the arrow keys</span> &rarr;</p>
             </article>
 
+            {% set total_slides = report.cards|length + 2 %}
             {% for c in report.cards %}
-            <article class="lr-slide lr-{{ c.kind }} {{ 'tone-' ~ c.tone if c.tone }}" aria-label="{{ c.kicker }}">
+            <article class="lr-slide lr-{{ c.kind }} {{ 'tone-' ~ c.tone if c.tone }}{{ ' has-chart' if c.chart }}{{ ' has-photo' if c.photo }}" aria-label="{{ c.kicker }}">
                 <span class="lr-kicker">{{ c.kicker }}</span>
+                {% if c.photo %}<figure class="lr-photo"><img src="{{ c.photo }}" alt="{{ c.eyebrow }}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.closest('.lr-slide').classList.remove('has-photo'); this.parentNode.remove();" /></figure>{% endif %}
                 {% if c.eyebrow %}<span class="lr-eyebrow">{{ c.eyebrow }}{% if c.position %} <b class="ar-pos">{{ c.position }}</b>{% endif %}</span>{% endif %}
                 <div class="lr-big{{ ' long' if c.big|length > 5 }}">{{ c.big }}</div>
                 <p class="lr-line">{{ c.line }}</p>
+                {% if c.chart %}{{ opp_chart(c.chart, c.opp) }}{% endif %}
                 {% if c.sub %}<p class="lr-sub">{{ c.sub }}</p>{% endif %}
+                <p class="lr-folio" aria-hidden="true"><span>The Luck Report</span><span>No. {{ loop.index + 1 }} of {{ total_slides }}</span></p>
             </article>
             {% endfor %}
 
@@ -195,6 +225,7 @@
         var bars = root.querySelectorAll(".lr-progress span");
         var current = 0;
         var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        root.classList.add("js");
         function go(i) {
             i = Math.max(0, Math.min(slides.length - 1, i));
             track.scrollTo({left: i * track.clientWidth, behavior: still ? "auto" : "smooth"});
@@ -206,6 +237,7 @@
             bars.forEach(function (b, k) { b.className = k < i ? "done" : k === i ? "on" : ""; });
             root.classList.toggle("at-start", i === 0);
             root.classList.toggle("at-end", i === slides.length - 1);
+            slides.forEach(function (sl, k) { sl.classList.toggle("is-on", k === i); if (k === i) sl.classList.add("seen"); });
             var s = slides[i];
             if (s && s.classList.contains("lr-verdict")) countUp(s);
         }

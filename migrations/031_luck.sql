@@ -244,7 +244,13 @@ select json_build_object(
                                round(min(pl.points)::numeric, 2) as worst,
                                round(max(pl.points)::numeric, 2) as best
                           from pl left join public.nfl_players np on np.player_key = pl.player_key
-                         group by pl.player_key, np.name, np.position) x)
+                         group by pl.player_key, np.name, np.position) x),
+    -- every team's score each week: the opponent cards chart the opponent's
+    -- season around the week they played you (1 Oct)
+    'scores', (select coalesce(json_agg(json_build_object(
+                  'team_id', g.team_id, 'week', g.week, 'points', g.points)
+                  order by g.week, g.team_id collate "C"), '[]'::json)
+                 from g)
 );
 $$;
 

@@ -2588,9 +2588,10 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
 .lr-frame {
     position: relative;
     height: min(780px, calc(100svh - 130px)); min-height: 560px;
-    background: var(--paper);
+    background: #e7dfcd;                 /* the desk the cards are dealt onto */
     box-shadow: 0 1px 0 rgba(0,0,0,.05), 0 24px 50px -24px rgba(40, 30, 10, .55);
     border-top: 3px solid var(--ink);
+    border-radius: 0 0 14px 14px;
     overflow: hidden;
 }
 .lr-progress { position: absolute; z-index: 3; top: 12px; left: 14px; right: 14px; display: flex; gap: 4px; }
@@ -2614,12 +2615,14 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
     flex: 0 0 100%; height: 100%;
     scroll-snap-align: start; scroll-snap-stop: always;
     display: flex; flex-direction: column; justify-content: center;
-    padding: 56px 30px 40px; text-align: center; position: relative;
+    padding: 56px 30px 58px; text-align: center; position: relative;
+    background: var(--paper);
 }
 .lr-kicker {
     font-family: "Barlow Condensed", sans-serif; font-size: 14px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 2.4px; color: var(--accent);
-    padding-bottom: 8px; margin: 0 auto 14px; border-bottom: 1px solid var(--ink);
+    padding-bottom: 8px; margin: 0 auto 14px;
+    background: linear-gradient(currentColor, currentColor) 50% 100% / 100% 1px no-repeat;
 }
 .lr-eyebrow {
     font-family: "Playfair Display", Georgia, serif; font-weight: 900; font-size: 24px;
@@ -2639,7 +2642,7 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
 
 /* the cover, in ink */
 .lr-cover { background: var(--ink); color: var(--paper); justify-content: space-between; text-align: left; }
-.lr-cover .lr-kicker { color: #ff6b6b; border-color: rgba(255,255,255,.4); margin: 0 0 18px; display: inline-block; }
+.lr-cover .lr-kicker { color: #ff6b6b; margin: 0 0 18px; display: inline-block; background-position: 0 100%; }
 .lr-cover-top {
     display: flex; justify-content: space-between; margin-top: 8px; padding-top: 10px;
     border-top: 3px double rgba(255,255,255,.7);
@@ -2701,4 +2704,173 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
 }
 @media (prefers-reduced-motion: reduce) {
     .lr-progress span i { transition: none; }
+}
+
+
+/* ---------------------------------------------------------------------
+   The Luck Report, dressed up (1 Oct, John: "more visually appealing,
+   slight animations"). Three layers, all optional:
+   1. Each card's contents set in, one line after another, as it arrives
+      (.is-on, from the script; nothing is hidden without the script).
+   2. Where the browser can tie animation to scrolling, cards tilt and
+      shrink a touch as they slide off, like cards being dealt.
+   3. A tint for good news and bad, a folio at the foot, a pasted-in photo
+      for the player cards, and a bar chart for the opponent cards.
+   Reduced motion turns all of it off.
+   --------------------------------------------------------------------- */
+
+/* tint: the headline colour bleeding into the top of the page */
+.lr-slide.tone-down { background: radial-gradient(120% 55% at 50% 0%, rgba(179,20,28,.09), transparent 70%), var(--paper); }
+.lr-slide.tone-up   { background: radial-gradient(120% 55% at 50% 0%, rgba(45,106,31,.10), transparent 70%), var(--paper); }
+.lr-slide::after {                      /* a hairline frame, like a boxed story */
+    content: ""; position: absolute; inset: 34px 14px 14px; pointer-events: none;
+    border: 1px solid rgba(17,17,17,.10);
+}
+.lr-cover::after { border-color: rgba(255,255,255,.12); }
+
+.lr-folio {
+    position: absolute; left: 30px; right: 30px; bottom: 22px;
+    display: flex; justify-content: space-between;
+    padding-top: 6px; border-top: 1px solid var(--line);
+    font-family: "Barlow Condensed", sans-serif; font-size: 11.5px; font-weight: 700;
+    letter-spacing: 1.8px; text-transform: uppercase; color: var(--muted);
+}
+
+/* 1. setting in */
+.lr.js .lr-slide > * {
+    opacity: 0; transform: translateY(16px);
+    transition: opacity .45s ease, transform .6s cubic-bezier(.2, .8, .2, 1);
+}
+.lr.js .lr-slide.seen > * { opacity: 1; transform: none; }
+.lr.js .lr-slide > :nth-child(2) { transition-delay: .07s; }
+.lr.js .lr-slide > :nth-child(3) { transition-delay: .14s; }
+.lr.js .lr-slide > :nth-child(4) { transition-delay: .21s; }
+.lr.js .lr-slide > :nth-child(5) { transition-delay: .28s; }
+.lr.js .lr-slide > :nth-child(6) { transition-delay: .35s; }
+.lr.js .lr-slide > :nth-child(7) { transition-delay: .42s; }
+.lr.js .lr-slide .lr-big { transform: translateY(10px) scale(.82); transition-timing-function: ease, cubic-bezier(.34, 1.56, .64, 1); }
+.lr.js .lr-slide.seen .lr-big { transform: none; }
+.lr.js .lr-slide .lr-kicker { background-size: 0% 1px; transition: opacity .4s ease, transform .5s ease, background-size .7s .25s cubic-bezier(.2, .8, .2, 1); }
+.lr.js .lr-slide.seen .lr-kicker { background-size: 100% 1px; }
+.lr.js .lr-slide > .lr-folio { transform: none; transition-delay: .5s; }
+
+/* the verdict's stamp comes down hard */
+.lr.js .lr-verdict .lk-stamp { opacity: 0; transform: scale(2.1) rotate(-6deg); }
+.lr.js .lr-verdict.seen .lk-stamp { animation: lr-stamp .5s .75s cubic-bezier(.5, 0, .75, 0) forwards; }
+@keyframes lr-stamp {
+    0%   { opacity: 0; transform: scale(2.1) rotate(-6deg); }
+    70%  { opacity: 1; transform: scale(.94) rotate(13deg); }
+    100% { opacity: 1; transform: scale(1) rotate(12deg); }
+}
+.lr.js .lr-verdict .lr-part .lk-bar i { transform: scaleX(0); transition: transform .8s 1s cubic-bezier(.2, .8, .2, 1); }
+.lr.js .lr-verdict .lr-part .lk-bar i.up { transform-origin: left; }
+.lr.js .lr-verdict .lr-part .lk-bar i.down { transform-origin: right; }
+.lr.js .lr-verdict.seen .lr-part .lk-bar i { transform: none; }
+
+/* 2. dealing: scroll-linked, where supported (Chrome, Edge, newer Safari) */
+@supports (animation-timeline: view()) {
+    .lr-slide {
+        animation: lr-deal linear both;
+        animation-timeline: view(inline);
+        animation-range: cover 0% cover 100%;
+        transform-origin: 50% 85%;
+    }
+    @keyframes lr-deal {
+        0%   { scale: .92; rotate: 2deg;  filter: brightness(.95); }
+        50%  { scale: 1;   rotate: 0deg;  filter: none; }
+        100% { scale: .92; rotate: -2deg; filter: brightness(.95); }
+    }
+}
+
+/* arrows and progress, a little livelier */
+.lr-nav { transition: background .2s, color .2s, transform .2s, opacity .2s; box-shadow: 0 6px 16px -8px rgba(40,30,10,.5); }
+.lr-nav:hover { transform: translateY(-50%) scale(1.08); }
+.lr-nav:active { transform: translateY(-50%) scale(.95); }
+.lr-progress span { height: 4px; }
+.lr-progress span i { transition: width .45s cubic-bezier(.2, .8, .2, 1), background .3s; }
+
+/* 3a. the player cards: a photo, pasted in */
+.lr-photo {
+    position: relative; align-self: center; margin: 2px auto 14px;
+    width: 156px; aspect-ratio: 4 / 3; padding: 6px 6px 8px;
+    background: #fff; border: 1px solid rgba(17,17,17,.18);
+    box-shadow: 0 10px 22px -12px rgba(40,30,10,.6);
+    rotate: -3deg;
+}
+.tone-up .lr-photo { rotate: 3deg; }
+.lr-photo img {
+    display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 15%;
+    background: linear-gradient(#efe9dc, #e2d9c6);
+    filter: grayscale(1) contrast(1.1);
+    transition: filter 1.2s .5s ease;
+}
+.lr-slide.seen .lr-photo img, .lr:not(.js) .lr-photo img { filter: none; }
+.lr-photo::before {                     /* a strip of tape */
+    content: ""; position: absolute; z-index: 1; top: -9px; left: 50%;
+    width: 64px; height: 18px; translate: -50% 0; rotate: 4deg;
+    background: rgba(240, 226, 180, .78); box-shadow: 0 1px 2px rgba(0,0,0,.08);
+}
+.tone-down .lr-photo::after {           /* a red pencil mark through the bust */
+    content: ""; position: absolute; inset: 6px 6px 8px;
+    background:
+        linear-gradient(to top right, transparent calc(50% - 1.5px), rgba(179,20,28,.75) calc(50% - 1.5px), rgba(179,20,28,.75) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+    clip-path: inset(0 100% 0 0);
+    transition: clip-path .5s 1.1s ease-out;
+}
+.lr-slide.seen.tone-down .lr-photo::after, .lr:not(.js) .tone-down .lr-photo::after { clip-path: inset(0 0 0 0); }
+.has-photo .lr-big { font-size: clamp(64px, 19vw, 100px); margin: 2px 0 8px; }
+.has-photo .lr-eyebrow { font-size: 22px; }
+
+/* 3b. the opponent cards: their season, and the week they played you */
+.has-chart .lr-big { font-size: clamp(64px, 19vw, 100px); margin: 2px 0 8px; }
+.has-chart .lr-line { font-size: 19px; }
+.has-chart .lr-sub { margin-top: 6px; }
+.lr-chart { margin: 14px auto 0; width: 100%; max-width: 340px; }
+.lr-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.lr-c-axis { stroke: var(--ink); stroke-width: 1.5; }
+.lr-c-bar { fill: #cfc6b3; }
+.lr-c-col.vs .lr-c-bar { fill: var(--accent); }
+.tone-up .lr-c-col.vs .lr-c-bar { fill: var(--lucky); }
+.lr-c-wk { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; fill: var(--muted); }
+.lr-c-col.vs .lr-c-wk { fill: var(--ink); }
+.lr-c-val { font: 400 15px "Anton", sans-serif; fill: var(--ink); }
+.lr-c-avg { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.lr-c-lab { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; fill: var(--ink-2); paint-order: stroke; stroke: var(--paper); stroke-width: 4px; }
+.lr-c-you line { stroke: var(--ink); stroke-width: 3; stroke-linecap: round; }
+.lr-c-you text { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: .8px; text-transform: uppercase; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 4px; }
+.lr-c-key { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 6px; font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+.lr-c-key i { display: inline-block; vertical-align: middle; margin-right: 5px; }
+.lr-c-key .k-bar { width: 10px; height: 10px; background: var(--accent); }
+.tone-up .lr-c-key .k-bar { background: var(--lucky); }
+.lr-c-key .k-avg { width: 16px; border-top: 1.5px dashed var(--ink); }
+.lr-c-key .k-you { width: 14px; border-top: 3px solid var(--ink); border-radius: 2px; }
+
+.lr.js .lr-c-bar { transform-box: fill-box; transform-origin: 50% 100%; transform: scaleY(0); transition: transform .7s var(--d, .2s) cubic-bezier(.2, .8, .2, 1); }
+.lr.js .lr-slide.seen .lr-c-bar { transform: none; }
+.lr.js .lr-c-val, .lr.js .lr-c-avg, .lr.js .lr-c-lab, .lr.js .lr-c-you { opacity: 0; transition: opacity .5s ease; }
+.lr.js .lr-slide.seen .lr-c-avg, .lr.js .lr-slide.seen .lr-c-lab { opacity: 1; transition-delay: .75s; }
+.lr.js .lr-slide.seen .lr-c-val { opacity: 1; transition-delay: 1s; }
+.lr.js .lr-slide.seen .lr-c-you { opacity: 1; transition-delay: 1.2s; }
+.lr.js .lr-c-col.vs .lr-c-bar { transition-duration: 1s; }
+
+@media (max-width: 560px) {
+    .lr-frame { border-radius: 0; }
+    .lr-slide { padding: 50px 22px 50px; }
+    .lr-folio { left: 22px; right: 22px; bottom: 16px; }
+    .lr-slide::after { inset: 30px 10px 10px; }
+}
+@media (max-height: 700px) {
+    .lr-photo { width: 124px; margin-bottom: 8px; }
+    .has-chart .lr-big, .has-photo .lr-big { font-size: clamp(54px, 15vw, 80px); }
+    .lr-chart { margin-top: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .lr-slide { animation: none !important; }
+    .lr.js .lr-slide > *, .lr.js .lr-slide .lr-big, .lr.js .lr-c-bar,
+    .lr.js .lr-c-val, .lr.js .lr-c-avg, .lr.js .lr-c-lab, .lr.js .lr-c-you,
+    .lr.js .lr-verdict .lr-part .lk-bar i { opacity: 1 !important; transform: none !important; transition: none !important; }
+    .lr.js .lr-slide .lr-kicker { background-size: 100% 1px; transition: none; }
+    .lr.js .lr-verdict .lk-stamp { opacity: 1; transform: rotate(12deg); animation: none !important; }
+    .lr-photo img { filter: none; transition: none; }
+    .tone-down .lr-photo::after { clip-path: none; transition: none; }
 }

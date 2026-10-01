@@ -262,7 +262,9 @@ def compute_team(team_rows: list[dict], lineup_rows: list[dict], season: int,
                         "dev_total": _r(sum(devs)), "dev_avg": _r(sum(devs) / len(devs)),
                         "worst": _r(min(pts)), "best": _r(max(pts))})
     players.sort(key=lambda p: (p["dev_total"], p["player_key"]))
-    return {"weeks": weeks, "players": players}
+    scores = [{"team_id": r["team_id"], "week": int(r["week"]), "points": r["points"]}
+              for r in sorted(g, key=lambda r: (int(r["week"]), str(r["team_id"])))]
+    return {"weeks": weeks, "players": players, "scores": scores}
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +371,63 @@ def _pts(v) -> str:
     return f"{float(v):.1f}"
 
 
+SLEEPER_HEADSHOT = "https://sleepercdn.com/content/nfl/players"
+SLEEPER_TEAM_LOGO = "https://sleepercdn.com/images/team_logos/nfl"
+ESPN_HEADSHOT = "https://a.espncdn.com/combiner/i?img=/i/headshots/nfl/players/full"
+
+
+def photo_url(player_key: Optional[str], position: Optional[str] = None) -> Optional[str]:
+    """A picture for a lineup player_key. Most keys are Sleeper ids (the PPR
+    matcher resolves ESPN and Yahoo players to them); defenses are team
+    abbreviations; an unmatched ESPN player keeps "espn:<id>". Anything else
+    has no picture, and the card goes without."""
+    k = str(player_key or "").strip()
+    if not k:
+        return None
+    if k.isdigit():
+        return f"{SLEEPER_HEADSHOT}/{k}.jpg"
+    if position == "DEF" or (k.isalpha() and k.isupper() and len(k) <= 3):
+        return f"{SLEEPER_TEAM_LOGO}/{k.lower()}.png"
+    provider, _, raw = k.partition(":")
+    if provider == "espn" and raw.isdigit() and position != "DEF":
+        return f"{ESPN_HEADSHOT}/{raw}.png&w=350&h=254"
+    return None
+
+
+def opponent_chart(detail: dict, wk: dict) -> Optional[dict]:
+    """The opponent's season as bars, their average as a dashed rule, and the
+    week they played you picked out: the bump (or the drop) you can see.
+    Geometry is in a 320 x 180 box. None with fewer than two weeks to show."""
+    opp = str(wk.get("opp_id") or "")
+    rows = [r for r in (detail.get("scores") or []) if str(r.get("team_id")) == opp]
+    if not opp or len(rows) < 2 or wk.get("opp_avg") is None:
+        return None
+    rows.sort(key=lambda r: int(r["week"]))
+    avg = float(wk["opp_avg"])
+    you = float(wk["points"]) if wk.get("points") is not None else None
+    top = max([float(r["points"]) for r in rows] + [avg] + ([you] if you else [])) * 1.12
+    base, height, left, width = 146.0, 112.0, 14.0, 292.0
+    slot = width / len(rows)
+    bw = min(34.0, slot * 0.62)
+
+    def y(v: float) -> float:
+        return round(base - height * v / top, 1)
+
+    bars = []
+    for i, r in enumerate(rows):
+        pts = float(r["points"])
+        x = left + slot * i + (slot - bw) / 2
+        bars.append({"x": round(x, 1), "w": round(bw, 1), "y": y(pts),
+                     "h": round(base - y(pts), 1), "cx": round(x + bw / 2, 1),
+                     "week": int(r["week"]), "pts": _pts(pts),
+                     "vs": int(r["week"]) == int(wk["week"])})
+    hit = next((b for b in bars if b["vs"]), None)
+    return {"bars": bars, "avg_y": y(avg), "avg": _pts(avg), "base": base,
+            "you_y": y(you) if (you is not None and hit) else None,
+            "you": _pts(you) if you is not None else None,
+            "hit": hit}
+
+
 def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
     """{"cards": [...], "highlights": [...]} for one team. `team` is its row
     from league_page (with verdict, luckier_than, deserved_w/l)."""
@@ -426,7 +485,8 @@ def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
                           "big": f"+{delta:.1f}",
                           "line": f"{hot['opp_name']} averages {_pts(hot['opp_avg'])}. "
                                   f"They scored {_pts(hot['opponent_points'])}.",
-                          "sub": "Against you, naturally.", "tone": "down"})
+                          "sub": "Against you, naturally.", "tone": "down",
+                          "opp": hot["opp_name"], "chart": opponent_chart(detail, hot)})
             highlights.append(f"{hot['opp_name']} scored {delta:.0f} above their average. "
                               f"Against you.")
         cold = min(faced, key=lambda x: (x["opponent_points"] - x["opp_avg"], x["week"]))
@@ -437,7 +497,8 @@ def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
                           "big": f"\u2212{abs(cdelta):.1f}",
                           "line": f"{cold['opp_name']} averages {_pts(cold['opp_avg'])}. "
                                   f"Against you: {_pts(cold['opponent_points'])}.",
-                          "sub": "You'll take it.", "tone": "up"})
+                          "sub": "You'll take it.", "tone": "up",
+                          "opp": cold["opp_name"], "chart": opponent_chart(detail, cold)})
 
     # 5. your players: the bust and the boom
     if players:
@@ -449,7 +510,8 @@ def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
                           "line": f"Points below his own average, across {bust['starts']} "
                                   f"start{'s' if bust['starts'] != 1 else ''} for you.",
                           "sub": f"Low point: {_pts(bust['worst'])}.", "tone": "down",
-                          "position": bust.get("position")})
+                          "position": bust.get("position"),
+                          "photo": photo_url(bust["player_key"], bust.get("position"))})
         boom = players[-1]
         if boom["dev_total"] >= 6 and boom is not bust:
             cards.append({"kind": "player", "kicker": "The one who carried you",
@@ -458,7 +520,8 @@ def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
                           "line": f"Points above his own average, across {boom['starts']} "
                                   f"start{'s' if boom['starts'] != 1 else ''} for you.",
                           "sub": f"Best game: {_pts(boom['best'])}.", "tone": "up",
-                          "position": boom.get("position")})
+                          "position": boom.get("position"),
+                          "photo": photo_url(boom["player_key"], boom.get("position"))})
 
     # 6. close games
     cw, cl = team.get("close_w") or 0, team.get("close_l") or 0

@@ -213,3 +213,36 @@ def test_card_text_survives_emoji_and_long_names():
         assert luck_card.render(team, "League", 100, 3, size, ["A line."])[:8] == b"\x89PNG\r\n\x1a\n"
     assert luck_card.signed(-0.02) == "0.0" and luck_card.signed(-1.25) == "\u22121.2"
     assert luck_card.rank_line(4, 15726) == "Unluckier than 96% of 15,726 teams in America."
+
+
+def test_player_photos():
+    assert luck.photo_url("4866") == "https://sleepercdn.com/content/nfl/players/4866.jpg"
+    assert luck.photo_url("KC", "DEF") == "https://sleepercdn.com/images/team_logos/nfl/kc.png"
+    assert luck.photo_url("espn:3916387", "WR").startswith("https://a.espncdn.com/")
+    assert luck.photo_url("yahoo:461.p.33536", "RB") is None
+    assert luck.photo_url(None) is None
+
+
+def test_the_opponent_card_charts_their_season():
+    # a averages 120 and scores 150 against b in week 3
+    rows = [
+        _g("L", "a", 1, 105, 90, "W"), _g("L", "b", 1, 90, 105, "L"),
+        _g("L", "a", 2, 105, 80, "W"), _g("L", "c", 2, 80, 105, "L"),
+        _g("L", "b", 2, 100, 70, "W"), _g("L", "d", 2, 70, 100, "L"),
+        _g("L", "a", 3, 150, 110, "W"), _g("L", "b", 3, 110, 150, "L"),
+        _g("L", "c", 1, 95, 85, "W"), _g("L", "d", 1, 85, 95, "L"),
+        _g("L", "c", 3, 90, 88, "W"), _g("L", "d", 3, 88, 90, "L"),
+    ]
+    table = luck.compute(rows, [], SEASON)
+    for r in table:
+        r.update(verdict=luck.verdict(r["total"]), luckier_than=50,
+                 deserved_w=round(r["w"] + 0.5 * r["t"] - r["total"], 1),
+                 deserved_l=round(r["games"] - (r["w"] + 0.5 * r["t"] - r["total"]), 1))
+    b = next(r for r in table if r["team_id"] == "b")
+    detail = luck.compute_team(rows, [], SEASON, "L", "b")
+    card = next(c for c in luck.report(b, detail, table)["cards"] if c["kind"] == "opponent")
+    ch = card["chart"]
+    assert [x["week"] for x in ch["bars"]] == [1, 2, 3]
+    assert [x["vs"] for x in ch["bars"]] == [False, False, True]
+    assert ch["hit"]["pts"] == "150.0" and ch["avg"] == "120.0" and ch["you"] == "110.0"
+    assert ch["hit"]["y"] < ch["avg_y"] < ch["base"]            # the bump, above the line
