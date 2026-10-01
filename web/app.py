@@ -3705,9 +3705,11 @@ def confirm_subscription(request: Request, token: str):
 
 
 @app.get("/unsubscribe/{token}", response_class=HTMLResponse)
+@app.post("/unsubscribe/{token}", response_class=HTMLResponse)
 def unsubscribe(request: Request, token: str):
     """One click, no confirmation step, no login. Required by CAN-SPAM, and
-    the alternative is people hitting 'report spam' instead."""
+    the alternative is people hitting 'report spam' instead. POST is the
+    one-click List-Unsubscribe that Gmail's and Apple Mail's own button sends."""
     row = db.unsubscribe(token)
     if not row:
         return _render(request, "message.html",
@@ -3731,8 +3733,12 @@ def stop_reminders(request: Request, token: str):
                             "and we'll take you off by hand.")
     try:
         db.add_email_optout(email)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        # Never tell someone they're off the list when they aren't.
+        print(f"[stop] could not record opt-out for {email}: {e}", flush=True)
+        return _render(request, "message.html", heading="Something went wrong",
+                       body="We couldn't take you off just now. Try the link again "
+                            "in a minute, or reply to the email and we'll do it by hand.")
     return _render(request, "message.html", heading="You're off the list",
                    body="No more reminders. Your papers and your league are "
                         "untouched, and you can still make one any time.")

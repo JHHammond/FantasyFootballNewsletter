@@ -361,6 +361,28 @@ def test_unsubscribe_takes_no_confirmation_step(client, league, sent_emails):
     assert demo_db._SUBSCRIBERS[row["id"]]["unsubscribed_at"] is not None
 
 
+def test_mail_client_one_click_unsubscribe_is_a_post(client, league, sent_emails):
+    """The List-Unsubscribe-Post header tells Gmail to POST; a 405 there
+    means Gmail's own Unsubscribe button silently does nothing."""
+    client.post(f"/p/{league['public_slug']}/subscribe", data={"email": "a@b.com"})
+    row = next(iter(demo_db._SUBSCRIBERS.values()))
+    client.get(f"/subscribe/confirm/{row['confirm_token']}")
+    r = client.post(f"/unsubscribe/{row['unsubscribe_token']}",
+                    data={"List-Unsubscribe": "One-Click"})
+    assert r.status_code == 200
+    assert demo_db.active_subscribers(league["id"]) == []
+
+
+def test_a_failed_reminder_optout_does_not_claim_success(client, monkeypatch):
+    from web import reminders
+    def boom(_e):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(demo_db, "add_email_optout", boom)
+    r = client.get(f"/stop/{reminders.unsubscribe_token('x@y.com')}")
+    assert "off the list" not in r.text
+    assert "went wrong" in r.text
+
+
 def test_resubscribing_after_unsubscribe_works(client, league, sent_emails):
     client.post(f"/p/{league['public_slug']}/subscribe", data={"email": "a@b.com"})
     row = next(iter(demo_db._SUBSCRIBERS.values()))
