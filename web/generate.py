@@ -371,6 +371,11 @@ def sponsor_settings(league: dict[str, Any]) -> dict | None:
     return cfg
 
 
+def _award_sponsored(league: dict[str, Any]) -> bool:
+    cfg = sponsor_settings(league)
+    return bool(cfg and cfg.get("award", True))
+
+
 def _photo_desk(db, season: int, week: int) -> dict:
     """{plain player name: photo} for this week. A photo for this exact week
     beats an any-week one. Never raises: no desk means headshots."""
@@ -787,6 +792,10 @@ def generate_and_store(db, league: dict[str, Any], week: int,
 
     games = week_to_legacy_games(week_data)
     summary = get_weekly_storylines(games)
+    # The Over of the Week is a sponsor's award (John, 1 Oct): written only
+    # when a sponsor has it switched on.
+    if not _award_sponsored(league):
+        summary.pop("over_of_week", None)
 
     # The week's data is the one place the app holds the real list of who is in
     # this league, so this is where the roster of people gets kept up to date —

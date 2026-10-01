@@ -2052,6 +2052,11 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         old_avatar_map = {a["title"]: a.get("avatar") for a in old_awards}
         merged_awards = []
         for award in ai_content["awards"]:
+            # The Over of the Week only runs while a sponsor presents it
+            # (John, 1 Oct): a paper re-rendered after a deal ends drops it.
+            if (_award_key(award.get("title")) == "OVER OF THE WEEK"
+                    and not _sponsor_on(sponsor, "award")):
+                continue
             merged_awards.append({
                 "title": award["title"],
                 "body": md(award["body"]) if award.get("body") else "",

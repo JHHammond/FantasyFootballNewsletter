@@ -557,3 +557,18 @@ def test_the_numbers_box_calls_each_starter_over_or_under():
     assert "1&ndash;2 against the line" in html
     assert "15.5" in html and "35.2" in html and "Tyler Loop" not in html
     assert html.count("nb-over") == 1 and html.count("nb-under") == 2
+
+
+def test_the_over_of_the_week_only_runs_when_sponsored():
+    ai = {"awards": [{"title": "KYLE PITTS AWARD", "body": "a"},
+                     {"title": "OVER OF THE WEEK", "body": "b"}]}
+    def awards(sponsor):
+        team = {"team_name": "A", "points": 100.0}
+        game = {"winner": "A", "margin": 1.0}
+        summary = {"highest_score": team, "lowest_score": team,
+                   "closest_game": game, "biggest_blowout": game}
+        return newspaper.build_edition("P", 1, summary, [], [team], ai,
+                                       sponsor=sponsor)["awards_html"]
+    assert "OVER OF THE WEEK" not in awards(None)
+    assert "OVER OF THE WEEK" in awards(SPONSOR)
+    assert "OVER OF THE WEEK" not in awards(dict(SPONSOR, award=False))
