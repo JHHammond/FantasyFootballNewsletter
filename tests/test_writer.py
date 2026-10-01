@@ -2680,8 +2680,9 @@ def test_wire_notes_go_to_the_game_whose_players_they_name():
              "- Somebody Else was traded.\n"
              "- NICKNAME: Josh Allen is \"Big Game Josh\". Use it now and then.")
     routed = writer.route_wire(games, notes)
-    assert routed[0] == ["Josh Allen played through a sprained ankle."]
-    assert routed[1] == ["Michael Penix returned, and Drake London went off."]
+    assert routed[0][0].startswith("Josh Allen played through a sprained ankle. [Josh Allen started for ")
+    assert routed[1] == ["Michael Penix returned, and Drake London went off. "
+                         f"[Drake London started for {GAME['team_1']['team_name']}]"]
 
 
 def test_a_recap_is_told_to_use_every_note_about_its_players(swap_client, no_sleeping):
@@ -2854,3 +2855,22 @@ def test_the_wire_is_never_cited():
         "That came from the wire. Per reports, he's out. He was on the waiver wire. "
         "It came down to the wire.")
     assert tells == ["That came from the wire.", "Per reports, he's out."]
+
+
+def test_a_note_says_whose_player_is_whose():
+    game = {"team_1": {"team_name": "Mike Vick Legal Team",
+                       "all_starters": [{"name": "Michael Wilson"}]},
+            "team_2": {"team_name": "The Opponent",
+                       "all_starters": [{"name": "Jaylen Warren"}],
+                       "all_bench": [{"name": "Rico Dowdle"}]}}
+    routed = writer.route_wire([game], "- Jaylen Warren took over after Rico Dowdle got hurt.")
+    assert routed[0] == ["Jaylen Warren took over after Rico Dowdle got hurt. "
+                         "[Jaylen Warren started for The Opponent; "
+                         "Rico Dowdle sat on the bench for The Opponent]"]
+
+
+def test_team_names_in_the_brackets_are_not_outsiders():
+    game = {"team_1": {"team_name": "Mike Vick Legal Team",
+                       "all_starters": [{"name": "Rico Dowdle"}]}, "team_2": {}}
+    notes = writer.route_wire([game], "- Jaylen Warren took over after Rico Dowdle got hurt.")[0]
+    assert writer.wire_outsiders(notes, game) == ["Jaylen Warren"]

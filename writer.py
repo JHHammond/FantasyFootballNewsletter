@@ -909,9 +909,30 @@ def route_wire(games, nfl_notes: str) -> list[list[str]]:
         for i, names in enumerate(rosters):
             if any(re.search(r"(?<![a-z])" + re.escape(n) + r"(?![a-z])", plain)
                    for n in names):
-                out[i].append(line.lstrip("- ").strip())
+                note = line.lstrip("- ").strip()
+                owners = _wire_owners(plain, games[i])
+                out[i].append(f"{note} [{owners}]" if owners else note)
                 break
     return out
+
+
+def _wire_owners(plain_note: str, game: dict) -> str:
+    """Whose player each name in a note is, in this game (30 Sep: a note
+    about Jaylen Warren reached John's game through his OPPONENT's roster,
+    and the recap wrote Warren up as John's). Bench players included."""
+    said = []
+    for side in ("team_1", "team_2"):
+        team = game.get(side) or {}
+        owner = team.get("team_name") or team.get("name") or side
+        for where, players in (("started for", team.get("all_starters") or []),
+                               ("sat on the bench for", team.get("all_bench") or [])):
+            for p in players:
+                n = _wire_name(p.get("name"))
+                if (" " in n and re.search(r"(?<![a-z])" + re.escape(n) + r"(?![a-z])",
+                                           plain_note)
+                        and not any(p.get("name") in x for x in said)):
+                    said.append(f"{p.get('name')} {where} {owner}")
+    return "; ".join(said)
 
 
 #: Capitalized words in a note that are teams, places or events, not people.
@@ -956,6 +977,7 @@ def wire_outsiders(notes: list[str], game: dict) -> list[str]:
                 inside.add(n.split()[-1])
     out: list[str] = []
     for note in notes or []:
+        note = re.sub(r"\s*\[[^\]]*\]\s*$", "", note)   # whose-player brackets
         for m in _CAPITALIZED_RUN.finditer(note):
             name = m.group(0).strip(" .")
             words = [w.lower().strip(".'\u2019") for w in name.split()]
@@ -2177,7 +2199,8 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
                 "have. Use EVERY one of these in this recap, in your own words, "
                 "tied to the player's score, stated as plain fact. Never say "
                 "where it came from: no \"the wire\", \"reports\", \"news "
-                "broke\", \"word is\" — just say what happened:\n"
+                "broke\", \"word is\" — just say what happened. The brackets "
+                "say whose player each one is; get that right:\n"
                 + "\n".join(f"- {n}" for n in ctx["wire"]) + "\n")
         if ctx.get("wire_outsiders"):
             wire += ("These notes also name people who are NOT in this game: "
