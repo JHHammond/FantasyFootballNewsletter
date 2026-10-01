@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Site stats{% endblock %}
+
+{% block content %}
+<style>
+.stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px; }
+.stat-tile { border:1px solid #d8d0c0; background:#fffdf8; padding:14px 16px; }
+.stat-label { font-family:Helvetica,Arial,sans-serif; font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:#6b6050; }
+.stat-value { font-size:30px; font-weight:900; line-height:1.1; margin-top:4px; font-variant-numeric:tabular-nums; }
+.stat-sub { font-size:13px; color:#6b6050; margin-top:2px; }
+.stat-section { font-family:Helvetica,Arial,sans-serif; font-size:12px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#b3141c; margin:26px 0 10px; border-bottom:2px solid #111; padding-bottom:6px; }
+.stat-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+.stat-table th, .stat-table td { text-align:right; padding:7px 10px; border-bottom:1px solid #e3dccd; }
+.stat-table th:first-child, .stat-table td:first-child { text-align:left; }
+.stat-table th { font-family:Helvetica,Arial,sans-serif; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#6b6050; }
+</style>
+
+<div class="page-head">
+    <div class="eyebrow"><a href="/staff/around">Staff</a> &middot; <a href="/staff/papers">Papers</a> &middot; <a href="/staff/wire">NFL wire</a> &middot; <a href="/staff/photos">Photo desk</a> &rsaquo; Stats</div>
+    <h1 class="page-title">Site stats</h1>
+    <p class="card-sub">{{ s.season }} season &middot; latest finished week: {{ s.week }} &middot; as of {{ s.as_of }} &middot; <a href="/staff/stats?fresh=1">refresh</a></p>
+</div>
+
+<div class="stat-section">People</div>
+<div class="stat-grid">
+    <div class="stat-tile"><div class="stat-label">Accounts</div><div class="stat-value">{{ "{:,}".format(s.users) }}</div><div class="stat-sub">+{{ "{:,}".format(s.new_users_7d) }} in the last 7 days</div></div>
+    <div class="stat-tile"><div class="stat-label">Paying</div><div class="stat-value">{{ "{:,}".format(s.paid_users) }}</div><div class="stat-sub">{% if s.past_due %}{{ s.past_due }} with a failed or cancelled card{% else %}none with a failed card{% endif %}</div></div>
+    <div class="stat-tile"><div class="stat-label">Reader subscribers</div><div class="stat-value">{{ "{:,}".format(s.subscribers) if s.subscribers is not none else "—" }}</div><div class="stat-sub">confirmed, across all leagues</div></div>
+    <div class="stat-tile"><div class="stat-label">Teams tracked</div><div class="stat-value">{{ "{:,}".format(s.teams) }}</div><div class="stat-sub">week {{ s.week }}, across {{ "{:,}".format(s.teams_leagues) }} leagues{% if s.avg_points %} &middot; avg {{ "%.1f"|format(s.avg_points) }}{% endif %}</div></div>
+</div>
+
+<div class="stat-section">Leagues</div>
+<div class="stat-grid">
+    <div class="stat-tile"><div class="stat-label">Leagues connected</div><div class="stat-value">{{ "{:,}".format(s.leagues_this_season) }}</div><div class="stat-sub">this season &middot; {{ "{:,}".format(s.leagues) }} all time</div></div>
+    <div class="stat-tile"><div class="stat-label">Made a paper</div><div class="stat-value">{{ "{:,}".format(s.leagues_with_papers) }}</div><div class="stat-sub">leagues with at least one this season</div></div>
+    {% for name, n in s.platforms %}
+    <div class="stat-tile"><div class="stat-label">{{ name|capitalize }}</div><div class="stat-value">{{ "{:,}".format(n) }}</div><div class="stat-sub">leagues this season</div></div>
+    {% endfor %}
+</div>
+
+<div class="stat-section">Papers</div>
+<div class="stat-grid">
+    <div class="stat-tile"><div class="stat-label">Papers written</div><div class="stat-value">{{ "{:,}".format(s.papers) }}</div><div class="stat-sub">{{ "{:,}".format(s.papers_this_season) }} this season{% if s.trial_papers is not none %} &middot; {{ "{:,}".format(s.trial_papers) }} free-trial{% endif %}</div></div>
+    <div class="stat-tile"><div class="stat-label">Total views</div><div class="stat-value">{{ "{:,}".format(s.views) }}</div><div class="stat-sub">page loads, all papers</div></div>
+    <div class="stat-tile"><div class="stat-label">Week {{ s.week }} papers</div><div class="stat-value">{{ "{:,}".format(s.latest_papers) }}</div><div class="stat-sub">{{ "{:,}".format(s.latest_emailed) }} emailed by the weekly job</div></div>
+    <div class="stat-tile"><div class="stat-label">Week {{ s.week }} views</div><div class="stat-value">{{ "{:,}".format(s.latest_views) }}</div><div class="stat-sub">{{ s.latest_avg_views }} per paper</div></div>
+</div>
+
+<div class="stat-section">Reminder email</div>
+<div class="stat-grid">
+    <div class="stat-tile"><div class="stat-label">Week {{ s.week }} reminders</div><div class="stat-value">{{ "{:,}".format(s.reminders_sent) if s.reminders_sent is not none else "—" }}</div><div class="stat-sub">sent</div></div>
+    <div class="stat-tile"><div class="stat-label">Unsubscribed</div><div class="stat-value">{{ "{:,}".format(s.optouts) if s.optouts is not none else "—" }}</div><div class="stat-sub">from reminders, all time</div></div>
+</div>
+
+<div class="stat-section">By week, this season</div>
+<section class="card" style="padding:0;">
+    <table class="stat-table">
+        <tr><th>Week</th><th>Papers</th><th>Views</th><th>Views / paper</th></tr>
+        {% for w in s.by_week %}
+        <tr><td>Week {{ w.week }}</td><td>{{ "{:,}".format(w.papers) }}</td><td>{{ "{:,}".format(w.views) }}</td><td>{{ "%.1f"|format(w.views / w.papers) if w.papers else "—" }}</td></tr>
+        {% else %}
+        <tr><td colspan="4">No papers yet this season.</td></tr>
+        {% endfor %}
+    </table>
+</section>
+<p class="card-sub" style="margin-top:12px;">Views count every page load, including the commissioner's own and link previews in group chats, so they're readership in impressions, not unique people.</p>
+{% endblock %}

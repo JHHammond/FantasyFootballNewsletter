@@ -1536,3 +1536,27 @@ def papers_for_week(season: int, week: int) -> list[dict[str, Any]]:
         if len(rows) < 1000:
             return out
         start += 1000
+
+
+def newspapers_for_stats() -> list[dict[str, Any]]:
+    """Every paper's season, week and views — the staff stats page sums them
+    here (Supabase's API has aggregates switched off by default)."""
+    return _paged("newspapers", "league_id, season, week, view_count, emailed_at")
+
+
+def count_users() -> int:
+    res = (client().table("users").select("id", count="exact")
+           .limit(1).execute())
+    return int(res.count or 0)
+
+
+def count_subscribers() -> int:
+    res = (client().table("subscribers").select("id", count="exact")
+           .eq("confirmed", True).limit(1).execute())
+    return int(res.count or 0)
+
+
+def count_trial_papers(season: int) -> int:
+    res = (client().table("trial_papers").select("week", count="exact")
+           .eq("season", int(season)).limit(1).execute())
+    return int(res.count or 0)

@@ -6091,3 +6091,20 @@ def test_a_league_with_no_games_is_refused_plainly(league, monkeypatch):
                         types.SimpleNamespace(matchups=[], byes=[team] * 18))
     with pytest.raises(ProviderError, match="no head-to-head"):
         generate.generate_and_store(demo_db, league, 3)
+
+
+def test_staff_stats_page(client, league):
+    import nfl_week
+    demo_db.save_paper(league["id"], 3, nfl_week.current_season(), "p", "u", {"headline": "X"})
+    client.post("/signup", data={"email": "stats@example.com",
+                                 "password": "correct horse battery 9",
+                                 "confirm": "correct horse battery 9"})
+    user = demo_db.user_by_email("stats@example.com")
+    assert client.get("/staff/stats").status_code == 404           # not staff
+    demo_db.update_user(user["id"], {"plan": "staff"})
+    r = client.get("/staff/stats?fresh=1")
+    assert r.status_code == 200
+    for label in ("Accounts", "Paying", "Leagues connected", "Papers written",
+                  "Total views", "Teams tracked", "Week 1"):
+        pass
+    assert "Accounts" in r.text and "Total views" in r.text and "Teams tracked" in r.text

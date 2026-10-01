@@ -991,6 +991,98 @@ def _require_staff(request: Request) -> dict:
     return user
 
 
+_STATS_CACHE: dict = {}
+
+
+def staff_stats(fresh: bool = False) -> dict:
+    """The numbers for /staff/stats. Cached five minutes: it pages through
+    every paper and every user, which is quick but not free."""
+    import time as _t
+    import nfl_week
+    hit = _STATS_CACHE.get("v")
+    if hit and not fresh and _t.time() - hit[0] < 300:
+        return hit[1]
+    season = nfl_week.current_season()
+    week = nfl_week.completed_week()
+    users = db.all_users()
+    papers = db.newspapers_for_stats()
+    this_season = [p for p in papers if p.get("season") == season]
+    by_week: dict[int, dict] = {}
+    for p in this_season:
+        w = by_week.setdefault(int(p["week"]), {"week": int(p["week"]), "papers": 0, "views": 0})
+        w["papers"] += 1
+        w["views"] += int(p.get("view_count") or 0)
+    teams = {}
+    try:
+        teams = db.team_weeks_summary(season, week) if db.team_weeks_ready() else {}
+    except Exception:  # noqa: BLE001
+        teams = {}
+    try:
+        subscribers = db.count_subscribers()
+    except Exception:  # noqa: BLE001
+        subscribers = None
+    from datetime import datetime, timedelta, timezone
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
+    def _when(v):
+        try:
+            return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+
+    def safe(fn, default=None):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 — one missing table never blanks the page
+            return default
+
+    leagues_now = db.all_leagues(season)
+    platforms: dict[str, int] = {}
+    for l in leagues_now:
+        platforms[l.get("provider") or "?"] = platforms.get(l.get("provider") or "?", 0) + 1
+    latest = by_week.get(week) or {"papers": 0, "views": 0}
+    campaign = f"{season}-w{week}"
+    out = {
+        "season": season, "week": week,
+        "users": len(users),
+        "new_users_7d": sum(1 for u in users if (_when(u.get("created_at")) or week_ago) > week_ago),
+        "paid_users": sum(1 for u in users if plans.plan_for(u).key == plans.PAID),
+        "staff_users": sum(1 for u in users if plans.plan_for(u).key == plans.STAFF),
+        "past_due": sum(1 for u in users if (u.get("plan") or "") == plans.PAID
+                        and (u.get("plan_status") or "") not in ("", "active", "trialing")),
+        "leagues": db.count_leagues(),
+        "leagues_this_season": len(leagues_now),
+        "leagues_with_papers": len({p.get("league_id") for p in this_season}),
+        "platforms": sorted(platforms.items(), key=lambda kv: -kv[1]),
+        "papers": len(papers),
+        "papers_this_season": len(this_season),
+        "trial_papers": safe(lambda: db.count_trial_papers(season)),
+        "views": sum(int(p.get("view_count") or 0) for p in papers),
+        "latest_papers": latest["papers"],
+        "latest_views": latest["views"],
+        "latest_avg_views": round(latest["views"] / latest["papers"], 1) if latest["papers"] else 0,
+        "latest_emailed": sum(1 for p in this_season
+                              if int(p["week"]) == week and p.get("emailed_at")),
+        "teams": int(teams.get("teams") or 0),
+        "teams_leagues": int(teams.get("leagues") or 0),
+        "avg_points": teams.get("avg_points"),
+        "subscribers": subscribers,
+        "reminders_sent": safe(lambda: len(db.reminders_sent(campaign))),
+        "optouts": safe(lambda: len(db.email_optouts())),
+        "by_week": [by_week[w] for w in sorted(by_week)],
+        "as_of": _t.strftime("%-I:%M %p UTC", _t.gmtime()),
+    }
+    _STATS_CACHE["v"] = (_t.time(), out)
+    return out
+
+
+@app.get("/staff/stats", response_class=HTMLResponse)
+def staff_stats_page(request: Request, fresh: int = 0):
+    """The site's headline numbers in one place (John, 30 Sep)."""
+    _require_staff(request)
+    return _render(request, "staff_stats.html", s=staff_stats(fresh=bool(fresh)))
+
+
 @app.get("/staff/papers", response_class=HTMLResponse)
 def staff_papers(request: Request, week: int = 0, sample: int = 0,
                  sent: int = 0):

@@ -955,3 +955,22 @@ def papers_for_week(season: int, week: int) -> list[dict[str, Any]]:
                         "leagues": {k: lg.get(k) for k in
                                     ("public_slug", "league_name", "paper_name", "user_id")}})
     return out
+
+
+def newspapers_for_stats() -> list[dict[str, Any]]:
+    return [{"league_id": k[0], "season": k[1], "week": k[2],
+             "view_count": p.get("view_count") or 0,
+             "emailed_at": p.get("emailed_at")}
+            for k, p in _PAPERS.items()]
+
+
+def count_users() -> int:
+    return len(_USERS)
+
+
+def count_subscribers() -> int:
+    return sum(1 for s in _SUBSCRIBERS.values() if s.get("confirmed"))
+
+
+def count_trial_papers(season: int) -> int:
+    return 0
