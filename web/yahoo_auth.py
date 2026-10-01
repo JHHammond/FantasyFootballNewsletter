@@ -293,22 +293,30 @@ def access_token_for_user(user_id: str, db=None) -> Optional[str]:
         return None
     db = db or _db()
     with _lock_for(str(user_id)):
+        # Each way out says why in the log (1 Oct: "Yahoo needs you to sign
+        # in again" on every visit, with nothing to say which of these it was).
         try:
             row = db.get_yahoo_token(user_id)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            print(f"[yahoo] token read failed for {user_id}: {exc}", flush=True)
             return None
         if not row:
+            print(f"[yahoo] no stored token for {user_id}", flush=True)
             return None
         if _is_fresh(row.get("expires_at")):
             token = decrypt(row.get("access_token") or "")
             if token:
                 return token
+            print(f"[yahoo] stored access token didn't decrypt for {user_id} "
+                  f"(YAHOO_TOKEN_KEY / SESSION_SECRET changed?)", flush=True)
         refresh_token = decrypt(row.get("refresh_token") or "")
         if not refresh_token:
+            print(f"[yahoo] stored refresh token didn't decrypt for {user_id}", flush=True)
             return None
         try:
             body = refresh(refresh_token)
-        except YahooAuthError:
+        except YahooAuthError as exc:
+            print(f"[yahoo] refresh refused for {user_id}: {exc}", flush=True)
             return None
         save_tokens(user_id, body, db=db)
         return body["access_token"]

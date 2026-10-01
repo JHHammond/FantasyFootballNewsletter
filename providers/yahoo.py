@@ -405,6 +405,11 @@ class YahooProvider(FantasyProvider):
         except requests.RequestException as exc:
             raise ProviderError(f"Yahoo request failed: {exc}") from exc
 
+        if response.status_code in (401, 403):
+            # Yahoo's own reason, for the log: a missing Fantasy Sports
+            # permission on the app and an expired token both arrive as 401.
+            print(f"[yahoo] {response.status_code} on {path.split('?')[0]}: "
+                  f"{(response.text or '')[:300]}", flush=True)
         if response.status_code == 401:
             raise AuthRequired(
                 "Yahoo didn't accept our sign-in for this league. Sign in "
