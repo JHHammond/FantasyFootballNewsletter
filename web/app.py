@@ -1519,6 +1519,16 @@ def _yahoo_leagues(user: dict) -> tuple[list, str]:
     try:
         return YahooProvider(access_token=token).user_leagues(), ""
     except AuthRequired:
+        # Is it this account, or the app? A public endpoint answers that:
+        # if Yahoo refuses /game/nfl too, the app has no fantasy access.
+        try:
+            import requests as _rq
+            r = _rq.get("https://fantasysports.yahooapis.com/fantasy/v2/game/nfl",
+                        params={"format": "json"}, timeout=10,
+                        headers={"Authorization": f"Bearer {token}"})
+            print(f"[yahoo] probe /game/nfl -> {r.status_code}: {r.text[:200]}", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[yahoo] probe failed: {exc}", flush=True)
         # A login Yahoo won't honour is no use kept: forget it, so the next
         # "Sign in with Yahoo" starts clean instead of reusing it.
         try:
@@ -1614,7 +1624,13 @@ def connect_yahoo_callback(request: Request, code: str = "", state: str = "",
     try:
         body = yahoo_auth.exchange_code(code, public_base_url())
     except yahoo_auth.YahooAuthError as exc:
+        print(f"[yahoo] code exchange refused: {exc}", flush=True)
         return done(str(exc))
+    # Which app, and what Yahoo granted: no secrets, only enough to tell
+    # one app's keys from another's (1 Oct, the 403 hunt).
+    cid = os.getenv("YAHOO_CLIENT_ID", "").strip()
+    print(f"[yahoo] signed in: app {cid[:10]}…{cid[-4:]}, granted "
+          f"scope={body.get('scope')!r}, fields={sorted(body)}", flush=True)
     yahoo_auth.save_tokens(user["id"], body, db=db)
     return done()
 
