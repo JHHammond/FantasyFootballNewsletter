@@ -843,7 +843,8 @@ textarea { resize: vertical; }
 
 /* Still clickable — it leads to a waiting list, not a dead end. Dimmed
    enough to set expectations before the click rather than after it. */
-.platform-soon { opacity: 0.72; }
+.platform-soon { opacity: 0.55; filter: grayscale(1); }
+.platform-soon:hover { transform: none; border-color: var(--line); }
 
 .platform-tag {
     align-self: flex-start;

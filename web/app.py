@@ -765,7 +765,12 @@ def _platforms_for(user: dict | None) -> list[dict]:
     for p in PLATFORMS:
         p = dict(p)
         if p["key"] == "yahoo":
+            from providers.yahoo import YahooProvider
             p["ready"] = yahoo_open_to(user)
+            # Greyed out and "coming soon" for everyone until the adapter is
+            # checked against a real league, staff included (John, 1 Oct).
+            # Staff can still click through to test it.
+            p["soon"] = not YahooProvider.implemented
             if not p["ready"]:
                 p["how"] = _YAHOO_SOON
         out.append(p)

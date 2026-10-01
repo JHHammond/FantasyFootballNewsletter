@@ -14,10 +14,10 @@
 
 <div class="platform-grid">
     {% for p in platforms %}
-    <a class="platform {% if not p.ready %}platform-soon{% endif %}"
+    <a class="platform {% if p.soon or not p.ready %}platform-soon{% endif %}"
        href="/connect/{{ p.key }}">
         <span class="platform-name">{{ p.name }}</span>
-        {% if not p.ready %}<span class="platform-tag">Coming soon</span>{% endif %}
+        {% if p.soon or not p.ready %}<span class="platform-tag">Coming soon{% if p.ready %} &middot; staff can test{% endif %}</span>{% endif %}
         <span class="platform-how">{{ p.how }}</span>
     </a>
     {% endfor %}

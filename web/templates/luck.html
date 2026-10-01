@@ -28,7 +28,7 @@
     <div class="ar-rank lk-search">
         <form method="get" action="/luck" class="ar-rank-form">
             <label class="ar-rank-field">
-                <span>Your name on Sleeper, ESPN or Yahoo, or your team&rsquo;s name</span>
+                <span>Your name on Sleeper{% if yahoo_live %}, ESPN or Yahoo{% else %} or ESPN{% endif %}, or your team&rsquo;s name</span>
                 <input type="text" name="q" value="{{ q }}" maxlength="80" autocomplete="off"
                        placeholder="KylePitts8" required />
             </label>
