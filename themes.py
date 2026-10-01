@@ -201,6 +201,19 @@ body { background: #f4f2ed !important; }
     color: #333 !important;
 }
 
+.wk-board { background: #f2efe8 !important; color: #111 !important;
+            border-top: 2px solid #111 !important; border-bottom: 1px solid #111 !important; }
+.wk-head, .wk-unit, .wk-who { color: #4a4740 !important; }
+.wk-label, .wk-cell.up .wk-label { color: #7d1b1b !important; }
+.wk-cell { border-left-color: #cfcabd !important; }
+.hd-card { border-top-color: #111 !important; }
+.hd-rank, .hd-fill { background: #111 !important; color: #fff !important; }
+.hd-num { color: #111 !important; }
+.hd-detention .hd-num { color: #7d1b1b !important; }
+.hd-detention .hd-fill, .hd-detention .hd-rank { background: #7d1b1b !important; }
+.fc-stamp { border-color: #7d1b1b !important; color: #7d1b1b !important; }
+.fc-tag { color: #7d1b1b !important; }
+
 .week-ticker {
     background: #f2efe8 !important;
     border-top: 1px solid #111 !important;
@@ -452,6 +465,27 @@ body { background: #0b0d10 !important; color: #f2f4f7 !important; }
 
 .player-card { background: #1c2028 !important; border-color: #2b313c !important; }
 .player-card div { color: #e8ecf2 !important; }
+.wk-board { background: #0b0d10 !important; border-top: 2px solid #16f04e !important;
+            border-bottom: 2px solid #16f04e !important; }
+.wk-label { color: #ff4d5e !important; }
+.wk-cell.up .wk-label, .wk-head { color: #16f04e !important; }
+.wk-num { font-family: "Anton", sans-serif !important; font-weight: 400 !important; }
+.hd-card { border-top-color: #16f04e !important; }
+.hd-rank, .hd-fill { background: #16f04e !important; color: #0b0d10 !important; }
+.player-card .hd-num { color: #16f04e !important; font-family: "Anton", sans-serif !important; font-weight: 400 !important; }
+.hd-detention .hd-card { border-top-color: #ff4d5e !important; }
+.hd-detention .hd-rank, .hd-detention .hd-fill { background: #ff4d5e !important; color: #0b0d10 !important; }
+.player-card.hd-card .hd-num { color: #16f04e !important; }
+.hd-detention .player-card.hd-card .hd-num { color: #ff4d5e !important; }
+.hd-bar { background: #2b313c !important; }
+.hd-proj { background: #e8ecf2 !important; }
+.hd-pos { background: #e8ecf2 !important; color: #0b0d10 !important; }
+.hd-photo { border-color: #2b313c !important; }
+.fc-head { border-bottom-color: #4a1a20 !important; }
+.fc-stamp { border-color: #ff4d5e !important; color: #ff4d5e !important; }
+.fc-file { background: rgba(255,77,94,.08) !important; border-color: rgba(255,77,94,.5) !important; }
+.fc-tag { color: #ff4d5e !important; }
+.fc-name, .fc-fact b { color: #ffffff !important; }
 
 table, td, th { color: #ccd5e0 !important; border-color: #2b313c !important; }
 thead tr { border-bottom-color: #16f04e !important; }

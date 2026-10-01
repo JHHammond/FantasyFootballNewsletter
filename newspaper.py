@@ -1870,103 +1870,140 @@ def build_honor_roll_and_detention(matchups, n=5):
         key=lambda p: p["beat_by"]
     )[:n]
 
-    def player_card(p, highlight_color, show_stat, stat_label):
+    # Ranked cards with a bar (1 Oct, redrawn): the bar runs to what he
+    # scored, the tick marks his projection, so "beat it" and "missed it"
+    # read before the numbers do. One scale per section.
+    def card(p, i, kind, scale):
         headshot, is_logo = card_photo(p)
-        proj_str = f"{p['projected']:.1f}" if p.get("projected") is not None else "—"
-        # Each line carries a class as well as its inline style. Themes need to
-        # recolour these — gameday is white-on-black, print is black-on-white —
-        # and a theme that can only reach them as `.player-card div` has to
-        # repaint all four lines the same colour, which flattens the score into
-        # the caption. Named parts let a theme change one line.
+        proj = p.get("projected")
+        act = p["actual"]
+        if kind == "honor":
+            big = f"{act:.1f}"
+            sub = f"Projected {proj:.1f}" if proj is not None else "&nbsp;"
+        else:
+            big = f"&minus;{abs(p['beat_by']):.1f}"
+            sub = (f"Scored {act:.1f} of {proj:.1f}" if proj is not None
+                   else f"Scored {act:.1f}")
+        fill = max(0.0, min(100.0, 100 * max(act, 0) / scale)) if scale else 0
+        tick = (f'<span class="hd-proj" style="left:{min(100.0, 100 * proj / scale):.1f}%"></span>'
+                if proj is not None and scale else "")
+        shot = (f'<img class="hd-photo{" hd-logo" if is_logo else ""}" src="{headshot}" alt="" '
+                f'loading="lazy" onerror="this.style.visibility=\'hidden\'" />') if headshot else \
+               f'<span class="hd-photo hd-initial">{html_escape(p["name"][:1])}</span>'
         return f'''
-        <div class="player-card">
-            <img class="player-card-shot" src="{headshot}"
-                 onerror="this.style.display='none'"
-                 style="width:60px;height:60px;object-fit:{'contain' if is_logo else 'cover'};object-position:{'center' if is_logo else 'top'};
-                        background:#fff;box-sizing:border-box;padding:{'6px' if is_logo else '0'};
-                        border-radius:50%;border:3px solid {highlight_color};
-                        display:block;margin:0 auto 6px;" />
-            <div class="player-card-name"
-                 style="font-weight:700;font-size:13px;text-align:center;">{p["name"]}</div>
-            <div class="player-card-meta"
-                 style="font-size:11px;color:#666;text-align:center;">{p["position"]} &bull; {p["team_name"]}</div>
-            <div class="player-card-stat"
-                 style="font-size:20px;font-weight:900;text-align:center;color:{highlight_color};margin-top:4px;">{show_stat}</div>
-            <div class="player-card-proj"
-                 style="font-size:10px;color:#888;text-align:center;">{stat_label}: {proj_str}</div>
+        <div class="hd-card player-card">
+            <span class="hd-rank">{i + 1}</span>
+            {shot}
+            <div class="hd-name player-card-name">{html_escape(p["name"])}<span class="hd-pos">{html_escape(p["position"] or "")}</span></div>
+            <div class="hd-team player-card-meta">{html_escape(p["team_name"])}</div>
+            <div class="hd-num player-card-stat">{big}</div>
+            <div class="hd-bar"><span class="hd-fill" style="width:{fill:.1f}%"></span>{tick}</div>
+            <div class="hd-sub player-card-proj">{sub}</div>
         </div>'''
 
-    # Build honor roll HTML
-    honor_cards = []
-    for p in honor:
-        stat = f"{p['actual']:.1f}"
-        label = "Proj"
-        honor_cards.append(player_card(p, "#c8a200", stat, label))
+    def scale_for(rows):
+        vals = [max(p["actual"], p["projected"] or 0) for p in rows]
+        return max(vals) * 1.05 if vals else 0
 
-    honor_html = f'''
-    <div class="player-grid">
-        {"".join(honor_cards)}
-    </div>'''
-
-    # Build detention HTML
-    detention_cards = []
-    for p in detention:
-        diff = f"{p['beat_by']:.1f}"
-        label = "Proj"
-        detention_cards.append(player_card(p, "#c40000", diff, label))
-
-    detention_html = f'''
-    <div class="player-grid">
-        {"".join(detention_cards)}
-    </div>'''
+    hs, ds = scale_for(honor), scale_for(detention)
+    honor_html = (f'<div class="player-grid hd-grid hd-honor">'
+                  f'{"".join(card(p, i, "honor", hs) for i, p in enumerate(honor))}</div>')
+    detention_html = (f'<div class="player-grid hd-grid hd-detention">'
+                      f'{"".join(card(p, i, "detention", ds) for i, p in enumerate(detention))}</div>')
 
     return honor_html, detention_html
 
 
+def _game_line(game):
+    """ "Winner 123.7, Loser 119.5" for a game dict, or ""."""
+    if not game:
+        return ""
+    t1, t2 = game.get("team_1") or {}, game.get("team_2") or {}
+    w = game.get("winner")
+    win, lose = (t1, t2) if get_team_name(t1) == w else (t2, t1)
+    if not get_team_name(win) or not get_team_name(lose):
+        return html_escape(str(w or ""))
+    return (f"{html_escape(get_team_name(win))} {get_team_points(win):.1f}, "
+            f"{html_escape(get_team_name(lose))} {get_team_points(lose):.1f}")
+
+
 def build_week_ticker(summary):
-    """
-    Build a horizontal stats ticker bar showing key week numbers.
-    Fills the gap between front page and game stories.
-    """
-    highest = summary.get("highest_score", {})
-    lowest = summary.get("lowest_score", {})
-    closest = summary.get("closest_game", {})
-    blowout = summary.get("biggest_blowout", {})
-    dominance = summary.get("dominance", {})
+    """The week in numbers (1 Oct, redrawn): one dark band across the page,
+    a big number per cell and who it belongs to. Replaced five boxed tiles
+    with emoji labels."""
+    highest = summary.get("highest_score") or {}
+    lowest = summary.get("lowest_score") or {}
+    closest = summary.get("closest_game") or {}
+    blowout = summary.get("biggest_blowout") or {}
+    dominance = summary.get("dominance") or {}
 
-    def stat_block(label, value, sub=""):
-        sub_html = f'<div style="font-size:11px;color:#888;margin-top:2px;">{sub}</div>' if sub else ""
-        return f'''
-        <div class="ticker-stat">
-            <div class="ticker-label">{label}</div>
-            <div class="ticker-value">{value}</div>
-            {sub_html}
-        </div>'''
+    def cell(label, num, unit, who, tone=""):
+        unit_html = f'<span class="wk-unit">{unit}</span>' if unit else ""
+        return (f'<div class="wk-cell {tone}"><div class="wk-label">{label}</div>'
+                f'<div class="wk-num">{num}{unit_html}</div>'
+                f'<div class="wk-who">{who}</div></div>')
 
-    highest_name = get_team_name(highest)
-    lowest_name = get_team_name(lowest)
-    closest_winner = safe(closest.get("winner"), "?")
-    closest_margin = float(closest.get("margin", 0))
-    blowout_winner = safe(blowout.get("winner"), "?")
-    blowout_margin = float(blowout.get("margin", 0))
-
-    dominance_team = ""
-    dominance_pts = 0
+    cells = []
+    if highest:
+        cells.append(cell("High score", f"{get_team_points(highest):.1f}", "",
+                          html_escape(get_team_name(highest)), "up"))
+    if lowest:
+        cells.append(cell("Low score", f"{get_team_points(lowest):.1f}", "",
+                          html_escape(get_team_name(lowest)), "down"))
+    if closest:
+        cells.append(cell("Closest game", f"{float(closest.get('margin') or 0):.1f}",
+                          "pts", _game_line(closest)))
+    if blowout:
+        cells.append(cell("Biggest blowout", f"{float(blowout.get('margin') or 0):.1f}",
+                          "pts", _game_line(blowout)))
     if dominance and dominance.get("team"):
-        dominance_team = get_team_name(dominance["team"])
-        dominance_pts = get_team_points(dominance["team"])
+        cells.append(cell("Most dominant", f"{get_team_points(dominance['team']):.1f}",
+                          "", html_escape(get_team_name(dominance["team"]))))
+    if not cells:
+        return ""
+    return (f'<div class="wk-board"><div class="wk-head">The week in numbers</div>'
+            f'<div class="wk-cells">{"".join(cells)}</div></div>')
 
-    blocks = [
-        stat_block("&#127942; High Score", f"{get_team_points(highest):.1f}", highest_name),
-        stat_block("&#128293; Low Score", f"{get_team_points(lowest):.1f}", lowest_name),
-        stat_block("&#9876; Closest Game", f"{closest_margin:.1f} pts", f"{closest_winner} survived"),
-        stat_block("&#128565; Biggest Blowout", f"{blowout_margin:.1f} pts", f"{blowout_winner} dominated"),
-    ]
 
-    if dominance_team:
-        blocks.append(stat_block("&#9889; Most Dominant", f"{dominance_pts:.1f} pts", dominance_team))
+def build_fraud_case(summary, matchups):
+    """The case file at the top of Fraud Watch (1 Oct): the team under
+    investigation, its record, its score and where that score ranked. The
+    same subject the writer was given: the fraud if there is one, else the
+    week's lowest score."""
+    subject = (summary or {}).get("fraud") or (summary or {}).get("lowest_score")
+    if not subject or not get_team_name(subject):
+        return ""
+    name = get_team_name(subject)
+    pts = get_team_points(subject)
+    record = subject.get("record_after") or subject.get("record") or ""
+    scores = [get_team_points(g.get(side) or {}) for g in matchups or []
+              for side in ("team_1", "team_2") if (g.get(side) or {}).get("team_name")]
+    rank = (1 + sum(1 for x in scores if x > pts)) if scores else None
 
-    return "".join(blocks)
+    def ordinal(n):
+        return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+    facts = []
+    if record:
+        facts.append(("Record", html_escape(str(record))))
+    facts.append(("This week", f"{pts:.1f}"))
+    if rank:
+        facts.append(("Rank", f"{ordinal(rank)} of {len(scores)}"))
+    facts_html = "".join(f'<div class="fc-fact"><span>{k}</span><b>{v}</b></div>'
+                         for k, v in facts)
+    avatar = get_team_avatar(subject)
+    face = (f'<img class="fc-face" src="{html_escape(avatar)}" alt="" '
+            f'onerror="this.style.visibility=\'hidden\'" />' if avatar else
+            f'<span class="fc-face fc-initial">{html_escape(name[:1].upper())}</span>')
+    return f"""
+            <div class="fc-file">
+                {face}
+                <div class="fc-who">
+                    <div class="fc-tag">Case file &middot; Subject</div>
+                    <div class="fc-name">{html_escape(name)}</div>
+                </div>
+                <div class="fc-facts">{facts_html}</div>
+            </div>"""
 
 
 def build_edition(league_name, week, summary, matchups, power_rankings,
@@ -2234,6 +2271,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         "front_left_html": front_left_html,
         "matchup_stories_html": matchup_stories_html,
         "fraud_watch": fraud_watch,
+        "fraud_case_html": build_fraud_case(summary, matchups),
         "stats_rows": build_stats_box(summary),
         "power_rankings_html": build_power_rankings(
             power_rankings,
@@ -3342,6 +3380,83 @@ def _render_html(edition, theme=None):
             .numbers-box, .award-card, .sp-cta {{ break-inside: avoid; }}
         }}
 
+        /* ── THE WEEK IN NUMBERS (1 Oct) ── */
+        .wk-board {{ margin: 22px 36px 0; background: #16130f; color: #f4eee2;
+                     border-top: 4px solid var(--accent, #c40000); }}
+        .wk-head {{ padding: 9px 18px 0; font-size: 11px; font-weight: 800; letter-spacing: 3px;
+                    text-transform: uppercase; color: #bfb4a2; }}
+        .wk-cells {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }}
+        .wk-cell {{ padding: 8px 18px 14px; border-left: 1px solid rgba(244,238,226,.16); min-width: 0; }}
+        .wk-cell:first-child {{ border-left: 0; }}
+        .wk-label {{ font-size: 10.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
+                     color: #ff8a80; }}
+        .wk-cell.up .wk-label {{ color: #9be08f; }}
+        .wk-num {{ font-family: Georgia, serif; font-size: 36px; font-weight: 900; line-height: 1.05;
+                   font-variant-numeric: tabular-nums; margin-top: 2px; }}
+        .wk-unit {{ font-size: 13px; font-weight: 700; margin-left: 4px; letter-spacing: 1px;
+                    text-transform: uppercase; color: #bfb4a2; }}
+        .wk-who {{ font-size: 12.5px; line-height: 1.35; color: #d9cfbd; margin-top: 3px; }}
+
+        /* ── HONOR ROLL / DETENTION, ranked with a bar (1 Oct) ── */
+        .hd-card {{ position: relative; display: flex; flex-direction: column; align-items: center;
+                    text-align: center; padding: 14px 12px 12px !important; border-top: 4px solid #c8a200 !important; }}
+        .hd-detention .hd-card {{ border-top-color: #c0141c !important; }}
+        .hd-rank {{ position: absolute; top: 8px; left: 8px; width: 24px; height: 24px; border-radius: 50%;
+                    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 900;
+                    background: #c8a200; color: #16130f; }}
+        .hd-detention .hd-rank {{ background: #c0141c; color: #fff; }}
+        .hd-photo {{ width: 76px; height: 76px; border-radius: 50%; object-fit: cover; object-position: 50% 15%;
+                     background: #ece6da; border: 2px solid #16130f; margin: 2px auto 8px; display: block; }}
+        .hd-photo.hd-logo {{ object-fit: contain; padding: 8px; box-sizing: border-box; background: #fff; }}
+        .hd-detention .hd-photo {{ filter: grayscale(1); }}
+        .hd-initial {{ display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 900; color: #777; }}
+        .hd-name {{ font-weight: 800; font-size: 14px; line-height: 1.2; }}
+        .hd-pos {{ display: inline-block; margin-left: 5px; padding: 1px 4px; font-size: 9.5px; font-weight: 800;
+                   letter-spacing: 1px; vertical-align: 2px; background: #16130f; color: #fff; }}
+        .hd-team {{ font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; opacity: .65; margin-top: 2px; }}
+        .hd-num {{ font-family: Georgia, serif; font-size: 28px; font-weight: 900; line-height: 1.1; margin-top: 6px;
+                   color: #8a6d00; font-variant-numeric: tabular-nums; }}
+        .hd-detention .hd-num {{ color: #c0141c; }}
+        .hd-bar {{ position: relative; width: 100%; height: 7px; background: #e6e0d4; border-radius: 4px; margin: 8px 0 5px; }}
+        .hd-fill {{ position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: #c8a200; }}
+        .hd-detention .hd-fill {{ background: #c0141c; }}
+        .hd-proj {{ position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1px; background: #16130f; border-radius: 1px; }}
+        .hd-sub {{ font-size: 11px; opacity: .7; }}
+
+        /* ── FRAUD WATCH, the case file (1 Oct) ── */
+        .fc-head {{ display: flex; justify-content: space-between; align-items: center; gap: 12px;
+                    border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 12px; }}
+        .fc-head .fraud-callout-label {{ text-align: left; border-bottom: 0; padding-bottom: 0; margin-bottom: 0; font-size: 15px; }}
+        .fc-stamp {{ border: 3px double #c0141c; color: #c0141c; font-size: 11px; font-weight: 900; letter-spacing: 2px;
+                     text-transform: uppercase; padding: 5px 10px; transform: rotate(-4deg); white-space: nowrap; }}
+        .fc-file {{ display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px;
+                    padding: 10px 12px; background: rgba(192,20,28,.06); border: 1px dashed rgba(192,20,28,.45); }}
+        .fc-face {{ width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid #16130f;
+                    background: #ece6da; flex-shrink: 0; }}
+        .fc-initial {{ display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 900; color: #777; }}
+        .fc-who {{ flex: 1 1 160px; min-width: 0; }}
+        .fc-tag {{ font-size: 10px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: #c0141c; }}
+        .fc-name {{ font-size: 20px; font-weight: 900; line-height: 1.15; }}
+        .fc-facts {{ display: flex; gap: 18px; flex-wrap: wrap; }}
+        .fc-fact {{ display: flex; flex-direction: column; line-height: 1.1; }}
+        .fc-fact span {{ font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; opacity: .65; }}
+        .fc-fact b {{ font-family: Georgia, serif; font-size: 20px; font-weight: 900; font-variant-numeric: tabular-nums; }}
+
+        @media (max-width: 600px) {{
+            .wk-board {{ margin: 18px 12px 0; }}
+            .wk-cells {{ grid-template-columns: 1fr 1fr; }}
+            .wk-cell {{ border-left: 0; border-top: 1px solid rgba(244,238,226,.16); padding: 8px 14px 12px; }}
+            .wk-cell:nth-child(even) {{ border-left: 1px solid rgba(244,238,226,.16); }}
+            .wk-cell:last-child:nth-child(odd) {{ grid-column: 1 / -1; }}
+            .wk-num {{ font-size: 28px; }}
+            .hd-photo {{ width: 60px; height: 60px; }}
+            .hd-num {{ font-size: 24px; }}
+            .fc-head {{ flex-wrap: wrap; }}
+        }}
+        @media print {{
+            .wk-board, .fc-file {{ break-inside: avoid; }}
+        }}
+
         /* ── SIDEBAR ── */
         .sidebar-box {{
             margin-bottom: 20px;
@@ -3650,14 +3765,12 @@ def _render_html(edition, theme=None):
         </div>
 
         <!-- WEEK STATS TICKER -->
-        <div class="week-ticker">
-            {edition['week_ticker_html']}
-        </div>
+        {edition['week_ticker_html']}
 
         <!-- HONOR ROLL + DETENTION -->
         <div class="full-section">
             <div class="section-title-full">Honor Roll</div>
-            <div class="section-note">The week&rsquo;s highest-scoring starters, whichever lineup they were in</div>
+            <div class="section-note">The week&rsquo;s highest-scoring starters, whichever lineup they were in.</div>
             <div style="padding:8px 0;">
                 {edition['honor_roll_html']}
             </div>
@@ -3665,7 +3778,7 @@ def _render_html(edition, theme=None):
 
         <div class="full-section" style="margin-top:16px;">
             <div class="section-title-full">Detention</div>
-            <div class="section-note">The starters who missed their projection by the most</div>
+            <div class="section-note">The starters who missed their projection by the most.</div>
             <div style="padding:8px 0;">
                 {edition['detention_html']}
             </div>
@@ -3681,7 +3794,11 @@ def _render_html(edition, theme=None):
 
         <!-- FRAUD WATCH — dramatic full width callout -->
         <div class="fraud-callout">
-            <div class="fraud-callout-label">&#128270; Fraud Watch</div>
+            <div class="fc-head">
+                <div class="fraud-callout-label">Fraud Watch</div>
+                <div class="fc-stamp">Under investigation</div>
+            </div>
+            {edition.get('fraud_case_html', '')}
             <div class="fraud-callout-body"{edition['ed_fraud']}>{edition['fraud_watch']}</div>
         </div>
 

@@ -2079,7 +2079,7 @@ def test_player_grids_are_not_inline_styled():
     left five 60px headshots jammed into a 340px phone."""
     html = _full_paper(dict(SAMPLE_AI))
     assert "grid-template-columns:repeat(5,1fr)" not in html
-    assert 'class="player-grid"' in html
+    assert 'class="player-grid' in html
 
 
 def test_paper_has_a_phone_breakpoint():
