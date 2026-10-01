@@ -2787,6 +2787,22 @@ Return ONLY a JSON array, no markdown:
     return ads
 
 
+#: How Fraud Watch opens, one per week (1 Oct). Each is an instruction, not
+#: text to copy; the writer makes its own sentence from it.
+FRAUD_ANGLES = [
+    "with the single worst player on their roster this week and his score, "
+    "as a flat statement of fact",
+    "by talking straight to the manager by name, as if catching them in a lie",
+    "with the gap between their record and what they actually scored this "
+    "week, said bluntly",
+    "with a short, brutal verdict of five words or fewer",
+    "by comparing them to the worst team in the league, unfavourably for them",
+    "with what a neutral fan would assume about a team with this record, then "
+    "the scoreboard proving it wrong",
+    "with the one decision that cost them the most this week",
+]
+
+
 def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=None, model=None):
     fraud = summary.get("fraud")
     lowest = summary.get("lowest_score", {})
@@ -2802,15 +2818,30 @@ def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=
         "inside_jokes": inside_jokes,
     }
 
+    # A different way in each week (John, 1 Oct: every one opened "the paper
+    # is opening a file on…", and the box should be meaner). Picked from the
+    # team and its score, so a redo of the same week keeps the same angle.
+    import hashlib
+    angle = FRAUD_ANGLES[int(hashlib.sha256(
+        f"{context['team_name']}|{context['points']}".encode()).hexdigest(), 16)
+        % len(FRAUD_ANGLES)]
     prompt = f"""
-Write the FRAUD WATCH for this week's paper.
-3-4 sentences. This is a football-specific roast of the worst-performing team this week.
-Attack their roster decisions, their players' performances, their snap counts, their coaching.
-Be specific — name the players who let them down, cite actual football failures.
-Do NOT use financial, legal, or crime metaphors. Keep it entirely on the football field.
-Frame it as the paper formally opening an investigation into this team.
-Be savage, be funny, be specific to the sport: talk to the manager by name at
-least once, and hang one absurd image on a real number.
+Write the FRAUD WATCH for this week's paper: 3-4 sentences calling this team a
+fraud. Mean, specific and funny. No hedging, no "the Desk is not saying", no
+softening at the end: the box exists to say it.
+
+Open this way: {angle}
+
+Rules:
+- Name the players who let them down and what they scored. Use the game data.
+- Talk to the manager by name at least once.
+- Hang one absurd image on a real number.
+- Keep it on the football field: lineup decisions, players, the scoreboard.
+  No files, cases, investigations, evidence, charges, courts, police or
+  crime of any kind, and no money metaphors.
+- Do not open with the team's name followed by its record, and do not
+  restate the label: never "fraud watch", "under investigation" or
+  "opening a file".
 
 Subject: {_compact(context)}
 """

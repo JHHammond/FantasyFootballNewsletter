@@ -201,11 +201,7 @@ body { background: #f4f2ed !important; }
     color: #333 !important;
 }
 
-.wk-board { background: #f2efe8 !important; color: #111 !important;
-            border-top: 2px solid #111 !important; border-bottom: 1px solid #111 !important; }
-.wk-head, .wk-unit, .wk-who { color: #4a4740 !important; }
-.wk-label, .wk-cell.up .wk-label { color: #7d1b1b !important; }
-.wk-cell { border-left-color: #cfcabd !important; }
+.wk-cell.down .wk-num { color: #111 !important; }
 .hd-card { border-top-color: #111 !important; }
 .hd-rank, .hd-fill { background: #111 !important; color: #fff !important; }
 .hd-num { color: #111 !important; }
@@ -465,10 +461,12 @@ body { background: #0b0d10 !important; color: #f2f4f7 !important; }
 
 .player-card { background: #1c2028 !important; border-color: #2b313c !important; }
 .player-card div { color: #e8ecf2 !important; }
-.wk-board { background: #0b0d10 !important; border-top: 2px solid #16f04e !important;
-            border-bottom: 2px solid #16f04e !important; }
-.wk-label { color: #ff4d5e !important; }
-.wk-cell.up .wk-label, .wk-head { color: #16f04e !important; }
+.wk-board { border-top: 2px solid #16f04e !important; border-bottom: 1px solid #2b313c !important; }
+.wk-head { color: #16f04e !important; border-bottom-color: #2b313c !important; }
+.wk-cell { border-color: #2b313c !important; }
+.wk-num { color: #e8ecf2 !important; }
+.wk-cell.down .wk-num { color: #ff4d5e !important; }
+.wk-label, .wk-unit, .wk-who { color: #9aa3b2 !important; }
 .wk-num { font-family: "Anton", sans-serif !important; font-weight: 400 !important; }
 .hd-card { border-top-color: #16f04e !important; }
 .hd-rank, .hd-fill { background: #16f04e !important; color: #0b0d10 !important; }

@@ -1928,9 +1928,9 @@ def _game_line(game):
 
 
 def build_week_ticker(summary):
-    """The week in numbers (1 Oct, redrawn): one dark band across the page,
-    a big number per cell and who it belongs to. Replaced five boxed tiles
-    with emoji labels."""
+    """The week in numbers (1 Oct, redrawn twice): a printed stat line between
+    a double rule and a single rule, a big number per cell and who it belongs
+    to. No fill, no emoji."""
     highest = summary.get("highest_score") or {}
     lowest = summary.get("lowest_score") or {}
     closest = summary.get("closest_game") or {}
@@ -3381,21 +3381,21 @@ def _render_html(edition, theme=None):
         }}
 
         /* ── THE WEEK IN NUMBERS (1 Oct) ── */
-        .wk-board {{ margin: 22px 36px 0; background: #16130f; color: #f4eee2;
-                     border-top: 4px solid var(--accent, #c40000); }}
-        .wk-head {{ padding: 9px 18px 0; font-size: 11px; font-weight: 800; letter-spacing: 3px;
-                    text-transform: uppercase; color: #bfb4a2; }}
-        .wk-cells {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }}
-        .wk-cell {{ padding: 8px 18px 14px; border-left: 1px solid rgba(244,238,226,.16); min-width: 0; }}
+        .wk-board {{ margin: 24px 36px 0; border-top: 4px double #111; border-bottom: 1px solid #111; }}
+        .wk-head {{ text-align: center; font-family: Georgia, serif; font-style: italic; font-weight: 700;
+                    font-size: 16px; padding: 7px 0 6px; border-bottom: 1px solid #111; }}
+        .wk-cells {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); padding: 12px 0 14px; }}
+        .wk-cell {{ padding: 2px 14px; border-left: 1px dotted #a99f8c; text-align: center; min-width: 0; }}
         .wk-cell:first-child {{ border-left: 0; }}
-        .wk-label {{ font-size: 10.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
-                     color: #ff8a80; }}
-        .wk-cell.up .wk-label {{ color: #9be08f; }}
-        .wk-num {{ font-family: Georgia, serif; font-size: 36px; font-weight: 900; line-height: 1.05;
-                   font-variant-numeric: tabular-nums; margin-top: 2px; }}
-        .wk-unit {{ font-size: 13px; font-weight: 700; margin-left: 4px; letter-spacing: 1px;
-                    text-transform: uppercase; color: #bfb4a2; }}
-        .wk-who {{ font-size: 12.5px; line-height: 1.35; color: #d9cfbd; margin-top: 3px; }}
+        .wk-label {{ font-size: 10.5px; font-weight: 800; letter-spacing: 1.8px; text-transform: uppercase;
+                     color: #6b6256; }}
+        .wk-num {{ font-family: Georgia, serif; font-size: 34px; font-weight: 900; line-height: 1.1;
+                   font-variant-numeric: tabular-nums; color: #111; margin-top: 2px; }}
+        .wk-cell.down .wk-num {{ color: var(--accent, #c40000); }}
+        .wk-unit {{ font-size: 12px; font-weight: 700; margin-left: 3px; letter-spacing: 1px;
+                    text-transform: uppercase; color: #6b6256; }}
+        .wk-who {{ font-family: Georgia, serif; font-style: italic; font-size: 13px; line-height: 1.35;
+                   color: #4a4237; margin-top: 2px; }}
 
         /* ── HONOR ROLL / DETENTION, ranked with a bar (1 Oct) ── */
         .hd-card {{ position: relative; display: flex; flex-direction: column; align-items: center;
@@ -3445,8 +3445,10 @@ def _render_html(edition, theme=None):
         @media (max-width: 600px) {{
             .wk-board {{ margin: 18px 12px 0; }}
             .wk-cells {{ grid-template-columns: 1fr 1fr; }}
-            .wk-cell {{ border-left: 0; border-top: 1px solid rgba(244,238,226,.16); padding: 8px 14px 12px; }}
-            .wk-cell:nth-child(even) {{ border-left: 1px solid rgba(244,238,226,.16); }}
+            .wk-cells {{ padding: 4px 0 8px; }}
+            .wk-cell {{ border-left: 0; border-top: 1px dotted #a99f8c; padding: 10px 8px; }}
+            .wk-cell:nth-child(-n+2) {{ border-top: 0; }}
+            .wk-cell:nth-child(even) {{ border-left: 1px dotted #a99f8c; }}
             .wk-cell:last-child:nth-child(odd) {{ grid-column: 1 / -1; }}
             .wk-num {{ font-size: 28px; }}
             .hd-photo {{ width: 60px; height: 60px; }}
@@ -3796,7 +3798,7 @@ def _render_html(edition, theme=None):
         <div class="fraud-callout">
             <div class="fc-head">
                 <div class="fraud-callout-label">Fraud Watch</div>
-                <div class="fc-stamp">Under investigation</div>
+                <div class="fc-stamp">Fraudulent</div>
             </div>
             {edition.get('fraud_case_html', '')}
             <div class="fraud-callout-body"{edition['ed_fraud']}>{edition['fraud_watch']}</div>
