@@ -262,6 +262,8 @@ table.stats th { background: #0f1216 !important; color: #8d9bad !important; }
 .story-team-name { color: #ffffff !important; }
 .story-team-meta, .award-desc, .section-note { color: #8d9bad !important; }
 .story-margin { color: #16f04e !important; }
+.st-pts-win { color: #ffffff !important; }
+.st-pts-lose { color: #8d9bad !important; }
 
 /* The commissioner's letter. */
 .letter-kicker {

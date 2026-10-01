@@ -1426,28 +1426,39 @@ def build_pull_quote(body_html, chosen=None):
 
 
 def render_scorebar(story, compact=False):
-    """Render the score bar — compact version for paired stories."""
+    """Render the score bar — compact version for paired stories.
+
+    1 Oct: the arrow between the teams (&#9654;) drew as a blue emoji button
+    on iPhones, and a long team name ("CeeDeezBallsOnYourChin") pushed the
+    bar out of shape. The margin is plain text now, names wrap inside their
+    own column, and on a phone the bar turns into a two-line scoreboard: one
+    row per team, the score big on the right.
+    """
     winner_avatar = render_avatar_img(story["winner_avatar"], story["winner_name"])
     loser_avatar = render_avatar_img(story["loser_avatar"], story["loser_name"])
     font_size = "13px" if compact else "15px"
     meta_size = "11px" if compact else "12px"
     padding = "7px 10px" if compact else "10px 14px"
+    margin = float(story.get("margin") or 0)
+    margin_html = ('<span class="sm-num">Tie</span>' if margin == 0 else
+                   f'<span class="sm-by">by</span> <span class="sm-num">{margin:.1f}</span>')
+
+    def side(name, record, score, css):
+        return (f'<div class="st-text">'
+                f'<div class="story-team-name" style="font-size:{font_size};">{name}</div>'
+                f'<div class="story-team-meta" style="font-size:{meta_size};">'
+                f'<span class="st-rec">{record}</span><span class="st-dot"> &bull; </span>'
+                f'<span class="st-pts {css}">{score:.1f}</span></div></div>')
 
     return f'''
-    <div class="story-scorebar" style="padding:{padding};">
-        <div class="story-team">
+    <div class="story-scorebar{' story-scorebar-compact' if compact else ''}" style="padding:{padding};">
+        <div class="story-team st-win">
             {winner_avatar}
-            <div>
-                <div class="story-team-name" style="font-size:{font_size};">{story["winner_name"]}</div>
-                <div class="story-team-meta" style="font-size:{meta_size};">{story["winner_record"]} &bull; {story["winner_score"]:.1f}</div>
-            </div>
+            {side(story["winner_name"], story["winner_record"], story["winner_score"], "st-pts-win")}
         </div>
-        <div class="story-margin" style="font-size:12px;">&#9654; {story["margin"]:.1f}</div>
-        <div class="story-team" style="justify-content:flex-end;text-align:right;">
-            <div>
-                <div class="story-team-name" style="font-size:{font_size};">{story["loser_name"]}</div>
-                <div class="story-team-meta" style="font-size:{meta_size};">{story["loser_record"]} &bull; {story["loser_score"]:.1f}</div>
-            </div>
+        <div class="story-margin">{margin_html}</div>
+        <div class="story-team st-lose">
+            {side(story["loser_name"], story["loser_record"], story["loser_score"], "st-pts-lose")}
             {loser_avatar}
         </div>
     </div>'''
@@ -3052,7 +3063,7 @@ def _render_html(edition, theme=None):
 
         .story-scorebar {{
             display: grid;
-            grid-template-columns: 1fr auto 1fr;
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
             gap: 12px;
             align-items: center;
             margin-bottom: 12px;
@@ -3065,11 +3076,37 @@ def _render_html(edition, theme=None):
             display: flex;
             align-items: center;
             gap: 8px;
+            min-width: 0;
         }}
+        .story-team.st-lose {{ justify-content: flex-end; text-align: right; }}
+        .st-text {{ min-width: 0; }}
 
         .story-team-name {{
             font-weight: 700;
             font-size: 15px;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+        }}
+        .sm-by {{ font-size: 10px; letter-spacing: 1px; color: #888; }}
+
+        /* On a phone: a two-line scoreboard, one row per team (1 Oct). */
+        @media (max-width: 600px) {{
+            .story-scorebar {{ grid-template-columns: minmax(0, 1fr); gap: 8px; }}
+            .story-team, .story-team.st-lose {{
+                display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+                column-gap: 0; align-items: center; text-align: left;
+            }}
+            .story-team .st-text, .story-team .story-team-meta {{ display: contents; }}
+            .story-team .avatar {{ grid-column: 1; grid-row: 1 / span 2; width: 32px; height: 32px; margin-right: 10px; }}
+            .story-team .story-team-name {{ grid-column: 2; grid-row: 1; font-size: 15px !important; align-self: end; }}
+            .story-team .st-rec {{ grid-column: 2; grid-row: 2; align-self: start; line-height: 1.3; margin-top: 1px; }}
+            .story-team .st-dot {{ display: none; }}
+            .story-team .st-pts {{ grid-column: 3; grid-row: 1 / span 2; font-family: Georgia, serif;
+                                   font-size: 22px; font-weight: 900; color: #111; margin-left: 10px; }}
+            .story-team .st-pts-lose {{ color: #8a8478; }}
+            .story-margin {{ text-align: right !important; border-top: 1px dotted #c9c1b1;
+                             padding-top: 6px; font-size: 12px; }}
+            .story-scorebar .story-margin {{ order: 3; }}
         }}
 
         .story-team-meta {{
