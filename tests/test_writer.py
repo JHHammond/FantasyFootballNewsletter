@@ -2817,3 +2817,40 @@ def test_banned_words_are_caught():
     """John, 28 Sep: "laugher" doesn't really make sense."""
     assert writer.find_ai_tells("Smith-Njigba turned a lifeless lineup into a laugher.")
     assert not writer.find_ai_tells("The league's laughter could be heard from Ohio.")
+
+
+# --- a wire note's other players stay out of the recap (John, 30 Sep) ---------
+
+def test_wire_outsiders_are_the_note_players_not_in_this_game():
+    game = {"team_1": {"all_starters": [{"name": "Rico Dowdle"}, {"name": "Michael Wilson"}],
+                       "all_bench": [{"name": "Keaton Mitchell"}]},
+            "team_2": {"all_starters": [{"name": "Josh Allen"}]}}
+    notes = ["Jaylen Warren took over the Pittsburgh backfield after Rico Dowdle hurt his ankle.",
+             "Amon-Ra St. Brown and the Lions beat Kansas City on Monday Night Football."]
+    assert writer.wire_outsiders(notes, game) == ["Jaylen Warren", "Amon-Ra St. Brown"]
+
+
+def test_a_recap_is_told_who_to_leave_out_and_fixed_if_it_doesnt(swap_client, no_sleeping):
+    prompts = []
+
+    def behaviour(k):
+        prompts.append(k["messages"][0]["content"])
+        if len(prompts) == 1:
+            return _reply("Michael Wilson went off for 26. Jaylen Warren wasn't walking "
+                          "through that door either. Three weeks, three losses.")
+        return _reply('{"fixes": [{"old": "Jaylen Warren wasn\'t walking through that '
+                      'door either.", "new": ""}]}')
+    swap_client(behaviour)
+    ctx = writer.build_game_context(GAME)
+    ctx["wire"] = ["Jaylen Warren took over after Rico Dowdle got hurt."]
+    ctx["wire_outsiders"] = ["Jaylen Warren"]
+    body = writer.generate_matchup_body(ctx)
+    assert "NOT in this game: Jaylen Warren" in prompts[0]
+    assert "Warren" not in body and "Michael Wilson went off for 26." in body
+
+
+def test_the_wire_is_never_cited():
+    tells = writer.find_ai_tells(
+        "That came from the wire. Per reports, he's out. He was on the waiver wire. "
+        "It came down to the wire.")
+    assert tells == ["That came from the wire.", "Per reports, he's out."]

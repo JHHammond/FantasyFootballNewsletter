@@ -483,7 +483,10 @@ NFL_WIRE_HEADER = (
     "Never mention a note "
     "about a player who isn't in this paper. Never add injury, trade or "
     "lineup news of your own that isn't here or in the data: if it isn't on "
-    "the wire, you don't know it.\n")
+    "the wire, you don't know it. Never tell the reader where a fact came "
+    "from (no \"the wire\", \"reports\", \"word is\"): state it as plain fact. "
+    "A note can name players who aren't in this league's games; leave them "
+    "out.\n")
 
 
 def system_prompt(tone: str = "standard", games=None,
@@ -909,6 +912,75 @@ def route_wire(games, nfl_notes: str) -> list[list[str]]:
                 out[i].append(line.lstrip("- ").strip())
                 break
     return out
+
+
+#: Capitalized words in a note that are teams, places or events, not people.
+_NOT_PEOPLE = {
+    "arizona", "atlanta", "baltimore", "buffalo", "carolina", "chicago",
+    "cincinnati", "cleveland", "dallas", "denver", "detroit", "green", "bay",
+    "houston", "indianapolis", "jacksonville", "kansas", "city", "las",
+    "vegas", "los", "angeles", "miami", "minnesota", "new", "england",
+    "orleans", "york", "philadelphia", "pittsburgh", "san", "francisco",
+    "seattle", "tampa", "tennessee", "washington", "cardinals", "falcons",
+    "ravens", "bills", "panthers", "bears", "bengals", "browns", "cowboys",
+    "broncos", "lions", "packers", "texans", "colts", "jaguars", "chiefs",
+    "raiders", "chargers", "rams", "dolphins", "vikings", "patriots",
+    "saints", "giants", "jets", "eagles", "steelers", "49ers", "seahawks",
+    "buccaneers", "titans", "commanders", "monday", "tuesday", "wednesday",
+    "thursday", "friday", "saturday", "sunday", "night", "football", "week",
+    "nfl", "super", "bowl", "pro", "hall", "fame", "the", "a", "his", "her",
+    "after", "with", "and", "but", "when", "while", "september", "october",
+    "november", "december", "january", "ir", "pup",
+}
+
+_CAPITALIZED_RUN = re.compile(
+    r"\b[A-Z][a-zA-Z'\u2019.\-]+(?:\s+(?:St\.\s+)?[A-Z][a-zA-Z'\u2019.\-]+){1,2}\b")
+
+
+def wire_outsiders(notes: list[str], game: dict) -> list[str]:
+    """Players a game's wire notes name who are NOT in that game.
+
+    A note is routed to a game because it names one of its players, but it
+    can name others too (30 Sep: "Jaylen Warren is taking over now that Rico
+    Dowdle is hurt" went to Dowdle's game, and the recap wrote about Warren,
+    who wasn't on either roster). These are named to the writer as off
+    limits, and a recap that mentions one anyway has that sentence fixed.
+    """
+    inside = set()
+    for side in ("team_1", "team_2"):
+        team = game.get(side) or {}
+        for p in (team.get("all_starters") or []) + (team.get("all_bench") or []):
+            n = _wire_name(p.get("name"))
+            if n:
+                inside.add(n)
+                inside.add(n.split()[-1])
+    out: list[str] = []
+    for note in notes or []:
+        for m in _CAPITALIZED_RUN.finditer(note):
+            name = m.group(0).strip(" .")
+            words = [w.lower().strip(".'\u2019") for w in name.split()]
+            if any(w in _NOT_PEOPLE for w in words):
+                continue
+            plain = _wire_name(name)
+            if plain in inside or plain.split()[-1] in inside:
+                continue
+            if name not in out:
+                out.append(name)
+    return out
+
+
+def sentences_naming(text: str, names: list[str]) -> list[str]:
+    """The sentences of `text` that name any of `names` in full."""
+    if not names:
+        return []
+    plain_names = [_wire_name(n) for n in names]
+    found = []
+    for sentence in re.split(r"(?<=[.!?])\s+", text or ""):
+        flat = " " + _wire_name(sentence.replace("\n", " ")) + " "
+        if any(re.search(r"(?<![a-z])" + re.escape(n) + r"(?![a-z])", flat)
+               for n in plain_names):
+            found.append(sentence.strip())
+    return found
 
 
 def _ordinal(n: int) -> str:
@@ -1384,6 +1456,11 @@ _TELL_PATTERNS = [
     r"\bhere(?:'s|\u2019s| is) the thing\b",
     # "Alex lost this one on Tuesday, not Sunday" / "lost this before kickoff"
     r"\b(?:lost|won) this one (?:on|before|in|at)\b",
+    # Citing the source (John, 30 Sep: "it should never reference the wire,
+    # just integrate it naturally"). "Waiver wire" and "down to the wire"
+    # are ordinary football and stay.
+    r"(?<!waiver )(?<!waiver-)\bwire\b(?<!to the wire)(?! claim)",
+    r"\b(?:according to|per) (?:the )?(?:reports?|notes?|news)\b",
 ]
 #: Words the editor has banned outright (John). Add to this list; the
 #: checker rewrites any sentence that uses one.
@@ -1462,7 +1539,7 @@ def _drop_repeats(text: str) -> str:
     return "\n".join(out)
 
 
-def fix_tells(text: str, tells: list[str], system=None) -> str:
+def fix_tells(text: str, tells: list[str], system=None, extra: str = "") -> str:
     """Rewrite ONLY the offending sentences, on the small model (28 Sep).
 
     This used to redraft the whole recap on the main model — a second full
@@ -1483,7 +1560,9 @@ keep the voice, and state things directly:
 - a projection is a "projection", never his "number" ("beat his
   projection by 13", "a 16-point projection");
 - no player called another player's "backup", "handcuff" or "teammate" —
-  they only share a fantasy roster ("X sat on the bench with 14").
+  they only share a fantasy roster ("X sat on the bench with 14");
+- never say where a fact came from ("the wire", "reports", "word is"): just
+  state the fact{";" + chr(10) + "- " + extra if extra else ""}.
 Never add a fact that is not in the original. Each "new" replaces only its
 "old": do not repeat anything from the sentences around it.
 
@@ -1504,6 +1583,9 @@ Reply with JSON only, no other text:
             old, new = (item.get("old") or "").strip(), (item.get("new") or "").strip()
             if old and new:
                 fixed = _replace_loosely(fixed, old, new)
+            elif old and extra and "new" in item:      # cut, when allowed
+                fixed = _replace_loosely(fixed, old, "")
+                fixed = re.sub(r"[ \t]{2,}", " ", fixed)
         return _drop_repeats(fixed)
     except Exception as exc:  # noqa: BLE001 — the original is still a story
         print(f"[writer] !! could not fix tells ({type(exc).__name__}); "
@@ -2090,13 +2172,20 @@ def generate_matchup_body(game_context, commissioner_name="", inside_jokes="", s
 
     wire = ""
     if ctx.get("wire"):
-        wire = ("\nNFL WIRE — real news this week about players in THIS game, "
-                "from the editor. It is the reason behind their numbers and the "
-                "best material you have. Use EVERY one of these in this recap, "
-                "in your own words, tied to the player's score:\n"
+        wire = ("\nREAL NFL NEWS this week about players in THIS game. It is "
+                "the reason behind their numbers and the best material you "
+                "have. Use EVERY one of these in this recap, in your own words, "
+                "tied to the player's score, stated as plain fact. Never say "
+                "where it came from: no \"the wire\", \"reports\", \"news "
+                "broke\", \"word is\" — just say what happened:\n"
                 + "\n".join(f"- {n}" for n in ctx["wire"]) + "\n")
+        if ctx.get("wire_outsiders"):
+            wire += ("These notes also name people who are NOT in this game: "
+                     + ", ".join(ctx["wire_outsiders"]) + ". Leave them out of "
+                     "this recap completely; use each note only for what it "
+                     "says about the players in this game.\n")
 
-    return call_claude(f"""
+    text = call_claude(f"""
 Write the recap of this game for the paper.
 {must}{wire}
 {ctx.get('winner')} beat {ctx.get('loser')}, \
@@ -2208,11 +2297,22 @@ enforced"). Accurate is the floor, not the job. This recap MUST have:
 - At least one absurd escalation hung on a real number from this game.
 - A clear opinion on each team's future: contender, fraud, toilet bowl.
 It should read like the funniest person in the group chat wrote it after
-watching every snap, not like a wire report. For the register only (never
+watching every snap, not like a box score. For the register only (never
 reuse these lines):
   "Chase, buddy. You started a tight end who caught one pass. One. For four
   yards."
 """, max_tokens=3000, system=system, model=model, avoid_tells=True)
+
+    # Somebody from a note who isn't in this game got in anyway (30 Sep).
+    strays = sentences_naming(text, ctx.get("wire_outsiders") or [])
+    if strays:
+        print(f"[writer] removing {len(strays)} mention(s) of players not in "
+              f"this game: {strays[0][:80]!r}", flush=True)
+        text = fix_tells(text, strays, system=system, extra=(
+            "these players are NOT in this game and must not appear at all: "
+            + ", ".join(ctx["wire_outsiders"]) + ". Rewrite each sentence "
+            "without them, or reply with an empty \"new\" to cut it"))
+    return text
 
 
 #: The standing awards: name, what it is for, and the line the league uses
@@ -2943,9 +3043,10 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     add_week_context([gc["ctx"] for gc in game_contexts])
 
     # The NFL wire, onto the games whose players it is about (28 Sep).
-    for gc, notes in zip(game_contexts, route_wire(games, nfl_notes)):
+    for gc, game, notes in zip(game_contexts, games, route_wire(games, nfl_notes)):
         if notes:
             gc["ctx"]["wire"] = notes
+            gc["ctx"]["wire_outsiders"] = wire_outsiders(notes, game)
 
     per_game, group_chat_items = assign_jokes(
         [gc["ctx"] for gc in game_contexts], must_use or {})
