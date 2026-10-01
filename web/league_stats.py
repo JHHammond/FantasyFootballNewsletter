@@ -48,6 +48,8 @@ import nfl_week  # noqa: E402
 #: requests a minute and a league costs about three; ESPN publishes no limit
 #: at all, so it gets the most room.
 PACE = {"sleeper": 0.25, "espn": 1.0, "yahoo": 0.5}
+#: Leagues collected at once, per platform. Each worker keeps PACE.
+WORKERS = {"sleeper": 3, "espn": 2, "yahoo": 1}
 
 
 def week_is_final(season: int, week: int, now: Optional[datetime] = None) -> bool:
@@ -259,36 +261,71 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
         log(f"Week {week}: standardized PPR "
             f"{'ready' if ctx else 'UNAVAILABLE (Sleeper unreachable) - raw scores only'}.")
 
-    for i, league in enumerate(pool, 1):
+    # Each platform runs on its own, with a few workers each (1 Oct: three
+    # weeks of 1,400 leagues one at a time took hours). Every worker keeps
+    # its platform's pace between leagues, so the request rate per platform
+    # is WORKERS x the old one: Sleeper ~12 a second against a limit of ~16,
+    # ESPN two leagues a second, Yahoo as before.
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    lock = threading.Lock()
+    todo = [l for l in pool if l["id"] not in done]
+    report["skipped_done"] = len(pool) - len(todo)
+    started = time.time()
+    counter = {"n": 0}
+
+    def one(league):
         if should_stop():
-            log("Stopped early.")
-            break
-        if league["id"] in done:
-            report["skipped_done"] += 1
-            continue
+            return
         try:
             wd = load_week(league["provider"], league["platform_league_id"],
                            season, week)
             n = save_week(db, league, wd, ctx, extended=extended)
-            if n:
-                report["collected"] += 1
-                report["rows"] += n
-            else:
-                report["no_data"] += 1
+            with lock:
+                if n:
+                    report["collected"] += 1
+                    report["rows"] += n
+                else:
+                    report["no_data"] += 1
         except ProviderError as exc:
             # Unplayed, private, deleted, never drafted: all ordinary for a
             # league somebody connected once in August and forgot.
-            report["no_data"] += 1
-            if report["no_data"] <= 20:
+            with lock:
+                report["no_data"] += 1
+                quiet = report["no_data"] > 20
+            if not quiet:
                 log(f"  no data: {league.get('league_name')} "
                     f"({league['provider']}): {exc}")
         except Exception as exc:  # noqa: BLE001 — one league never stops the run
-            report["errors"] += 1
+            with lock:
+                report["errors"] += 1
             log(f"  ERROR {league.get('league_name')} ({league['provider']}): "
                 f"{type(exc).__name__}: {exc}")
         sleep(PACE.get(league["provider"], 1.0))
-        if i % 100 == 0:
-            log(f"  ...{i}/{len(pool)} leagues, {report['rows']} rows")
+        with lock:
+            counter["n"] += 1
+            k = counter["n"]
+        if k % 100 == 0:
+            rate = k / max(1.0, time.time() - started)
+            left = (len(todo) - k) / rate if rate else 0
+            log(f"  ...{k}/{len(todo)} leagues, {report['rows']} rows, "
+                f"{rate * 60:.0f}/min, about {left / 60:.0f} min left")
+
+    by_provider: dict = {}
+    for league in todo:
+        by_provider.setdefault(league["provider"], []).append(league)
+    pools = [ThreadPoolExecutor(max_workers=WORKERS.get(p, 1),
+                                thread_name_prefix=f"collect-{p}")
+             for p in by_provider]
+    futures = [ex.submit(one, league) for ex, leagues in zip(pools, by_provider.values())
+               for league in leagues]
+    for f in futures:
+        f.result()
+    for ex in pools:
+        ex.shutdown(wait=True)
+    if should_stop():
+        log("Stopped early.")
 
     log(f"Week {week}: {report['collected']} leagues collected "
         f"({report['rows']} team rows), {report['skipped_done']} already done, "
