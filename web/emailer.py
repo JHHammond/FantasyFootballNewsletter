@@ -50,6 +50,18 @@ def _config() -> tuple[Optional[str], str, str, str]:
     )
 
 
+def _reply_to() -> str:
+    """REPLY_TO overrides; otherwise the public contact address from the
+    privacy policy. Set REPLY_TO to "none" to send with no Reply-To."""
+    value = (os.getenv("REPLY_TO") or "").strip()
+    if value.lower() == "none":
+        return ""
+    if value:
+        return value
+    from web.legal import DEFAULT_CONTACT_EMAIL
+    return DEFAULT_CONTACT_EMAIL
+
+
 def _send(
     to: str, subject: str, html_body: str,
     *, unsubscribe_url: Optional[str] = None,
@@ -74,6 +86,11 @@ def _send(
         return SendResult(ok=True, detail="logged only", logged_only=True)
 
     payload = {"from": sender, "to": [to], "subject": subject, "html": html_body}
+    reply_to = _reply_to()
+    if reply_to:
+        # The sending domain only sends; without this a reply bounces or
+        # vanishes. Every email says "reply to this" somewhere.
+        payload["reply_to"] = reply_to
     if text_body:
         payload["text"] = text_body
     if headers_extra:
