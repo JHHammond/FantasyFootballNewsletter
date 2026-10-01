@@ -2905,3 +2905,27 @@ def test_a_recap_gets_its_editor_bits(swap_client, no_sleeping):
     assert "- INSTRUCTION: Compliment whoever started Mariota. [Marcus Mariota started for A]" in seen["p"]
     assert "- JOKE: Mariota is a time traveler." in seen["p"]
     assert "never say the editor asked" in seen["p"]
+
+
+def test_prose_prompts_carry_the_last_check(swap_client, no_sleeping):
+    """John, 1 Oct: prevent the tells instead of paying to fix them. The
+    checklist sits before the recap's voice section, which stays last."""
+    seen = {}
+    swap_client(lambda k: seen.setdefault("p", k["messages"][0]["content"]) and _reply("x"))
+    writer.generate_matchup_body(writer.build_game_context(GAME))
+    p = seen["p"]
+    assert "BEFORE YOU ANSWER" in p
+    assert p.index("BEFORE YOU ANSWER") < p.index("THE VOICE, WHICH IS THE POINT")
+    assert p.count("BEFORE YOU ANSWER") == 1
+
+
+def test_the_ledger_counts_what_fixing_cost():
+    from types import SimpleNamespace as U
+    led = writer.Ledger()
+    writer._ledger.fixing = False
+    led.add("claude-sonnet-5", U(input_tokens=1000, output_tokens=1000))
+    writer._ledger.fixing = True
+    led.add("claude-haiku-4-5", U(input_tokens=1000, output_tokens=200))
+    writer._ledger.fixing = False
+    assert len(led.fix_calls) == 1 and abs(led.fix_cost() - 0.002) < 1e-9
+    assert "tell fixes: 1 calls, $0.0020" in led.summary()

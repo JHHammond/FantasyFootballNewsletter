@@ -1251,11 +1251,21 @@ class Ledger:
 
     def __init__(self):
         self.calls = []
+        self.fix_calls = []
         self._lock = threading.Lock()
 
     def add(self, model, usage):
         with self._lock:
             self.calls.append((model, usage))
+            if getattr(_ledger, "fixing", False):
+                self.fix_calls.append((model, usage))
+
+    def fix_cost(self) -> float:
+        saved, self.calls = self.calls, self.fix_calls
+        try:
+            return self.cost()
+        finally:
+            self.calls = saved
 
     def cost(self) -> float:
         total = 0.0
@@ -1283,8 +1293,10 @@ class Ledger:
         for model, _ in self.calls:
             per_model[model] = per_model.get(model, 0) + 1
         models = ", ".join(f"{n}x {m}" for m, n in sorted(per_model.items()))
+        fixes = (f"; tell fixes: {len(self.fix_calls)} calls, ${self.fix_cost():.4f}"
+                 if self.fix_calls else "; tell fixes: none")
         return (f"${self.cost():.4f}  ({len(self.calls)} calls: {models}; "
-                f"{fresh:,} in, {read:,} cached, {out:,} out)")
+                f"{fresh:,} in, {read:,} cached, {out:,} out{fixes})")
 
 
 def start_ledger() -> "Ledger":
@@ -1617,8 +1629,12 @@ THE SENTENCES TO REWRITE:
 Reply with JSON only, no other text:
 {{"fixes": [{{"old": "<the sentence exactly as numbered above>", "new": "<your rewrite>"}}]}}"""
     try:
-        raw = call_claude(prompt, max_tokens=1200, system=system,
-                          model=SMALL_MODEL, attempts=2)
+        _ledger.fixing = True
+        try:
+            raw = call_claude(prompt, max_tokens=1200, system=system,
+                              model=SMALL_MODEL, attempts=2)
+        finally:
+            _ledger.fixing = False
         data = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
         fixed = text
         for item in data.get("fixes") or []:
@@ -1648,6 +1664,30 @@ sentence with more than two numbers in it, and no number with two decimals.
 """
 
 
+#: The rules the tell-checker enforces, restated at the END of every prose
+#: prompt (John, 1 Oct: "prevent instead of fix"). They were already in the
+#: system prompt, far from where the writing happens, and nearly every recap
+#: tripped one, which then cost a second call to repair. A short checklist
+#: last, with the exact rewrite for the two that fire most, is what the model
+#: reads right before it writes.
+LAST_CHECK = """
+BEFORE YOU ANSWER, reread every sentence and fix any that breaks one of these.
+Each is caught and rewritten after you, so getting it right now is the job:
+1. No reversal or set-up-and-knock-down. Not "That's not bad luck, that's a
+   lineup card." Write "That was a lineup card." Not "X didn't need to be
+   good, just awake." Write what he needed to be. No "not just X, but Y", no
+   "should have been enough. It wasn't.", no "not a typo".
+2. At most two numbers in one sentence (a score like 141.7-88.5 is one).
+   Not "Kittle put up 26 on a 12-point projection, and Wilson added 26.7
+   against a 9.4 projection." Write "Kittle doubled his projection with 26.
+   Wilson added 26.7." Split the sentence or drop a number.
+3. No number with two decimals: 11.98 is 12.0, or "twelve".
+4. A projection is a "projection", never his "number". Players are never
+   each other's backup, handcuff or teammate. No "here's the thing", no "the
+   wire", no "according to reports"{banned}.
+Fix silently and reply with the finished text only."""
+
+
 def call_claude(prompt, max_tokens=400, system=None, attempts=3,
                 model=None, avoid_tells=False):
     """Make a single call to the Claude API and return the text response.
@@ -1661,6 +1701,18 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
     responses are the common case and both are worth waiting out; a 400 or a
     401 will never succeed on a second try, so those come straight back.
     """
+    if avoid_tells and LAST_CHECK.splitlines()[1] not in prompt:
+        banned = (", and never the words " + ", ".join(f'"{w}"' for w in BANNED_WORDS)
+                  if BANNED_WORDS else "")
+        check = LAST_CHECK.replace("{banned}", banned)
+        # The recap keeps its voice requirements last (27 Sep: flat recaps
+        # until the voice came last); the checklist goes just before them.
+        voice = "THE VOICE, WHICH IS THE POINT"
+        if voice in prompt:
+            at = prompt.index(voice)
+            prompt = prompt[:at] + check.strip() + "\n\n" + prompt[at:]
+        else:
+            prompt = prompt.rstrip() + "\n" + check
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise WriterError(
             "ANTHROPIC_API_KEY is not set on this service, so there is nothing "
