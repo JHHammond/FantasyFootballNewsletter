@@ -1134,18 +1134,15 @@ def staff_around(request: Request, week: int = 0, season: int = 0,
     week = min(max(week or latest, 1), max(latest, 1))
     ready = db.team_weeks_ready()
     lineups_ready = ready and db.lineups_ready()
-    a, boards = None, []
+    a = None
     if ready:
         if lineups_ready:
             a = around.build(db, season, week, public=preview == "public")
         else:
             a = {"public": preview == "public", "teams": 0, "summary": {},
-                 "pct": {}, "hist": {}, "season_data": {}}
-        keep = ("highest", "lowest", "blowouts", "bench")
-        boards = [b for b in league_stats.leaderboards(db, season, week)["boards"]
-                  if b["key"] in keep]
+                 "pct": {}, "hist": {}, "season_data": {}, "halls": {}}
     return _render(request, "staff_around.html", ready=ready,
-                   lineups_ready=lineups_ready, a=a, boards=boards,
+                   lineups_ready=lineups_ready, a=a,
                    season=season, week=week, latest=latest,
                    weeks=list(range(1, max(latest, 1) + 1)),
                    describe=around.describe, pct=around.pct,

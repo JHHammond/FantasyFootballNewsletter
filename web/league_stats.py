@@ -436,7 +436,8 @@ def _avg(vals):
 
 _CARD = ("league_id", "team_id", "team_name", "manager", "provider", "team_count",
          "scoring_type", "week", "result", "points", "ppr_points",
-         "opponent_points", "margin", "optimal_points", "bench_left", "empty_slots")
+         "opponent_points", "margin", "optimal_points", "bench_left", "empty_slots",
+         "top_player", "best_bench_player")
 
 
 def _size(n):
@@ -459,12 +460,36 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
                 r[k] = f(r.get(k))
             r["std_pts"] = r["ppr_points"] if r["ppr_points"] is not None else r["points"]
             tw.append(r)
+    # Which teams count where (see the SQL): in_sd for cross-league
+    # comparisons, in_norm for anything read from a league's own points.
+    has_std = any(r["ppr_points"] is not None for r in tw)
+    per_league: dict = {}
+    for r in tw:
+        e = per_league.setdefault(r["league_id"], ([], []))
+        e[0].append(r["points"])
+        if r["ppr_points"] is not None:
+            e[1].append(r["ppr_points"])
+    okl = set()
+    for lid, (raw, ppr) in per_league.items():
+        raw_avg, ppr_avg = _avg(raw), _avg(ppr)
+        if ppr_avg is not None and ppr_avg > 0:
+            ok = 0.7 <= raw_avg / ppr_avg <= 1.3
+        else:
+            ok = 40 <= raw_avg <= 200
+        if ok:
+            okl.add(lid)
+    for r in tw:
+        r["in_norm"] = r["league_id"] in okl
+        r["in_sd"] = (r["ppr_points"] is not None) if has_std else r["in_norm"]
+    sd = [r for r in tw if r["in_sd"]]
+    norm = [r for r in tw if r["in_norm"]]
+
     by_team = {(r["league_id"], r["team_id"]): r for r in tw}
     tkey = lambda r: (str(r["league_id"]), str(r["team_id"]))  # noqa: E731
     card = lambda r: {k: r.get(k) for k in _CARD}  # noqa: E731
 
     pts = sorted(r["points"] for r in tw)
-    std = sorted(r["std_pts"] for r in tw)
+    std = sorted(r["std_pts"] for r in sd)
     fr = [g / 100 for g in range(101)]
 
     def pcts(vals):
@@ -539,8 +564,8 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
             opt = [r for r in rows if r["bench_left"] is not None]
             groups.append({
                 "dim": dim, "key": k, "n": len(rows),
-                "avg_ppr": _r(_avg([r["std_pts"] for r in rows])),
-                "avg_bench": _r(_avg([r["bench_left"] for r in rows])),
+                "avg_ppr": _r(_avg([r["std_pts"] for r in rows if r["in_sd"]])),
+                "avg_bench": _r(_avg([r["bench_left"] for r in rows if r["in_norm"]])),
                 "ghost_pct": _r(_avg([1.0 if (r.get("empty_slots") or 0) > 0 else 0.0
                                       for r in rows]), 4),
                 "perfect_pct": _r(_avg([1.0 if r["bench_left"] <= 0.005 else 0.0
@@ -552,13 +577,15 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
     for v in std:
         lo = min(int(v // 10) * 10, 250)
         hist[lo] = hist.get(lo, 0) + 1
-    fmt = lambda name: sorted(r["points"] for r in tw if r.get("scoring_type") == name)  # noqa: E731
+    fmt = lambda name: sorted(r["points"] for r in norm if r.get("scoring_type") == name)  # noqa: E731
     with_opt = [r for r in tw if r["bench_left"] is not None]
     cov = [r.get("ppr_coverage") for r in tw if r.get("ppr_coverage") is not None]
     return {
         "season": season, "week": week,
         "summary": {
             "teams": len(tw), "leagues": len({r["league_id"] for r in tw}),
+            "compared": len(sd),
+            "custom_leagues": len({r["league_id"] for r in tw if not r["in_norm"]}),
             "avg_raw": _r(_avg(pts)), "median_raw": _r(_pct(pts, 0.5)),
             "avg_ppr": _r(_avg(std)), "median_ppr": _r(_pct(std, 0.5)),
             "standardized": sum(1 for r in tw if r["ppr_points"] is not None),
@@ -580,12 +607,22 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
             "with_optimal": len(with_opt),
             "perfect": sum(1 for r in with_opt if r["bench_left"] <= 0.005),
             "ghosts": sum(1 for r in tw if (r.get("empty_slots") or 0) > 0),
-            "avg_bench_left": _r(_avg([r["bench_left"] for r in tw])),
+            "avg_bench_left": _r(_avg([r["bench_left"] for r in norm])),
         },
-        "unlucky": [card(r) for r in top([r for r in tw if r["result"] == "L"],
+        "unlucky": [card(r) for r in top([r for r in sd if r["result"] == "L"],
                                          lambda r: (-r["std_pts"], tkey(r)), 5)],
-        "lucky": [card(r) for r in top([r for r in tw if r["result"] == "W"],
+        "lucky": [card(r) for r in top([r for r in sd if r["result"] == "W"],
                                        lambda r: (r["std_pts"], tkey(r)), 5)],
+        "halls": {
+            "highest": [card(r) for r in top(sd, lambda r: (-r["std_pts"], tkey(r)), 5)],
+            "lowest": [card(r) for r in top(sd, lambda r: (r["std_pts"], tkey(r)), 5)],
+            "blowouts": [card(r) for r in top(
+                [r for r in norm if r["result"] == "W" and r["margin"] is not None],
+                lambda r: (-r["margin"], tkey(r)), 5)],
+            "bench": [card(r) for r in top(
+                [r for r in norm if r["bench_left"] is not None],
+                lambda r: (-r["bench_left"], tkey(r)), 5)],
+        },
         "groups": groups,
         "players": {
             "top_on": [{"player_key": k, "name": (players.get(k) or {}).get("name") or k,
@@ -680,7 +717,9 @@ def compute_season(team_rows: list[dict], season: int) -> dict:
         rows = [r for r in games if int(r["week"]) == wk and r["points"] > 0]
         if not rows:
             continue
-        std = sorted(r["std_pts"] for r in rows)
+        has_std = any(r["ppr_points"] is not None for r in rows)
+        std = sorted(r["std_pts"] for r in rows
+                     if not has_std or r["ppr_points"] is not None)
         losses = [r for r in rows if r["result"] == "L"]
         opt = [r for r in rows if r["bench_left"] is not None]
         weeks.append({

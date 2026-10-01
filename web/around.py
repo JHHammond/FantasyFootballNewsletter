@@ -177,6 +177,7 @@ def build(db, season: int, week: int, *, public: bool = False) -> dict[str, Any]
     lu = wk.get("lineup") or {}
     players = wk.get("players") or {}
     teams = s.get("teams") or 0
+    compared = s.get("compared") if s.get("compared") is not None else teams
 
     lineup_share = share(lu.get("lineup_losses") or 0, lu.get("losses") or 0)
     has_lineups = bool(s.get("lineup_teams"))
@@ -198,6 +199,7 @@ def build(db, season: int, week: int, *, public: bool = False) -> dict[str, Any]
         "public": public,
         "season": season, "week": week,
         "teams": teams,
+        "compared": compared,
         "summary": s,
         "standardized": standardized,
         "coverage": s.get("coverage"),
@@ -209,6 +211,7 @@ def build(db, season: int, week: int, *, public: bool = False) -> dict[str, Any]
         "lineup_share": lineup_share,
         "perfect_share": (lu.get("perfect") or 0) / lu["with_optimal"]
                          if lu.get("with_optimal") else None,
+        "halls": wk.get("halls") or {},
         "unlucky": wk.get("unlucky") or [],
         "lucky": wk.get("lucky") or [],
         "faceoffs": _groups(wk.get("groups") or []),

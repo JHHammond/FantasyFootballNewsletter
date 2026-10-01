@@ -100,7 +100,7 @@
     {% set h = a.hist %}
     {% if h %}
     <figure class="ar-chart">
-        <figcaption class="ar-chart-cap">How {{ '{:,}'.format(a.teams) }} teams scored in week {{ week }}{% if a.standardized %}, in PPR{% endif %}</figcaption>
+        <figcaption class="ar-chart-cap">How {{ '{:,}'.format(a.compared) }} teams scored in week {{ week }}{% if a.standardized %}, in PPR{% endif %}</figcaption>
         <div class="ar-chart-box">
         <svg viewBox="0 0 {{ h.width }} {{ h.height }}" class="ar-hist" role="img"
              aria-label="Distribution of week {{ week }} scores, median {{ a.summary.median_ppr }}">
@@ -352,24 +352,28 @@
 </section>
 
 {# ------------------------------------------------------------ halls #}
-{% if boards %}
+{% set HL = a.halls or {} %}
+{% if HL.highest %}
 <section class="ar-sec">
     <h2 class="section-head"><span>Halls of fame and shame</span></h2>
     <div class="ar-boards ar-boards-2">
-        {% for b in boards %}
+        {% for key, title in [('highest', 'Highest scores'), ('lowest', 'Lowest scores'),
+                              ('blowouts', 'Biggest blowouts'), ('bench', 'Most points left on the bench')] %}
         <article class="ar-board">
-            <h3 class="ar-board-head">{{ b.title }}</h3>
+            <h3 class="ar-board-head">{{ title }}</h3>
             <ol class="ar-list ar-teams">
-                {% for r in b.rows[:5] %}
+                {% for r in HL[key] %}
                 <li><span class="ar-name">{{ who(r) }}
-                    <small>{% if b.key in ('blowouts', 'closest') %}{{ pts(r.points) }}&ndash;{{ pts(r.opponent_points) }}{% elif b.key == 'bench' %}scored {{ pts(r.points) }}{% if r.best_bench_player %}, benched {{ r.best_bench_player }}{% endif %}{% elif b.key == 'players' %}{{ r.top_player }}{% else %}{{ r.result }} {{ pts(r.points) }}&ndash;{{ pts(r.opponent_points) }}{% endif %}</small></span>
-                    <span class="ar-val"><b>{% if b.key in ('blowouts', 'closest') %}{{ pts(r.margin) }}{% elif b.key == 'bench' %}{{ pts(r.bench_left) }}{% elif b.key == 'players' %}{{ pts(r.top_player_points) }}{% else %}{{ pts(r.points) }}{% endif %}</b></span></li>
-                {% endfor %}
+                    <small>{% if key == 'blowouts' %}won {{ pts(r.points) }}&ndash;{{ pts(r.opponent_points) }}{% elif key == 'bench' %}scored {{ pts(r.points) }}{% if r.best_bench_player %}, benched {{ r.best_bench_player }}{% endif %}{% else %}{{ 'won' if r.result == 'W' else 'lost' if r.result == 'L' else 'tied' }} {{ pts(r.points) }}&ndash;{{ pts(r.opponent_points) }} in its league&rsquo;s scoring{% endif %}</small></span>
+                    <span class="ar-val">{% if key == 'blowouts' %}<b>{{ pts(r.margin) }}</b>{% elif key == 'bench' %}<b>{{ pts(r.bench_left) }}</b>{% else %}<b>{{ pts(r.ppr_points if r.ppr_points is not none else r.points) }}</b>{% if r.ppr_points is not none %} PPR{% endif %}{% endif %}</span></li>
+                {% else %}<li class="ar-none">Nothing yet.</li>{% endfor %}
             </ol>
         </article>
         {% endfor %}
     </div>
-    <p class="ar-intro">These use each league&rsquo;s own scoring.</p>
+    <p class="ar-intro">Highest and lowest are scored in PPR. Blowouts and bench points use each
+        league&rsquo;s own scoring{% if a.summary.custom_leagues %}, leaving out the
+        {{ a.summary.custom_leagues }} league{{ 's' if a.summary.custom_leagues != 1 }} whose scoring runs far from standard{% endif %}.</p>
 </section>
 {% endif %}
 
@@ -386,7 +390,8 @@
         it already has, so it&rsquo;s safe to press again.
         {% if a.teams %}<br>Week {{ week }}: {{ '{:,}'.format(a.summary.standardized or 0) }} of {{ '{:,}'.format(a.teams) }} teams standardized
         {%- if a.coverage is not none %}, {{ pct(a.coverage) }} of their starters matched to a real stat line{% endif %};
-        lineups for {{ '{:,}'.format(a.summary.lineup_teams or 0) }} teams.{% endif %}
+        lineups for {{ '{:,}'.format(a.summary.lineup_teams or 0) }} teams.
+        {% if a.summary.custom_leagues %}{{ a.summary.custom_leagues }} league{{ 's' if a.summary.custom_leagues != 1 }} score far from standard (defenders, yardage bonuses, huge lineups) and are left out of anything read from a league&rsquo;s own points.{% endif %}{% endif %}
     </p>
     {% if job.running %}
     <div class="alert alert-success">Running since {{ job.started[:16]|replace('T', ' ') }} UTC. Reload to see progress.</div>

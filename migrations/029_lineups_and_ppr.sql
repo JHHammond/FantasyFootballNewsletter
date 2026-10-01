@@ -57,26 +57,57 @@ $$;
 
 
 -- One finished week, across every league.
---   std_pts is the standardized score where we have it, the league's own
---   score where we don't (a week collected before lineups were stored).
+--
+--   std_pts    the standardized (plain PPR) score where we have it, the
+--              league's own score where we don't.
+--   in_sd      counts in cross-league comparisons: once any team in the week
+--              is standardized, only standardized teams do; before that,
+--              only leagues whose own scoring looks standard (in_norm).
+--   in_norm    the league's own scoring looks standard (its own points within
+--              30% of its PPR points; with no PPR yet, a league average of
+--              40-200). Stats read from a league's OWN points (the format
+--              lookups, bench points, blowouts) use only these, so a league
+--              scoring defenders or yardage bonuses (a 1,052 average, seen
+--              30 Sep) can't swamp them.
 create or replace function public.around_week(
     p_season integer, p_week integer, p_min_starts integer default 150)
 returns json language sql stable as $$
-with tw as (
+with base as (
     select t.*, coalesce(t.ppr_points, t.points) as std_pts
       from public.team_weeks t
      where t.season = p_season and t.week = p_week
        and t.result <> 'BYE' and t.points > 0
 ),
+has_std as (select exists (select 1 from base where ppr_points is not null) as yes),
+lg as (
+    select league_id, avg(points) as raw, avg(ppr_points) as ppr
+      from base group by league_id
+),
+okl as (
+    select league_id from lg
+     where case when ppr is not null and ppr > 0 then raw / ppr between 0.7 and 1.3
+                else raw between 40 and 200 end
+),
+tw as (
+    select b.*,
+           case when h.yes then b.ppr_points is not null
+                else b.league_id in (select league_id from okl) end as in_sd,
+           (b.league_id in (select league_id from okl)) as in_norm
+      from base b, has_std h
+),
+sd as (select * from tw where in_sd),
+norm as (select * from tw where in_norm),
 card as (
-    select league_id, team_id, std_pts, json_build_object(
+    select league_id, team_id, std_pts, points, margin, bench_left, result,
+           in_sd, in_norm, json_build_object(
         'league_id', league_id, 'team_id', team_id, 'team_name', team_name,
         'manager', manager, 'provider', provider, 'team_count', team_count,
         'scoring_type', scoring_type, 'week', week, 'result', result,
         'points', points, 'ppr_points', ppr_points,
         'opponent_points', opponent_points, 'margin', margin,
         'optimal_points', optimal_points, 'bench_left', bench_left,
-        'empty_slots', empty_slots) as c, result
+        'empty_slots', empty_slots, 'top_player', top_player,
+        'best_bench_player', best_bench_player) as c
       from tw
 ),
 lut as (
@@ -122,8 +153,8 @@ pcard as (
 ),
 grp as (
     select dim, key, count(*) as n,
-           round(avg(std_pts), 2)  as avg_ppr,
-           round(avg(bench_left), 2) as avg_bench,
+           round(avg(std_pts) filter (where in_sd), 2)  as avg_ppr,
+           round(avg(bench_left) filter (where in_norm), 2) as avg_bench,
            round(avg(case when empty_slots > 0 then 1.0 else 0 end), 4) as ghost_pct,
            round(avg(case when bench_left <= 0.005 then 1.0 else 0 end)
                  filter (where bench_left is not null), 4) as perfect_pct
@@ -144,30 +175,33 @@ select json_build_object(
     'season', p_season, 'week', p_week,
     'summary', (select json_build_object(
         'teams', count(*), 'leagues', count(distinct league_id),
+        'compared', count(*) filter (where in_sd),
+        'custom_leagues', count(distinct league_id) filter (where not in_norm),
         'avg_raw', round(avg(points), 2),
         'median_raw', round((percentile_cont(0.5) within group (order by points))::numeric, 2),
-        'avg_ppr', round(avg(std_pts), 2),
-        'median_ppr', round((percentile_cont(0.5) within group (order by std_pts))::numeric, 2),
+        'avg_ppr', round(avg(std_pts) filter (where in_sd), 2),
+        'median_ppr', round((percentile_cont(0.5) within group (order by std_pts)
+                             filter (where in_sd))::numeric, 2),
         'standardized', count(ppr_points),
         'coverage', round(avg(ppr_coverage), 3),
         'lineup_teams', (select count(distinct (league_id, team_id)) from lut))
       from tw),
     'hist', (select coalesce(json_agg(json_build_object('lo', lo, 'n', n) order by lo), '[]'::json)
                from (select least(floor(std_pts / 10) * 10, 250)::int as lo, count(*) as n
-                       from tw group by 1) h),
+                       from sd group by 1) h),
     'pct', json_build_object(
         'all', (select percentile_cont(array(select g / 100.0 from generate_series(0, 100) g)::float8[])
-                         within group (order by std_pts) from tw),
+                         within group (order by std_pts) from sd),
         'ppr', (select percentile_cont(array(select g / 100.0 from generate_series(0, 100) g)::float8[])
-                         within group (order by points) from tw where scoring_type = 'ppr'),
+                         within group (order by points) from norm where scoring_type = 'ppr'),
         'half_ppr', (select percentile_cont(array(select g / 100.0 from generate_series(0, 100) g)::float8[])
-                         within group (order by points) from tw where scoring_type = 'half_ppr'),
+                         within group (order by points) from norm where scoring_type = 'half_ppr'),
         'std', (select percentile_cont(array(select g / 100.0 from generate_series(0, 100) g)::float8[])
-                         within group (order by points) from tw where scoring_type = 'std'),
-        'n_all', (select count(*) from tw),
-        'n_ppr', (select count(*) from tw where scoring_type = 'ppr'),
-        'n_half_ppr', (select count(*) from tw where scoring_type = 'half_ppr'),
-        'n_std', (select count(*) from tw where scoring_type = 'std')),
+                         within group (order by points) from norm where scoring_type = 'std'),
+        'n_all', (select count(*) from sd),
+        'n_ppr', (select count(*) from norm where scoring_type = 'ppr'),
+        'n_half_ppr', (select count(*) from norm where scoring_type = 'half_ppr'),
+        'n_std', (select count(*) from norm where scoring_type = 'std')),
     'lineup', (select json_build_object(
         'played', count(*),
         'losses', count(*) filter (where result = 'L'),
@@ -175,14 +209,27 @@ select json_build_object(
         'with_optimal', count(*) filter (where bench_left is not null),
         'perfect', count(*) filter (where bench_left <= 0.005),
         'ghosts', count(*) filter (where empty_slots > 0),
-        'avg_bench_left', round(avg(bench_left), 2))
+        'avg_bench_left', round(avg(bench_left) filter (where in_norm), 2))
       from tw),
     'unlucky', (select coalesce(json_agg(c order by std_pts desc, league_id, team_id collate "C"), '[]'::json)
-                  from (select * from card where result = 'L'
+                  from (select * from card where in_sd and result = 'L'
                          order by std_pts desc, league_id, team_id collate "C" limit 5) x),
     'lucky', (select coalesce(json_agg(c order by std_pts, league_id, team_id collate "C"), '[]'::json)
-                from (select * from card where result = 'W'
+                from (select * from card where in_sd and result = 'W'
                        order by std_pts, league_id, team_id collate "C" limit 5) x),
+    'halls', json_build_object(
+        'highest', (select coalesce(json_agg(c order by std_pts desc, league_id, team_id collate "C"), '[]'::json)
+                      from (select * from card where in_sd
+                             order by std_pts desc, league_id, team_id collate "C" limit 5) x),
+        'lowest', (select coalesce(json_agg(c order by std_pts, league_id, team_id collate "C"), '[]'::json)
+                     from (select * from card where in_sd
+                            order by std_pts, league_id, team_id collate "C" limit 5) x),
+        'blowouts', (select coalesce(json_agg(c order by margin desc, league_id, team_id collate "C"), '[]'::json)
+                       from (select * from card where in_norm and result = 'W' and margin is not null
+                              order by margin desc, league_id, team_id collate "C" limit 5) x),
+        'bench', (select coalesce(json_agg(c order by bench_left desc, league_id, team_id collate "C"), '[]'::json)
+                    from (select * from card where in_norm and bench_left is not null
+                           order by bench_left desc, league_id, team_id collate "C" limit 5) x)),
     'groups', (select coalesce(json_agg(json_build_object(
                     'dim', dim, 'key', key, 'n', n, 'avg_ppr', avg_ppr,
                     'avg_bench', avg_bench, 'ghost_pct', ghost_pct,
@@ -290,16 +337,21 @@ board as (
       join streak s on s.league_id = a.league_id and s.team_id = a.team_id
       left join luck lk on lk.league_id = a.league_id and lk.team_id = a.team_id
 ),
+wk_std as (select distinct week from games where ppr_points is not null),
 wk as (
+    -- A week with standardized scores averages only those, like around_week.
     select week, count(*) as teams,
-           round(avg(std_pts), 2) as avg_ppr,
-           round((percentile_cont(0.5) within group (order by std_pts))::numeric, 2) as median_ppr,
+           round(avg(std_pts) filter (where in_sd), 2) as avg_ppr,
+           round((percentile_cont(0.5) within group (order by std_pts)
+                  filter (where in_sd))::numeric, 2) as median_ppr,
            round(avg(case when empty_slots > 0 then 1.0 else 0 end), 4) as ghost_pct,
            round(count(*) filter (where result = 'L' and optimal_points > opponent_points)::numeric
                  / nullif(count(*) filter (where result = 'L'), 0), 4) as lineup_loss_pct,
            round(avg(case when bench_left <= 0.005 then 1.0 else 0 end)
                  filter (where bench_left is not null), 4) as perfect_pct
-      from games where points > 0
+      from (select g.*, (g.week not in (select week from wk_std)
+                         or g.ppr_points is not null) as in_sd
+              from games g where g.points > 0) x
      group by week
 )
 select json_build_object(

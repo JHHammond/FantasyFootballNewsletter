@@ -254,3 +254,25 @@ def test_page_before_migration_029(web, monkeypatch):
     monkeypatch.setattr(demo_db, "lineups_ready", lambda: False)
     r = web.get("/staff/around")
     assert r.status_code == 200 and "029_lineups_and_ppr.sql" in r.text
+
+
+def test_a_league_with_custom_scoring_stays_out_of_raw_stats():
+    """30 Sep: 'There Can Only Be One' averages 1,052 a team. It must not
+    fill the chart, the halls or the format lookups."""
+    rows = []
+    for lg, mult in (("normal", 1.0), ("huge", 8.0)):
+        for i, t in enumerate("abcd"):
+            p = (100 + i * 10) * mult
+            rows.append(_tw(lg, t, p, "W" if i % 2 else "L", p - 5,
+                            bench_left=20.0 * mult, ppr_points=None))
+    wk = league_stats.compute_week(rows, [], {}, SEASON, 3)          # nothing standardized yet
+    assert wk["summary"]["custom_leagues"] == 1 and wk["summary"]["compared"] == 4
+    assert max(h["lo"] for h in wk["hist"]) < 200
+    assert wk["halls"]["highest"][0]["league_id"] == "normal"
+    assert wk["pct"]["n_ppr"] == 4 and wk["lineup"]["avg_bench_left"] == 20.0
+    # Once standardized, the huge league's PPR scores count again; its own points don't.
+    for r in rows:
+        r["ppr_points"] = r["points"] / (8.0 if r["league_id"] == "huge" else 1.0)
+    wk = league_stats.compute_week(rows, [], {}, SEASON, 3)
+    assert wk["summary"]["compared"] == 8 and wk["summary"]["custom_leagues"] == 1
+    assert wk["pct"]["n_ppr"] == 4 and wk["halls"]["blowouts"][0]["league_id"] == "normal"
