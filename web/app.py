@@ -1519,6 +1519,12 @@ def _yahoo_leagues(user: dict) -> tuple[list, str]:
     try:
         return YahooProvider(access_token=token).user_leagues(), ""
     except AuthRequired:
+        # A login Yahoo won't honour is no use kept: forget it, so the next
+        # "Sign in with Yahoo" starts clean instead of reusing it.
+        try:
+            yahoo_auth.forget(user["id"], db=db)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[yahoo] couldn't clear a refused login: {exc}", flush=True)
         return [], "reconnect"
     except ProviderError as exc:
         return [], f"Couldn't list your Yahoo leagues. {exc}"

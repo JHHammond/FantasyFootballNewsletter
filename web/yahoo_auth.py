@@ -115,6 +115,10 @@ def consent_url(state: str, base_url: str) -> str:
         "client_id": client_id(),
         "redirect_uri": redirect_uri(base_url),
         "response_type": "code",
+        # Fantasy Sports, read-only. Without it Yahoo can hand back a login
+        # that signs in fine and is refused by every fantasy call: "This
+        # application is not authorized to perform this action" (1 Oct).
+        "scope": "fspt-r",
         "state": state,
         "language": "en-us",
     })
