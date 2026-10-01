@@ -988,6 +988,37 @@ def nfl_notes_ready() -> bool:
         return False
 
 
+# --- The Luck Index (031) -----------------------------------------------------------
+
+def luck_league(season: int, league_id: str) -> list[dict[str, Any]]:
+    return _rpc_json("luck_league", {"p_season": int(season),
+                                     "p_league": str(league_id)}) or []
+
+
+def luck_national(season: int) -> dict[str, Any]:
+    return _rpc_json("luck_national", {"p_season": int(season)}) or {}
+
+
+def luck_search(season: int, name: str) -> list[dict[str, Any]]:
+    return _rpc_json("luck_search", {"p_season": int(season), "p_name": name}) or []
+
+
+def luck_ready() -> bool:
+    try:
+        _rpc_json("luck_search", {"p_season": 0, "p_name": ""})
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def sibling_league_ids(provider: str, platform_league_id: str, season: int) -> list[str]:
+    """Every row for the same real league: the stats live under one of them."""
+    res = (client().table("leagues").select("id")
+           .eq("provider", provider).eq("platform_league_id", str(platform_league_id))
+           .eq("season", int(season)).execute())
+    return [r["id"] for r in (res.data or [])]
+
+
 # --- The editor's desk (030) ------------------------------------------------------
 
 def editor_bits(season: int, week: int) -> list[dict[str, Any]]:

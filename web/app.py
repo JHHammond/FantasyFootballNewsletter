@@ -1180,6 +1180,73 @@ def staff_around_stop(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# The Luck Index (30 Sep). Public once LUCK_PUBLIC=1 is set on Render; until
+# then, staff only, so it can be checked against real data first. Connected
+# leagues only (John): find yours by signing in or by the name you use on the
+# platform, then see every team in the league.
+# ---------------------------------------------------------------------------
+
+LUCK_SEARCHES_PER_HOUR = 60
+
+
+def _luck_open(request: Request) -> dict | None:
+    """The viewer, if the luck pages are open to them. 404 otherwise."""
+    user = current_user(request)
+    if os.getenv("LUCK_PUBLIC", "").strip() == "1":
+        return user
+    if user and user.get("plan") == plans.STAFF:
+        return user
+    raise HTTPException(status_code=404)
+
+
+@app.get("/luck", response_class=HTMLResponse)
+def luck_home(request: Request, q: str = ""):
+    user = _luck_open(request)
+    import nfl_week
+    season = nfl_week.current_season()
+    ready = db.luck_ready()
+    mine, results, searched, limited = [], [], False, False
+    if user:
+        mine = [l for l in db.leagues_for_user(user["id"])
+                if int(l.get("season") or 0) == season and l.get("public_slug")]
+    name = clean_text(q, max_length=80).strip()
+    if name and ready:
+        searched = True
+        if _rate_limited(f"luck:{_client_ip(request)}", LUCK_SEARCHES_PER_HOUR):
+            limited = True
+        else:
+            seen, results = set(), []
+            for r in db.luck_search(season, name):
+                key = (r.get("public_slug"), r.get("team_id"))
+                if r.get("public_slug") and key not in seen:
+                    seen.add(key)
+                    results.append(r)
+    return _render(request, "luck.html", ready=ready, mine=mine, q=name,
+                   results=results, searched=searched, limited=limited,
+                   season=season, week=nfl_week.completed_week(),
+                   public=os.getenv("LUCK_PUBLIC", "").strip() == "1")
+
+
+@app.get("/luck/{slug}", response_class=HTMLResponse)
+def luck_league_page(request: Request, slug: str, team: str = ""):
+    _luck_open(request)
+    import nfl_week
+    from . import luck
+    league = db.league_by_public_slug(slug)
+    if not league:
+        raise HTTPException(status_code=404)
+    season = int(league.get("season") or nfl_week.current_season())
+    data = luck.league_page(db, season, league) if db.luck_ready() else \
+        {"teams": [], "national": 0, "has_players": False, "through": None}
+    chosen = next((t for t in data["teams"] if str(t["team_id"]) == team), None)
+    return _render(request, "luck_league.html", league=league, data=data,
+                   chosen=chosen, season=season,
+                   public=os.getenv("LUCK_PUBLIC", "").strip() == "1",
+                   share_url=f"{public_base_url()}/luck/{slug}"
+                             + (f"?team={quote(team)}" if chosen else ""))
+
+
+# ---------------------------------------------------------------------------
 # The NFL wire (staff)
 #
 # Real football news for a week — "Drake London went off because Penix was

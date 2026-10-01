@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% from "_macros.html" import flow_button %}
+{% block title %}The Luck Index &middot; How lucky is your team?{% endblock %}
+{% block description %}Measure exactly how lucky your fantasy football team has been this season, in wins, against every connected team in the country.{% endblock %}
+{% block wrapclass %}home around luck{% endblock %}
+
+{% block content %}
+{% if not public %}<div class="alert alert-error ar-note"><strong>Staff preview.</strong> Set <code>LUCK_PUBLIC=1</code> on Render to open this page to everyone.</div>{% endif %}
+{% if not ready %}<div class="alert alert-error ar-note">Run <code>migrations/031_luck.sql</code> in Supabase to turn on the Luck Index.</div>{% endif %}
+
+<section class="front">
+    <p class="dateline">
+        <span>{{ season }} season</span>
+        <span class="dateline-mid">The Luck Index{% if week %} &middot; through week {{ week }}{% endif %}</span>
+        <span>Measured in wins</span>
+    </p>
+    <div class="front-head-wrap">
+        <h1 class="front-head">How lucky is your <span class="marked">team?<svg class="marked-line" viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true"><path d="M3 15 C 60 5, 110 20, 160 11 S 250 6, 297 13" /></svg></span></h1>
+    </div>
+    <p class="front-deck">The wins you have, minus the wins you earned. Who you drew, when your
+        players went off, and whether any of it was your fault. Against every team in the country.</p>
+</section>
+
+<section class="ar-sec lk-find">
+    <div class="ar-rank lk-search">
+        <form method="get" action="/luck" class="ar-rank-form">
+            <label class="ar-rank-field">
+                <span>Your name on Sleeper, ESPN or Yahoo, or your team&rsquo;s name</span>
+                <input type="text" name="q" value="{{ q }}" maxlength="80" autocomplete="off"
+                       placeholder="kevlarville" required />
+            </label>
+            <div>{{ flow_button("Find my league") }}</div>
+        </form>
+        <div class="lk-results">
+            {% if limited %}
+            <p class="ar-rank-line">That&rsquo;s a lot of searching. Try again in a little while.</p>
+            {% elif searched and results %}
+            <span class="ar-rank-field"><span>{{ results|length }} found</span></span>
+            <ol class="ar-list lk-found">
+                {% for r in results %}
+                <li><a class="ar-name" href="/luck/{{ r.public_slug }}?team={{ r.team_id|urlencode }}">{{ r.team_name }}<small>{{ r.league_name }}{% if r.manager %} &middot; {{ r.manager }}{% endif %}</small></a>
+                    <span class="platform-chip">{{ {'sleeper': 'Sleeper', 'espn': 'ESPN', 'yahoo': 'Yahoo'}.get(r.provider, r.provider) }}</span></li>
+                {% endfor %}
+            </ol>
+            {% elif searched %}
+            <p class="ar-rank-line"><b>No team by that name in a league we cover.</b> The Luck Index
+                works for leagues that make a weekly paper with us. Spell it exactly as it
+                shows on your platform, or ask your commissioner to start your league&rsquo;s paper.</p>
+            <p>{{ flow_button("Start your league's paper", href="/signup") }}</p>
+            {% elif mine %}
+            <span class="ar-rank-field"><span>Your leagues</span></span>
+            <ol class="ar-list lk-found">
+                {% for l in mine %}
+                <li><a class="ar-name" href="/luck/{{ l.public_slug }}">{{ l.paper_name or l.league_name }}<small>{{ l.league_name }}</small></a>
+                    <span class="platform-chip">{{ {'sleeper': 'Sleeper', 'espn': 'ESPN', 'yahoo': 'Yahoo'}.get(l.provider, l.provider) }}</span></li>
+                {% endfor %}
+            </ol>
+            {% else %}
+            <p class="ar-rank-line">Type the name you use on your league&rsquo;s app. We&rsquo;ll find your
+                league, and every team in it. {% if not user %}Or <a href="/login?next=/luck">sign in</a> to see your leagues.{% endif %}</p>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<section class="ar-sec">
+    <h2 class="section-head"><span>How it&rsquo;s measured</span></h2>
+    <ul class="clippings ar-clips lk-how">
+        <li class="clip">
+            <span class="clip-kicker">Schedule luck</span>
+            <strong>Who you drew, and when</strong>
+            <p>Every week, how many teams in your league you&rsquo;d have beaten. Second-highest score and a loss? That&rsquo;s the schedule.</p>
+        </li>
+        <li class="clip">
+            <span class="clip-kicker">Player luck</span>
+            <strong>Booms and busts</strong>
+            <p>Your starters against their own averages. Your RB1 putting up two when you needed him counts against you.</p>
+        </li>
+        <li class="clip">
+            <span class="clip-kicker">The receipts</span>
+            <strong>Why it happened</strong>
+            <p>Opponents who played above themselves against you, close games, and benches that handed you a win.</p>
+        </li>
+        <li class="clip">
+            <span class="clip-kicker">Not luck</span>
+            <strong>Your lineup</strong>
+            <p>Points you left on your own bench aren&rsquo;t bad luck. We show them anyway, separately.</p>
+        </li>
+    </ul>
+</section>
+{% endblock %}

@@ -590,6 +590,49 @@ def nfl_notes_ready() -> bool:
     return True
 
 
+def luck_league(season: int, league_id: str) -> list[dict[str, Any]]:
+    from web.luck import compute
+    return compute(list(_TEAM_WEEKS.values()), list(_LINEUPS.values()),
+                   int(season), league_id)
+
+
+def luck_national(season: int) -> dict[str, Any]:
+    from web.luck import compute, national
+    return national(compute(list(_TEAM_WEEKS.values()), list(_LINEUPS.values()),
+                            int(season)))
+
+
+def luck_search(season: int, name: str) -> list[dict[str, Any]]:
+    name = (name or "").strip().lower()
+    if len(name) < 2:
+        return []
+    latest: dict = {}
+    for r in _TEAM_WEEKS.values():
+        if r["season"] == int(season):
+            latest[r["league_id"]] = max(latest.get(r["league_id"], 0), r["week"])
+    out = []
+    for r in _TEAM_WEEKS.values():
+        if (r["season"] == int(season) and r["week"] == latest.get(r["league_id"])
+                and name in ((r.get("manager") or "").lower(), (r.get("team_name") or "").lower())):
+            league = _LEAGUES.get(r["league_id"]) or {}
+            out.append({"league_id": r["league_id"], "team_id": r["team_id"],
+                        "team_name": r.get("team_name"), "manager": r.get("manager"),
+                        "league_name": league.get("league_name"),
+                        "public_slug": league.get("public_slug"),
+                        "provider": r.get("provider")})
+    return sorted(out, key=lambda x: x["league_name"] or "")
+
+
+def luck_ready() -> bool:
+    return True
+
+
+def sibling_league_ids(provider: str, platform_league_id: str, season: int) -> list[str]:
+    return [l["id"] for l in _LEAGUES.values() if l.get("provider") == provider
+            and str(l.get("platform_league_id")) == str(platform_league_id)
+            and l.get("season") == int(season)]
+
+
 _EDITOR_BITS: dict[str, dict[str, Any]] = {}
 
 

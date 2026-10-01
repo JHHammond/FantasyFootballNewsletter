@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% from "_macros.html" import flow_button %}
+{% set lname = league.paper_name or league.league_name %}
+{% block title %}{% if chosen %}{{ chosen.team_name }}: {{ '%+.1f'|format(chosen.total) }} wins of luck{% else %}{{ league.league_name }} &middot; The Luck Index{% endif %}{% endblock %}
+{% block description %}{% if chosen %}{{ chosen.team_name }} is {{ chosen.verdict|lower }}{% if chosen.luckier_than is not none %}: luckier than {{ chosen.luckier_than }}% of teams in America{% endif %}. How lucky is your team?{% else %}Who got lucky in {{ league.league_name }}? The Luck Index, measured in wins.{% endif %}{% endblock %}
+{% block wrapclass %}home around luck{% endblock %}
+
+{% macro signed(v) -%}{% if v is none %}–{% elif (v|float)|abs < 0.05 %}0.0{% else %}{{ '%+.1f'|format(v|float) }}{% endif %}{%- endmacro %}
+{% macro bar(v, spread) -%}
+<span class="lk-bar" aria-hidden="true"><span class="lk-mid"></span>
+{%- if v is not none and v|float != 0 -%}
+<i class="{{ 'up' if v|float > 0 else 'down' }}" style="width:{{ [50, 50 * (v|float)|abs / spread]|min }}%"></i>
+{%- endif -%}
+</span>
+{%- endmacro %}
+
+{% block content %}
+{% if not public %}<div class="alert alert-error ar-note"><strong>Staff preview.</strong> Set <code>LUCK_PUBLIC=1</code> on Render to open the Luck Index to everyone.</div>{% endif %}
+
+{% set teams = data.teams %}
+{% set spread = ([1.0] + teams|map(attribute='total')|map('abs')|list)|max %}
+
+<section class="front">
+    <p class="dateline">
+        <span>{{ league.league_name }}</span>
+        <span class="dateline-mid">The Luck Index{% if data.through %} &middot; through week {{ data.through }}{% endif %}</span>
+        <span><a href="/luck">Find another league</a></span>
+    </p>
+    {% if chosen %}
+    <div class="lk-card">
+        <div class="lk-card-main">
+            <span class="lk-kicker">{{ chosen.team_name }}{% if chosen.manager %} &middot; {{ chosen.manager }}{% endif %}</span>
+            <div class="lk-total {{ 'up' if chosen.total > 0 else 'down' if chosen.total < 0 }}">{{ signed(chosen.total) }}</div>
+            <div class="lk-unit">wins of luck</div>
+            {% if chosen.luckier_than is not none and data.national %}
+            <p class="lk-rank">Luckier than <b>{{ chosen.luckier_than }}%</b> of {{ '{:,}'.format(data.national) }} teams in America.</p>
+            {% endif %}
+            <p class="lk-record">{{ chosen.w }}-{{ chosen.l }}{% if chosen.t %}-{{ chosen.t }}{% endif %} &middot; played like a
+                <b>{{ '%.1f'|format(chosen.deserved_w) }}-{{ '%.1f'|format(chosen.deserved_l) }}</b> team</p>
+        </div>
+        <div class="lk-stamp {{ 'up' if chosen.total > 0.5 else 'down' if chosen.total < -0.5 }}"><span>{{ chosen.verdict }}</span></div>
+
+        <div class="lk-break">
+            <div class="lk-row">
+                <span class="lk-row-name">Schedule luck<small>who you drew, and when</small></span>
+                {{ bar(chosen.schedule, 1.5) }}
+                <b class="lk-row-val">{{ signed(chosen.schedule) }}</b>
+            </div>
+            <div class="lk-row">
+                <span class="lk-row-name">Player luck<small>{% if chosen.has_players %}starters against their own averages{% else %}lineups still being collected{% endif %}</small></span>
+                {{ bar(chosen.players, 1.5) }}
+                <b class="lk-row-val">{{ signed(chosen.players) }}</b>
+            </div>
+        </div>
+
+        <ul class="lk-receipts">
+            {% if chosen.opp_luck is not none %}
+            <li>Opponents scored <b>{{ '%.1f'|format(chosen.opp_luck|abs) }} {{ 'less' if chosen.opp_luck > 0 else 'more' }}</b> than their own average against you, a week.</li>
+            {% endif %}
+            {% if chosen.has_players and chosen.player_dev is not none %}
+            <li>Your starters played <b>{{ '%.1f'|format(chosen.player_dev|abs) }} points a week {{ 'above' if chosen.player_dev > 0 else 'below' }}</b> their own averages.</li>
+            {% endif %}
+            <li><b>{{ chosen.close_w }}-{{ chosen.close_l }}</b> in close games.</li>
+            {% if chosen.gifts %}<li>Opponents&rsquo; own benches handed you <b>{{ chosen.gifts }} win{{ 's' if chosen.gifts != 1 }}</b>.</li>{% endif %}
+            <li class="lk-skill">Not luck: your bench would have won <b>{{ chosen.own_losses }}</b> of your losses{% if chosen.bench_avg is not none %}, and you left <b>{{ '%.1f'|format(chosen.bench_avg) }}</b> points a week on it{% endif %}.</li>
+        </ul>
+
+        <div class="lk-share">
+            <button type="button" class="flow-btn" id="lk-share"
+                    data-url="{{ share_url }}"
+                    data-text="{{ chosen.team_name }}: {{ signed(chosen.total) }} wins of luck. {{ chosen.verdict }}.{% if chosen.luckier_than is not none %} Luckier than {{ chosen.luckier_than }}% of teams in America.{% endif %} How lucky is yours?">Share my luck</button>
+            <span class="lk-copied" id="lk-copied" hidden>Link copied.</span>
+        </div>
+    </div>
+    {% else %}
+    <div class="front-head-wrap">
+        <h1 class="front-head lk-head">Who got lucky in {{ league.league_name }}?</h1>
+    </div>
+    <p class="front-deck">Pick your team to see how much of your record was luck. Measured in wins.</p>
+    {% endif %}
+</section>
+
+{% if teams %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>The whole league</span></h2>
+    <div class="ar-board lk-table">
+        <div class="lk-legend"><span><i class="down"></i> unlucky</span><span>wins of luck</span><span>lucky <i class="up"></i></span></div>
+        <ol class="ar-list">
+            {% for t in teams %}
+            <li class="{{ 'on' if chosen and chosen.team_id == t.team_id }}">
+                <a class="ar-name" href="?team={{ t.team_id|urlencode }}">{{ t.team_name }}<small>{{ t.w }}-{{ t.l }}{% if t.t %}-{{ t.t }}{% endif %}{% if t.manager %} &middot; {{ t.manager }}{% endif %} &middot; {{ t.verdict }}</small></a>
+                {{ bar(t.total, spread) }}
+                <span class="ar-val"><b>{{ signed(t.total) }}</b></span>
+            </li>
+            {% endfor %}
+        </ol>
+    </div>
+    <p class="ar-intro">Luck is the wins you have minus the wins you earned. Earned: how much of your
+        league you&rsquo;d beat each week with your starters playing to their own averages.
+        {% if not data.has_players %}Player luck fills in once this league&rsquo;s lineups are collected.{% endif %}</p>
+</section>
+{% else %}
+<p class="ar-empty">No finished weeks collected for this league yet. Check back after Tuesday.</p>
+{% endif %}
+
+<section class="presses">
+    <p class="presses-kicker">Every week</p>
+    <p class="presses-head">Read all about it.</p>
+    <p class="presses-sub">{{ lname }} gets a newspaper every week: recaps, power rankings, and obituaries for the busts.</p>
+    {{ flow_button("Read this week's paper", href="/p/" ~ league.public_slug) }}
+</section>
+
+<script>
+(function () {
+    var b = document.getElementById("lk-share");
+    if (!b) return;
+    b.addEventListener("click", function () {
+        var url = b.getAttribute("data-url"), text = b.getAttribute("data-text");
+        if (navigator.share) {
+            navigator.share({title: document.title, text: text, url: url}).catch(function () {});
+            return;
+        }
+        var done = function () { var c = document.getElementById("lk-copied"); c.hidden = false; };
+        if (navigator.clipboard) { navigator.clipboard.writeText(text + " " + url).then(done, done); }
+    });
+})();
+</script>
+{% endblock %}
