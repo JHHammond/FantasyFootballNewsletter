@@ -39,6 +39,8 @@ HANDLES = ["hankthetank", "mvlt_esq", "midtierdave", "sacksonsacks",
 
 SPONSOR = {
     "brand": "PrizePicks", "code": "DESK", "link": "https://www.prizepicks.com",
+    # Relative to the output file, so the mockup opens from disk with the logo.
+    "logo": "../web/static/sponsors/prizepicks.png",
     "lines": True, "award": True, "numbers": True,
     "numbers_note": ("Sample: lines here are each player's projection to the "
                      "half point. Live, they'd be PrizePicks' own Fantasy "

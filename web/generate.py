@@ -349,8 +349,13 @@ def sponsor_settings(league: dict[str, Any]) -> dict | None:
     PAPER_SPONSOR is set on Render, as JSON:
 
         {"brand": "PrizePicks", "code": "DESK", "link": "https://...",
+         "logo": "/static/sponsors/prizepicks.png",
          "lines": true, "award": true, "numbers": true,
          "leagues": ["some-public-slug"]}
+
+    "logo" is optional: a site path or a full https address. A site path is
+    made absolute here, because a paper is read from storage and in email,
+    not only on this site.
 
     "leagues", when given, limits it to those papers (a staff preview);
     left out, every paper carries it. Nothing about any reader is ever
@@ -368,6 +373,9 @@ def sponsor_settings(league: dict[str, Any]) -> dict | None:
     only = cfg.get("leagues")
     if only and league.get("public_slug") not in only:
         return None
+    logo = str(cfg.get("logo") or "").strip()
+    if logo.startswith("/"):
+        cfg = dict(cfg, logo=public_base_url() + logo)
     return cfg
 
 

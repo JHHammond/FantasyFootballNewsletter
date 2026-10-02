@@ -581,3 +581,40 @@ def test_photos_follow_the_story_order_not_the_platforms():
                                    {"winner": "A", "loser": "B"}]}
     assert newspaper._in_story_order([g1, g2], content) == [g2, g1]
     assert newspaper._in_story_order([g1, g2], {}) == [g1, g2]
+
+
+def test_the_sponsor_badge_carries_the_logo_beside_the_name():
+    """The logo is beside the name, not instead of it: a reader who doesn't
+    know the mark still knows whose ad it is, and the name is what a screen
+    reader says, so the image itself is alt="" (2 Oct)."""
+    badge = newspaper.sponsor_badge(dict(SPONSOR, logo="https://cdn.example.com/pp.png"))
+    assert '<img class="sp-logo" src="https://cdn.example.com/pp.png" alt=""' in badge
+    assert "<b>PrizePicks</b>" in badge and "sp-badge-logo" in badge
+    plain = newspaper.sponsor_badge(SPONSOR)
+    assert "<img" not in plain and "sp-badge-logo" not in plain
+
+
+def test_a_sponsor_logo_cannot_be_a_script():
+    for bad in ("javascript:alert(1)", "JavaScript:alert(1)", "data:image/svg+xml,<svg/>"):
+        assert newspaper.sponsor_logo_url({"logo": bad}) == ""
+        assert "<img" not in newspaper.sponsor_badge(dict(SPONSOR, logo=bad))
+    for ok in ("https://x.com/a.png", "/static/sponsors/prizepicks.png", "../a.png"):
+        assert newspaper.sponsor_logo_url({"logo": ok}) == ok
+
+
+def test_a_site_path_logo_is_made_absolute(monkeypatch):
+    """Papers are read from storage and in email, so a /static path has to
+    carry the site's own address."""
+    import json
+    from web import generate
+    monkeypatch.setenv("BASE_URL", "https://commissionersdesk.com")
+    monkeypatch.setenv("PAPER_SPONSOR", json.dumps(
+        dict(SPONSOR, logo="/static/sponsors/prizepicks.png")))
+    cfg = generate.sponsor_settings({"public_slug": "x"})
+    assert cfg["logo"] == "https://commissionersdesk.com/static/sponsors/prizepicks.png"
+
+
+def test_the_prizepicks_logo_ships_with_the_site():
+    import pathlib
+    logo = pathlib.Path(newspaper.__file__).parent / "web/static/sponsors/prizepicks.png"
+    assert logo.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

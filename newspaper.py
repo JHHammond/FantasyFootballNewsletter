@@ -926,11 +926,27 @@ def _sponsor_on(sponsor, feature):
     return bool(sponsor and sponsor.get("brand") and sponsor.get(feature, True))
 
 
+def sponsor_logo_url(sponsor):
+    """The sponsor's logo, if one is set: an http(s) address or a plain
+    path. Any other scheme (javascript:, data:) is ignored rather than
+    printed into every paper."""
+    url = str((sponsor or {}).get("logo") or "").strip()
+    scheme = url.split(":", 1)[0].lower() if ":" in url.split("/", 1)[0] else ""
+    return url if scheme in ("", "http", "https") else ""
+
+
 def sponsor_badge(sponsor, label="Presented by"):
+    """"Presented by [logo] PrizePicks". The name stays beside the logo: a
+    reader who has never seen the mark still knows whose ad it is, and it is
+    what a screen reader reads, so the image itself has empty alt text."""
     if not (sponsor and sponsor.get("brand")):
         return ""
-    return (f'<span class="sp-badge"><span class="sp-badge-by">{html_escape(label)}</span>'
-            f'<b>{html_escape(sponsor["brand"])}</b></span>')
+    logo = sponsor_logo_url(sponsor)
+    logo_html = (f'<img class="sp-logo" src="{html_escape(logo)}" alt="" '
+                 f'width="18" height="18" />') if logo else ""
+    cls = "sp-badge sp-badge-logo" if logo else "sp-badge"
+    return (f'<span class="{cls}"><span class="sp-badge-by">{html_escape(label)}</span>'
+            f'{logo_html}<b>{html_escape(sponsor["brand"])}</b></span>')
 
 
 def sponsor_cta(sponsor, pitch, button="Make your picks"):
@@ -3473,6 +3489,11 @@ def _render_html(edition, theme=None):
         .sp-badge {{ display: inline-flex; align-items: baseline; gap: 6px; flex-shrink: 0; white-space: nowrap;
                      text-transform: none; letter-spacing: 0; font-style: normal;
                      background: #3d1a8a; color: #fff; padding: 4px 9px 3px; border-radius: 3px; }}
+        /* With a logo the row centres on the mark instead of the text
+           baseline, which would sit the square low. */
+        .sp-badge-logo {{ align-items: center; }}
+        .sp-logo {{ width: 18px; height: 18px; border-radius: 4px; display: block; flex-shrink: 0;
+                    margin-right: -1px; }}
         .sp-badge-by {{ font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: #ddd3ff; }}
         .sp-badge b {{ font-size: 13px; font-weight: 800; letter-spacing: .2px; }}
         .sp-cta {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px;
