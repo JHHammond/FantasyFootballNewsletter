@@ -3565,6 +3565,28 @@ def _render_html(edition, theme=None):
         .wk-who {{ font-family: Georgia, serif; font-style: italic; font-size: 13px; line-height: 1.35;
                    color: #4a4237; margin-top: 2px; }}
 
+        /* In the front page's right rail (2 Oct): a stacked list, number
+           left, what it was and whose on the right. */
+        .front-col .wk-board {{ margin: 18px 0 0; border-top: 3px double #111; border-bottom: 0; }}
+        .front-col .wk-head {{ text-align: left; font-family: inherit; font-style: normal; font-size: 11px;
+                              font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
+                              color: var(--accent, #c40000); border-bottom: 2px solid var(--accent, #c40000);
+                              padding: 8px 0 5px; }}
+        .front-col .wk-cells {{ display: block; padding: 0; }}
+        .front-col .wk-cell {{ display: grid; grid-template-columns: auto minmax(0, 1fr);
+                              grid-template-areas: "num label" "num who"; column-gap: 10px;
+                              align-items: center; text-align: left; padding: 8px 0;
+                              border-left: 0; border-bottom: 1px dotted #a99f8c; }}
+        .front-col .wk-label {{ grid-area: label; align-self: end; font-size: 9.5px; }}
+        .front-col .wk-who {{ grid-area: who; align-self: start; font-size: 12px; margin: 0; }}
+        .front-col .wk-num {{ grid-area: num; font-size: 24px; margin: 0; min-width: 62px; }}
+        .front-col .wk-unit {{ display: none; }}
+
+        /* The front photo (2 Oct): one shape, 4:3, so a tall upload no longer
+           makes the middle column twice as long as the rails beside it. */
+        .front-col-center .image-wrap img {{ aspect-ratio: 4 / 3 !important; height: auto !important;
+                                             object-fit: cover !important; object-position: center 22% !important; }}
+
         /* ── HONOR ROLL / DETENTION, ranked with a bar (1 Oct) ── */
         .hd-card {{ position: relative; display: flex; flex-direction: column; align-items: center;
                     text-align: center; padding: 14px 12px 12px !important; border-top: 4px solid #c8a200 !important; }}
@@ -3611,14 +3633,6 @@ def _render_html(edition, theme=None):
         .fc-fact b {{ font-family: Georgia, serif; font-size: 20px; font-weight: 900; font-variant-numeric: tabular-nums; }}
 
         @media (max-width: 600px) {{
-            .wk-board {{ margin: 18px 12px 0; }}
-            .wk-cells {{ grid-template-columns: 1fr 1fr; }}
-            .wk-cells {{ padding: 4px 0 8px; }}
-            .wk-cell {{ border-left: 0; border-top: 1px dotted #a99f8c; padding: 10px 8px; }}
-            .wk-cell:nth-child(-n+2) {{ border-top: 0; }}
-            .wk-cell:nth-child(even) {{ border-left: 1px dotted #a99f8c; }}
-            .wk-cell:last-child:nth-child(odd) {{ grid-column: 1 / -1; }}
-            .wk-num {{ font-size: 28px; }}
             .hd-photo {{ width: 60px; height: 60px; }}
             .hd-num {{ font-size: 24px; }}
             .fc-head {{ flex-wrap: wrap; }}
@@ -4041,12 +4055,38 @@ def _render_html(edition, theme=None):
                     </tbody>
                 </table>
                 {edition.get('stack_up_html', '')}
+                <!-- WEEK IN NUMBERS: in the rail since 2 Oct, where it fills
+                     the space the lead story's column used to leave empty -->
+                {edition['week_ticker_html']}
             </div>
 
         </div>
-
-        <!-- WEEK STATS TICKER -->
-        {edition['week_ticker_html']}
+        <script>
+        // THE RAIL ONLY TAKES IT WHEN IT FITS (2 Oct). The week in numbers
+        // sits under the standings to fill the space beside a long lead
+        // story. When the rail is already the longest column (a short lead,
+        // two-line team names, How You Stack Up), it would make a new gap
+        // under the lead instead, so it goes back to a band under the front
+        // page. Three columns only; on a phone everything stacks anyway.
+        window.addEventListener("load", function () {{
+            var fp = document.querySelector(".front-page");
+            var wk = fp && fp.querySelector(".front-col .wk-board");
+            var center = fp && fp.querySelector(".front-col-center");
+            if (!wk || !center) return;
+            if (getComputedStyle(fp).gridTemplateColumns.split(" ").length < 3) return;
+            function end(col) {{
+                var b = 0;
+                Array.prototype.forEach.call(col.children, function (c) {{
+                    if (c !== wk) b = Math.max(b, c.getBoundingClientRect().bottom);
+                }});
+                return b;
+            }}
+            var railEnd = end(wk.parentNode) + wk.offsetHeight + 18;
+            if (railEnd - end(center) > 60) {{
+                fp.parentNode.insertBefore(wk, fp.nextSibling);
+            }}
+        }});
+        </script>
 
         <!-- HONOR ROLL + DETENTION -->
         <div class="full-section" id="honor-roll">
