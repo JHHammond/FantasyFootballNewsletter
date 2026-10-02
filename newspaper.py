@@ -3593,15 +3593,28 @@ def _render_html(edition, theme=None):
            by, and the "This week" items share out whatever the left column is
            short by, so nothing ends in a white gap. Without the script (an
            email client) the page is exactly as above. */
-        @media (min-width: 901px) {{
-            .front-page.fp-fit .front-col-center {{ display: flex; flex-direction: column; }}
+        /* No media query on purpose: the long-PDF export prints a copy of the
+           page, and Chrome tests print media queries against a Letter-width
+           sheet, so a min-width rule silently switched this off in every PDF
+           (2 Oct). The script takes .fp-fit off below three columns instead. */
+        .front-page.fp-fit .front-col-center {{ display: flex; flex-direction: column; }}
+        .front-page.fp-fit .front-col-center > .image-wrap {{
+            flex: 1 1 0; min-height: 300px; max-height: 760px;
+            display: flex !important; flex-direction: column; }}
+        .front-page.fp-fit .front-col-center > .image-wrap > img {{
+            flex: 1 1 0; min-height: 0; height: 0 !important; aspect-ratio: auto !important; }}
+        .front-page.fp-fit > .front-col:first-child {{ display: flex; flex-direction: column; }}
+        .front-page.fp-fit > .front-col:first-child .col-story {{ flex: 1 0 auto; }}
+        /* Paged printing (Safari, iPhone) has its own front-page layout, so
+           none of the stretching there. The long PDF removes @media print
+           rules before printing, so it keeps the stretching. */
+        @media print {{
+            .front-page.fp-fit .front-col-center,
+            .front-page.fp-fit > .front-col:first-child {{ display: block; }}
             .front-page.fp-fit .front-col-center > .image-wrap {{
-                flex: 1 1 0; min-height: 300px; max-height: 760px;
-                display: flex !important; flex-direction: column; }}
+                flex: none; min-height: 0; max-height: none; display: block !important; }}
             .front-page.fp-fit .front-col-center > .image-wrap > img {{
-                flex: 1 1 0; min-height: 0; height: 0 !important; aspect-ratio: auto !important; }}
-            .front-page.fp-fit > .front-col:first-child {{ display: flex; flex-direction: column; }}
-            .front-page.fp-fit > .front-col:first-child .col-story {{ flex: 1 0 auto; }}
+                height: auto !important; aspect-ratio: 4 / 3 !important; }}
         }}
 
         /* ── HONOR ROLL / DETENTION, ranked with a bar (1 Oct) ── */
@@ -4106,6 +4119,12 @@ def _render_html(edition, theme=None):
                 }}
             }}
             fp.classList.add("fp-fit");
+            // A window made narrow later stacks the columns: no stretching then.
+            window.addEventListener("resize", function () {{
+                fp.classList.remove("fp-fit");
+                if (getComputedStyle(fp).gridTemplateColumns.split(" ").length >= 3)
+                    fp.classList.add("fp-fit");
+            }});
         }});
         </script>
 
