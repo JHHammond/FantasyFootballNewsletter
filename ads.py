@@ -226,7 +226,7 @@ def render_classifieds(ads: Optional[list[Ad]] = None, limit: int = 4,
         <!-- Named for what it is now that the publisher's own Classifieds
              page exists further up. Two sections with the same title in one
              paper is a reader wondering which one they already read. -->
-        <div class="classifieds-title">League Notices</div>
+        <h2 class="classifieds-title">League Notices</h2>
         <div class="classifieds-grid">{blocks}</div>
     </div>'''
 
@@ -314,7 +314,7 @@ def render_subscribe_block(public_slug: Optional[str], paper_name: str = "") -> 
     return f'''
     <div class="subscribe-block">
         <div class="subscribe-kicker">Don&rsquo;t miss next week</div>
-        <div class="subscribe-head">Get this in your inbox</div>
+        <h2 class="subscribe-head">Get this in your inbox</h2>
         <div class="subscribe-sub">
             We&rsquo;ll send you {name} the second it drops. That&rsquo;s it &mdash;
             no other emails, ever.
@@ -588,7 +588,7 @@ def render_publisher_page(ads: Optional[list] = None,
     return f'''
     <section class="{outer}">
         <div class="pub-page-head">
-            <div class="section-title-full">{_escape(title)}</div>
+            <h2 class="section-title-full">{_escape(title)}</h2>
             {note_html}
         </div>
         <div class="pub-ad-grid">{body}</div>

@@ -855,3 +855,124 @@ def printed_classifieds_gaps(browser, classifieds_paper_file,
     gaps = _page_gaps(path)
     sheet = classifieds_measured["PAGE"]["top"]
     return gaps[sheet - 1], gaps
+
+
+# ---------------------------------------------------------------------------
+# Phone reading (2 Oct 2026): long team names, and the section bar
+# ---------------------------------------------------------------------------
+#
+# The sideways-scroll test above measures the document, and the document is
+# clipped on a phone (overflow-x), so a table running past the edge of its
+# column and off the screen still passes it. That is exactly what happened to
+# the standings on a real paper: "CeeDeezBallsOnYourChin" is one unbreakable
+# word, and the streak column was cut off. These measure the elements.
+
+@pytest.fixture(scope="module")
+def long_names_paper_file():
+    """scripts/render_sample_paper.py: the real league's team names (one of
+    them a single 22-letter word), avatars and a streak column — the three
+    things that together make the standings wider than a phone. The plain
+    fixture above has none of them, and passes with the bug in place."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "render_sample_paper",
+        pathlib.Path(__file__).resolve().parent.parent / "scripts" / "render_sample_paper.py")
+    sample = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sample)
+    path = pathlib.Path(tempfile.mkdtemp()) / "long-names.html"
+    path.write_text(sample.sample_html(), encoding="utf-8")
+    return path
+
+
+def _escapees(browser, path, width, selector):
+    """Elements matching `selector` whose right edge is past the screen."""
+    page = browser.new_page(viewport={"width": width, "height": 844})
+    page.goto(path.as_uri())
+    page.wait_for_timeout(300)
+    out = page.evaluate("""sel => [...document.querySelectorAll(sel)]
+        .filter(el => el.getClientRects().length)
+        .map(el => [el.className || el.tagName, Math.round(el.getBoundingClientRect().right)])
+        .filter(([, right]) => right > document.documentElement.clientWidth + 1)
+        // A block's box never grows with its text, so a word too long for a
+        // headline overflows it without moving its right edge. Text that
+        // spills out of its own box counts too.
+        .concat([...document.querySelectorAll(sel)]
+            .filter(el => el.scrollWidth > el.clientWidth + 1 && el.tagName.match(/^H[1-3]$/))
+            .map(el => [el.className + ' (text)', el.scrollWidth]))""",
+                        selector)
+    page.close()
+    return out
+
+
+@pytest.mark.parametrize("width", PHONE_WIDTHS)
+def test_the_standings_fit_on_a_phone_with_long_team_names(
+        browser, long_names_paper_file, width):
+    out = _escapees(browser, long_names_paper_file, width,
+                    "table.stats, table.stats th, table.stats td")
+    assert not out, f"standings run off a {width}px screen: {out[:4]}"
+
+
+@pytest.mark.parametrize("width", PHONE_WIDTHS)
+def test_honor_roll_cards_fit_on_a_phone_with_long_team_names(
+        browser, long_names_paper_file, width):
+    out = _escapees(browser, long_names_paper_file, width,
+                    ".player-grid > *, .story-headline, .headline")
+    assert not out, f"off the side of a {width}px screen: {out[:4]}"
+
+
+def _phone(browser, path, width=390):
+    page = browser.new_page(viewport={"width": width, "height": 844},
+                            is_mobile=True, has_touch=True)
+    # Reduced motion: the jump is instant, so the test reads where it landed
+    # rather than somewhere along a smooth scroll.
+    page.emulate_media(reduced_motion="reduce")
+    page.goto(path.as_uri())
+    page.wait_for_timeout(300)
+    return page
+
+
+def test_the_section_bar_sticks_and_a_link_lands_below_it(browser, paper_file):
+    """The bar is useless if it scrolls away, and a link is worse than
+    useless if the heading it lands on is hidden under the bar. Both broke
+    silently once: overflow-x:hidden on the page makes sticky do nothing."""
+    page = _phone(browser, paper_file)
+    page.click('.section-nav a[href="#games"]')
+    page.wait_for_timeout(500)
+    m = page.evaluate("""() => {
+        const nav = document.querySelector('.section-nav').getBoundingClientRect();
+        const target = document.getElementById('games').getBoundingClientRect();
+        const cur = document.querySelector('.section-nav [aria-current]');
+        return {scrollY: scrollY, navTop: nav.top, navBottom: nav.bottom,
+                targetTop: target.top, current: cur && cur.textContent};
+    }""")
+    page.close()
+    assert m["scrollY"] > 1000, m
+    assert m["navTop"] == 0, f"the bar scrolled away: {m}"
+    assert m["navBottom"] - 1 <= m["targetTop"] <= m["navBottom"] + 24, (
+        f"the Games heading landed at {m['targetTop']}px, bar ends at {m['navBottom']}px")
+    assert m["current"] == "Games", m
+
+
+def test_every_section_bar_link_has_a_target(browser, paper_file):
+    page = _phone(browser, paper_file)
+    missing = page.evaluate("""() => [...document.querySelectorAll('.section-nav a')]
+        .map(a => a.getAttribute('href').slice(1))
+        .filter(id => !document.getElementById(id))""")
+    taps = page.evaluate("""() => [...document.querySelectorAll('.section-nav a')]
+        .map(a => a.getBoundingClientRect().height)""")
+    page.close()
+    assert not missing, missing
+    assert taps and min(taps) >= 44, f"tap targets {taps}"
+
+
+@pytest.mark.parametrize("width,media", [(1200, "screen"), (390, "print")])
+def test_the_section_bar_is_only_on_a_phone_screen(browser, paper_file,
+                                                   width, media):
+    page = browser.new_page(viewport={"width": width, "height": 844})
+    page.emulate_media(media=media)
+    page.goto(paper_file.as_uri())
+    page.wait_for_timeout(200)
+    shown = page.evaluate(
+        "getComputedStyle(document.querySelector('.section-nav')).display")
+    page.close()
+    assert shown == "none", f"section bar shows at {width}px {media}"
