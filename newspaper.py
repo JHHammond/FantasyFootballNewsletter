@@ -3582,10 +3582,27 @@ def _render_html(edition, theme=None):
         .front-col .wk-num {{ grid-area: num; font-size: 24px; margin: 0; min-width: 62px; }}
         .front-col .wk-unit {{ display: none; }}
 
-        /* The front photo (2 Oct): one shape, 4:3, so a tall upload no longer
-           makes the middle column twice as long as the rails beside it. */
+        /* The front photo (2 Oct): 4:3 by default, so a tall upload no
+           longer makes the middle column twice as long as the rails. */
         .front-col-center .image-wrap img {{ aspect-ratio: 4 / 3 !important; height: auto !important;
                                              object-fit: cover !important; object-position: center 22% !important; }}
+
+        /* THREE COLUMNS THAT END TOGETHER (2 Oct, second go). The script under
+           the front page adds .fp-fit once it has measured the columns. Then
+           the photo stretches to take up whatever the middle column is short
+           by, and the "This week" items share out whatever the left column is
+           short by, so nothing ends in a white gap. Without the script (an
+           email client) the page is exactly as above. */
+        @media (min-width: 901px) {{
+            .front-page.fp-fit .front-col-center {{ display: flex; flex-direction: column; }}
+            .front-page.fp-fit .front-col-center > .image-wrap {{
+                flex: 1 1 0; min-height: 300px; max-height: 760px;
+                display: flex !important; flex-direction: column; }}
+            .front-page.fp-fit .front-col-center > .image-wrap > img {{
+                flex: 1 1 0; min-height: 0; height: 0 !important; aspect-ratio: auto !important; }}
+            .front-page.fp-fit > .front-col:first-child {{ display: flex; flex-direction: column; }}
+            .front-page.fp-fit > .front-col:first-child .col-story {{ flex: 1 0 auto; }}
+        }}
 
         /* ── HONOR ROLL / DETENTION, ranked with a bar (1 Oct) ── */
         .hd-card {{ position: relative; display: flex; flex-direction: column; align-items: center;
@@ -4062,29 +4079,33 @@ def _render_html(edition, theme=None):
 
         </div>
         <script>
-        // THE RAIL ONLY TAKES IT WHEN IT FITS (2 Oct). The week in numbers
-        // sits under the standings to fill the space beside a long lead
-        // story. When the rail is already the longest column (a short lead,
-        // two-line team names, How You Stack Up), it would make a new gap
-        // under the lead instead, so it goes back to a band under the front
-        // page. Three columns only; on a phone everything stacks anyway.
+        // FRONT PAGE COLUMNS (2 Oct). Measured once everything has loaded.
+        // 1. The week in numbers sits in the right rail, unless that would
+        //    make the rail far longer than both other columns; then it goes
+        //    back to a band under the front page.
+        // 2. .fp-fit lets the photo and the left column's items stretch so
+        //    all three columns end at the same line (see the CSS).
+        // Three columns only; on a phone everything stacks anyway.
         window.addEventListener("load", function () {{
             var fp = document.querySelector(".front-page");
-            var wk = fp && fp.querySelector(".front-col .wk-board");
-            var center = fp && fp.querySelector(".front-col-center");
-            if (!wk || !center) return;
+            if (!fp) return;
             if (getComputedStyle(fp).gridTemplateColumns.split(" ").length < 3) return;
-            function end(col) {{
+            var cols = fp.children, left = cols[0], center = cols[1], rail = cols[2];
+            var wk = rail && rail.querySelector(".wk-board");
+            function end(col, skip) {{
                 var b = 0;
                 Array.prototype.forEach.call(col.children, function (c) {{
-                    if (c !== wk) b = Math.max(b, c.getBoundingClientRect().bottom);
+                    if (c !== skip && c.offsetHeight) b = Math.max(b, c.getBoundingClientRect().bottom);
                 }});
                 return b;
             }}
-            var railEnd = end(wk.parentNode) + wk.offsetHeight + 18;
-            if (railEnd - end(center) > 60) {{
-                fp.parentNode.insertBefore(wk, fp.nextSibling);
+            if (wk) {{
+                var others = Math.max(end(left), end(center));
+                if (end(rail) - others > 200) {{
+                    fp.parentNode.insertBefore(wk, fp.nextSibling);
+                }}
             }}
+            fp.classList.add("fp-fit");
         }});
         </script>
 
