@@ -3336,6 +3336,18 @@ def _render_html(edition, theme=None):
         .bp-obits {{ grid-area: obit; }}
         .bp-obits.has-right {{ border-right: 3px solid #111; }}
         .bp-preview {{ grid-area: preview; }}
+        /* THE TWO TOP COLUMNS END TOGETHER (2 Oct). The grid already makes
+           them the same height; whichever has room to spare shares it out
+           between its own items (each line card, each record book row)
+           instead of leaving it blank at the bottom. Obituaries don't
+           stretch: a paragraph with air under it reads as a hole. Pure CSS, so the
+           PDF gets it too. */
+        .bp-obits, .bp-preview {{ display: flex; flex-direction: column; }}
+        .bp-preview > .line-card {{ flex: 1 0 auto; display: flex; flex-direction: column;
+                                   justify-content: center; }}
+        .bp-preview > .sp-cta {{ flex: none; }}
+        .bp-obits > .bp-records {{ flex: 1 0 auto; display: flex; flex-direction: column; }}
+        .bp-records > .rb-row {{ flex: 1 0 auto; align-content: center; }}
         .bp-tx {{ grid-area: tx; }}
         .bp-tx.has-top {{ border-top: 3px solid #111; }}
         .bp-trades {{ grid-area: trades; }}

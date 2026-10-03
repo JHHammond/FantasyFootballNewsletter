@@ -5,32 +5,51 @@
 {% block title %}{{ paper_name }} — Week {{ week }}{% endblock %}
 
 {% block content %}
-<div class="published-bar">
-    <div>
-        <div class="eyebrow">Week {{ week }} is live</div>
-        <div class="published-title">{{ paper_name }}</div>
-    </div>
-    <div class="published-actions">
-        <button type="button" class="btn" id="copy-btn"
-                data-link="{{ public_base() }}/p/{{ league.public_slug }}">
-            Copy share link
-        </button>
-        <button type="button" class="btn" id="pdf-btn">Save as PDF</button>
-        <a class="btn" href="/l/{{ league.admin_token }}/live-edit/{{ week }}">Edit on the page</a>
-        <a class="btn" href="/l/{{ league.admin_token }}/edit/{{ week }}">Form editor</a>
-        <a class="btn" href="{{ paper_url }}" target="_blank" rel="noopener">Full screen</a>
-        <a class="btn btn-ghost" href="/l/{{ league.admin_token }}">Back</a>
+<div class="pub-head">
+    <a class="pub-back" href="/l/{{ league.admin_token }}">&larr; Back to the league</a>
+
+    <div class="pub-row">
+        <div class="pub-id">
+            <div class="eyebrow pub-live"><span class="pub-dot" aria-hidden="true"></span>Week {{ week }} is live</div>
+            <h1 class="published-title">{{ paper_name }}</h1>
+            <p class="published-hint">
+                Send the link to your league. Anyone can open it, no sign-in, no app.
+                {% if subscriber_count %}
+                {{ subscriber_count }} {{ 'person' if subscriber_count == 1 else 'people' }}
+                already get it by email.
+                {% endif %}
+                {% if was_edited %}<em class="pub-edited">Edited by you.</em>{% endif %}
+            </p>
+        </div>
+
+        <div class="pub-actions">
+            <div class="pub-share">
+                <input class="pub-link" type="text" readonly
+                       value="{{ public_base() }}/p/{{ league.public_slug }}"
+                       aria-label="Share link" onfocus="this.select()" />
+                <button type="button" class="btn btn-primary" id="copy-btn"
+                        data-link="{{ public_base() }}/p/{{ league.public_slug }}">Copy link</button>
+            </div>
+            <div class="pub-tools">
+                <details class="edit-menu">
+                    <summary class="btn">Edit <span class="edit-caret" aria-hidden="true">&#9662;</span></summary>
+                    <div class="edit-pop" role="menu">
+                        <a role="menuitem" href="/l/{{ league.admin_token }}/live-edit/{{ week }}">
+                            <strong>Edit on the page</strong>
+                            <span>Click any headline or line and type over it.</span>
+                        </a>
+                        <a role="menuitem" href="/l/{{ league.admin_token }}/edit/{{ week }}">
+                            <strong>Edit in a form</strong>
+                            <span>Every section in one list, with undo to the original.</span>
+                        </a>
+                    </div>
+                </details>
+                <button type="button" class="btn" id="pdf-btn">Save as PDF</button>
+                <a class="btn" href="{{ paper_url }}" target="_blank" rel="noopener">Full screen</a>
+            </div>
+        </div>
     </div>
 </div>
-
-<p class="published-hint">
-    Send that link to your league. Anyone can open it &mdash; no sign-in, no app.
-    {% if was_edited %}<br /><em>Edited by you.</em>{% endif %}
-    {% if subscriber_count %}
-    {{ subscriber_count }} {{ 'person' if subscriber_count == 1 else 'people' }}
-    already get it by email.
-    {% endif %}
-</p>
 
 <div class="paper-frame">
     <iframe src="{{ preview_url or paper_url }}" title="{{ paper_name }} Week {{ week }}"></iframe>
@@ -54,6 +73,18 @@ document.getElementById('copy-btn').addEventListener('click', async function () 
     this.textContent = 'Copied';
     setTimeout(() => { this.textContent = original; }, 1800);
 });
+
+// The Edit menu is a <details>: close it when the click lands elsewhere.
+(function () {
+    const menu = document.querySelector('.edit-menu');
+    if (!menu) return;
+    document.addEventListener('click', function (e) {
+        if (menu.open && !menu.contains(e.target)) menu.open = false;
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') menu.open = false;
+    });
+})();
 
 // Print the paper, not the page around it. The iframe is same-origin, so we
 // can reach into it — printing from here instead would produce a PDF of this

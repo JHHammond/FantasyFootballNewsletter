@@ -483,6 +483,11 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
         # to edit — and this render is never stored, so nothing is frozen here.
         publisher_ads=_snapshot_publisher_ads(db, dict(ai_content), season, week),
         promo=promo_settings(),
+        # The staff photo desk, same as the published render (2 Oct: the
+        # editor showed the platform's headshots instead, so the photos
+        # changed under the commissioner while he edited, and changed back
+        # on publish).
+        photo_desk=_photo_desk(db, season, week),
         sponsor=sponsor_settings(league),
     )
     edition["paper_name"] = paper_name
