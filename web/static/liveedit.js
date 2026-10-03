@@ -26,7 +26,7 @@
   var bar = document.createElement("div");
   bar.className = "ce-bar";
   bar.innerHTML =
-    '<span class="ce-bar-label">Click any text to edit &middot; click, drop or paste a photo</span>' +
+    '<span class="ce-bar-label">Click any text to edit &middot; click, drop or paste a photo &middot; drag or arrow to reorder rankings</span>' +
     '<span class="ce-bar-status" id="ce-status"></span>' +
     '<button type="button" class="ce-btn" id="ce-cancel">Done</button>' +
     '<button type="button" class="ce-btn ce-btn-primary" id="ce-save">Save changes</button>';
@@ -232,6 +232,113 @@
     uploadFile(picker.files && picker.files[0], pendingSlot);
   });
 
+  // --- order: standings and power rankings (2 Oct) -------------------------
+  //
+  // Every row or card the renderer marked with data-order-group can be moved:
+  // the arrows move it one place, the grip drags it. The layout is never
+  // rebuilt, only refilled: each item goes back into the slot the item at its
+  // new position came from, so a power-rankings row of five keeps five cards.
+
+  var orders = {};
+  var groups = {};
+  Array.prototype.forEach.call(document.querySelectorAll("[data-order-group]"), function (el) {
+    var g = el.dataset.orderGroup;
+    (groups[g] = groups[g] || []).push(el);
+  });
+
+  var RANK_COLORS = { 1: "#c8a200", 2: "#888", 3: "#a0522d" };
+
+  Object.keys(groups).forEach(function (g) {
+    var items = groups[g].slice();
+    var parents = items.map(function (el) { return el.parentNode; });
+    var dragging = null;
+
+    function relayout() {
+      items.forEach(function (el, i) { parents[i].appendChild(el); });
+      items.forEach(function (el, i) {
+        var n = i + 1;
+        var rank = el.querySelector(".ranking-card-rank");
+        if (rank) {
+          rank.textContent = "#" + n;
+          rank.style.color = RANK_COLORS[n] || "#c40000";
+        }
+        var num = el.querySelector(".ce-num");
+        if (num) num.textContent = n;
+      });
+      orders[g] = items.map(function (el) { return el.dataset.orderName; });
+      markDirty();
+      setStatus("Order changed — save to keep it");
+    }
+
+    function moveTo(el, to) {
+      var from = items.indexOf(el);
+      if (from < 0 || to < 0 || to >= items.length || to === from) return;
+      items.splice(from, 1);
+      items.splice(to, 0, el);
+      relayout();
+    }
+
+    items.forEach(function (el) {
+      var box = document.createElement("span");
+      box.className = "ce-order";
+      box.innerHTML =
+        '<span class="ce-grip" title="Drag to move" aria-hidden="true">\u2807</span>' +
+        '<button type="button" class="ce-up" title="Move up" aria-label="Move up">\u25B2</button>' +
+        '<button type="button" class="ce-down" title="Move down" aria-label="Move down">\u25BC</button>';
+
+      var numCell = el.querySelector(".order-num");
+      if (numCell) {
+        // A standings row: the controls share the position cell.
+        numCell.innerHTML = '<span class="ce-num">' + numCell.textContent.trim() + "</span>";
+        numCell.appendChild(box);
+      } else {
+        el.appendChild(box);
+      }
+      el.classList.add("ce-orderable");
+
+      box.querySelector(".ce-up").addEventListener("click", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        moveTo(el, items.indexOf(el) - 1);
+      });
+      box.querySelector(".ce-down").addEventListener("click", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        moveTo(el, items.indexOf(el) + 1);
+      });
+
+      // Dragging starts only from the grip, so selecting text in an editable
+      // comment still works.
+      var grip = box.querySelector(".ce-grip");
+      grip.addEventListener("mousedown", function () { el.draggable = true; });
+      el.addEventListener("dragstart", function (e) {
+        if (!el.draggable) return;
+        dragging = el;
+        el.classList.add("ce-dragging");
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = "move";
+          try { e.dataTransfer.setData("text/plain", el.dataset.orderName); } catch (err) {}
+        }
+      });
+      el.addEventListener("dragend", function () {
+        el.draggable = false;
+        el.classList.remove("ce-dragging");
+        items.forEach(function (x) { x.classList.remove("ce-drop-over"); });
+        dragging = null;
+      });
+      el.addEventListener("dragover", function (e) {
+        if (!dragging || dragging === el) return;
+        e.preventDefault();
+        el.classList.add("ce-drop-over");
+      });
+      el.addEventListener("dragleave", function () { el.classList.remove("ce-drop-over"); });
+      el.addEventListener("drop", function (e) {
+        if (!dragging || dragging === el) return;
+        e.preventDefault();
+        el.classList.remove("ce-drop-over");
+        moveTo(dragging, items.indexOf(el));
+      });
+    });
+  });
+
   // --- save ---------------------------------------------------------------
 
   document.getElementById("ce-save").addEventListener("click", function () {
@@ -247,6 +354,7 @@
         images: images,
         widths: widths,
         removed: Object.keys(removed),
+        orders: orders,
       }),
     })
       .then(function (r) {

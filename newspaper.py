@@ -1292,7 +1292,7 @@ def render_stack_up_html(national):
     """
 
 
-def render_standings_html(standings, trends=None):
+def render_standings_html(standings, trends=None, editable=False):
     rows = []
     trends = trends or {}
     series_by_team = trends.get("teams") or {}
@@ -1311,8 +1311,8 @@ def render_standings_html(standings, trends=None):
                                      team["team_name"]) if series_by_team else ""
             trend_cell = f'<td class="trend-cell">{spark}</td>' if series_by_team else ""
         rows.append(f"""
-        <tr>
-            <td>{i}</td>
+        <tr{_order_attrs("standings", team["team_name"], editable)}>
+            <td class="order-num">{i}</td>
             <td class="team-cell"><div class="team-in">{avatar}<span>{team['team_name']}</span></div></td>
             <td class="nowrap">{team['record']}</td>
             <td class="nowrap">{team['points']:.1f}</td>
@@ -1346,7 +1346,7 @@ def build_power_rankings(power_rankings, ai_comments=None, editable=False):
             avatar_html = f'<img src="{avatar_url}" alt="{name}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid #111;margin:6px auto 4px;display:block;" />' 
 
         cards.append(f'''
-        <div class="ranking-card">
+        <div class="ranking-card"{_order_attrs("rankings", name, editable)}>
             <div class="ranking-card-rank" style="color:{rank_color};">#{i}</div>
             {avatar_html}
             <div class="ranking-card-name">{name}</div>
@@ -2070,6 +2070,39 @@ def _in_story_order(matchups, ai_content):
     return out + [g for g in games if g not in out]
 
 
+def apply_order(items, order, key):
+    """Put items in the commissioner's order (2 Oct: standings and power
+    rankings can be rearranged in the editor).
+
+    `order` is a list of team names saved from the editor. Teams it names come
+    first, in that order; any team it doesn't name (renamed since, or a list
+    saved before the team existed) keeps its computed place after them. Names
+    that match nothing are ignored, so a stale or tampered list can only
+    reorder, never add or drop a team.
+    """
+    items = list(items or [])
+    if not order:
+        return items
+    by_name = {}
+    for it in items:
+        by_name.setdefault(str(it.get(key)), it)
+    out = []
+    for name in order:
+        it = by_name.pop(str(name), None)
+        if it is not None:
+            out.append(it)
+    return out + [it for it in items if any(it is v for v in by_name.values())]
+
+
+def _order_attrs(group, name, editable):
+    """Markers the editor's script uses to make a row or card movable. Only
+    in the editable render, which is never stored."""
+    if not editable:
+        return ""
+    return (f' data-order-group="{group}"'
+            f' data-order-name="{html_escape(str(name), quote=True)}"')
+
+
 def build_edition(league_name, week, summary, matchups, power_rankings,
                   ai_content=None, ads=None, subscribe_slug=None,
                   transactions=None, publisher_ads=None,
@@ -2077,6 +2110,8 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
                   promo=None, photo_desk=None, sponsor=None):
     if not power_rankings:
         power_rankings = build_power_rankings_from_matchups(matchups)
+    power_rankings = apply_order(power_rankings,
+                                 (ai_content or {}).get("rankings_order"), "team")
 
     # Photos the commissioner uploaded, keyed by slot. Lives inside ai_cache
     # so it travels with the prose and survives a re-render.
@@ -2359,7 +2394,9 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             transactions=transactions,
             editable=editable, sponsor=sponsor),
         "standings_html": render_standings_html(
-            build_standings(matchups), (ai_content or {}).get("trends")),
+            apply_order(build_standings(matchups),
+                        (ai_content or {}).get("standings_order"), "team_name"),
+            (ai_content or {}).get("trends"), editable=editable),
         "standings_trend_th": (
             ('<th class="trend-th">Streak</th>'
              if ((ai_content or {}).get("trends") or {}).get("streaks")

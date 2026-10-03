@@ -83,3 +83,35 @@ body.ce-active { padding-bottom: 76px; }
     outline: 3px dashed #2d5016 !important;
     outline-offset: 2px;
 }
+
+
+/* Reordering the standings and power rankings (2 Oct). */
+.ce-orderable { position: relative; }
+.ce-order {
+    display: inline-flex; align-items: center; gap: 2px;
+    font-family: "Barlow Condensed", "Helvetica Neue", sans-serif;
+}
+.ranking-card .ce-order {
+    position: absolute; top: 4px; right: 4px;
+    opacity: 0.35; transition: opacity .12s;
+}
+.ranking-card:hover .ce-order, .ranking-card:focus-within .ce-order { opacity: 1; }
+.order-num { white-space: nowrap; }
+.order-num .ce-order { margin-left: 4px; opacity: 0.35; }
+tr:hover .order-num .ce-order { opacity: 1; }
+.ce-order button {
+    width: 20px; height: 20px; padding: 0; line-height: 1;
+    font-size: 9px; cursor: pointer;
+    border: 1px solid #111; background: #fff; color: #111;
+}
+.ce-order button:hover { background: #111; color: #fff; }
+.ce-grip { cursor: grab; font-size: 14px; color: #777; padding: 0 2px; user-select: none; }
+.ce-dragging { opacity: 0.4; }
+.ce-drop-over { outline: 2px dashed #c8a200; outline-offset: 2px; }
+
+/* The standings rail is narrow: there the arrows stack, small, and there is
+   no grip (rows move with the arrows). */
+.order-num .ce-order { display: inline-flex; flex-direction: column; gap: 1px;
+                       vertical-align: middle; margin-left: 3px; }
+.order-num .ce-grip { display: none; }
+.order-num .ce-order button { width: 16px; height: 11px; font-size: 7px; }

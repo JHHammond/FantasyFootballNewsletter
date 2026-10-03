@@ -3288,7 +3288,8 @@ async def save_edits(request: Request, token: str, week: int):
 
 def _apply_inline_edits(ai: dict, edits: dict, images: dict,
                         widths: dict | None = None,
-                        removed: list | None = None) -> dict:
+                        removed: list | None = None,
+                        orders: dict | None = None) -> dict:
     """Fold inline edits back into an ai_cache-shaped dict.
 
     Keys mirror the data-edit-key attributes the renderer emits. Anything
@@ -3332,6 +3333,19 @@ def _apply_inline_edits(ai: dict, edits: dict, images: dict,
             if idx.isdigit() and int(idx) < len(lines):
                 lines[int(idx)]["pick"] = clean_text(raw, 200)
         edited["lines"] = lines
+
+    # The order of the standings and the power rankings (2 Oct), as lists of
+    # team names. The renderer only ever reorders the teams it already has,
+    # so a list from the browser can't add or remove one; this just keeps it
+    # to a sane size and shape.
+    for group, key in (("standings", "standings_order"),
+                       ("rankings", "rankings_order")):
+        names = (orders or {}).get(group)
+        if isinstance(names, list):
+            cleaned = [clean_text(str(n), 120) for n in names[:40]
+                       if isinstance(n, (str, int, float))]
+            if cleaned:
+                edited[key] = cleaned
 
     matchups = [dict(m) for m in (ai.get("matchup_content") or [])]
     awards = [dict(a) for a in (ai.get("awards") or [])]
@@ -3476,6 +3490,7 @@ async def save_inline_edits(request: Request, token: str, week: int):
         payload.get("images") or {},
         payload.get("widths") or {},
         payload.get("removed") or [],
+        payload.get("orders") or {},
     )
 
     try:

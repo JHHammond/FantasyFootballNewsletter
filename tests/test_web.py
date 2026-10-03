@@ -6130,3 +6130,14 @@ def test_staff_stats_page(client, league):
                   "Total views", "Teams tracked", "Week 1"):
         pass
     assert "Accounts" in r.text and "Total views" in r.text and "Teams tracked" in r.text
+
+
+def test_inline_save_stores_the_order_of_standings_and_rankings(client, paper, no_rerender):
+    client.post("/l/secret-admin-token/edit/1/inline", json={
+        "edits": {}, "images": {},
+        "orders": {"standings": ["B", "A"], "rankings": ["A", "B"], "admin": ["x"]},
+    })
+    ai = no_rerender[0]["ai"]
+    assert ai["standings_order"] == ["B", "A"]
+    assert ai["rankings_order"] == ["A", "B"]
+    assert "admin" not in ai

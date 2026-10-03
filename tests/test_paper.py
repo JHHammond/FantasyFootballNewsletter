@@ -618,3 +618,17 @@ def test_the_prizepicks_logo_ships_with_the_site():
     import pathlib
     logo = pathlib.Path(newspaper.__file__).parent / "web/static/sponsors/prizepicks.png"
     assert logo.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_the_commissioners_order_wins_and_can_only_reorder():
+    items = [{"team": "A"}, {"team": "B"}, {"team": "C"}]
+    out = newspaper.apply_order(items, ["C", "Ghost", "A"], "team")
+    assert [i["team"] for i in out] == ["C", "A", "B"]
+    assert newspaper.apply_order(items, None, "team") == items
+
+
+def test_orderable_markers_only_when_editing():
+    rows = [{"team_name": 'Alex "The" Barn', "record": "1-0", "points": 100.0}]
+    assert "data-order-group" not in newspaper.render_standings_html(rows)
+    html = newspaper.render_standings_html(rows, editable=True)
+    assert 'data-order-name="Alex &quot;The&quot; Barn"' in html
