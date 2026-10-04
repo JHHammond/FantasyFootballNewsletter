@@ -99,13 +99,39 @@ def test_teams_beaten_last_week():
     assert (a["lw"], a["lw_beat"], a["lw_pool"]) == (2, 4, 8)
 
 
-def test_unscorable_teams_are_left_off():
+def test_unmatched_lineups_fall_back_to_own_points():
+    # d's lineups couldn't be matched; its league scores like PPR, so d is
+    # ranked on its own points and flagged.
     rows = _league("L")
     for r in rows:
         if r["team_id"] == "d":
             r["ppr_coverage"] = 0.4
+    by = {r["team_id"]: r for r in _ranked(rows)}
+    assert set(by) == {"a", "b", "c", "d"}
+    assert by["d"]["own"] is True and by["a"]["own"] is False
+
+
+def test_league_with_no_ppr_at_all_is_ranked_on_its_own_points():
+    # John's league, 3 Oct: one collected week, no PPR score at all.
+    rows = _league("L") + _league("J")
+    for r in rows:
+        if r["league_id"] == "J":
+            r["ppr_points"] = None
+            r["ppr_coverage"] = None
+    ranked = {(r["league_id"], r["team_id"]): r for r in _ranked(rows)}
+    assert {k for k in ranked if k[0] == "J"} == {("J", t) for t in "abcd"}
+    assert all(ranked[("J", t)]["own"] for t in "abcd")
+
+
+def test_unusual_scoring_is_still_left_off():
+    # A league averaging ~1,000 points (defenders, yardage bonuses) with no
+    # PPR can't be compared, so it stays off the board.
+    rows = _league("L") + _league("X", scale=8.0)
+    for r in rows:
+        if r["league_id"] == "X":
+            r["ppr_points"] = None
     ranked = _ranked(rows)
-    assert {r["team_id"] for r in ranked} == {"a", "b", "c"}
+    assert not any(r["league_id"] == "X" for r in ranked)
 
 
 def test_tiers_and_shares():

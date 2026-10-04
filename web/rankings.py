@@ -53,7 +53,7 @@ QUIPS = {
 
 COLS = ["league_id", "team_id", "rank", "score", "ppg", "w", "l", "t",
         "ap_pct", "win_pct", "ppg_pct", "team_count", "scoring_type",
-        "provider", "games", "lw", "lw_pts", "lw_beat", "lw_pool"]
+        "provider", "games", "lw", "lw_pts", "lw_beat", "lw_pool", "own"]
 
 _cache: dict = {}
 
@@ -73,21 +73,45 @@ def _f(v) -> Optional[float]:
 def compute(luck_rows: list[dict], team_rows: list[dict], season: int) -> list[dict]:
     """luck.compute() rows for the season, plus team_weeks rows -> ranked
     rows (dicts with COLS), best first."""
-    ppr: dict = {}
-    weeks: dict = {}
-    latest: dict = {}
+    # Each week in PPR when it was re-scored with enough starters matched;
+    # otherwise the league's own points, if its scoring looks standard (the
+    # Around the Leagues test). Leagues that fail it are left off.
+    wk0 = []
     for r in team_rows:
         if (int(r["season"]) == season and r.get("result") in ("W", "L", "T")
-                and (_f(r.get("points")) or 0) > 0 and r.get("ppr_points") is not None):
+                and (_f(r.get("points")) or 0) > 0):
             cov = r.get("ppr_coverage")
-            if cov is not None and float(cov) < MIN_COVERAGE:
-                continue
-            key = (str(r["league_id"]), str(r["team_id"]))
-            pts = float(r["ppr_points"])
-            ppr.setdefault(key, []).append(pts)
-            weeks.setdefault(int(r["week"]), []).append((key, pts))
-            if key not in latest or int(r["week"]) > latest[key][0]:
-                latest[key] = (int(r["week"]), pts)
+            ok = r.get("ppr_points") is not None and (cov is None or float(cov) >= MIN_COVERAGE)
+            wk0.append((str(r["league_id"]), str(r["team_id"]), int(r["week"]),
+                        float(r["points"]), float(r["ppr_points"]) if ok else None))
+    lg: dict = {}
+    for lid, _, _, raw, ppr_w in wk0:
+        e = lg.setdefault(lid, ([], []))
+        e[0].append(raw)
+        if ppr_w is not None:
+            e[1].append(ppr_w)
+
+    def standard(lid: str) -> bool:
+        raw, ppr_l = lg[lid]
+        raw_avg = sum(raw) / len(raw)
+        if ppr_l and sum(ppr_l) / len(ppr_l) > 0:
+            return 0.7 <= raw_avg / (sum(ppr_l) / len(ppr_l)) <= 1.3
+        return 40 <= raw_avg <= 200
+
+    ppr: dict = {}
+    own: dict = {}
+    weeks: dict = {}
+    latest: dict = {}
+    for lid, tid, week, raw, ppr_w in wk0:
+        if ppr_w is None and not standard(lid):
+            continue
+        key = (lid, tid)
+        pts = ppr_w if ppr_w is not None else raw
+        own[key] = own.get(key, False) or ppr_w is None
+        ppr.setdefault(key, []).append(pts)
+        weeks.setdefault(week, []).append((key, pts))
+        if key not in latest or week > latest[key][0]:
+            latest[key] = (week, pts)
     # National all-play: each week, the share of every team in the pool whose
     # PPR score was lower (percent_rank, as in the SQL), averaged per team.
     nap: dict = {}
@@ -117,6 +141,7 @@ def compute(luck_rows: list[dict], team_rows: list[dict], season: int) -> list[d
             "lw": latest[key][0], "lw_pts": round(latest[key][1], 2),
             "lw_beat": beat[(key, latest[key][0])][0],
             "lw_pool": beat[(key, latest[key][0])][1],
+            "own": own[key],
         })
     n = len(base)
     # Postgres averages exactly; floats don't. Equal averages must tie here

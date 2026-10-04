@@ -3125,6 +3125,7 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
 .nr-table tr.you td { background: var(--paper); }
 .nr-table tr.you td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
 .nr-table abbr { text-decoration: none; }
+.nr-own { color: var(--muted); margin-left: 1px; }
 .nr-place { font: 400 20px "Anton", sans-serif; color: var(--accent); }
 .nr-table td.nr-team { white-space: normal; min-width: 160px; }
 .nr-team a { font-weight: 600; color: var(--ink); }
