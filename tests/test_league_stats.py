@@ -33,6 +33,8 @@ def clean():
                   demo_db._RATE_EVENTS):
         store.clear()
     league_stats.clear_cache()
+    from web import around
+    around.clear_cache()
     yield
 
 
@@ -289,3 +291,28 @@ def test_the_homepage_ticker_waits_for_the_new_week_to_fill_in(monkeypatch):
     assert webapp.homepage_wire(SEASON, 3)["week"] == 2
     counts[3] = 17000
     assert webapp.homepage_wire(SEASON, 3)["week"] == 3
+
+
+def test_the_homepage_wire_is_standardized_not_a_custom_leagues_numbers(web):
+    """3 Oct: a league scoring 6 a catch put a 356-point player game on the
+    homepage. Team scores use PPR, and the best game is the best PPR game."""
+    from web import app as webapp
+    normal = _league("Normal", pid="n")
+    wild = _league("Wild", pid="w")
+    demo_db.upsert_team_weeks([
+        dict(_row(normal, "A", 150.0, result="W", opp=120.0), ppr_points=148.0),
+        dict(_row(normal, "B", 120.0, result="L", opp=150.0), ppr_points=119.0),
+        dict(_row(wild, "C", 1052.0, result="W", opp=900.0,
+                  top_player="Jahmyr Gibbs", top_player_points=356.0), ppr_points=160.0),
+        dict(_row(wild, "D", 900.0, result="L", opp=1052.0), ppr_points=110.0),
+    ])
+    demo_db.upsert_lineups([
+        {"league_id": wild["id"], "season": SEASON, "week": 3, "team_id": "C",
+         "player_key": "gibbs", "slot": "RB", "started": True,
+         "points": 356.0, "ppr_points": 41.4},
+    ])
+    demo_db.upsert_nfl_players([{"player_key": "gibbs", "name": "Jahmyr Gibbs"}])
+    text = " ".join(webapp.homepage_wire(SEASON, 3)["lines"])
+    assert "356" not in text and "1052" not in text
+    assert "High score in PPR: 160.0" in text
+    assert "Best game in PPR: Jahmyr Gibbs, 41.4" in text

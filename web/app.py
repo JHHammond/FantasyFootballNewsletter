@@ -2421,23 +2421,66 @@ def homepage_wire(season: int, week: int) -> dict:
         return {}
 
     top = {b["key"]: (b["rows"] or [None])[0] for b in data["boards"]}
+
+    # STANDARDIZED (3 Oct, John: "I lose credibility with Gibbs scoring 356
+    # in some league and me presenting it as normal"). The leaderboards are
+    # in each league's own scoring, so one league paying 6 a catch or scoring
+    # yardage bonuses could own every line. Team scores, the average and the
+    # best player's game now come from Around the Leagues' standardized
+    # numbers: plain PPR where we have it, and only leagues whose own scoring
+    # looks standard where we don't. Bench points come from the
+    # standard-looking leagues too. The closest game stays as it was: a
+    # small margin is small in any scoring.
+    halls, std_avg, best = {}, None, {}
+    try:
+        from . import around as _around
+        aw = _around._cached(("w", season, wk),
+                             lambda: db.around_week(season, wk, _around.MIN_STARTS)) or {}
+        halls = aw.get("halls") or {}
+        std_avg = (aw.get("summary") or {}).get("avg_ppr")
+    except Exception:  # noqa: BLE001
+        halls = {}
+    try:
+        # Cached with Around the Leagues: the homepage is the busiest page.
+        from . import around as _around
+        best = _around._cached(("best", season, wk),
+                               lambda: db.top_ppr_game(season, wk)) or {}
+    except Exception:  # noqa: BLE001
+        best = {}
+
+    def first(key):
+        rows = halls.get(key) or []
+        return rows[0] if rows else None
+
+    def std(card):
+        v = card.get("ppr_points")
+        return float(v if v is not None else card.get("points") or 0)
+
+    high, low, bench = first("highest"), first("lowest"), first("bench")
+    ppr = " in PPR" if (high and high.get("ppr_points") is not None) else ""
+
     items = [f"Week {wk}: {int(summary['teams']):,} teams across "
              f"{int(summary['leagues']):,} leagues"]
     if top.get("closest"):
         items.append(f"Closest game in the country: decided by "
                      f"{float(top['closest']['margin']):.2f}")
-    if top.get("highest"):
-        items.append(f"High score: {float(top['highest']['points']):.1f}")
-    if summary.get("avg_points"):
-        items.append(f"Average team: {float(summary['avg_points']):.1f}")
-    if top.get("players") and top["players"].get("top_player"):
+    if high:
+        items.append(f"High score{ppr}: {std(high):.1f}")
+    if std_avg:
+        items.append(f"Average team{ppr}: {float(std_avg):.1f}")
+    if best.get("name"):
+        items.append(f"Best game in PPR: {best['name']}, "
+                     f"{float(best['ppr_points']):.1f}")
+    elif not best and top.get("players") and top["players"].get("top_player"):
+        # No lineups collected for the week, so no PPR to read: the league's
+        # own number, as before.
         items.append(f"Best game: {top['players']['top_player']}, "
                      f"{float(top['players']['top_player_points']):.1f}")
-    if top.get("bench"):
+    if bench and float(bench.get("bench_left") or 0) > 0:
         items.append(f"Most left on a bench: "
-                     f"{float(top['bench']['bench_left']):.1f} points")
-    if top.get("lowest"):
-        items.append(f"Low score: {float(top['lowest']['points']):.1f}. "
+                     f"{float(bench['bench_left']):.1f} points")
+    if low:
+        items.append(f"Low score{ppr}: {std(low):.1f}. "
                      f"Somebody has a long week ahead")
     return {"week": wk, "lines": items, "teams": int(summary["teams"]),
             "leagues": int(summary["leagues"])}

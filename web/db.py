@@ -931,6 +931,23 @@ def around_season(season: int) -> dict[str, Any]:
     return _rpc_json("around_season", {"p_season": int(season)}) or {}
 
 
+def top_ppr_game(season: int, week: int) -> dict[str, Any]:
+    """The week's best single starter's game in plain PPR, the same for every
+    league, so a league scoring 6 a catch can't put a 356 on the homepage.
+    {"name", "ppr_points"}, or {} when the week has no lineups."""
+    res = (client().table("lineup_players").select("player_key, ppr_points")
+           .eq("season", int(season)).eq("week", int(week)).eq("started", True)
+           .filter("ppr_points", "not.is", "null")
+           .order("ppr_points", desc=True).limit(1).execute())
+    row = (res.data or [None])[0]
+    if not row:
+        return {}
+    named = (client().table("nfl_players").select("name")
+             .eq("player_key", row["player_key"]).limit(1).execute()).data or []
+    return {"name": (named[0].get("name") if named else None) or row["player_key"],
+            "ppr_points": row["ppr_points"]}
+
+
 def team_weeks_ready() -> bool:
     try:
         client().table("team_weeks").select("league_id").limit(1).execute()

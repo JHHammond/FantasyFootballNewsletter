@@ -538,6 +538,17 @@ def around_season(season: int) -> dict[str, Any]:
     return compute_season(list(_TEAM_WEEKS.values()), int(season))
 
 
+def top_ppr_game(season: int, week: int) -> dict[str, Any]:
+    rows = [r for r in _LINEUPS.values()
+            if r["season"] == int(season) and r["week"] == int(week)
+            and r.get("started") and r.get("ppr_points") is not None]
+    if not rows:
+        return {}
+    best = max(rows, key=lambda r: float(r["ppr_points"]))
+    name = (_NFL_PLAYERS.get(best["player_key"]) or {}).get("name") or best["player_key"]
+    return {"name": name, "ppr_points": best["ppr_points"]}
+
+
 _NFL_NOTES: dict[str, dict[str, Any]] = {}
 
 
