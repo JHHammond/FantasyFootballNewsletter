@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% from "_macros.html" import flow_button %}
+{% block title %}National Rankings &middot; Where does your team rank?{% endblock %}
+{% block description %}Every connected fantasy football team in the country, ranked on points, all-play and record.{% endblock %}
+{% block wrapclass %}home around rankings{% endblock %}
+{% block og_title %}Where does your fantasy team rank in America?{% endblock %}
+{% block og_description %}Every connected team, ranked on points, all-play and record.{% endblock %}
+
+{% macro platform(p) %}{{ {'sleeper': 'Sleeper', 'espn': 'ESPN', 'yahoo': 'Yahoo'}.get(p, p) }}{% endmacro %}
+{% macro num(v) %}{{ '{:,}'.format(v) }}{% endmacro %}
+{% macro pct(v) %}{{ (v * 100)|round|int }}%{% endmacro %}
+
+{% block content %}
+{% if not public %}<div class="alert alert-error ar-note"><strong>Staff preview.</strong> Set <code>RANKINGS_PUBLIC=1</code> on Render to open this page to everyone who has connected a league.</div>{% endif %}
+{% if not ready %}<div class="alert alert-error ar-note">Run <code>migrations/031_luck.sql</code> and <code>migrations/032_rankings.sql</code> in Supabase to turn on the rankings.</div>{% endif %}
+
+<section class="front">
+    <p class="dateline">
+        <span>{{ season }} season</span>
+        <span class="dateline-mid">National Rankings{% if view and view.through %} &middot; through week {{ view.through }}{% elif week %} &middot; through week {{ week }}{% endif %}</span>
+        <span>{% if view %}{{ num(view.national) }} teams{% else %}Every connected team{% endif %}</span>
+    </p>
+    <div class="front-head-wrap">
+        <h1 class="front-head">Where does your team rank in <span class="marked">America?<svg class="marked-line" viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true"><path d="M3 15 C 60 5, 110 20, 160 11 S 250 6, 297 13" /></svg></span></h1>
+    </div>
+    <p class="front-deck">Every connected team in the country on one board: how many points you score,
+        how much of your league you beat every week, and your record.</p>
+</section>
+
+{% if not mine and not league %}
+<section class="ar-sec">
+    <div class="ar-board nr-empty">
+        <h2 class="ar-board-head">Connect your league to see where you rank</h2>
+        <p>The rankings cover every league that makes a weekly paper with us. Connect yours and
+            you&rsquo;ll see every team in it, ranked against the whole country.</p>
+        <p>{{ flow_button("Connect your league", href="/connect") }}</p>
+    </div>
+</section>
+{% else %}
+
+{% if mine|length > 1 %}
+<nav class="nr-leagues" aria-label="Your leagues">
+    {% for l in mine %}
+    <a href="/rankings?league={{ l.public_slug|urlencode }}"{% if league and l.id == league.id %} class="on" aria-current="page"{% endif %}>{{ l.paper_name or l.league_name }}<small>{{ platform(l.provider) }}</small></a>
+    {% endfor %}
+</nav>
+{% endif %}
+
+{% if view %}
+{% set c = view.chosen %}
+{% if c %}
+<section class="ar-sec nr-hero">
+    <div class="nr-card">
+        <div class="nr-card-kicker">{{ c.team_name }}{% if c.manager %} &middot; {{ c.manager }}{% endif %}</div>
+        <div class="nr-rank"><span class="nr-hash">#</span>{{ num(c.rank) }}</div>
+        <div class="nr-of">of {{ num(view.national) }} teams in America &middot; <b>{{ c.share }}</b></div>
+        <div class="nr-stamp">{{ c.tier }}</div>
+        <p class="nr-quip">{{ c.quip }}</p>
+        {% if c.lw_pool %}
+        <p class="nr-week">Week {{ c.lw }}: your {{ '%.1f'|format(c.lw_pts) }} would have beaten <b>{{ num(c.lw_beat) }}</b> of {{ num(c.lw_pool) }} teams in America.</p>
+        {% endif %}
+        <dl class="nr-parts">
+            <div><dt>Power Score</dt><dd><b>{{ '%.1f'|format(c.score) }}</b> / 100</dd></div>
+            <div><dt>Points</dt><dd><b>{{ '%.1f'|format(c.ppg) }}</b> PPR a game<small>{{ c.points_share }} nationally</small></dd></div>
+            <div><dt>All-play</dt><dd><b>{{ pct(c.ap_pct) }}</b><small>of America beaten in an average week</small></dd></div>
+            <div><dt>Record</dt><dd><b>{{ c.record }}</b><small>{{ c.place_text }} of {{ view.teams|length }} in your league</small></dd></div>
+        </dl>
+    </div>
+</section>
+{% endif %}
+
+<section class="ar-sec">
+    <h2 class="section-head"><span>{{ league.paper_name or league.league_name }}, nationally</span></h2>
+    {% if not c %}<p class="ar-intro">Which one is you? Pick your team to see your national rank.</p>{% endif %}
+    {% if view.teams %}
+    <div class="nr-table-wrap">
+    <table class="nr-table">
+        <thead><tr><th scope="col"><abbr title="Place in your league">#</abbr></th><th scope="col">Team</th><th scope="col">Record</th><th scope="col">PPR / game</th><th scope="col">All-play</th><th scope="col">Score</th><th scope="col">US rank</th></tr></thead>
+        <tbody>
+        {% for t in view.teams %}
+        <tr{% if c and t.team_id == c.team_id %} class="you"{% endif %}>
+            <td class="nr-place">{{ t.league_place }}</td>
+            <td class="nr-team"><a href="/rankings?league={{ league.public_slug|urlencode }}&amp;team={{ t.team_id|urlencode }}">{{ t.team_name }}</a>{% if t.manager %}<small>{{ t.manager }}</small>{% endif %}</td>
+            <td>{{ t.record }}</td>
+            <td>{{ '%.1f'|format(t.ppg) }}</td>
+            <td>{{ pct(t.ap_pct) }}</td>
+            <td>{{ '%.1f'|format(t.score) }}</td>
+            <td class="nr-nat"><b>#{{ num(t.rank) }}</b><small>{{ t.share }} &middot; {{ t.tier }}</small></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="ar-empty">This league isn&rsquo;t on the board yet. Rankings fill in once a week of your league has been collected.</p>
+    {% endif %}
+    {% if view.unranked %}
+    <p class="ar-board-sub">Not ranked: {% for u in view.unranked %}{{ u.team_name }}{% if not loop.last %}, {% endif %}{% endfor %}. We couldn&rsquo;t score {{ 'its' if view.unranked|length == 1 else 'their' }} lineups in PPR, so we left {{ 'it' if view.unranked|length == 1 else 'them' }} off rather than rank {{ 'it' if view.unranked|length == 1 else 'them' }} wrongly.</p>
+    {% endif %}
+</section>
+
+{% if view.dist and view.national %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>Your league on the national curve</span></h2>
+    <div class="nr-curve" role="img" aria-label="Power Scores of every team in America, with this league's teams marked">
+        <div class="nr-bars">{% for b in view.dist %}<span style="height: {{ b.h }}%"></span>{% endfor %}</div>
+        <div class="nr-marks">{% for m in view.marks %}<span class="nr-mark{% if m.you %} you{% endif %}" style="left: {{ m.x }}%" title="{{ m.name }}"><i></i>{% if m.you or m.ends %}<b>{{ m.name }}</b>{% endif %}</span>{% endfor %}</div>
+        <div class="nr-axis"><span>0</span><span>Power Score</span><span>100</span></div>
+    </div>
+</section>
+{% endif %}
+
+<section class="ar-sec">
+    <div class="ar-boards ar-boards-2">
+        <article class="ar-board">
+            <h3 class="ar-board-head">The national top {{ view.top|length }}</h3>
+            <p class="ar-board-sub">Teams in your league are named. Everyone else stays anonymous.</p>
+            <ol class="nr-list">
+                {% for r in view.top %}
+                <li class="{% if r.mine %}mine{% endif %}{% if r.you %} you{% endif %}"><span class="nr-n">{{ r.rank }}</span><span class="ar-name">{{ r.label }}<small>{% if r.sub %}{{ r.sub }} &middot; {% endif %}{{ r.record }} &middot; {{ '%.1f'|format(r.ppg) }} PPR a game</small></span><span class="ar-val"><b>{{ '%.1f'|format(r.score) }}</b></span></li>
+                {% else %}<li class="ar-none">Nobody&rsquo;s been ranked yet.</li>{% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            {% if view.near %}
+            <h3 class="ar-board-head">Your neighbours</h3>
+            <p class="ar-board-sub">The teams just above and below you in America.</p>
+            <ol class="nr-list">
+                {% for r in view.near %}
+                <li class="{% if r.mine %}mine{% endif %}{% if r.you %} you{% endif %}"><span class="nr-n">{{ num(r.rank) }}</span><span class="ar-name">{{ r.label }}<small>{% if r.sub %}{{ r.sub }} &middot; {% endif %}{{ r.record }} &middot; {{ '%.1f'|format(r.ppg) }} PPR a game</small></span><span class="ar-val"><b>{{ '%.1f'|format(r.score) }}</b></span></li>
+                {% endfor %}
+            </ol>
+            <h4 class="nr-how-head">How it&rsquo;s ranked</h4>
+            {% else %}
+            <h3 class="ar-board-head">How it&rsquo;s ranked</h3>
+            {% endif %}
+            <ul class="nr-how">
+                <li><b>{{ (weights.points * 100)|int }}% points.</b> Your points a game, re-scored in plain PPR so every league is measured with the same ruler, against every team in the country.</li>
+                <li><b>{{ (weights.allplay * 100)|int }}% all-play.</b> Each week, how many teams in the whole country your score would have beaten. It rewards being good every week, not one huge week.</li>
+                <li><b>{{ (weights.record * 100)|int }}% record.</b> Because wins are what you actually get. Small enough that an easy schedule can&rsquo;t carry you.</li>
+            </ul>
+        </article>
+    </div>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

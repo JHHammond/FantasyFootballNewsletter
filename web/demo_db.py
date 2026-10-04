@@ -633,6 +633,18 @@ def luck_ready() -> bool:
     return True
 
 
+def power_national(season: int) -> dict[str, Any]:
+    from web.luck import compute
+    from web.rankings import compute as rank, national_json
+    rows = list(_TEAM_WEEKS.values())
+    return national_json(rank(compute(rows, list(_LINEUPS.values()), int(season)),
+                              rows, int(season)))
+
+
+def power_ready() -> bool:
+    return True
+
+
 def sibling_league_ids(provider: str, platform_league_id: str, season: int) -> list[str]:
     return [l["id"] for l in _LEAGUES.values() if l.get("provider") == provider
             and str(l.get("platform_league_id")) == str(platform_league_id)

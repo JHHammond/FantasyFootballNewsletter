@@ -1295,6 +1295,42 @@ def luck_card_image(request: Request, slug: str, team_id: str, size: str = "og")
 
 
 # ---------------------------------------------------------------------------
+# National Rankings (3 Oct). Every connected team ranked against the country
+# on a Power Score: PPR points a game (50%), all-play (30%), record (20%).
+# Sign-in only, and only for leagues you've connected (John: "You have to
+# sign up and connect your league to see"). Your league's teams by name;
+# everyone else as "a 12-team PPR league on Sleeper". Staff-only until
+# RANKINGS_PUBLIC=1 is set on Render.
+# ---------------------------------------------------------------------------
+
+@app.get("/rankings", response_class=HTMLResponse)
+def rankings_page(request: Request, league: str = "", team: str = ""):
+    import nfl_week
+    from . import rankings
+    public = os.getenv("RANKINGS_PUBLIC", "").strip() == "1"
+    user = current_user(request)
+    staff = bool(user and user.get("plan") == plans.STAFF)
+    if not public and not staff:
+        raise HTTPException(status_code=404)
+    if not user:
+        return RedirectResponse("/login?next=/rankings", status_code=303)
+    season = nfl_week.current_season()
+    ready = db.power_ready() and db.luck_ready()
+    mine = [l for l in db.leagues_for_user(user["id"])
+            if int(l.get("season") or 0) == season and l.get("public_slug")]
+    chosen = next((l for l in mine if l["public_slug"] == league), None)
+    if not chosen and league and staff:
+        chosen = db.league_by_public_slug(league)
+    if not chosen and mine:
+        chosen = mine[0]
+    view = rankings.league_view(db, season, chosen, clean_text(team, max_length=80)) \
+        if (chosen and ready) else None
+    return _render(request, "rankings.html", public=public, ready=ready, mine=mine,
+                   league=chosen, view=view, season=season,
+                   week=nfl_week.completed_week(), weights=rankings.WEIGHTS)
+
+
+# ---------------------------------------------------------------------------
 # The NFL wire (staff)
 #
 # Real football news for a week — "Drake London went off because Penix was

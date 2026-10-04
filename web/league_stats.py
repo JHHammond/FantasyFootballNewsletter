@@ -379,9 +379,10 @@ def start_background(db, weeks: list[int]) -> bool:
                 _job["running"] = False
             clear_cache()
             try:
-                from web import around, luck
+                from web import around, luck, rankings
                 around.clear_cache()
                 luck.clear_cache()
+                rankings.clear_cache()
             except Exception:  # noqa: BLE001
                 pass
 

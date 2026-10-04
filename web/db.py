@@ -1016,6 +1016,19 @@ def luck_ready() -> bool:
         return False
 
 
+def power_national(season: int) -> dict[str, Any]:
+    """National Rankings (migration 032): every ranked team, best first."""
+    return _rpc_json("power_national", {"p_season": int(season)}) or {}
+
+
+def power_ready() -> bool:
+    try:
+        _rpc_json("power_national", {"p_season": 0})
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def sibling_league_ids(provider: str, platform_league_id: str, season: int) -> list[str]:
     """Every row for the same real league: the stats live under one of them."""
     res = (client().table("leagues").select("id")
