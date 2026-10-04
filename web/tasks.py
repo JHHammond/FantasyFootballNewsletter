@@ -453,6 +453,27 @@ def main() -> int:
         collected = {"failed": f"{type(exc).__name__}: {exc}"}
 
     report = send_weekly(db, week, regenerate=regenerate)
+
+    # THE EARLIER WEEKS, AFTER THE PAPERS (3 Oct). The collector only ever
+    # took the week just played, so a league connected in Week 3 never had
+    # Weeks 1-2, and a week stored without PPR was never filled in. Both
+    # leave a team unranked or ranked on one week. Every finished week runs
+    # again here; leagues already stored with PPR are skipped in a single
+    # lookup per week, so this costs only the leagues that are missing.
+    backfill = {}
+    try:
+        from . import league_stats as _ls
+        for wk in range(1, week):
+            got = _ls.collect_week(db, wk)
+            if got.get("collected"):
+                backfill[wk] = got["collected"]
+    except Exception as exc:  # noqa: BLE001 — never costs anyone their paper
+        report.setdefault("warnings", []).append(
+            f"Around the Leagues backfill stopped: {type(exc).__name__}: {exc}")
+    if backfill:
+        report.setdefault("warnings", []).append(
+            "Around the Leagues backfill: " + ", ".join(
+                f"week {w}: {n} league(s)" for w, n in sorted(backfill.items())))
     if collected.get("failed"):
         report.setdefault("warnings", []).append(
             f"Around the Leagues collection failed: {collected['failed']}")

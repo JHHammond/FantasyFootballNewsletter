@@ -847,6 +847,25 @@ def team_week_league_ids(season: int, week: int) -> set[str]:
         start += page
 
 
+def ppr_league_ids(season: int, week: int) -> set[str]:
+    """Leagues whose week is stored WITH its PPR scores (3 Oct). A league
+    saved while Sleeper's stats were unreachable has lineups but no PPR, and
+    counting that as done is how a PPR league ended up never ranked."""
+    out: set[str] = set()
+    start, page = 0, 1000
+    while True:
+        res = (client().table("team_weeks").select("league_id")
+               .eq("season", int(season)).eq("week", int(week))
+               .filter("ppr_points", "not.is", "null")
+               .order("league_id")
+               .range(start, start + page - 1).execute())
+        rows = res.data or []
+        out.update(r["league_id"] for r in rows)
+        if len(rows) < page:
+            return out
+        start += page
+
+
 def team_weeks_top(season: int, week: Optional[int], column: str, desc: bool,
                    where: str, limit: int = 10) -> list[dict[str, Any]]:
     q = (client().table("team_weeks")

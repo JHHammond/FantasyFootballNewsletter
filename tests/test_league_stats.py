@@ -316,3 +316,37 @@ def test_the_homepage_wire_is_standardized_not_a_custom_leagues_numbers(web):
     assert "356" not in text and "1052" not in text
     assert "High score in PPR: 160.0" in text
     assert "Best game in PPR: Jahmyr Gibbs, 41.4" in text
+
+
+def test_a_week_stored_without_ppr_is_collected_again_once_ppr_is_back(fake_load, monkeypatch):
+    """3 Oct: a PPR league never ranked. Its week had been saved while
+    Sleeper's stats were unreachable (lineups, no PPR), which counted as
+    done, so no later run ever filled the PPR in."""
+    from web import ppr
+    lg = _league("A", pid="a")
+    monkeypatch.setattr(ppr, "context", lambda s, w: None)
+    league_stats.collect_week(demo_db, 3, season=SEASON, sleep=lambda s: None,
+                              log=lambda s: None)
+    assert all(r.get("ppr_points") is None for r in demo_db._TEAM_WEEKS.values())
+
+    class Ctx:
+        def team_score(self, team):
+            return 100.0, 1.0
+        def resolve(self, p):
+            return None
+        def ppr(self, sid):
+            return None
+        def name(self, sid):
+            return None
+    monkeypatch.setattr(ppr, "context", lambda s, w: Ctx())
+    fake_load.clear()
+    report = league_stats.collect_week(demo_db, 3, season=SEASON,
+                                       sleep=lambda s: None, log=lambda s: None)
+    assert fake_load == ["a"] and report["collected"] == 1
+    assert all(r["ppr_points"] == 100.0 for r in demo_db._TEAM_WEEKS.values()
+               if r["league_id"] == lg["id"])
+    # and now it's done
+    fake_load.clear()
+    league_stats.collect_week(demo_db, 3, season=SEASON, sleep=lambda s: None,
+                              log=lambda s: None)
+    assert fake_load == []

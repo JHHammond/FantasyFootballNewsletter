@@ -252,14 +252,23 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     # Once lineups are being stored, "done" means the lineups are in: a week
     # collected before 029 is collected again, for its lineups and PPR scores.
     extended = db.lineups_ready()
-    done = (db.lineup_league_ids(season, week) if extended
-            else db.team_week_league_ids(season, week))
     ctx = None
     if extended:
         from web import ppr
         ctx = ppr.context(season, week)
         log(f"Week {week}: standardized PPR "
             f"{'ready' if ctx else 'UNAVAILABLE (Sleeper unreachable) - raw scores only'}.")
+    # "Done" means stored WITH its PPR scores when PPR is available now
+    # (3 Oct: a week saved while Sleeper was unreachable, by a paper or an
+    # earlier run, had lineups and no PPR, counted as done, and was never
+    # filled in, so a PPR league was never ranked). With no PPR this run,
+    # re-collecting those would gain nothing, so lineups count as done.
+    if extended and ctx is not None:
+        done = db.ppr_league_ids(season, week)
+    elif extended:
+        done = db.lineup_league_ids(season, week)
+    else:
+        done = db.team_week_league_ids(season, week)
 
     # Each platform runs on its own, with a few workers each (1 Oct: three
     # weeks of 1,400 leagues one at a time took hours). Every worker keeps

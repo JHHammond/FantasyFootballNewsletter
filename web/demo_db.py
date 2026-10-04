@@ -468,6 +468,12 @@ def team_week_league_ids(season: int, week: int) -> set[str]:
             if r["season"] == int(season) and r["week"] == int(week)}
 
 
+def ppr_league_ids(season: int, week: int) -> set[str]:
+    return {r["league_id"] for r in _TEAM_WEEKS.values()
+            if r["season"] == int(season) and r["week"] == int(week)
+            and r.get("ppr_points") is not None}
+
+
 def _tw_rows(season, week, where):
     rows = [r for r in _TEAM_WEEKS.values() if r["season"] == int(season)
             and (not week or r["week"] == int(week))]
