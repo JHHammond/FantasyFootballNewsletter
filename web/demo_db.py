@@ -662,6 +662,27 @@ def power_ready() -> bool:
     return True
 
 
+def power_view(season: int, league_id: str, team_id: str = "") -> dict[str, Any]:
+    """migration 033's power_view, from the same arithmetic."""
+    from web.rankings import COLS
+    nat = power_national(season)
+    rows = [dict(zip(COLS, a)) for a in nat["rows"]]
+    dist = [0] * 20
+    for r in rows:
+        dist[min(int((r["score"] or 0) // 5), 19)] += 1
+    me = next((r for r in rows if str(r["league_id"]) == str(league_id)
+               and str(r["team_id"]) == str(team_id)), None)
+    near = ([r for r in rows if abs(r["rank"] - me["rank"]) <= 12] if me else [])
+    return {"teams": len(rows), "through": nat["through"], "dist": dist,
+            "top": rows[:25],
+            "league": [r for r in rows if str(r["league_id"]) == str(league_id)],
+            "near": near}
+
+
+def refresh_power_board(season: int) -> int:
+    return len(power_national(season)["rows"])
+
+
 def sibling_league_ids(provider: str, platform_league_id: str, season: int) -> list[str]:
     return [l["id"] for l in _LEAGUES.values() if l.get("provider") == provider
             and str(l.get("platform_league_id")) == str(platform_league_id)

@@ -12,7 +12,7 @@
 
 {% block content %}
 {% if not public %}<div class="alert alert-error ar-note"><strong>Staff preview.</strong> Set <code>RANKINGS_PUBLIC=1</code> on Render to open this page to everyone who has connected a league.</div>{% endif %}
-{% if not ready %}<div class="alert alert-error ar-note">Run <code>migrations/031_luck.sql</code> and <code>migrations/032_rankings.sql</code> in Supabase to turn on the rankings.</div>{% endif %}
+{% if not ready %}<div class="alert alert-error ar-note">Run <code>migrations/031_luck.sql</code>, <code>032_rankings.sql</code> and <code>033_rankings_board.sql</code> in Supabase to turn on the rankings.</div>{% endif %}
 
 <section class="front">
     <p class="dateline">
@@ -92,12 +92,16 @@
     </table>
     </div>
     {% else %}
+    {% if view.board_error or not view.national %}
+    <p class="ar-empty">The national board isn&rsquo;t available right now. Check back in a few minutes.</p>
+    {% else %}
     <p class="ar-empty">This league isn&rsquo;t on the board yet. Rankings fill in once a week of your league has been collected.</p>
+    {% endif %}
     {% endif %}
     {% if view.teams|selectattr('own')|list %}
     <p class="ar-board-sub">* Measured in your league&rsquo;s own scoring. We couldn&rsquo;t re-score {{ 'this team&rsquo;s'|safe if view.teams|selectattr('own')|list|length == 1 else 'these' }} lineups in plain PPR yet, and your scoring is close enough to standard to compare.</p>
     {% endif %}
-    {% if view.unranked %}
+    {% if view.unranked and view.teams %}
     <p class="ar-board-sub">Not ranked: {% for u in view.unranked %}{{ u.team_name }}{% if not loop.last %}, {% endif %}{% endfor %}. Your league&rsquo;s scoring is too far from standard to compare with the rest of the country, so we left {{ 'it' if view.unranked|length == 1 else 'them' }} off rather than rank {{ 'it' if view.unranked|length == 1 else 'them' }} wrongly.</p>
     {% endif %}
 </section>

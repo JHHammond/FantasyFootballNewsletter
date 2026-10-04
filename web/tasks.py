@@ -470,6 +470,11 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 — never costs anyone their paper
         report.setdefault("warnings", []).append(
             f"Around the Leagues backfill stopped: {type(exc).__name__}: {exc}")
+    try:
+        from . import league_stats as _ls2
+        _ls2.refresh_rankings(db)
+    except Exception:  # noqa: BLE001
+        pass
     if backfill:
         report.setdefault("warnings", []).append(
             "Around the Leagues backfill: " + ", ".join(

@@ -28,6 +28,7 @@ from typing import Any, Optional
 WEIGHTS = {"points": 0.5, "allplay": 0.3, "record": 0.2}
 MIN_COVERAGE = 0.75
 NATIONAL_SECONDS = 3600
+VIEW_SECONDS = 600
 TOP_N = 25
 NEAR = 4
 
@@ -237,19 +238,52 @@ def _decorate(r: dict, n: int) -> dict:
     return r
 
 
+def _row(r: dict) -> dict:
+    r = {c: r.get(c) for c in COLS}
+    r["league_id"], r["team_id"] = str(r["league_id"]), str(r["team_id"])
+    for k in ("score", "ppg", "ap_pct", "win_pct", "ppg_pct", "lw_pts"):
+        r[k] = _f(r[k])
+    r["rank"] = int(r["rank"])
+    return r
+
+
+def board_view(db, season: int, league_id: str, team_id: str = "") -> dict:
+    """The rows one page shows, from the saved board (migration 033): ten
+    minutes' cache per league and team. An empty board, not an error page, if
+    it can't be read."""
+    key = ("view", season, str(league_id), str(team_id or ""))
+    hit = _cache.get(key)
+    if hit and time.time() - hit[0] < VIEW_SECONDS:
+        return hit[1]
+    try:
+        raw = db.power_view(season, league_id, team_id) or {}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rankings] saved board unavailable: {exc}", flush=True)
+        return {"teams": 0, "through": None, "dist": [0] * 20,
+                "top": [], "league": [], "near": [], "error": True}
+    out = {"teams": int(raw.get("teams") or 0), "through": raw.get("through"),
+           "dist": list(raw.get("dist") or [0] * 20),
+           "top": [_row(r) for r in raw.get("top") or []],
+           "league": [_row(r) for r in raw.get("league") or []],
+           "near": [_row(r) for r in raw.get("near") or []]}
+    _cache[key] = (time.time(), out)
+    return out
+
+
 def league_view(db, season: int, league: dict, team_id: str = "") -> dict:
     """One league on the national board: its teams by name, the national top,
     and the stretch of the board around the chosen team."""
     from web import luck
     from web.around import describe
-    nat = national(db, season)
-    n = nat["teams"]
     lrows, stats_id = luck._cached(("league", season, league["id"]),
                                    lambda: luck._league_rows(db, season, league))
+    nat = board_view(db, season, str(stats_id), str(team_id or ""))
+    n = nat["teams"]
+    index = {(r["league_id"], r["team_id"]): r for r in nat["league"]}
     names = {str(r["team_id"]): r for r in lrows}
     teams, unranked = [], []
     for tid, lr in names.items():
-        nr = nat["index"].get((str(stats_id), tid))
+        nr = index.get((str(stats_id), tid))
         base = {"team_id": tid, "team_name": lr.get("team_name") or "",
                 "manager": lr.get("manager") or ""}
         if nr:
@@ -271,13 +305,14 @@ def league_view(db, season: int, league: dict, team_id: str = "") -> dict:
                 "label": (own.get("team_name") or "") if own else describe(r, cap=True),
                 "sub": (own.get("manager") or "") if own else ""}
 
-    top = [board_row(r) for r in nat["rows"][:TOP_N]]
+    top = [board_row(r) for r in nat["top"][:TOP_N]]
     near = []
     if chosen and chosen["rank"] > TOP_N:
-        i = next((k for k, r in enumerate(nat["rows"])
+        ordered = sorted(nat["near"], key=lambda r: (r["rank"], r["league_id"], r["team_id"]))
+        i = next((k for k, r in enumerate(ordered)
                   if r["league_id"] == str(stats_id) and r["team_id"] == chosen["team_id"]), None)
         if i is not None:
-            near = [board_row(r) for r in nat["rows"][max(0, i - NEAR): i + NEAR + 1]]
+            near = [board_row(r) for r in ordered[max(0, i - NEAR): i + NEAR + 1]]
     peak = max(nat["dist"]) if nat["dist"] else 0
     # Label only you and the league's best and worst: a dozen names on one
     # axis is a pile-up.
@@ -288,6 +323,7 @@ def league_view(db, season: int, league: dict, team_id: str = "") -> dict:
                   chosen and abs(t["score"] - chosen["score"]) < 12)} for t in teams]
     return {"teams": teams, "unranked": unranked, "chosen": chosen,
             "national": n, "through": nat["through"], "top": top, "near": near,
+            "board_error": bool(nat.get("error")),
             "dist": [{"lo": i * 5, "n": c, "h": round(100 * c / peak, 1) if peak else 0}
                      for i, c in enumerate(nat["dist"])],
             "marks": marks, "stats_league_id": stats_id}

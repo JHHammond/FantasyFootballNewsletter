@@ -361,6 +361,19 @@ def job_status() -> dict:
                 "started": _job["started"]}
 
 
+def refresh_rankings(db, season: Optional[int] = None,
+                     log: Callable[[str], None] = print) -> None:
+    """Rebuild the saved National Rankings board after new weeks come in
+    (migration 033). The API may cut a full rebuild off at its time limit;
+    the pg_cron job then catches up within half an hour. Never raises."""
+    try:
+        n = db.refresh_power_board(int(season or nfl_week.current_season()))
+        log(f"National Rankings rebuilt: {n:,} teams.")
+    except Exception as exc:  # noqa: BLE001
+        log(f"National Rankings not rebuilt now ({type(exc).__name__}); "
+            f"the scheduled refresh will catch up.")
+
+
 def start_background(db, weeks: list[int]) -> bool:
     """Start a collection in a thread. False if one is already running.
 
@@ -387,6 +400,7 @@ def start_background(db, weeks: list[int]) -> bool:
             with _job_lock:
                 _job["running"] = False
             clear_cache()
+            refresh_rankings(db, log=log)
             try:
                 from web import around, luck, rankings
                 around.clear_cache()

@@ -1058,11 +1058,26 @@ def power_national(season: int) -> dict[str, Any]:
 
 
 def power_ready() -> bool:
+    """Migration 033's saved board is in. (It used to test power_national,
+    which is the slow whole-country query the page no longer calls.)"""
     try:
-        _rpc_json("power_national", {"p_season": 0})
+        _rpc_json("power_view", {"p_season": 0,
+                                 "p_league": "00000000-0000-0000-0000-000000000000"})
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+def power_view(season: int, league_id: str, team_id: str = "") -> dict[str, Any]:
+    """The saved board's rows for one /rankings page (migration 033)."""
+    return _rpc_json("power_view", {"p_season": int(season), "p_league": str(league_id),
+                                    "p_team": str(team_id or "")}) or {}
+
+
+def refresh_power_board(season: int) -> int:
+    """Rebuild the saved board. Usually done by pg_cron; may hit the API's
+    time limit from here, which is fine: the cron job catches up."""
+    return int(_rpc_json("refresh_power_board", {"p_season": int(season)}) or 0)
 
 
 def sibling_league_ids(provider: str, platform_league_id: str, season: int) -> list[str]:
