@@ -1565,26 +1565,42 @@ def get_managers(league_id: str) -> list[dict[str, Any]]:
         return []
 
 
-def remember_managers(league_id: str, handles) -> None:
+def remember_managers(league_id: str, handles, teams: dict | None = None) -> None:
     """Make sure every handle in this week's data has a row.
 
     Called after a paper generates, because that is the one moment the app is
     holding the real list of who is in the league. Existing rows are left
     exactly alone — this adds the people it has not seen before and nothing
     else, so it can run every week without touching anything anybody typed.
+
+    `teams` ({handle: team name}, migration 033) is the one exception: it is
+    the platform's, not the commissioner's, so a changed team name is written
+    over the old one. Without 033 the names are skipped and nothing breaks.
     """
     wanted = {str(h).strip() for h in (handles or []) if str(h or "").strip()}
     if not wanted:
         return
+    teams = {str(k).strip(): (str(v).strip() or None) for k, v in (teams or {}).items()}
 
     try:
-        known = {row.get("handle") for row in get_managers(league_id)}
-        new = sorted(wanted - known)
-        if not new:
-            return
-        client().table("managers").insert(
-            [{"league_id": league_id, "handle": handle} for handle in new]
-        ).execute()
+        rows = {row.get("handle"): row for row in get_managers(league_id)}
+        new = sorted(wanted - set(rows))
+        if new:
+            fresh = [{"league_id": league_id, "handle": h} for h in new]
+            try:
+                client().table("managers").insert(
+                    [dict(r, team_name=teams.get(r["handle"])) for r in fresh] if teams
+                    else fresh).execute()
+            except Exception:  # noqa: BLE001 — no 033 yet: the rows without names
+                if not teams:
+                    raise
+                client().table("managers").insert(fresh).execute()
+        for handle, row in rows.items():
+            name = teams.get(handle)
+            # "team_name" missing from the row means 033 isn't in: skip quietly.
+            if name and "team_name" in row and row.get("team_name") != name:
+                client().table("managers").update({"team_name": name}) \
+                    .eq("id", row["id"]).execute()
     except Exception as exc:  # noqa: BLE001
         print(f"[lore] could not record managers: "
               f"{type(exc).__name__}: {exc}", flush=True)

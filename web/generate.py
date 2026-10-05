@@ -203,7 +203,8 @@ def managers_for_page(db, league: dict[str, Any], weeks: list | None) -> list:
               f"{type(exc).__name__}: {exc}", flush=True)
         return []
 
-    db.remember_managers(league["id"], [m["handle"] for m in directory])
+    db.remember_managers(league["id"], [m["handle"] for m in directory],
+                          {m["handle"]: m["team_name"] for m in directory})
     return db.get_managers(league["id"])
 
 
@@ -822,7 +823,8 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     # gets a box on the manage page without anybody doing anything. Adds only;
     # it never touches what the commissioner typed.
     directory = manager_directory(games)
-    db.remember_managers(league["id"], [m["handle"] for m in directory])
+    db.remember_managers(league["id"], [m["handle"] for m in directory],
+                          {m["handle"]: m["team_name"] for m in directory})
 
     lore_entries = db.get_lore(league["id"])
     # Lore marked "every week" is not background, it's an instruction: it

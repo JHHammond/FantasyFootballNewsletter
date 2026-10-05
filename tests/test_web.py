@@ -941,6 +941,37 @@ def test_the_boxes_appear_before_the_first_paper_is_generated(
     assert len(demo_db.get_managers(league["id"])) == 2
 
 
+def test_espn_boxes_say_the_team_not_the_generic_handle(client, league, monkeypatch):
+    """John, 5 Oct: ESPN handles are things like ESPNFAN123673893. The box
+    leads with the team name so the commissioner knows whose it is, and the
+    handle stays underneath as the key. No extra fetch once people are known:
+    the name is stored when they are recorded."""
+    import web.generate as generate
+
+    monkeypatch.setattr(webapp, "get_provider", _verify_ok(weeks=(1, 2)))
+    monkeypatch.setattr(generate, "load_week", lambda *a, **k: "week")
+    monkeypatch.setattr(generate, "week_to_legacy_games",
+                        lambda _w: [{"team_1": {"owner_name": "ESPNFAN123673893",
+                                                "team_name": "Mike Vick Legal Team"},
+                                     "team_2": {"owner_name": "ESPNFAN998877",
+                                                "team_name": "Sad Sacks"}}])
+
+    text = client.get("/l/secret-admin-token").text
+    assert "Mike Vick Legal Team" in text and "ESPNFAN123673893" in text
+    assert 'Mike Vick Legal Team <span class="opt">ESPNFAN123673893</span>' in text
+    rows = {m["handle"]: m for m in demo_db.get_managers(league["id"])}
+    assert rows["ESPNFAN998877"]["team_name"] == "Sad Sacks"
+
+
+def test_a_renamed_team_catches_up_without_touching_what_was_typed(league):
+    demo_db.remember_managers(league["id"], ["mike"], {"mike": "Old Name"})
+    demo_db.save_manager(league["id"], "mike", "Mike", "drafts a kicker")
+    demo_db.remember_managers(league["id"], ["mike"], {"mike": "New Name"})
+    row = demo_db.get_managers(league["id"])[0]
+    assert (row["team_name"], row["display_name"], row["notes"]) == \
+        ("New Name", "Mike", "drafts a kicker")
+
+
 def test_seeding_never_takes_the_manage_page_down(client, league, monkeypatch):
     """It is a network call to somebody else's API on a page the commissioner
     needs in order to do anything at all."""

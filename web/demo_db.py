@@ -1010,19 +1010,23 @@ def get_managers(league_id: str) -> list[dict[str, Any]]:
     return rows
 
 
-def remember_managers(league_id: str, handles) -> None:
+def remember_managers(league_id: str, handles, teams: dict | None = None) -> None:
     wanted = {str(h).strip() for h in (handles or []) if str(h or "").strip()}
+    teams = {str(k).strip(): (str(v).strip() or None) for k, v in (teams or {}).items()}
     with _lock:
         for handle in sorted(wanted):
             key = (league_id, handle)
             # Never overwrite: this runs every week and must not wipe what the
-            # commissioner typed.
+            # commissioner typed. The team name is the platform's, so it may.
             if key not in _MANAGERS:
                 _MANAGERS[key] = {
                     "id": str(uuid4()), "league_id": league_id,
                     "handle": handle, "display_name": None, "notes": None,
+                    "team_name": teams.get(handle),
                     "created_at": _now(), "updated_at": _now(),
                 }
+            elif teams.get(handle):
+                _MANAGERS[key]["team_name"] = teams[handle]
 
 
 def save_manager(league_id: str, handle: str,

@@ -40,7 +40,7 @@
             <li class="manager">
                 <input type="hidden" name="handle" value="{{ m.handle }}" />
                 <label class="field">
-                    <span class="field-label">{{ m.handle }}</span>
+                    <span class="field-label">{% if m.team_name and m.team_name != m.handle %}{{ m.team_name }} <span class="opt">{{ m.handle }}</span>{% else %}{{ m.handle }}{% endif %}</span>
                     <input type="text" name="display_name" maxlength="80"
                            value="{{ m.display_name or '' }}"
                            placeholder="Their name" />
