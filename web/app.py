@@ -791,6 +791,21 @@ def connect_sleeper(request: Request, username: str = "", error: str = ""):
                    username=username, error=error, leagues=None)
 
 
+def _remember_sleeper_team(league: dict, sleeper_user_id: str) -> None:
+    """Save which team in this league belongs to the Sleeper account that
+    connected it (migration 034), so /rankings knows who you are. Best effort:
+    a missing column or a Sleeper hiccup just leaves the question to the page."""
+    if not league or not sleeper_user_id or league.get("my_team_id"):
+        return
+    try:
+        rid = get_provider("sleeper").roster_for_user(
+            str(league.get("platform_league_id") or ""), sleeper_user_id)
+        if rid:
+            db.update_league(league["id"], {"my_team_id": rid})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[my-team] couldn't save for {league.get('id')}: {exc}", flush=True)
+
+
 @app.post("/connect/sleeper")
 def connect_sleeper_lookup(request: Request, username: str = Form(...)):
     """Username -> the leagues that account is in this season."""
@@ -827,9 +842,17 @@ def connect_sleeper_lookup(request: Request, username: str = Form(...)):
 
     # Leagues this account already made are shown as already added rather than
     # silently failing when they click.
-    mine = {l.get("platform_league_id") for l in db.leagues_for_user(user["id"])}
+    owned = db.leagues_for_user(user["id"])
+    mine = {l.get("platform_league_id") for l in owned}
+    # Leagues already on this account learn which team is yours, so looking
+    # your username up again is all it takes for a league added before 034.
+    found = {l.league_id for l in leagues}
+    for l in owned:
+        if l.get("provider") == "sleeper" and l.get("platform_league_id") in found:
+            _remember_sleeper_team(l, account["user_id"])
     return _render(request, "connect_sleeper.html",
                    username=account["username"], error="",
+                   sleeper_user_id=account["user_id"],
                    leagues=[{
                        "league_id": l.league_id,
                        "name": l.name,
@@ -843,7 +866,7 @@ def connect_sleeper_lookup(request: Request, username: str = Form(...)):
 
 @app.post("/connect/sleeper/add")
 def connect_sleeper_add(request: Request, league_id: str = Form(...),
-                        paper_name: str = Form("")):
+                        paper_name: str = Form(""), sleeper_user_id: str = Form("")):
     """Turn a chosen league into a paper, owned by the signed-in account."""
     user = _require_user(request)
 
@@ -866,6 +889,7 @@ def connect_sleeper_add(request: Request, league_id: str = Form(...),
     if existing:
         # Already theirs: just open it.
         if existing.get("user_id") == user["id"]:
+            _remember_sleeper_team(existing, clean_text(sleeper_user_id, max_length=40))
             return RedirectResponse(f"/l/{existing['admin_token']}", status_code=303)
 
         # Nobody owns it: adopt it. A league with no account attached is either
@@ -876,6 +900,7 @@ def connect_sleeper_add(request: Request, league_id: str = Form(...),
         # row themselves had it not existed.
         if not existing.get("user_id"):
             db.claim_league(existing["id"], user["id"])
+            _remember_sleeper_team(existing, clean_text(sleeper_user_id, max_length=40))
             return RedirectResponse(
                 f"/l/{existing['admin_token']}?notice=Picked+up+where+you+left+off.",
                 status_code=303)
@@ -904,6 +929,7 @@ def connect_sleeper_add(request: Request, league_id: str = Form(...),
         admin_token=slugs.admin_token(),
     )
     db.claim_league(league["id"], user["id"])
+    _remember_sleeper_team(league, clean_text(sleeper_user_id, max_length=40))
     return RedirectResponse(f"/l/{league['admin_token']}/setup", status_code=303)
 
 
@@ -1323,7 +1349,10 @@ def rankings_page(request: Request, league: str = "", team: str = ""):
         chosen = db.league_by_public_slug(league)
     if not chosen and mine:
         chosen = mine[0]
-    view = rankings.league_view(db, season, chosen, clean_text(team, max_length=80)) \
+    # Open on your own team when we know it (034: saved when you connected
+    # through your Sleeper username). ?team= still picks any other.
+    team = clean_text(team, max_length=80) or str((chosen or {}).get("my_team_id") or "")
+    view = rankings.league_view(db, season, chosen, team) \
         if (chosen and ready) else None
     return _render(request, "rankings.html", public=public, ready=ready, mine=mine,
                    league=chosen, view=view, season=season,

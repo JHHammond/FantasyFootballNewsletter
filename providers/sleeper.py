@@ -213,6 +213,21 @@ class SleeperProvider(FantasyProvider):
             "display_name": data.get("display_name") or data.get("username") or name,
         }
 
+    def roster_for_user(self, league_id: str, user_id: str) -> str | None:
+        """The roster_id (our team_id) a Sleeper account owns or co-owns in a
+        league, or None if it has no team there."""
+        if not league_id or not user_id:
+            return None
+        rosters = self._get(f"{BASE_URL}/league/{league_id}/rosters") or []
+        uid = str(user_id)
+        for r in rosters:
+            if not isinstance(r, dict) or r.get("roster_id") is None:
+                continue
+            owners = [str(r.get("owner_id") or "")] + [str(c) for c in (r.get("co_owners") or [])]
+            if uid in owners:
+                return str(r["roster_id"])
+        return None
+
     def user_leagues(self, user_id: str, season: int) -> list[League]:
         """Every NFL league this account is in for a season.
 

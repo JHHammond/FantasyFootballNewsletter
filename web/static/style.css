@@ -3076,43 +3076,56 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
    National Rankings (3 Oct): /rankings
    --------------------------------------------------------------------------- */
 .nr-empty p { margin-top: 10px; }
-.nr-leagues { display: flex; flex-wrap: wrap; gap: 8px; margin: 28px 0 0; }
+/* 4 Oct (John): the league picker as plain paper cards, and the hero card
+   light instead of ink. */
+.nr-leagues { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin: 30px 0 6px; }
 .nr-leagues a {
-    display: inline-flex; flex-direction: column; padding: 8px 14px; min-height: 44px;
-    border: 1px solid var(--line); background: var(--paper); color: var(--ink);
-    font-weight: 600; text-decoration: none; line-height: 1.2;
+    display: inline-flex; flex-direction: column; justify-content: center;
+    min-width: 170px; min-height: 60px; padding: 12px 20px;
+    background: var(--paper); color: var(--ink); text-decoration: none; line-height: 1.2;
+    border: 1px solid var(--line);
+    font: 900 17px "Playfair Display", Georgia, serif;
+    box-shadow: 0 8px 18px -14px rgba(40, 30, 10, .45);
+    transition: border-color .15s ease, box-shadow .15s ease;
 }
-.nr-leagues a small { font-weight: 400; font-size: 12px; color: var(--muted); }
-.nr-leagues a.on { border-color: var(--ink); box-shadow: inset 0 -3px 0 var(--accent); }
+.nr-leagues a small {
+    margin-top: 5px; font: 700 11px "Barlow Condensed", sans-serif;
+    letter-spacing: 2px; text-transform: uppercase; color: var(--muted);
+}
+.nr-leagues a:hover { border-color: var(--ink); }
+.nr-leagues a.on { border-color: var(--ink); box-shadow: inset 0 -4px 0 var(--accent), 0 10px 22px -14px rgba(40, 30, 10, .5); }
+
 .nr-hero { display: flex; justify-content: center; }
 .nr-card {
     position: relative; width: 100%; max-width: 640px; padding: 34px 32px 28px;
-    background: var(--ink); color: var(--paper); border-top: 10px solid var(--accent);
+    background: var(--paper); color: var(--ink); border-top: 10px solid var(--accent);
+    box-shadow: 0 1px 0 rgba(0,0,0,.05), 0 20px 36px -22px rgba(40, 30, 10, .5);
     text-align: center;
 }
 .nr-card-kicker {
     font: 700 15px "Barlow Condensed", sans-serif; letter-spacing: 4px; text-transform: uppercase;
-    color: #ff8d84;
+    color: var(--accent);
 }
-.nr-rank { font: 400 112px/1 "Anton", sans-serif; margin-top: 10px; font-variant-numeric: tabular-nums; }
-.nr-hash { font-size: 0.55em; vertical-align: 0.6em; margin-right: 2px; color: #ff8d84; }
-.nr-of { font-size: 16px; color: #d8d0c0; margin-top: 6px; }
-.nr-of b { color: var(--paper); }
+.nr-rank { font: 400 112px/1 "Anton", sans-serif; margin-top: 10px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.nr-hash { font-size: 0.55em; vertical-align: 0.6em; margin-right: 2px; color: var(--accent); }
+.nr-of { font-size: 16px; color: var(--muted); margin-top: 6px; }
+.nr-of b { color: var(--ink); }
 .nr-stamp {
     display: inline-block; margin-top: 18px; padding: 6px 18px;
-    border: 4px solid #ff8d84; color: #ff8d84; transform: rotate(-3deg);
+    border: 4px solid var(--accent); color: var(--accent); transform: rotate(-3deg);
     font: 400 30px "Anton", sans-serif; letter-spacing: 2px; text-transform: uppercase;
 }
-.nr-week { margin-top: 14px; font-size: 16px; color: #d8d0c0; }
-.nr-week b { font: 400 22px "Anton", sans-serif; color: var(--paper); letter-spacing: .5px; }
-.nr-quip { margin-top: 14px; font: 700 italic 19px "Playfair Display", serif; }
+/* Roman, bigger and in full ink: the italic was hard to read. */
+.nr-quip { margin: 16px auto 0; max-width: 30em; font: 700 21px/1.35 "Playfair Display", Georgia, serif; color: var(--ink); }
+.nr-week { margin-top: 14px; font-size: 16px; color: var(--ink-2); }
+.nr-week b { font: 400 22px "Anton", sans-serif; color: var(--ink); letter-spacing: .5px; }
 .nr-parts {
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
-    margin-top: 24px; padding-top: 18px; border-top: 1px solid #4a4236; text-align: left;
+    margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); text-align: left;
 }
-.nr-parts dt { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 2px; text-transform: uppercase; color: #d8d0c0; }
-.nr-parts dd { margin-top: 4px; font-size: 13px; color: #d8d0c0; }
-.nr-parts dd b { display: block; font: 400 26px/1.1 "Anton", sans-serif; color: var(--paper); }
+.nr-parts dt { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+.nr-parts dd { margin-top: 4px; font-size: 13px; color: var(--muted); }
+.nr-parts dd b { display: block; font: 400 26px/1.1 "Anton", sans-serif; color: var(--ink); }
 .nr-parts dd small { display: block; font-size: 12px; margin-top: 2px; }
 .nr-table-wrap { overflow-x: auto; }
 .nr-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -3142,16 +3155,49 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
 .nr-curve { position: relative; padding: 0 0 8px; }
 .nr-bars { display: flex; align-items: flex-end; gap: 3px; height: 140px; border-bottom: 2px solid var(--ink); }
 .nr-bars span { flex: 1; background: var(--line); min-height: 1px; }
-.nr-marks { position: relative; height: 64px; }
-.nr-mark { position: absolute; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; }
-.nr-mark i { width: 2px; height: 14px; background: var(--ink); }
-.nr-mark b { font-size: 11px; font-weight: 600; white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
-.nr-mark.you i { background: var(--accent); width: 3px; height: 22px; }
-.nr-mark.you b { color: var(--accent); font-weight: 700; }
+.nr-curve-intro { margin-bottom: 10px; }
+.nr-marks { position: relative; height: 64px; margin-bottom: 6px; }
+.nr-mark { position: absolute; top: 0; left: 0; width: 0; }
+.nr-mark i {
+    position: absolute; top: 0; left: -1px; width: 2px; height: 14px; background: var(--ink); cursor: pointer;
+}
+.nr-mark i::after { content: ""; position: absolute; inset: -4px -8px; }   /* bigger tap target */
+.nr-mark-name {
+    position: absolute; left: 0; top: calc(18px + var(--row, 0) * 22px);
+    translate: -50% 0; white-space: nowrap;
+    padding: 1px 6px; border: 0; border-radius: 2px; background: transparent; cursor: pointer;
+    font: 600 12px/18px "Barlow", sans-serif; color: var(--ink-2);
+}
+.nr-mark-name:hover, .nr-mark.open .nr-mark-name { background: var(--ink); color: var(--paper); }
+.nr-mark-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nr-mark.you i { background: var(--accent); width: 3px; height: 16px; }
+.nr-mark.you .nr-mark-name { color: var(--accent); font-weight: 700; }
+.nr-mark.you .nr-mark-name:hover, .nr-mark.you.open .nr-mark-name { background: var(--accent); color: #fff; }
+.nr-mark.open i { width: 3px; left: -1.5px; height: 18px; }
+.nr-mark.open { z-index: 5; }
+/* Without the script the names just sit in one row. */
+.nr-marks:not(.js) .nr-mark-name { position: static; display: block; margin-top: 16px; }
+.nr-pop {
+    position: absolute; z-index: 6; bottom: 22px; left: 0; translate: -50% 0;
+    width: 220px; padding: 12px 14px; text-align: left;
+    background: var(--paper); border: 1px solid var(--ink);
+    box-shadow: 0 14px 28px -16px rgba(40, 30, 10, .6);
+}
+.nr-pop[hidden] { display: none; }
+.nr-pop-name { display: block; font: 900 16px/1.2 "Playfair Display", Georgia, serif; }
+.nr-pop-score { display: block; margin-top: 6px; font: 400 34px/1 "Anton", sans-serif; }
+.nr-pop-score small {
+    display: inline-block; margin-left: 8px; vertical-align: 6px;
+    font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 2px; text-transform: uppercase; color: var(--muted);
+}
+.nr-pop-line { display: block; margin-top: 4px; font-size: 13px; color: var(--ink-2); }
+.nr-pop a { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--accent); }
 .nr-axis { display: flex; justify-content: space-between; font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
 .nr-how-head { margin-top: 22px; font: 700 13px "Barlow Condensed", sans-serif; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
 @media (max-width: 560px) {
     .nr-card { padding: 28px 18px 22px; }
+    .nr-quip { font-size: 19px; }
+    .nr-leagues a { min-width: 0; flex: 1 1 140px; }
     .nr-table th:nth-child(4), .nr-table td:nth-child(4),
     .nr-table th:nth-child(5), .nr-table td:nth-child(5),
     .nr-table th:nth-child(6), .nr-table td:nth-child(6) { display: none; }
@@ -3162,6 +3208,5 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
     .nr-nat small { max-width: 92px; }
     .nr-rank { font-size: 84px; }
     .nr-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .nr-mark b { display: none; }
-    .nr-mark.you b { display: block; }
+    .nr-mark-name { font-size: 11px; padding: 1px 4px; }
 }

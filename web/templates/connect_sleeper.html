@@ -39,6 +39,7 @@
                 {% else %}
                 <form method="post" action="/connect/sleeper/add">
                     <input type="hidden" name="league_id" value="{{ league.league_id }}" />
+                    {% if sleeper_user_id %}<input type="hidden" name="sleeper_user_id" value="{{ sleeper_user_id }}" />{% endif %}
                     <button type="submit" class="btn btn-sm btn-primary">Make a paper</button>
                 </form>
                 {% endif %}

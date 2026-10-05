@@ -62,7 +62,7 @@
         <dl class="nr-parts">
             <div><dt>Power Score</dt><dd><b>{{ '%.1f'|format(c.score) }}</b> / 100</dd></div>
             <div><dt>Points</dt><dd><b>{{ '%.1f'|format(c.ppg) }}</b> {{ 'a game' if c.own else 'PPR a game' }}<small>{{ c.points_share }} nationally</small></dd></div>
-            <div><dt>All-play</dt><dd><b>{{ pct(c.ap_pct) }}</b><small>of America beaten in an average week</small></dd></div>
+            <div><dt>All-play</dt><dd><b>{{ pct(c.ap_pct) }}</b><small>of teams globally beaten in an average week</small></dd></div>
             <div><dt>Record</dt><dd><b>{{ c.record }}</b><small>{{ c.place_text }} of {{ view.teams|length }} in your league</small></dd></div>
         </dl>
     </div>
@@ -109,12 +109,70 @@
 {% if view.dist and view.national %}
 <section class="ar-sec">
     <h2 class="section-head"><span>Your league on the national curve</span></h2>
-    <div class="nr-curve" role="img" aria-label="Power Scores of every team in America, with this league's teams marked">
-        <div class="nr-bars">{% for b in view.dist %}<span style="height: {{ b.h }}%"></span>{% endfor %}</div>
-        <div class="nr-marks">{% for m in view.marks %}<span class="nr-mark{% if m.you %} you{% endif %}" style="left: {{ m.x }}%" title="{{ m.name }}"><i></i>{% if m.you or m.ends %}<b>{{ m.name }}</b>{% endif %}</span>{% endfor %}</div>
+    <p class="ar-intro nr-curve-intro">Tap a team to see its Power Score.</p>
+    <div class="nr-curve">
+        <div class="nr-bars" role="img" aria-label="Power Scores of every team in America">{% for b in view.dist %}<span style="height: {{ b.h }}%"></span>{% endfor %}</div>
+        <div class="nr-marks" id="nr-marks">{% for m in view.marks %}<div class="nr-mark{% if m.you %} you{% endif %}" style="left: {{ m.x }}%"><i></i><button type="button" class="nr-mark-name" aria-expanded="false" aria-controls="nr-pop-{{ loop.index }}">{{ m.name }}</button><div class="nr-pop" id="nr-pop-{{ loop.index }}" hidden><b class="nr-pop-name">{{ m.name }}</b><span class="nr-pop-score">{{ '%.1f'|format(m.score) }}<small>Power Score</small></span><span class="nr-pop-line">#{{ num(m.rank) }} in America &middot; {{ m.tier }}</span><span class="nr-pop-line">{{ m.record }} &middot; {{ m.share }}</span><a href="/rankings?league={{ league.public_slug|urlencode }}&amp;team={{ m.team_id|urlencode }}">See the full card &rsaquo;</a></div></div>{% endfor %}</div>
         <div class="nr-axis"><span>0</span><span>Power Score</span><span>100</span></div>
     </div>
 </section>
+<script>
+(function () {
+    var box = document.getElementById("nr-marks");
+    if (!box) return;
+    var marks = [].slice.call(box.querySelectorAll(".nr-mark"));
+    // Stack the names: each goes on the first row where it doesn't touch
+    // the name before it. Re-done on resize, since widths change.
+    function lay() {
+        var ends = [], rowH = 22, top = 18, w = box.clientWidth;
+        marks.forEach(function (m) {
+            var b = m.querySelector(".nr-mark-name");
+            b.style.transform = ""; m.style.setProperty("--row", 0);
+            var cx = m.offsetLeft, bw = b.offsetWidth;
+            var l = Math.max(0, Math.min(w - bw, cx - bw / 2));
+            b.style.transform = "translateX(" + (l - (cx - bw / 2)) + "px)";
+            var r = 0;
+            while (ends[r] !== undefined && ends[r] > l - 8) r++;
+            ends[r] = l + bw;
+            m.style.setProperty("--row", r);
+        });
+        box.style.height = (top + Math.max(1, ends.length) * rowH + 6) + "px";
+    }
+    function close(except) {
+        marks.forEach(function (m) {
+            if (m === except) return;
+            m.classList.remove("open");
+            m.querySelector(".nr-mark-name").setAttribute("aria-expanded", "false");
+            m.querySelector(".nr-pop").hidden = true;
+        });
+    }
+    marks.forEach(function (m) {
+        var b = m.querySelector(".nr-mark-name"), pop = m.querySelector(".nr-pop");
+        function toggle(e) {
+            e.stopPropagation();
+            var open = !m.classList.contains("open");
+            close(m);
+            m.classList.toggle("open", open);
+            b.setAttribute("aria-expanded", open ? "true" : "false");
+            pop.hidden = !open;
+            if (open) {
+                pop.style.marginLeft = ""; var r = pop.getBoundingClientRect(), vw = document.documentElement.clientWidth;
+                var shift = r.left < 8 ? 8 - r.left : (r.right > vw - 8 ? vw - 8 - r.right : 0);
+                pop.style.marginLeft = shift + "px";
+            }
+        }
+        b.addEventListener("click", toggle);
+        m.querySelector("i").addEventListener("click", toggle);
+        pop.addEventListener("click", function (e) { e.stopPropagation(); });
+    });
+    document.addEventListener("click", function () { close(null); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(null); });
+    box.classList.add("js");
+    lay();
+    window.addEventListener("resize", lay);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(lay);
+})();
+</script>
 {% endif %}
 
 <section class="ar-sec">

@@ -314,13 +314,13 @@ def league_view(db, season: int, league: dict, team_id: str = "") -> dict:
         if i is not None:
             near = [board_row(r) for r in ordered[max(0, i - NEAR): i + NEAR + 1]]
     peak = max(nat["dist"]) if nat["dist"] else 0
-    # Label only you and the league's best and worst: a dozen names on one
-    # axis is a pile-up.
-    ends = {teams[0]["team_id"], teams[-1]["team_id"]} if teams else set()
+    # Every team in the league is labelled (John, 4 Oct); the page stacks the
+    # labels so close scores don't pile up, and a click shows the numbers.
     marks = [{"team_id": t["team_id"], "name": t["team_name"], "x": t["score"],
-              "you": bool(chosen and t["team_id"] == chosen["team_id"]),
-              "ends": t["team_id"] in ends and not (
-                  chosen and abs(t["score"] - chosen["score"]) < 12)} for t in teams]
+              "score": t["score"], "rank": t["rank"], "tier": t["tier"],
+              "share": t["share"], "record": t["record"],
+              "you": bool(chosen and t["team_id"] == chosen["team_id"])}
+             for t in sorted(teams, key=lambda t: t["score"])]
     return {"teams": teams, "unranked": unranked, "chosen": chosen,
             "national": n, "through": nat["through"], "top": top, "near": near,
             "board_error": bool(nat.get("error")),

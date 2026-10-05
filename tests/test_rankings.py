@@ -228,3 +228,68 @@ def test_cannot_open_someone_elses_league(web, monkeypatch):
     _seed(user_id=user["id"])
     html = web.get("/rankings?league=secret-xo1").text
     assert "Hidden a" not in html and "Hank&#39;s Heroes" in html
+
+
+# ---------------------------------------------------------------------------
+# Knowing which team is yours (migration 034)
+# ---------------------------------------------------------------------------
+
+def test_saved_team_opens_your_card(web, monkeypatch):
+    monkeypatch.setenv("RANKINGS_PUBLIC", "1")
+    _pin_season(monkeypatch)
+    user = _sign_up(web)
+    mine = _seed(user_id=user["id"])
+    demo_db.update_league(mine["id"], {"my_team_id": "b"})
+    html = web.get("/rankings").text
+    assert "Which one is you?" not in html
+    assert 'class="nr-card-kicker">Mike Vick Legal Team' in html
+    # ?team= still opens anyone else.
+    assert 'class="nr-card-kicker">Sad Sacks' in web.get("/rankings?team=d").text
+
+
+def test_every_leaguemate_is_on_the_curve_with_a_score(web, monkeypatch):
+    monkeypatch.setenv("RANKINGS_PUBLIC", "1")
+    _pin_season(monkeypatch)
+    user = _sign_up(web)
+    _seed(user_id=user["id"])
+    html = web.get("/rankings?team=b").text
+    assert html.count('class="nr-mark-name"') == 4
+    for name in ("Hank&#39;s Heroes", "Mike Vick Legal Team", "The Mid Tier", "Sad Sacks"):
+        assert f'aria-controls="nr-pop-' in html and f'>{name}</button>' in html
+    assert html.count('class="nr-pop"') == 4 and "Power Score</small>" in html
+
+
+def test_sleeper_roster_for_user():
+    from providers.sleeper import SleeperProvider
+    p = SleeperProvider.__new__(SleeperProvider)
+    p._get = lambda url, params=None: [
+        {"roster_id": 1, "owner_id": "u1", "co_owners": None},
+        {"roster_id": 2, "owner_id": "u2", "co_owners": ["u9"]},
+    ]
+    assert p.roster_for_user("L", "u2") == "2"
+    assert p.roster_for_user("L", "u9") == "2"
+    assert p.roster_for_user("L", "nobody") is None
+
+
+def test_connecting_with_your_username_remembers_your_team(web, monkeypatch):
+    from web import app as webapp
+    _pin_season(monkeypatch)
+    user = _sign_up(web)
+    mine = _seed(user_id=user["id"])
+
+    class Fake:
+        def find_user(self, name):
+            return {"user_id": "u2", "username": name, "display_name": name}
+
+        def user_leagues(self, uid, season):
+            from types import SimpleNamespace as N
+            return [N(league_id="k1", name="Kevlarville", season=SEASON, team_count=4,
+                      status="in_season", avatar_url=None)]
+
+        def roster_for_user(self, league_id, uid):
+            return "b" if (league_id, uid) == ("k1", "u2") else None
+
+    monkeypatch.setattr(webapp, "get_provider", lambda name: Fake())
+    res = web.post("/connect/sleeper", data={"username": "johnhenryhammond"})
+    assert res.status_code == 200
+    assert demo_db._LEAGUES[mine["id"]]["my_team_id"] == "b"
