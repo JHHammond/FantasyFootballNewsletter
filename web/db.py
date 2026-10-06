@@ -941,12 +941,32 @@ def lineup_league_ids(season: int, week: int) -> set[str]:
     return {str(x) for x in (data or [])}
 
 
+def _around_saved(season: int, week: int, min_starts: int = 150) -> Optional[dict]:
+    """The saved answer from refresh_around() (migration 036), or None when
+    there isn't one yet (or the table isn't there). Week 0 is the season."""
+    try:
+        rows = (client().table("around_saved").select("payload")
+                .eq("season", int(season)).eq("week", int(week))
+                .eq("min_starts", int(min_starts)).limit(1).execute().data or [])
+    except Exception:  # noqa: BLE001 — before 036, or a blip: compute live
+        return None
+    return rows[0].get("payload") if rows else None
+
+
 def around_week(season: int, week: int, min_starts: int = 150) -> dict[str, Any]:
+    """Saved by the 10-minute job (6 Oct: the live function outgrew the API's
+    time limit). Live only for a week the job hasn't saved yet."""
+    saved = _around_saved(season, week, min_starts)
+    if saved is not None:
+        return saved or {}
     return _rpc_json("around_week", {"p_season": int(season), "p_week": int(week),
                                      "p_min_starts": int(min_starts)}) or {}
 
 
 def around_season(season: int) -> dict[str, Any]:
+    saved = _around_saved(season, 0, 150)
+    if saved is not None:
+        return saved or {}
     return _rpc_json("around_season", {"p_season": int(season)}) or {}
 
 
