@@ -195,8 +195,8 @@ def test_week_four_copy(monkeypatch):
     _send_week(4, {"low": 71.4, "bench": 31.2, "top": 41.4})
     assert got["subject"] == "Week 4 Was Wild in Your League"
     assert got["text"].startswith(
-        "Tetairoa McMillan is a beast.\nCeeDee Lamb went off.\n"
-        "And, someone in your league only managed 71.4 points.")
+        "B. Robinson stole 3 of B. Robinson's touchdowns.\nTetairoa McMillan went off.\n"
+        "And, someone in your league only managed to put up 71.4 points.")
     assert '71.4</span> points.' in got["body"]
     assert "Write Week 4" in got["body"] and "Alpha" not in got["body"]
 
@@ -220,3 +220,19 @@ def test_nobody_unsubscribed_is_reminded():
     emails = {p["email"] for p in reminders.audience(demo_db, SEASON, WEEK)}
     assert emails == {"still@x.com"}
     demo_db._SUBSCRIBERS.clear()
+
+
+def test_the_test_copy_never_carries_a_real_league(monkeypatch):
+    _league("Alpha", user=_user("free@x.com"))
+    seen = []
+    monkeypatch.setattr(emailer, "send_reminder", lambda to, week, leagues, tok:
+                        seen.append(leagues) or emailer.SendResult(ok=True))
+    reminders.send(demo_db, SEASON, WEEK, test_to="me@x.com", log=lambda s: None)
+    assert seen[0][0]["admin_token"] == "test-copy"
+    assert "Alpha" not in str(seen[0])
+
+
+def test_the_reminder_carries_the_logo(monkeypatch):
+    got = _capture(monkeypatch)
+    _send_week(4, {"low": 71.4})
+    assert "/static/brand/logo-mark@2x.png" in got["body"]

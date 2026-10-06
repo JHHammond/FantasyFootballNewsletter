@@ -135,9 +135,14 @@ def send(db, season: int, week: int, *, dry_run: bool = False,
         return report
 
     if test_to:
-        sample = people[0] if people else {
-            "email": test_to, "leagues": [{"name": "The Sample League Times",
-                                           "admin_token": "sample"}]}
+        # A made-up league with a real league's NUMBERS only (6 Oct: the test
+        # copy used to carry the first real recipient's league, so its button
+        # opened a customer's manage page). The button goes nowhere real.
+        teasers = next((l["teasers"] for p in people for l in p["leagues"]
+                        if l.get("teasers")), {})
+        sample = {"leagues": [{"name": "The Sample League Times",
+                               "league_name": "Sample League",
+                               "admin_token": "test-copy", "teasers": teasers}]}
         result = emailer.send_reminder(test_to, week, sample["leagues"],
                                        unsubscribe_token(test_to))
         report["sent" if result.ok else "failed"] += 1

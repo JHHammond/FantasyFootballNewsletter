@@ -406,7 +406,8 @@ def send_weekly_edition_to_owner(
 # which John writes each week in REMINDER_HEADLINERS, then the league's own
 # lowest score. A week with no headliners just gets the lowest-score line.
 REMINDER_HEADLINERS: dict[int, list[str]] = {
-    4: ["Tetairoa McMillan is a beast.", "CeeDee Lamb went off."],
+    4: ["B. Robinson stole 3 of B. Robinson's touchdowns.",
+        "Tetairoa McMillan went off."],
 }
 
 
@@ -422,8 +423,8 @@ def _reminder_copy(week: int, facts: dict):
     low = (facts or {}).get("low")
     lead = "And, someone" if heads else "Someone"
     if low is not None:
-        html_lines.append(f"{lead} in your league only managed {red(low)} points.")
-        text_lines.append(f"{lead} in your league only managed {low:.1f} points.")
+        html_lines.append(f"{lead} in your league only managed to put up {red(low)} points.")
+        text_lines.append(f"{lead} in your league only managed to put up {low:.1f} points.")
     else:
         html_lines.append(f"{lead} in your league had a week they'd rather forget.")
         text_lines.append(f"{lead} in your league had a week they'd rather forget.")
@@ -521,7 +522,8 @@ def send_reminder(to: str, week: int, leagues: list[dict],
 <tr><td align="center" style="padding:20px 10px;">
   <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#fffdf8;border:1px solid #d8d0c0;">
     <tr><td style="background:#b3141c;height:6px;line-height:6px;font-size:0;">&nbsp;</td></tr>
-    <tr><td align="center" style="padding:20px 28px 6px;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:3px;color:#6b6050;">THE COMMISSIONER&rsquo;S DESK &nbsp;&bull;&nbsp; WEEK {w}</td></tr>
+    <tr><td align="center" style="padding:22px 28px 0;"><a href="{base}/"><img src="{base}/static/brand/logo-mark@2x.png" width="96" height="56" alt="The Commissioner&rsquo;s Desk" style="display:block;border:0;width:96px;height:56px;"></a></td></tr>
+    <tr><td align="center" style="padding:10px 28px 6px;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:3px;color:#6b6050;">THE COMMISSIONER&rsquo;S DESK &nbsp;&bull;&nbsp; WEEK {w}</td></tr>
     <tr><td style="padding:18px 36px 14px;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:1.55;color:#222;">{pitch}</td></tr>{buttons}
     <tr><td style="padding:22px 28px 24px;">{footer}</td></tr>
   </table>
