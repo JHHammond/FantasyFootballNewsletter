@@ -73,6 +73,19 @@ def teasers_for(rows: list[dict[str, Any]]) -> dict:
             if isinstance(r.get("top_player_points"), (int, float))]
     if tops:
         out["top"] = max(tops)
+    # 6 Oct, the redacted desk: the lowest score that still won (only when it
+    # was a below-average score, or it isn't much of a fraud), and the
+    # biggest winning margin.
+    wins = [r for r in played if r.get("result") == "W"]
+    if wins:
+        low_win = min(float(r["points"]) for r in wins)
+        avg = sum(float(r["points"]) for r in played) / len(played)
+        if low_win < avg:
+            out["low_win"] = low_win
+        margins = [abs(float(r["margin"])) for r in wins
+                   if isinstance(r.get("margin"), (int, float))]
+        if margins and max(margins) > 0:
+            out["blowout"] = max(margins)
     return out
 
 

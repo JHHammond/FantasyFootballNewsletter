@@ -401,36 +401,56 @@ def send_weekly_edition_to_owner(
                  from_name=paper_name)
 
 
-# Reminder copy from Week 4 on (John, 6 Oct). The subject is fixed; the
-# body opens with the week's big NFL performances, the same in every email,
-# which John writes each week in REMINDER_HEADLINERS, then the league's own
-# lowest score. A week with no headliners just gets the lowest-score line.
-REMINDER_HEADLINERS: dict[int, list[str]] = {
-    4: ["B. Robinson stole 3 of B. Robinson's touchdowns.",
-        "Tetairoa McMillan went off."],
-}
+# Reminder copy from Week 4 on (John, 6 Oct): the league's own paper with
+# the names blacked out. Each line is a real section of the paper and a real
+# number from the league's week; a line whose number isn't there is skipped.
+_REDACT_HTML = ('<span style="background:#111;color:#111;padding:0 3px;'
+                'letter-spacing:1px;">XXXXXXXXX</span>')
+_REDACT_TEXT = "\u2588" * 9
+_DESK_LINES = [
+    ("Lowest score", "low", "{x} put up {n}."),
+    ("Fraud watch", "low_win", "{x} won with {n}, and their opponent is still mad about it."),
+    ("Bench of shame", "bench", "{x} left {n} points sitting on the bench."),
+    ("Blowout", "blowout", "{x} won by {n}."),
+]
 
 
 def _reminder_copy(week: int, facts: dict):
-    """(subject, preheader, html lines, text lines, tagline, button label) for
-    a Week 4+ reminder, or None for Weeks 1-3 (the original copy)."""
+    """(subject, preheader, pitch html, pitch text lines, button label) for a
+    Week 4+ reminder, or None for Weeks 1-3 (the original copy)."""
     if week < 4:
         return None
+    facts = facts or {}
     red = lambda v: f'<span style="color:#b3141c;">{v:.1f}</span>'
-    heads = REMINDER_HEADLINERS.get(week, [])
-    html_lines = [html.escape(h) for h in heads]
-    text_lines = list(heads)
-    low = (facts or {}).get("low")
-    lead = "And, someone" if heads else "Someone"
-    if low is not None:
-        html_lines.append(f"{lead} in your league only managed to put up {red(low)} points.")
-        text_lines.append(f"{lead} in your league only managed to put up {low:.1f} points.")
+    rows_html, rows_text = [], []
+    for label, key, line in _DESK_LINES:
+        v = facts.get(key)
+        if not isinstance(v, (int, float)):
+            continue
+        rows_html.append(
+            f'<div style="margin:0 0 12px;"><span style="font-family:Helvetica,Arial,sans-serif;'
+            f'font-size:12px;font-weight:700;letter-spacing:2px;color:#b3141c;">'
+            f'{label.upper()}</span><br>'
+            + html.escape(line).replace("{x}", _REDACT_HTML).replace("{n}", red(v))
+            + "</div>")
+        rows_text.append(f"{label.upper()}: "
+                         + line.replace("{x}", _REDACT_TEXT).replace("{n}", f"{v:.1f}"))
+    if rows_html:
+        intro = f"Your league's Week {week} paper is ready to go. Here's what's already on the desk:"
+        outro = "Names are redacted until you print it."
     else:
-        html_lines.append(f"{lead} in your league had a week they'd rather forget.")
-        text_lines.append(f"{lead} in your league had a week they'd rather forget.")
+        intro = f"Your league's Week {week} paper is ready to go."
+        outro = ("Somebody had a week they'd rather forget. "
+                 "Names are redacted until you print it.")
+    pitch = (f'<div style="margin:0 0 18px;">{html.escape(intro)}</div>'
+             + (f'<div style="font-size:18px;line-height:1.45;color:#111;">{"".join(rows_html)}</div>'
+                if rows_html else "")
+             + f'<div style="margin-top:6px;font-size:15px;font-style:italic;color:#5a5245;">'
+               f'{html.escape(outro)}</div>')
+    text = [intro, ""] + rows_text + ([""] if rows_text else []) + [outro]
     return (f"Week {week} Was Wild in Your League",
-            "Your league's paper hasn't been written yet.",
-            html_lines, text_lines, "", f"Write Week {week}")
+            "Names redacted until you print it.",
+            pitch, text, f"Print the Week {week} paper")
 
 
 def send_reminder(to: str, week: int, leagues: list[dict],
@@ -455,12 +475,7 @@ def send_reminder(to: str, week: int, leagues: list[dict],
     # last week"). Weeks 1-3 keep the original below.
     fresh = _reminder_copy(w, facts)
     if fresh:
-        subject, preheader, html_lines, text_lines, tagline, single_label = fresh
-        lines = "".join(f'<div style="margin:0 0 8px;">{l}</div>' for l in html_lines)
-        pitch = (f'<div style="font-size:20px;line-height:1.4;font-weight:700;color:#111;">{lines}</div>'
-                 + (f'<div style="margin-top:14px;font-size:15px;color:#5a5245;">{e(tagline)}</div>'
-                    if tagline else ""))
-        text_pitch = text_lines + (["", tagline] if tagline else [])
+        subject, preheader, pitch, text_pitch, single_label = fresh
     elif facts:
         subject = f"Oof. Someone in Your League Put Up {facts['low']:.1f}"
         preheader = f"The group chat is waiting for Week {w}."

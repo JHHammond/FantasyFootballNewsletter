@@ -190,23 +190,35 @@ def _send_week(week, teasers):
                           "t.sig")
 
 
-def test_week_four_copy(monkeypatch):
+def test_week_four_is_the_redacted_desk(monkeypatch):
     got = _capture(monkeypatch)
-    _send_week(4, {"low": 71.4, "bench": 31.2, "top": 41.4})
+    _send_week(4, {"low": 62.3, "low_win": 88.1, "bench": 38.9, "blowout": 54.2, "top": 41})
     assert got["subject"] == "Week 4 Was Wild in Your League"
-    assert got["text"].startswith(
-        "B. Robinson stole 3 of B. Robinson's touchdowns.\nTetairoa McMillan went off.\n"
-        "And, someone in your league only managed to put up 71.4 points.")
-    assert '71.4</span> points.' in got["body"]
-    assert "Write Week 4" in got["body"] and "Alpha" not in got["body"]
+    t = got["text"]
+    assert "LOWEST SCORE: \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 put up 62.3." in t
+    assert "FRAUD WATCH:" in t and "won with 88.1" in t
+    assert "left 38.9 points sitting on the bench" in t and "won by 54.2." in t
+    assert "Names are redacted until you print it." in t
+    assert "Print the Week 4 paper" in got["body"] and "Alpha" not in got["body"]
+    assert "{" not in got["body"] and "{" not in t
 
 
-def test_no_headliners_or_numbers_still_reads(monkeypatch):
+def test_missing_numbers_drop_their_lines(monkeypatch):
     got = _capture(monkeypatch)
+    _send_week(5, {"low": 62.3})
+    assert "LOWEST SCORE" in got["text"] and "FRAUD WATCH" not in got["text"]
     _send_week(9, {})
     assert got["subject"] == "Week 9 Was Wild in Your League"
-    assert "Someone in your league had a week" in got["text"]
-    assert "{" not in got["body"]
+    assert "Somebody had a week" in got["text"] and "{" not in got["body"]
+
+
+def test_the_desk_numbers():
+    rows = [{"result": "W", "points": 88.1, "margin": 2.0, "bench_left": 5},
+            {"result": "L", "points": 86.1, "margin": -2.0, "bench_left": 38.9},
+            {"result": "W", "points": 150.0, "margin": 54.2, "bench_left": 2},
+            {"result": "L", "points": 95.8, "margin": -54.2, "bench_left": 9}]
+    t = reminders.teasers_for(rows)
+    assert t["low_win"] == 88.1 and t["blowout"] == 54.2 and t["low"] == 86.1
 
 
 def test_nobody_unsubscribed_is_reminded():
