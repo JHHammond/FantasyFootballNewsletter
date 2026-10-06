@@ -1720,7 +1720,24 @@ def league_ids_with_paper(season: int, week: int) -> set[str]:
 
 
 def email_optouts() -> set[str]:
-    return {r["email"] for r in _paged("email_optouts", "email")}
+    """Everyone who must never get a reminder: the reminder opt-outs, plus
+    anyone who unsubscribed from a league's paper emails (6 Oct: "no one who
+    is unsubscribed"). Normalised, so a hand-added "Name@Gmail.com" counts."""
+    out = {(r.get("email") or "").strip().lower()
+           for r in _paged("email_optouts", "email")}
+    # No try/except: if this can't be read, the reminder run stops rather
+    # than mail someone who asked not to be mailed.
+    start = 0
+    while True:
+        rows = (client().table("subscribers").select("email")
+                .not_.is_("unsubscribed_at", "null")
+                .range(start, start + 999).execute().data or [])
+        out |= {(r.get("email") or "").strip().lower() for r in rows}
+        if len(rows) < 1000:
+            break
+        start += 1000
+    out.discard("")
+    return out
 
 
 def add_email_optout(email: str) -> None:

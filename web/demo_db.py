@@ -1092,7 +1092,11 @@ def league_ids_with_paper(season: int, week: int) -> set:
 
 
 def email_optouts() -> set:
-    return set(_OPTOUTS)
+    out = {e.strip().lower() for e in _OPTOUTS}
+    out |= {(s.get("email") or "").strip().lower() for s in _SUBSCRIBERS.values()
+            if s.get("unsubscribed_at")}
+    out.discard("")
+    return out
 
 
 def add_email_optout(email: str) -> None:

@@ -172,3 +172,51 @@ def test_weekly_send_covers_every_league_of_a_paying_owner_this_season_only():
     names = sorted(l["league_name"] for l in demo_db.leagues_for_weekly_send())
     assert names == ["A", "B", "Dup", "Unlinked"]
     assert all(l["_owner"]["email"] == "paid@x.com" for l in demo_db.leagues_for_weekly_send())
+
+
+# --- 6 Oct: a new email each week, and nobody unsubscribed --------------------
+
+def _capture(monkeypatch):
+    got = {}
+    monkeypatch.setattr(emailer, "_send", lambda to, subject, body, **kw:
+                        got.update(subject=subject, body=body, text=kw.get("text_body"))
+                        or emailer.SendResult(ok=True))
+    return got
+
+
+def _send_week(week, teasers):
+    emailer.send_reminder("a@b.com", week, [{"name": "X", "admin_token": "tok",
+                                             "league_name": "Alpha", "teasers": teasers}],
+                          "t.sig")
+
+
+def test_week_four_copy(monkeypatch):
+    got = _capture(monkeypatch)
+    _send_week(4, {"low": 71.4, "bench": 31.2, "top": 41.4})
+    assert got["subject"] == "Week 4 Was Wild in Your League"
+    assert got["text"].startswith(
+        "Tetairoa McMillan is a beast.\nCeeDee Lamb went off.\n"
+        "And, someone in your league only managed 71.4 points.")
+    assert '71.4</span> points.' in got["body"]
+    assert "Write Week 4" in got["body"] and "Alpha" not in got["body"]
+
+
+def test_no_headliners_or_numbers_still_reads(monkeypatch):
+    got = _capture(monkeypatch)
+    _send_week(9, {})
+    assert got["subject"] == "Week 9 Was Wild in Your League"
+    assert "Someone in your league had a week" in got["text"]
+    assert "{" not in got["body"]
+
+
+def test_nobody_unsubscribed_is_reminded():
+    demo_db._SUBSCRIBERS.clear()
+    _league("Alpha", owner_email="Mixed@Case.com")
+    demo_db._OPTOUTS.add("Mixed@Case.com ")           # typed in by hand
+    beta = _league("Beta", owner_email="reader@x.com")
+    sub = demo_db.subscribe(beta["id"], "Reader@x.com")
+    demo_db.unsubscribe(sub["unsubscribe_token"])     # left the paper's list
+    _league("Gamma", owner_email="still@x.com")
+    emails = {p["email"] for p in reminders.audience(demo_db, SEASON, WEEK)}
+    assert emails == {"still@x.com"}
+    demo_db._SUBSCRIBERS.clear()
