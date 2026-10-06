@@ -14,6 +14,7 @@ manager names, only descriptions ("a 12-team PPR league on Sleeper").
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, Optional
 
@@ -38,13 +39,60 @@ def clear_cache() -> None:
     _cache.clear()
 
 
-def _cached(key, fn):
-    hit = _cache.get(key)
-    if hit and time.time() - hit[0] < CACHE_SECONDS:
+#: After a failed refresh, how long to wait before the next try.
+RETRY_SECONDS = 120
+_locks: dict = {}
+_retry_at: dict = {}
+
+
+def swr(store: dict, key, fn, ttl: float = CACHE_SECONDS):
+    """Cached, for pages many people load at once (5 Oct: the homepage).
+
+    The old cache had two failure modes under load. When an entry expired,
+    every request in that moment ran the same national query at once; and
+    when that query timed out, nothing was stored, so every request after it
+    ran it again. The Postgres log showed dozens of statement timeouts a
+    minute, in bursts ten minutes apart.
+
+    Now: one request refreshes and the rest are served the last good value;
+    a failure keeps that value and waits RETRY_SECONDS before trying again.
+    With nothing stored yet, the first request computes and the others wait
+    for it rather than start their own.
+    """
+    now = time.time()
+    hit = store.get(key)
+    if hit and now - hit[0] < ttl:
         return hit[1]
-    value = fn()
-    _cache[key] = (time.time(), value)
-    return value
+    if _retry_at.get(key, 0) > now:
+        if hit:
+            return hit[1]
+        raise RuntimeError("cooling off after a failed refresh")
+    lock = _locks.setdefault(key, threading.Lock())
+    if not lock.acquire(blocking=False):
+        if hit:
+            return hit[1]
+        with lock:
+            pass
+        fresh = store.get(key)
+        if fresh:
+            return fresh[1]
+        raise RuntimeError("refresh failed")
+    try:
+        value = fn()
+        store[key] = (time.time(), value)
+        _retry_at.pop(key, None)
+        return value
+    except Exception:
+        _retry_at[key] = time.time() + RETRY_SECONDS
+        if hit:
+            return hit[1]
+        raise
+    finally:
+        lock.release()
+
+
+def _cached(key, fn):
+    return swr(_cache, key, fn)
 
 
 # ---------------------------------------------------------------------------

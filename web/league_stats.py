@@ -443,20 +443,19 @@ def leaderboards(db, season: int, week: Optional[int], limit: int = 10) -> dict:
     Cached for ten minutes: the page is a handful of ordered queries against
     a table that only changes on Tuesdays.
     """
-    key = (season, week, limit)
-    hit = _cache.get(key)
-    if hit and time.time() - hit[0] < CACHE_SECONDS:
-        return hit[1]
+    from web.around import swr
 
-    boards = []
-    for slug, title, column, desc, where in BOARDS:
-        boards.append({"key": slug, "title": title, "column": column,
-                       "rows": db.team_weeks_top(season, week, column, desc,
-                                                 where, limit)})
-    summary = db.team_weeks_summary(season, week)
-    out = {"season": season, "week": week, "boards": boards, "summary": summary}
-    _cache[key] = (time.time(), out)
-    return out
+    def build() -> dict:
+        boards = []
+        for slug, title, column, desc, where in BOARDS:
+            boards.append({"key": slug, "title": title, "column": column,
+                           "rows": db.team_weeks_top(season, week, column, desc,
+                                                     where, limit)})
+        summary = db.team_weeks_summary(season, week)
+        return {"season": season, "week": week, "boards": boards, "summary": summary}
+
+    # One refresh at a time, last good value on failure (see around.swr).
+    return swr(_cache, ("boards", season, week, limit), build, CACHE_SECONDS)
 
 
 def clear_cache() -> None:
