@@ -857,10 +857,20 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     # BEST STORY LEADS (1 Oct). The games used to run in the platform's
     # matchup order. Ranked once here, before anything is written, and the
     # written order is stored, so every later render follows it.
+    # The photo desk's players get one of the two photo slots (6 Oct).
+    desk = _photo_desk(db, league["season"], week)
+
+    def on_desk(game) -> bool:
+        from newspaper import _desk_candidates, plain_player_name
+        return any(plain_player_name(p.get("name")) in desk
+                   for side in ("team_1", "team_2")
+                   for p in _desk_candidates(game.get(side)))
+
     games = order_games(
         games, last_lead=season_so_far.get("last_lead") or (),
         rivalries=[k for k, v in (season_so_far.get("memories") or {}).items() if v],
-        commissioner=league.get("commissioner_name") or "")
+        commissioner=league.get("commissioner_name") or "",
+        photo=on_desk if desk else None)
 
     # How you stack up (26 Sep): this league against the country, frozen into
     # the paper. None until enough of the week is collected.

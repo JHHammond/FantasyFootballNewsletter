@@ -305,11 +305,17 @@ def game_drama(game, games, rivalries=(), commissioner=""):
     return s
 
 
-def order_games(games, last_lead=(), rivalries=(), commissioner=""):
+def order_games(games, last_lead=(), rivalries=(), commissioner="", photo=None):
     """The games, best story first. Ties keep the platform's order.
 
     One rule on top of the points: a team that led last week's paper does not
     lead this one, unless every game involves one of last week's two teams.
+
+    And one for the photo desk (John, 6 Oct: "the two stories that get photos
+    always have one that I've selected"). Only the first two stories carry a
+    photo. `photo(game)` says whether a game has a starter the desk has a
+    picture of; if neither of the first two does and a later game does, the
+    best of those becomes the second story. The lead stays the best story.
     """
     games = list(games or [])
     if len(games) < 2:
@@ -327,4 +333,9 @@ def order_games(games, last_lead=(), rivalries=(), commissioner=""):
             if fresh is not None:
                 ranked.remove(fresh)
                 ranked.insert(0, fresh)
+    if photo and len(ranked) > 2 and not (photo(ranked[0]) or photo(ranked[1])):
+        pick = next((g for g in ranked[2:] if photo(g)), None)
+        if pick is not None:
+            ranked.remove(pick)
+            ranked.insert(1, pick)
     return ranked
