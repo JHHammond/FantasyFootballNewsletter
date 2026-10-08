@@ -293,3 +293,56 @@ def test_connecting_with_your_username_remembers_your_team(web, monkeypatch):
     res = web.post("/connect/sleeper", data={"username": "johnhenryhammond"})
     assert res.status_code == 200
     assert demo_db._LEAGUES[mine["id"]]["my_team_id"] == "b"
+
+
+# ---------------------------------------------------------------------------
+# The whole board: a short top 5, and a scrolling sheet by league size (7 Oct)
+# ---------------------------------------------------------------------------
+
+def _board_setup(web, monkeypatch):
+    monkeypatch.setenv("RANKINGS_PUBLIC", "1")
+    _pin_season(monkeypatch)
+    user = _sign_up(web)
+    mine = _seed(user_id=user["id"])
+    # Make the other league a 10-team one, so the size filter has two sizes.
+    for k, r in list(demo_db._TEAM_WEEKS.items()):
+        if r["league_id"] != mine["id"]:
+            r["team_count"] = 10
+    return mine
+
+
+def test_page_shows_a_short_top_and_your_row(web, monkeypatch):
+    _board_setup(web, monkeypatch)
+    html = web.get("/rankings?league=kevlarville-xk1&team=d").text
+    top = html[html.index('class="nb-top"'):html.index("</ol>", html.index('class="nb-top"'))]
+    assert top.count('class="nb-pos"') == rankings.TOP_N + 1     # top 5, then you
+    assert "Sad Sacks" in top and "nb-gap" in top
+    assert "See the whole board" in html and 'id="nb-sheet"' in html
+    assert "Among 4-team leagues you" in html
+
+
+def test_board_pages_and_keeps_others_anonymous(web, monkeypatch):
+    _board_setup(web, monkeypatch)
+    d = web.get("/rankings/board?league=kevlarville-xk1&team=b&offset=2&limit=3").json()
+    assert d["total"] == 8 and d["offset"] == 2
+    assert [r["pos"] for r in d["rows"]] == [3, 4, 5]
+    assert all("Hidden" not in r["label"] for r in d["rows"])
+    assert {s["size"] for s in d["sizes"]} == {4, 10}
+
+
+def test_board_filters_by_league_size(web, monkeypatch):
+    _board_setup(web, monkeypatch)
+    d = web.get("/rankings/board?league=kevlarville-xk1&team=b&size=4").json()
+    assert d["total"] == 4 and d["size"] == 4
+    assert [r["pos"] for r in d["rows"]] == [1, 2, 3, 4]
+    assert all(r["mine"] for r in d["rows"])
+    assert d["me"] == 2 and any(r["you"] and r["label"] == "Mike Vick Legal Team" for r in d["rows"])
+    ten = web.get("/rankings/board?league=kevlarville-xk1&size=10").json()
+    assert ten["total"] == 4 and not any(r["mine"] for r in ten["rows"])
+    assert ten["rows"][0]["label"].endswith("league on ESPN")
+
+
+def test_board_is_gated_like_the_page(web, monkeypatch):
+    assert web.get("/rankings/board?league=kevlarville-xk1").status_code == 404
+    _board_setup(web, monkeypatch)
+    assert web.get("/rankings/board?league=secret-xo1").status_code == 404

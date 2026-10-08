@@ -6172,3 +6172,49 @@ def test_inline_save_stores_the_order_of_standings_and_rankings(client, paper, n
     assert ai["standings_order"] == ["B", "A"]
     assert ai["rankings_order"] == ["A", "B"]
     assert "admin" not in ai
+
+
+# --- search and AI search (7 Oct) ------------------------------------------
+
+def test_robots_welcomes_ai_crawlers_but_not_onto_the_papers(client):
+    body = client.get("/robots.txt").text
+    # One group: every named crawler shares the "*" rules, so naming one can
+    # never open the papers to it.
+    head = body.split("Disallow:")[0]
+    for ua in ("User-agent: *", "User-agent: GPTBot", "User-agent: ClaudeBot",
+               "User-agent: PerplexityBot", "User-agent: OAI-SearchBot"):
+        assert ua in head
+    assert body.count("Disallow: /p/") == 1 and "Disallow: /l/" in body
+    assert "Sitemap: " in body
+
+
+def test_sitemap_lists_only_public_pages(client):
+    body = client.get("/sitemap.xml").text
+    assert "<loc>" in body and "<lastmod>" in body
+    assert "/p/" not in body and "/l/" not in body
+
+
+def test_homepage_faq_matches_its_structured_data(client):
+    import json
+    import re
+    html = client.get("/").text
+    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.S)
+    assert blocks
+    graph = json.loads(blocks[0])["@graph"]
+    faq = next(g for g in graph if g["@type"] == "FAQPage")
+    assert len(faq["mainEntity"]) >= 8
+    for q in faq["mainEntity"]:
+        # Every question in the data is on the page (escaped as Jinja does).
+        assert q["name"].replace("'", "&#39;") in html
+    app_ = next(g for g in graph if g["@type"] == "WebApplication")
+    assert {o["price"] for o in app_["offers"]} == {"0", "4.99", "19.99"}
+    assert 'rel="canonical"' in html
+
+
+def test_schema_prices_match_the_plans():
+    import plans
+    assert "4.99" in plans.PRICE_TEXT and "19.99" in plans.SEASON_PRICE_TEXT
+
+
+def test_no_canonical_on_manage_pages(client, league):
+    assert 'rel="canonical"' not in client.get("/l/secret-admin-token").text

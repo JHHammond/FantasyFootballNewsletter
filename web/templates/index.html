@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% from "_macros.html" import flow_button %}
 {% block wrapclass %}home{% endblock %}
+{% block title %}The Commissioner&rsquo;s Desk &middot; A weekly newspaper for your fantasy football league{% endblock %}
+{% block og_title %}Your league deserves a newspaper{% endblock %}
+{% block og_description %}The weekly newspaper that keeps your fantasy football league talking. Recaps, roasts, obituaries and awards, every week.{% endblock %}
+{% block head_extra %}{% for s in schema %}<script type="application/ld+json">{{ s|tojson }}</script>{% endfor %}{% endblock %}
 
 {% block under_masthead %}
 {# The wire: this week across every league, live from Around the Leagues.
@@ -160,6 +164,18 @@
         <li><b>4</b><strong>Send it round.</strong> Every edition is a link anyone
             opens. No app, no sign-in, nothing to install.</li>
     </ol>
+</section>
+
+<section class="faq" id="faq">
+    <h2 class="section-head"><span>Questions, answered</span></h2>
+    <div class="faq-list">
+        {% for f in faq %}
+        <details class="faq-item"{% if loop.first %} open{% endif %}>
+            <summary><h3>{{ f.q }}</h3></summary>
+            <p>{{ f.a }}</p>
+        </details>
+        {% endfor %}
+    </div>
 </section>
 
 <section class="presses">

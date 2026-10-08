@@ -3210,3 +3210,153 @@ input[type="email"], input[type="password"], input[type="url"], input[type="sear
     .nr-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .nr-mark-name { font-size: 11px; padding: 1px 4px; }
 }
+
+/* ---------------------------------------------------------------------------
+   The national board (7 Oct, John): a short top 5 on the page, and the whole
+   board in a sheet you can scroll and narrow to one league size.
+   --------------------------------------------------------------------------- */
+.nb-wrap { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.nb-card {
+    background: var(--paper); border: 1px solid var(--ink); border-top: 6px solid var(--accent);
+    padding: 22px 22px 18px; box-shadow: 0 14px 28px -18px rgba(40, 30, 10, .55);
+}
+.nb-title { font: 900 26px/1.1 "Playfair Display", Georgia, serif; color: var(--ink); }
+.nb-card-sub, .nb-sheet-count { margin-top: 4px; font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+.nb-top, .nb-list { list-style: none; }
+.nb-top { margin-top: 14px; border-top: 2px solid var(--ink); }
+.nb-row { display: flex; align-items: center; gap: 14px; padding: 10px 6px; border-bottom: 1px solid var(--line); }
+.nb-pos {
+    flex: none; min-width: 52px; font: 400 26px/1 "Anton", sans-serif; color: var(--ink);
+    font-variant-numeric: tabular-nums; letter-spacing: .5px;
+}
+.nb-row.first .nb-pos { color: var(--accent); }
+.nb-name { flex: 1; min-width: 0; font-weight: 600; line-height: 1.25; color: var(--ink); overflow-wrap: anywhere; }
+.nb-name small { display: block; font-weight: 400; font-size: 13px; color: var(--muted); margin-top: 2px; }
+.nb-score { flex: none; text-align: right; font: 400 24px/1 "Anton", sans-serif; color: var(--ink); font-variant-numeric: tabular-nums; }
+.nb-score small { display: block; margin-top: 4px; font: 700 10.5px "Barlow Condensed", sans-serif; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+.nb-row.mine { background: #fbf3e4; }
+.nb-row.you { box-shadow: inset 5px 0 0 var(--accent); background: #fbe9e3; }
+.nb-row.you .nb-pos, .nb-row.you .nb-name { color: var(--accent-d); }
+.nb-gap { height: 22px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: center; }
+.nb-gap span, .nb-gap span::before, .nb-gap span::after { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); display: block; position: relative; }
+.nb-gap span::before, .nb-gap span::after { content: ""; position: absolute; top: 0; }
+.nb-gap span::before { left: -9px; } .nb-gap span::after { left: 9px; }
+.nb-open {
+    display: block; width: 100%; margin-top: 16px; padding: 12px 16px; cursor: pointer;
+    background: var(--ink); color: var(--paper); border: 0;
+    font: 700 15px "Barlow Condensed", sans-serif; letter-spacing: 2px; text-transform: uppercase;
+    transition: background .15s;
+}
+.nb-open:hover { background: var(--accent); }
+.nb-open:focus-visible, .nb-link:focus-visible, .nb-chip:focus-visible, .nb-me:focus-visible, .nb-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.nb-link { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: var(--accent); }
+.nb-link:hover { text-decoration: underline; }
+.nb-size-note { margin-top: 12px; font-size: 14px; color: var(--ink-2); text-align: center; }
+.nb-size-note b { font: 400 18px "Anton", sans-serif; color: var(--ink); letter-spacing: .5px; }
+.nb-near-more { margin-top: 10px; font-size: 14px; }
+
+/* The sheet */
+html.nb-lock { overflow: hidden; }
+.nb-sheet {
+    margin: auto; padding: 0; border: 1px solid var(--ink); border-top: 6px solid var(--accent);
+    width: min(680px, calc(100vw - 32px)); height: min(820px, calc(100vh - 48px)); max-height: none; max-width: none;
+    background: var(--paper); color: var(--ink); box-shadow: 0 30px 60px -20px rgba(20, 15, 5, .6);
+}
+.nb-sheet[open] { display: flex; }
+.nb-sheet::backdrop { background: rgba(17, 17, 17, .55); }
+.nb-sheet-in { display: flex; flex-direction: column; width: 100%; min-height: 0; }
+.nb-sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 20px 10px; }
+.nb-x {
+    flex: none; width: 38px; height: 38px; border: 1px solid var(--ink); background: var(--paper); cursor: pointer;
+    font: 400 26px/1 Georgia, serif; color: var(--ink);
+}
+.nb-x:hover { background: var(--ink); color: var(--paper); }
+.nb-filters { display: flex; gap: 8px; padding: 2px 20px 12px; overflow-x: auto; scrollbar-width: none; }
+.nb-filters::-webkit-scrollbar { display: none; }
+.nb-chip {
+    flex: none; display: inline-flex; align-items: baseline; gap: 6px; padding: 7px 12px; cursor: pointer;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 999px; color: var(--ink);
+    font: 700 14px "Barlow Condensed", sans-serif; letter-spacing: .5px; white-space: nowrap;
+}
+.nb-chip small { font-weight: 500; font-size: 12px; color: var(--muted); }
+.nb-chip:hover { border-color: var(--ink); }
+.nb-chip.on { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.nb-chip.on small { color: #cfc6b4; }
+.nb-tools {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 20px; border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line); background: var(--cream);
+}
+.nb-cols { flex: 1; display: flex; gap: 14px; font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+.nb-cols span:first-child { min-width: 52px; }
+.nb-cols span:nth-child(2) { flex: 1; }
+.nb-me {
+    flex: none; padding: 5px 10px; cursor: pointer; border: 1px solid var(--accent); background: var(--paper); color: var(--accent);
+    font: 700 13px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase;
+    max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nb-me:hover { background: var(--accent); color: #fff; }
+.nb-me[hidden] { display: none; }
+.nb-tools:has(.nb-me:not([hidden])) .nb-cols span:last-child { display: none; }
+.nb-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 14px; scroll-behavior: auto; }
+.nb-scroll:focus { outline: none; }
+.nb-list .nb-row { padding: 9px 6px; }
+.nb-list .nb-pos { font-size: 22px; }
+.nb-list .nb-score { font-size: 21px; }
+.nb-row.flash { animation: nb-flash 1.6s ease-out 1; }
+@keyframes nb-flash { 0%, 30% { background: #f6c9bd; } 100% { background: #fbe9e3; } }
+.nb-more {
+    display: block; width: 100%; margin: 10px 0; padding: 9px; cursor: pointer; background: none;
+    border: 1px dashed var(--muted); color: var(--ink-2); font: 700 13px "Barlow Condensed", sans-serif; letter-spacing: 1.5px; text-transform: uppercase;
+}
+.nb-more:hover { border-color: var(--ink); color: var(--ink); }
+.nb-more[hidden] { display: none; }
+.nb-sentinel { height: 1px; }
+.nb-status { padding: 14px 0 22px; text-align: center; font-size: 13px; color: var(--muted); }
+.nb-status:empty { padding: 0; }
+@media (max-width: 760px) {
+    .nb-wrap { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+    .nb-card { padding: 18px 14px 14px; }
+    .nb-title { font-size: 22px; }
+    .nb-pos { min-width: 44px; font-size: 22px; }
+    .nb-cols span:first-child { min-width: 44px; }
+    .nb-sheet { width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-top: 6px solid var(--accent); }
+    .nb-sheet-head { padding: 14px 16px 8px; }
+    .nb-filters, .nb-tools { padding-left: 16px; padding-right: 16px; }
+    .nb-scroll { padding: 0 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .nb-row.flash { animation: none; }
+    .nb-open { transition: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Homepage FAQ (7 Oct): written once in web/seo.py, rendered here and as
+   FAQPage data. Plain <details>, so it works with no script and every answer
+   is in the HTML for crawlers.
+   --------------------------------------------------------------------------- */
+.faq { margin-top: 48px; }
+.faq-list { max-width: 760px; margin: 0 auto; border-top: 2px solid var(--ink); }
+.faq-item { border-bottom: 1px solid var(--line); }
+.faq-item summary {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding: 16px 4px; cursor: pointer; list-style: none;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary h3 { font: 700 19px/1.3 "Playfair Display", Georgia, serif; color: var(--ink); }
+.faq-item summary::after {
+    content: "+"; flex: none; font: 400 26px/1 "Anton", sans-serif; color: var(--accent);
+    transition: transform .15s;
+}
+.faq-item[open] summary::after { transform: rotate(45deg); }
+.faq-item summary:hover h3 { color: var(--accent-d); }
+.faq-item summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.faq-item p { padding: 0 36px 18px 4px; font-size: 16px; line-height: 1.6; color: var(--ink-2); max-width: 62ch; }
+@media (max-width: 560px) {
+    .faq-item summary h3 { font-size: 17px; }
+    .faq-item p { padding-right: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .faq-item summary::after { transition: none; }
+}

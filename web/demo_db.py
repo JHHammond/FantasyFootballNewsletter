@@ -679,6 +679,25 @@ def power_view(season: int, league_id: str, team_id: str = "") -> dict[str, Any]
             "near": near}
 
 
+def power_page(season: int, size: Optional[int] = None, offset: int = 0, limit: int = 50,
+               league_id: str = "", team_id: str = "") -> dict[str, Any]:
+    """migration 037's power_page, from the same arithmetic."""
+    from web.rankings import COLS
+    nat = power_national(season)
+    rows = [dict(zip(COLS, a)) for a in nat["rows"]]
+    sizes: dict = {}
+    for r in rows:
+        if r.get("team_count") is not None:
+            sizes[r["team_count"]] = sizes.get(r["team_count"], 0) + 1
+    f = [r for r in rows if size is None or r.get("team_count") == size]
+    me = next((i + 1 for i, r in enumerate(f) if str(r["league_id"]) == str(league_id)
+               and str(r["team_id"]) == str(team_id)), None)
+    offset, limit = max(0, int(offset)), min(max(1, int(limit)), 200)
+    page = [{**r, "pos": offset + i + 1} for i, r in enumerate(f[offset:offset + limit])]
+    return {"teams": len(rows), "total": len(f), "me": me, "rows": page,
+            "sizes": [{"size": k, "n": v} for k, v in sorted(sizes.items())]}
+
+
 def refresh_power_board(season: int) -> int:
     return len(power_national(season)["rows"])
 

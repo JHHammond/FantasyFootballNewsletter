@@ -29,8 +29,11 @@ WEIGHTS = {"points": 0.5, "allplay": 0.3, "record": 0.2}
 MIN_COVERAGE = 0.75
 NATIONAL_SECONDS = 3600
 VIEW_SECONDS = 600
-TOP_N = 25
-NEAR = 4
+TOP_N = 5          # the preview on the page; the full board opens on demand (7 Oct)
+PAGE = 50
+#: A league size gets its own filter chip once it has this share of the board.
+SIZE_MIN_SHARE = 0.01
+NEAR = 2
 
 #: (share of the country at or below, word): the first that fits.
 TIERS = [
@@ -321,9 +324,74 @@ def league_view(db, season: int, league: dict, team_id: str = "") -> dict:
               "share": t["share"], "record": t["record"],
               "you": bool(chosen and t["team_id"] == chosen["team_id"])}
              for t in sorted(teams, key=lambda t: t["score"])]
+    # Your place among leagues your size ("#142 of 6,210 12-team leagues").
+    you_size = next((r.get("team_count") for r in nat["league"]), None)
+    size_rank = None
+    if chosen and you_size:
+        try:
+            p = board_page(db, season, league, chosen["team_id"], int(you_size), 0, 1)
+            if p.get("me"):
+                size_rank = {"size": int(you_size), "pos": int(p["me"]), "of": p["total"]}
+        except Exception as exc:  # noqa: BLE001
+            print(f"[rankings] size rank unavailable: {exc}", flush=True)
     return {"teams": teams, "unranked": unranked, "chosen": chosen,
+            "size_rank": size_rank, "you_size": you_size,
             "national": n, "through": nat["through"], "top": top, "near": near,
             "board_error": bool(nat.get("error")),
             "dist": [{"lo": i * 5, "n": c, "h": round(100 * c / peak, 1) if peak else 0}
                      for i, c in enumerate(nat["dist"])],
             "marks": marks, "stats_league_id": stats_id}
+
+
+# ---------------------------------------------------------------------------
+# The full board (7 Oct, John: "the list of the top people nationally should
+# be smaller, but you should be able to open it and scroll around on it ...
+# filterable to different league sizes")
+# ---------------------------------------------------------------------------
+
+def size_chips(sizes: list[dict], total: int) -> list[dict]:
+    """Every league size common enough to be worth a filter: [{size, n}],
+    smallest first. Rare sizes (a 7-team league) stay under "All"."""
+    floor = max(1, math.ceil(total * SIZE_MIN_SHARE)) if total else 1
+    return [{"size": int(s["size"]), "n": int(s["n"])} for s in sizes
+            if s.get("size") is not None and int(s["n"]) >= floor]
+
+
+def board_page(db, season: int, league: dict, team_id: str = "",
+               size: Optional[int] = None, offset: int = 0,
+               limit: int = PAGE) -> dict:
+    """One page of the whole national board as the browser needs it: your
+    league's teams by name, everyone else anonymous, each with its place in
+    the filter and its national rank."""
+    from web import luck
+    from web.around import describe
+    lrows, stats_id = luck._cached(("league", season, league["id"]),
+                                   lambda: luck._league_rows(db, season, league))
+    names = {str(r["team_id"]): r for r in lrows}
+    key = ("page", season, str(stats_id), str(team_id or ""), size, int(offset), int(limit))
+    hit = _cache.get(key)
+    if hit and time.time() - hit[0] < VIEW_SECONDS:
+        raw = hit[1]
+    else:
+        raw = db.power_page(season, size=size, offset=offset, limit=limit,
+                            league_id=str(stats_id), team_id=str(team_id or "")) or {}
+        _cache[key] = (time.time(), raw)
+    n = int(raw.get("teams") or 0)
+    rows = []
+    for a in raw.get("rows") or []:
+        r = _row(a)
+        mine = r["league_id"] == str(stats_id)
+        own = names.get(r["team_id"]) if mine else None
+        d = _decorate(r, n)
+        rows.append({
+            "pos": int(a.get("pos") or 0), "rank": r["rank"], "score": r["score"],
+            "ppg": r["ppg"], "record": d["record"], "tier": d["tier"],
+            "share": d["share"], "team_count": r.get("team_count"),
+            "mine": mine,
+            "you": bool(mine and team_id and r["team_id"] == str(team_id)),
+            "label": (own.get("team_name") or "") if own else describe(r, cap=True),
+            "sub": (own.get("manager") or "") if own else "",
+        })
+    return {"teams": n, "total": int(raw.get("total") or 0), "me": raw.get("me"),
+            "size": size, "offset": int(offset), "rows": rows,
+            "sizes": size_chips(raw.get("sizes") or [], n)}

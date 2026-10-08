@@ -1359,6 +1359,43 @@ def rankings_page(request: Request, league: str = "", team: str = ""):
                    week=nfl_week.completed_week(), weights=rankings.WEIGHTS)
 
 
+@app.get("/rankings/board")
+def rankings_board(request: Request, league: str = "", team: str = "", size: str = "",
+                   offset: int = 0, limit: int = 50, around: str = ""):
+    """The whole national board, 50 rows at a time, for the scrolling list
+    the page opens (7 Oct). Same gate as /rankings. ?size=12 keeps only
+    12-team leagues; ?around=me starts the page a few rows above your team."""
+    import nfl_week
+    from . import rankings
+    public = os.getenv("RANKINGS_PUBLIC", "").strip() == "1"
+    user = current_user(request)
+    staff = bool(user and user.get("plan") == plans.STAFF)
+    if not user or (not public and not staff):
+        raise HTTPException(status_code=404)
+    season = nfl_week.current_season()
+    mine = [l for l in db.leagues_for_user(user["id"])
+            if int(l.get("season") or 0) == season and l.get("public_slug")]
+    chosen = next((l for l in mine if l["public_slug"] == league), None)
+    if not chosen and league and staff:
+        chosen = db.league_by_public_slug(league)
+    if not chosen:
+        raise HTTPException(status_code=404)
+    team = clean_text(team, max_length=80) or str(chosen.get("my_team_id") or "")
+    size_n = int(size) if size.isdigit() and 2 <= int(size) <= 40 else None
+    offset = max(0, min(int(offset or 0), 1_000_000))
+    limit = max(1, min(int(limit or 50), rankings.PAGE))
+    try:
+        if around == "me" and team:
+            probe = rankings.board_page(db, season, chosen, team, size_n, 0, 1)
+            if probe.get("me"):
+                offset = max(0, int(probe["me"]) - 1 - 10)
+        page = rankings.board_page(db, season, chosen, team, size_n, offset, limit)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rankings] board page failed: {exc}", flush=True)
+        return JSONResponse({"error": "The board isn't available right now."}, status_code=503)
+    return JSONResponse(page, headers={"Cache-Control": "private, max-age=60"})
+
+
 # ---------------------------------------------------------------------------
 # The NFL wire (staff)
 #
@@ -2519,7 +2556,11 @@ def _render_index(request: Request, error: str = ""):
     """The homepage, with everything it needs, from any route that shows it."""
     import nfl_week
     from datetime import date
+    from . import seo
     season, week = nfl_week.current_season(), nfl_week.completed_week()
+    names = [p["display_name"] for p in _implemented_providers()]
+    platforms = (", ".join(names[:-1]) + " and " + names[-1]) if len(names) > 1 else "".join(names)
+    faq = seo.faq(platforms or "Sleeper and ESPN")
     return _render(request, "index.html",
                    providers=_implemented_providers(),
                    sample_paper_url=SAMPLE_PAPER_URL,
@@ -2529,6 +2570,7 @@ def _render_index(request: Request, error: str = ""):
                    today=date.today(),
                    wire=homepage_wire(season, week),
                    league_count=league_count(),
+                   faq=faq, schema=seo.schema(public_base_url(), faq),
                    error=error)
 
 
@@ -4159,40 +4201,20 @@ def terms(request: Request):
 
 @app.get("/robots.txt")
 def robots():
-    """Keep crawlers off the papers and the manage pages.
-
-    The paper is meant to travel as a link in a group chat, not to become the
-    search result for a real person's name attached to an AI insult. The
-    landing page is the part worth indexing.
-    """
-    body = (
-        "User-agent: *\n"
-        "Disallow: /p/\n"
-        "Disallow: /l/\n"
-        "Disallow: /recover\n"
-        "Disallow: /subscribe/\n"
-        "Disallow: /unsubscribe/\n"
-        "Disallow: /stop/\n"
-        "Allow: /$\n"
-        f"\nSitemap: {public_base_url()}/sitemap.xml\n"
-    )
-    return Response(content=body, media_type="text/plain")
+    """Crawlers (search and AI) welcome everywhere except the papers, the
+    manage pages and the email links. The paper is meant to travel as a link
+    in a group chat, not to become the search result for a real person's name
+    attached to an AI insult. See web/seo.py."""
+    from . import seo
+    return Response(content=seo.robots_txt(public_base_url()), media_type="text/plain")
 
 
 @app.get("/sitemap.xml")
 def sitemap():
-    """Only the pages we actually want found."""
-    base = public_base_url()
-    urls = "".join(
-        f"<url><loc>{base}{path}</loc></url>"
-        for path in ("/", "/privacy", "/terms")
-    )
-    return Response(
-        content=('<?xml version="1.0" encoding="UTF-8"?>'
-                 '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-                 f'{urls}</urlset>'),
-        media_type="application/xml",
-    )
+    """Only the pages we actually want found (web/seo.py)."""
+    from . import seo
+    return Response(content=seo.sitemap_xml(public_base_url(), datetime.now(timezone.utc).date().isoformat()),
+                    media_type="application/xml")
 
 
 @app.get("/healthz")

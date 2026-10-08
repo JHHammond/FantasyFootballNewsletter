@@ -1094,6 +1094,16 @@ def power_view(season: int, league_id: str, team_id: str = "") -> dict[str, Any]
                                     "p_team": str(team_id or "")}) or {}
 
 
+def power_page(season: int, size: Optional[int] = None, offset: int = 0, limit: int = 50,
+               league_id: str = "", team_id: str = "") -> dict[str, Any]:
+    """A page of the saved national board, optionally one league size only
+    (migration 037)."""
+    return _rpc_json("power_page", {"p_season": int(season), "p_size": size,
+                                    "p_offset": int(offset), "p_limit": int(limit),
+                                    "p_league": str(league_id) or None,
+                                    "p_team": str(team_id or "") or None}) or {}
+
+
 def refresh_power_board(season: int) -> int:
     """Rebuild the saved board. Usually done by pg_cron; may hit the API's
     time limit from here, which is fine: the cron job catches up."""

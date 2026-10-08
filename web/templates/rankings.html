@@ -176,15 +176,37 @@
 {% endif %}
 
 <section class="ar-sec">
-    <div class="ar-boards ar-boards-2">
-        <article class="ar-board">
-            <h3 class="ar-board-head">The national top {{ view.top|length }}</h3>
-            <p class="ar-board-sub">Teams in your league are named. Everyone else stays anonymous.</p>
-            <ol class="nr-list">
+    <div class="nb-wrap">
+        <article class="nb-card">
+            <header class="nb-card-head">
+                <div>
+                    <h3 class="nb-title">The national board</h3>
+                    <p class="nb-card-sub">{{ num(view.national) }} teams &middot; your league named, everyone else anonymous</p>
+                </div>
+            </header>
+            <ol class="nb-top">
                 {% for r in view.top %}
-                <li class="{% if r.mine %}mine{% endif %}{% if r.you %} you{% endif %}"><span class="nr-n">{{ r.rank }}</span><span class="ar-name">{{ r.label }}<small>{% if r.sub %}{{ r.sub }} &middot; {% endif %}{{ r.record }} &middot; {{ '%.1f'|format(r.ppg) }} PPR a game</small></span><span class="ar-val"><b>{{ '%.1f'|format(r.score) }}</b></span></li>
-                {% else %}<li class="ar-none">Nobody&rsquo;s been ranked yet.</li>{% endfor %}
+                <li class="nb-row{% if r.mine %} mine{% endif %}{% if r.you %} you{% endif %}{% if loop.first %} first{% endif %}">
+                    <span class="nb-pos">{{ r.rank }}</span>
+                    <span class="nb-name">{{ r.label }}<small>{% if r.sub %}{{ r.sub }} &middot; {% endif %}{{ r.record }} &middot; {{ '%.1f'|format(r.ppg) }} PPR a game</small></span>
+                    <span class="nb-score">{{ '%.1f'|format(r.score) }}</span>
+                </li>
+                {% else %}<li class="nb-none">Nobody&rsquo;s been ranked yet.</li>{% endfor %}
+                {% if c and c.rank > view.top|length and view.top %}
+                <li class="nb-gap" aria-hidden="true"><span></span></li>
+                <li class="nb-row mine you">
+                    <span class="nb-pos">{{ num(c.rank) }}</span>
+                    <span class="nb-name">{{ c.team_name }}<small>You &middot; {{ c.record }} &middot; {{ '%.1f'|format(c.ppg) }} PPR a game</small></span>
+                    <span class="nb-score">{{ '%.1f'|format(c.score) }}</span>
+                </li>
+                {% endif %}
             </ol>
+            {% if view.top %}
+            <button type="button" class="nb-open" data-nb-open>See the whole board <span aria-hidden="true">&rsaquo;</span></button>
+            {% endif %}
+            {% if view.size_rank %}
+            <p class="nb-size-note">Among {{ view.size_rank.size }}-team leagues you&rsquo;re <b>#{{ num(view.size_rank.pos) }}</b> of {{ num(view.size_rank.of) }}. <button type="button" class="nb-link" data-nb-open data-nb-size="{{ view.size_rank.size }}" data-nb-me>See where &rsaquo;</button></p>
+            {% endif %}
         </article>
         <article class="ar-board">
             {% if view.near %}
@@ -195,6 +217,7 @@
                 <li class="{% if r.mine %}mine{% endif %}{% if r.you %} you{% endif %}"><span class="nr-n">{{ num(r.rank) }}</span><span class="ar-name">{{ r.label }}<small>{% if r.sub %}{{ r.sub }} &middot; {% endif %}{{ r.record }} &middot; {{ '%.1f'|format(r.ppg) }} PPR a game</small></span><span class="ar-val"><b>{{ '%.1f'|format(r.score) }}</b></span></li>
                 {% endfor %}
             </ol>
+            {% if c %}<button type="button" class="nb-link nb-near-more" data-nb-open data-nb-me>Scroll the board from here &rsaquo;</button>{% endif %}
             <h4 class="nr-how-head">How it&rsquo;s ranked</h4>
             {% else %}
             <h3 class="ar-board-head">How it&rsquo;s ranked</h3>
@@ -207,6 +230,166 @@
         </article>
     </div>
 </section>
+
+{% if view.top %}
+<dialog class="nb-sheet" id="nb-sheet" aria-labelledby="nb-sheet-title"
+        data-league="{{ league.public_slug }}" data-team="{{ c.team_id if c else '' }}" data-total="{{ view.national }}">
+    <div class="nb-sheet-in">
+        <header class="nb-sheet-head">
+            <div>
+                <h2 id="nb-sheet-title" class="nb-title">The national board</h2>
+                <p class="nb-sheet-count" id="nb-count">{{ num(view.national) }} teams in America</p>
+            </div>
+            <button type="button" class="nb-x" data-nb-close aria-label="Close">&times;</button>
+        </header>
+        <div class="nb-filters" role="group" aria-label="League size" id="nb-chips">
+            <button type="button" class="nb-chip on" data-size="" aria-pressed="true">All sizes</button>
+        </div>
+        <div class="nb-tools">
+            <span class="nb-cols"><span>#</span><span>Team</span><span>Score</span></span>
+            {% if c %}<button type="button" class="nb-me" id="nb-me">Jump to {{ c.team_name }}</button>{% endif %}
+        </div>
+        <div class="nb-scroll" id="nb-scroll" tabindex="0">
+            <button type="button" class="nb-more nb-up" id="nb-up" hidden>Show teams above</button>
+            <ol class="nb-list" id="nb-list"></ol>
+            <p class="nb-status" id="nb-status" aria-live="polite"></p>
+        </div>
+    </div>
+</dialog>
+<script>
+(function () {
+    var sheet = document.getElementById("nb-sheet");
+    if (!sheet) return;
+    var list = document.getElementById("nb-list"), scroller = document.getElementById("nb-scroll"),
+        up = document.getElementById("nb-up"), status = document.getElementById("nb-status"),
+        chips = document.getElementById("nb-chips"), count = document.getElementById("nb-count"),
+        meBtn = document.getElementById("nb-me"), sentinel = null;
+    var league = sheet.dataset.league, team = sheet.dataset.team;
+    var st = { size: "", lo: 0, hi: 0, total: 0, busy: -1, done: false, chips: false, gen: 0 };
+    var fmt = function (n) { return Number(n).toLocaleString("en-US"); };
+    var esc = function (t) { var d = document.createElement("div"); d.textContent = t == null ? "" : t; return d.innerHTML; };
+
+    function url(offset, around, limit) {
+        var q = "league=" + encodeURIComponent(league) + "&team=" + encodeURIComponent(team) +
+                "&offset=" + offset + (limit ? "&limit=" + limit : "") +
+                (st.size ? "&size=" + st.size : "") + (around ? "&around=me" : "");
+        return "/rankings/board?" + q;
+    }
+    function row(r) {
+        var li = document.createElement("li");
+        li.className = "nb-row" + (r.mine ? " mine" : "") + (r.you ? " you" : "") + (r.pos === 1 ? " first" : "");
+        if (r.you) li.id = "nb-you";
+        var bits = [];
+        if (r.sub) bits.push(esc(r.sub));
+        bits.push(esc(r.record), r.ppg.toFixed(1) + " PPR");
+        if (st.size) bits.push("#" + fmt(r.rank) + " in America");
+        li.innerHTML = '<span class="nb-pos">' + fmt(r.pos) + '</span>' +
+            '<span class="nb-name">' + esc(r.label) + '<small>' + bits.join(" &middot; ") + '</small></span>' +
+            '<span class="nb-score">' + r.score.toFixed(1) + '<small>' + esc(r.tier) + '</small></span>';
+        return li;
+    }
+    function drawChips(sizes) {
+        if (st.chips) return;
+        st.chips = true;
+        sizes.forEach(function (s) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "nb-chip"; b.dataset.size = s.size;
+            b.setAttribute("aria-pressed", "false");
+            b.innerHTML = s.size + "-team<small>" + fmt(s.n) + "</small>";
+            chips.appendChild(b);
+        });
+        markChip();
+    }
+    function markChip() {
+        [].forEach.call(chips.children, function (b) {
+            var on = b.dataset.size === String(st.size);
+            b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+    }
+    function load(offset, where, around, limit) {
+        if (st.busy === st.gen) return Promise.resolve();
+        var gen = st.gen;
+        st.busy = gen;
+        status.textContent = "Loading…";
+        return fetch(url(offset, around, limit), { credentials: "same-origin" })
+            .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+            .then(function (d) {
+                if (gen !== st.gen) return;
+                drawChips(d.sizes || []);
+                st.total = d.total;
+                count.textContent = fmt(d.total) + (st.size ? " teams in " + st.size + "-team leagues" : " teams in America");
+                var frag = document.createDocumentFragment();
+                d.rows.forEach(function (r) { frag.appendChild(row(r)); });
+                if (where === "top") {
+                    var h = scroller.scrollHeight;
+                    list.insertBefore(frag, list.firstChild);
+                    scroller.scrollTop += scroller.scrollHeight - h;
+                    st.lo = d.offset;
+                } else {
+                    if (where === "reset") { list.innerHTML = ""; st.lo = d.offset; }
+                    list.appendChild(frag);
+                    st.hi = d.offset + d.rows.length;
+                }
+                st.done = st.hi >= d.total;
+                up.hidden = st.lo <= 0;
+                if (meBtn) meBtn.hidden = !d.me;
+                status.textContent = d.total ? (st.done ? "That’s everyone." : "") : "No teams in leagues this size yet.";
+            })
+            .catch(function () { if (gen === st.gen) status.textContent = "The board isn’t available right now. Try again in a minute."; })
+            .then(function () {
+                if (st.busy === gen) st.busy = -1;
+                if (gen === st.gen && st.more) setTimeout(st.more, 0);
+            });
+    }
+    function reset(around) {
+        st.gen++; st.lo = 0; st.hi = 0; st.done = false;
+        list.innerHTML = ""; up.hidden = true; scroller.scrollTop = 0;
+        return load(0, "reset", around).then(function () {
+            var you = document.getElementById("nb-you");
+            if (around && you) {
+                scroller.scrollTop = you.offsetTop - scroller.clientHeight / 2 + you.offsetHeight / 2;
+                you.classList.add("flash");
+            }
+        });
+    }
+    function open(size, me) {
+        st.size = size || "";
+        markChip();
+        if (typeof sheet.showModal === "function") sheet.showModal(); else sheet.setAttribute("open", "");
+        document.documentElement.classList.add("nb-lock");
+        reset(me && team);
+    }
+    function close() {
+        if (sheet.open && typeof sheet.close === "function") sheet.close(); else sheet.removeAttribute("open");
+    }
+    sheet.addEventListener("close", function () { document.documentElement.classList.remove("nb-lock"); });
+    [].forEach.call(document.querySelectorAll("[data-nb-open]"), function (b) {
+        b.addEventListener("click", function () { open(b.dataset.nbSize, b.hasAttribute("data-nb-me")); });
+    });
+    sheet.querySelector("[data-nb-close]").addEventListener("click", close);
+    sheet.addEventListener("click", function (e) { if (e.target === sheet) close(); });
+    chips.addEventListener("click", function (e) {
+        var b = e.target.closest(".nb-chip");
+        if (!b || b.dataset.size === String(st.size)) return;
+        st.size = b.dataset.size; markChip(); reset(false);
+    });
+    if (meBtn) meBtn.addEventListener("click", function () { reset(true); });
+    up.addEventListener("click", function () {
+        // Only the rows above the first one showing, so nothing repeats.
+        var n = Math.min(50, st.lo);
+        if (n > 0) load(st.lo - n, "top", false, n);
+    });
+    // More rows as you near the bottom. Checked after every load too, since a
+    // short page can leave the bottom in view with nothing left to scroll.
+    function more() {
+        if (st.done || st.busy === st.gen || !list.children.length) return;
+        if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - 500) load(st.hi, "bottom");
+    }
+    scroller.addEventListener("scroll", more, { passive: true });
+    st.more = more;
+})();
+</script>
+{% endif %}
 {% endif %}
 {% endif %}
 {% endblock %}

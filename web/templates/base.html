@@ -4,7 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}The Commissioner's Desk{% endblock %}</title>
-    <meta name="description" content="{% block description %}Weekly AI-written newspapers for your fantasy football league. Your first three papers are free.{% endblock %}" />
+    <meta name="description" content="{% block description %}A weekly newspaper for your fantasy football league: recaps, power rankings, awards and obituaries written from your league&rsquo;s real results. Your first three papers are free.{% endblock %}" />
+    {% block canonical %}{% if request and not request.url.path.startswith(('/l/', '/p/')) %}<link rel="canonical" href="{{ public_base() }}{{ request.url.path }}" />{% endif %}{% endblock %}
+    {% block head_extra %}{% endblock %}
     {# The brand (John's mark, 1 Oct). #}
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="{{ static_url('brand/favicon-32.png') }}" />
