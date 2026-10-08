@@ -876,9 +876,10 @@ def footer_html(canonical_url: str | None, paper_name: str = "") -> str:
     Always rendered, always hidden on screen. Carries the URL because a PDF
     travels further than the tab it came from.
     """
-    name = paper_name or "The Commissioner's Desk"
+    from html import escape, unescape
+    name = escape(unescape(paper_name or "The Commissioner's Desk"))
     if canonical_url:
-        where = f'Read this edition online at {canonical_url}'
+        where = f'Read this edition online at {escape(unescape(canonical_url))}'
     else:
         where = "Made with The Commissioner&rsquo;s Desk"
     return (f'<div class="print-footer">{name} &middot; {where}</div>')

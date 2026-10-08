@@ -48,6 +48,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from markupsafe import Markup  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -2609,11 +2610,11 @@ def create_league(
         return fail(f"Couldn't reach {provider.title()}. {exc}")
 
     if not info:
-        return fail(
+        return fail(Markup(
             "Couldn't find that league. It should be the long number from your "
             "league's web URL — for example "
             "<code>sleeper.com/leagues/<strong>1234567890123456789</strong>/team</code>."
-        )
+        ))
 
     season = info.season
 
@@ -2621,12 +2622,15 @@ def create_league(
     # Anyone can read a league ID off a URL; that can't be proof of ownership.
     existing = db.find_existing_league(provider, league_id, season)
     if existing:
-        return fail(
-            f"This league already has a paper — "
-            f"<a href='/p/{existing['public_slug']}'>read it here</a>. "
-            f"If it's yours and you lost the link, "
-            f"<a href='/recover'>get it back</a>."
-        )
+        # Markup: the one message here that is meant to be HTML. The slug is
+        # escaped into it; every other message is plain text and the template
+        # escapes it (7 Oct security audit: error|safe let ?error= inject).
+        return fail(Markup(
+            "This league already has a paper — "
+            "<a href='/p/{}'>read it here</a>. "
+            "If it's yours and you lost the link, "
+            "<a href='/recover'>get it back</a>."
+        ).format(quote(str(existing['public_slug']))))
 
     league = db.create_league(
         provider=provider,
@@ -4101,8 +4105,8 @@ def recover(request: Request, email: str = Form(...)):
     if _rate_limited(f"rec:{_client_ip(request)}", RECOVERIES_PER_HOUR):
         return RedirectResponse("/recover?sent=1", status_code=303)
 
-    address = email.strip().lower()
-    leagues = db.leagues_for_email(address) if "@" in address else []
+    address = auth.clean_email(email) or ""
+    leagues = db.leagues_for_email(address) if address else []
 
     if leagues:
         token = slugs.admin_token()

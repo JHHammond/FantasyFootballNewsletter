@@ -176,6 +176,11 @@ def clean_email(value: str) -> Optional[str]:
     address = (value or "").strip().lower()
     if len(address) > 320 or not _EMAIL.match(address):
         return None
+    # Legal in an address, used by nobody, and wildcards to the database's
+    # pattern matching (7 Oct security audit). db._exact_email_pattern escapes
+    # them as well; this keeps them out of the system in the first place.
+    if "%" in address or "*" in address:
+        return None
     return address
 
 

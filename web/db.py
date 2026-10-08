@@ -659,10 +659,29 @@ def subscriber_count(league_id: str) -> int:
 # Magic links — the whole of "authentication"
 # ---------------------------------------------------------------------------
 
+def _exact_email_pattern(email: str) -> Optional[str]:
+    """An email as an ILIKE pattern that matches only itself, ignoring case.
+
+    7 Oct security audit: these lookups passed the address straight to ILIKE,
+    where "_" matches any one character and "%" anything. Someone who owned
+    mike_jones@outlook.com could ask for a password reset, match
+    mike.jones@outlook.com's account, and have the link sent to themselves.
+    Backslash-escape both (and backslash itself). PostgREST also reads "*" as
+    "%" and offers no escape for it, so an address with "*" matches nothing.
+    """
+    value = (email or "").strip().lower()
+    if not value or "*" in value:
+        return None
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def leagues_for_email(email: str) -> list[dict[str, Any]]:
+    pattern = _exact_email_pattern(email)
+    if not pattern:
+        return []
     res = (
         client().table("leagues").select("*")
-        .ilike("owner_email", email.strip()).execute()
+        .ilike("owner_email", pattern).execute()
     )
     return res.data or []
 
@@ -1321,8 +1340,11 @@ def create_user(email: str, password_hash: str) -> Optional[dict[str, Any]]:
 
 
 def user_by_email(email: str) -> Optional[dict[str, Any]]:
+    pattern = _exact_email_pattern(email)
+    if not pattern:
+        return None
     res = (client().table("users").select("*")
-           .ilike("email", (email or "").strip().lower())
+           .ilike("email", pattern)
            .limit(1).execute())
     return res.data[0] if res.data else None
 

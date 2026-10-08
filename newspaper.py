@@ -17,6 +17,39 @@ import themes
 BASE_DIR = Path(__file__).resolve().parent
 
 
+# ---------------------------------------------------------------------------
+# Making untrusted text safe (7 Oct security audit)
+#
+# Team and manager names come from Sleeper/ESPN/Yahoo, where ANY league
+# member can set them, and the AI's words can be steered by those names and
+# by lore. The paper is served from our own domain, so a team called
+# <img src=x onerror=...> used to run its script for every reader, including
+# a signed-in commissioner. Two rules at the point of rendering:
+#
+#   esc()    for text: names, records, headlines, titles, teasers. Idempotent,
+#            so text escaped once further up comes out the same, never
+#            &amp;amp; doubled.
+#   prose()  for HTML prose (stories, award bodies, the lead, Fraud Watch):
+#            the same allowlist sanitizer the editor uses, so <strong>,
+#            <em> and paragraphs survive and scripts and handlers don't.
+#
+# tests/test_paper_safety.py injects a payload into every name and every AI
+# field and checks none of it reaches the page as markup.
+# ---------------------------------------------------------------------------
+
+def esc(value) -> str:
+    if value is None:
+        return ""
+    return _html.escape(_html.unescape(str(value)), quote=True)
+
+
+def prose(value) -> str:
+    if not value:
+        return ""
+    from web.sanitize import clean_html
+    return clean_html(str(value), max_length=60000)
+
+
 def safe(value, fallback=""):
     return fallback if value is None else value
 
@@ -30,7 +63,7 @@ def ed(key, editable):
     """
     if not editable:
         return ""
-    return f' data-edit-key="{key}" contenteditable="true" spellcheck="true"'
+    return f' data-edit-key="{esc(key)}" contenteditable="true" spellcheck="true"'
 
 
 def md(text):
@@ -43,8 +76,8 @@ def md(text):
     if not raw:
         return ""
     if raw.startswith("<"):
-        return raw
-    return markdown.markdown(raw)
+        return prose(raw)
+    return prose(markdown.markdown(raw))
 
 
 def image_entry(images, key):
@@ -787,7 +820,7 @@ def award_detail(title, summary):
 def render_avatar_img(url, alt):
     if not url:
         return ""
-    return f'<img src="{url}" alt="{alt}" class="avatar" />'
+    return f'<img src="{esc(url)}" alt="{esc(alt)}" class="avatar" />'
 
 
 def _award_figure(d):
@@ -820,7 +853,7 @@ def render_awards_html(awards, editable=False, sponsor=None):
 
     for i, award in enumerate(awards):
         desc = award.get("desc") or award_descriptor(award["title"])
-        desc_html = f'<div class="award-desc">{desc}</div>' if desc else ""
+        desc_html = f'<div class="award-desc">{esc(desc)}</div>' if desc else ""
         detail = award.get("detail")
         sponsored = (_award_key(award["title"]) == "OVER OF THE WEEK"
                      and _sponsor_on(sponsor, "award"))
@@ -834,14 +867,14 @@ def render_awards_html(awards, editable=False, sponsor=None):
         cards.append(f"""
         <div class="award-card{' award-sponsored' if sponsored else ''}{' has-figure' if figure else ''}">
             <div class="award-head">
-                <h3 class="award-title"{ed(f"award_title_{i}", editable)}>{award['title']}</h3>
+                <h3 class="award-title"{ed(f"award_title_{i}", editable)}>{esc(award['title'])}</h3>
                 {badge}
             </div>
             {desc_html}
             {figure}
             <div class="award-body">
                 {avatar}
-                <span{ed(f"award_body_{i}", editable)}>{award['body']}</span>
+                <span{ed(f"award_body_{i}", editable)}>{prose(award['body'])}</span>
             </div>
             {cta}
         </div>
@@ -1313,7 +1346,7 @@ def render_standings_html(standings, trends=None, editable=False):
         rows.append(f"""
         <tr{_order_attrs("standings", team["team_name"], editable)}>
             <td class="order-num">{i}</td>
-            <td class="team-cell"><div class="team-in">{avatar}<span>{team['team_name']}</span></div></td>
+            <td class="team-cell"><div class="team-in">{avatar}<span>{esc(team['team_name'])}</span></div></td>
             <td class="nowrap">{team['record']}</td>
             <td class="nowrap">{team['points']:.1f}</td>
             {trend_cell}
@@ -1343,14 +1376,14 @@ def build_power_rankings(power_rankings, ai_comments=None, editable=False):
 
         avatar_html = ""
         if avatar_url:
-            avatar_html = f'<img src="{avatar_url}" alt="{name}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid #111;margin:6px auto 4px;display:block;" />' 
+            avatar_html = f'<img src="{esc(avatar_url)}" alt="{esc(name)}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid #111;margin:6px auto 4px;display:block;" />' 
 
         cards.append(f'''
         <div class="ranking-card"{_order_attrs("rankings", name, editable)}>
             <div class="ranking-card-rank" style="color:{rank_color};">#{i}</div>
             {avatar_html}
-            <div class="ranking-card-name">{name}</div>
-            <div class="ranking-card-comment"{ed(f"ranking:{name}", editable)}>{comment}</div>
+            <div class="ranking-card-name">{esc(name)}</div>
+            <div class="ranking-card-comment"{ed(f"ranking:{name}", editable)}>{esc(comment)}</div>
         </div>''')
 
     rows, start = [], 0
@@ -1461,9 +1494,9 @@ def render_scorebar(story, compact=False):
 
     def side(name, record, score, css):
         return (f'<div class="st-text">'
-                f'<div class="story-team-name" style="font-size:{font_size};">{name}</div>'
+                f'<div class="story-team-name" style="font-size:{font_size};">{esc(name)}</div>'
                 f'<div class="story-team-meta" style="font-size:{meta_size};">'
-                f'<span class="st-rec">{record}</span><span class="st-dot"> &bull; </span>'
+                f'<span class="st-rec">{esc(record)}</span><span class="st-dot"> &bull; </span>'
                 f'<span class="st-pts {css}">{score:.1f}</span></div></div>')
 
     return f'''
@@ -1512,6 +1545,11 @@ def render_matchup_stories_html(stories, editable=False, images=None,
     """
     images = images or {}
     auto_photos = auto_photos or {}
+    # Safe copies: text escaped, prose sanitized. The caller's list is left
+    # alone, because it is also matched by team name elsewhere.
+    stories = [dict(st, headline=esc(st.get("headline")), subhead=esc(st.get("subhead")),
+                    body=prose(st.get("body")))
+               for st in stories]
 
     html_parts = []
 
@@ -2038,7 +2076,7 @@ def build_fraud_case(summary, matchups):
 def _teaser_link(winner, loser, anchors):
     """'X def. Y' for the front page, linked to that game's story when there
     is one to link to."""
-    text = f"{winner} def. {loser}"
+    text = f"{esc(winner)} def. {esc(loser)}"
     anchor = anchors.get(frozenset((winner, loser)))
     return f'<a class="teaser-link" href="#{anchor}">{text}</a>' if anchor else text
 
@@ -2306,7 +2344,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         margin = game.get("margin", 0)
 
         teaser = teaser_by_winner.get(w, "")
-        teaser_html = f'<div class="col-story-teaser">{teaser}</div>' if teaser else ""
+        teaser_html = f'<div class="col-story-teaser">{esc(teaser)}</div>' if teaser else ""
 
         front_left_parts.append(f'''
         <div class="col-story">
@@ -2521,6 +2559,14 @@ def _render_html(edition, theme=None):
     on top of it, so the default is untouched by construction and a new
     theme can never break an existing one.
     """
+    edition = dict(edition)
+    for key in ("paper_name", "page_title", "edition_line", "dateline_left",
+                "dateline_right", "edition_subtitle", "subheadline"):
+        if edition.get(key):
+            edition[key] = esc(edition[key])
+    for key in ("lead_story", "fraud_watch"):
+        if edition.get(key):
+            edition[key] = prose(edition[key])
     theme_fonts = themes.fonts_for(theme)
     theme_css = themes.css_for(theme)
     # A second layout, for paper. See printing.py.
@@ -2532,7 +2578,8 @@ def _render_html(edition, theme=None):
                                         edition.get("paper_name", ""))
     # Some themes want the writer's ALL CAPS set as title case. CSS can
     # only uppercase, so the transform has to happen here.
-    display_headline = themes.headline_for(theme, edition['headline'])
+    # Transformed first (title case would mangle an entity), escaped after.
+    display_headline = esc(themes.headline_for(theme, _html.unescape(str(edition['headline'] or ""))))
     return f"""
 <!DOCTYPE html>
 <html lang="en">

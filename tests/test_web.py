@@ -6218,3 +6218,53 @@ def test_schema_prices_match_the_plans():
 
 def test_no_canonical_on_manage_pages(client, league):
     assert 'rel="canonical"' not in client.get("/l/secret-admin-token").text
+
+
+# --- 7 Oct security audit -----------------------------------------------------
+
+def test_error_query_param_is_text_not_html(client):
+    html = client.get("/", params={"error": "<script>alert(1)</script>"}).text
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+
+def test_create_league_provider_is_not_html(client):
+    html = client.post("/leagues", data={"provider": "<img src=x onerror=alert(1)>",
+                                         "league_id": "1"}).text
+    assert "<img src=x onerror" not in html
+
+
+def test_email_lookups_cannot_wildcard(monkeypatch):
+    """ILIKE treats _ and % as wildcards; the patterns must match only the
+    address itself."""
+    from web import db as real_db
+    seen = []
+
+    class Q:
+        def __getattr__(self, name):
+            def call(*args, **kw):
+                if name == "ilike":
+                    seen.append(args[1])
+                if name == "execute":
+                    return type("R", (), {"data": []})()
+                return self
+            return call
+
+    class C:
+        def table(self, *_):
+            return Q()
+
+    monkeypatch.setattr(real_db, "client", lambda: C())
+    real_db.user_by_email("Mike_Jones@Outlook.com")
+    real_db.leagues_for_email("a%b@x.co")
+    assert seen == ["mike\\_jones@outlook.com", "a\\%b@x.co"]
+    seen.clear()
+    assert real_db.user_by_email("x*@y.com") is None and seen == []
+    assert real_db.leagues_for_email("") == []
+
+
+def test_clean_email_refuses_wildcard_characters():
+    from web import auth
+    assert auth.clean_email("mike_jones@outlook.com") == "mike_jones@outlook.com"
+    assert auth.clean_email("%@outlook.com") is None
+    assert auth.clean_email("a*@outlook.com") is None

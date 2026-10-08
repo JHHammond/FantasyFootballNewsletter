@@ -7,7 +7,7 @@
     <h1 class="page-title">Connect your ESPN league</h1>
 </div>
 
-{% if error %}<div class="alert alert-error">{{ error|safe }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
 <section class="card">
     <form method="post" action="/connect/espn" class="stack">
