@@ -78,6 +78,8 @@ from .generate import (  # noqa: E402
     generate_and_store,
     letter_from_html,
     managers_for_page,
+    NAME_STYLES,
+    name_style as league_name_style,
     paper_name_for,
     public_base_url,
     render_and_store,
@@ -238,6 +240,24 @@ def favicon():
 # which behind a proxy reports http:// and the internal hostname.
 templates.env.globals["public_base"] = public_base_url
 templates.env.globals["theme_choices"] = themes.choices
+
+# The example text in each leaguemate's notes box (John, 9 Oct): a different
+# one per box, so twelve rows don't all say the same thing. Taken in order
+# and wrapped, so a page always shows the same example in the same row.
+templates.env.globals["note_examples"] = (
+    "Always drafts a kicker before a WR2.",
+    "Drafted Kyle Pitts in the fifth round.",
+    "Sends completely ridiculous trades.",
+    "Hasn't made the playoffs since 2021. Still talks like a contender.",
+    "Sets a lineup on Thursday and never looks at it again.",
+    "Still brings up the 2022 trade.",
+    "Drafts every player from one NFL team.",
+    "Won the league once and won't let anyone forget it.",
+    "Picks up a defense every Sunday morning in a panic.",
+    "Owes the league chat a drink for the zero last year.",
+    "Trades for the injured guy every single time.",
+    "Commissioner. Very proud of it.",
+)
 
 
 #: `|title` turns "espn" into "Espn", which looks like a typo to anybody who
@@ -2758,7 +2778,8 @@ def remove_lore(token: str, lore_id: str):
 def save_managers(token: str,
                   handle: list[str] = Form([]),
                   display_name: list[str] = Form([]),
-                  notes: list[str] = Form([])):
+                  notes: list[str] = Form([]),
+                  name_style: str = Form("")):
     """One save for the whole page of people.
 
     The three lists are positional: browsers submit fields in document order,
@@ -2771,6 +2792,7 @@ def save_managers(token: str,
     on league_id and handle and updates, so a forged handle updates nothing.
     """
     league = _require_league(token)
+    _save_name_style(league, name_style)
 
     if not _save_managers(league, handle, display_name, notes):
         return RedirectResponse(
@@ -2778,6 +2800,23 @@ def save_managers(token: str,
             f"Try+again.", status_code=303)
 
     return RedirectResponse(f"/l/{token}?notice=Saved.", status_code=303)
+
+
+def _save_name_style(league: dict, value: str) -> None:
+    """Team names or first names in the paper (John, 9 Oct).
+
+    Anything but a known value is ignored rather than reset: a form that
+    doesn't carry the field must not flip a league back to team names. Fails
+    soft if migration 039 hasn't run, so the rest of the save still lands.
+    """
+    value = (value or "").strip().lower()
+    if value not in NAME_STYLES or value == league_name_style(league):
+        return
+    try:
+        db.update_league(league["id"], {"name_style": value})
+    except Exception as exc:  # noqa: BLE001 — migration 039 not run yet
+        print(f"[names] could not save name_style: "
+              f"{type(exc).__name__}: {exc}", flush=True)
 
 
 def _save_managers(league: dict, handle: list, display_name: list,
@@ -3025,6 +3064,7 @@ def save_setup(
     handle: list[str] = Form([]),
     display_name: list[str] = Form([]),
     notes: list[str] = Form([]),
+    name_style: str = Form(""),
     then: str = Form(""),
     letter: str = Form(""),
     week: str = Form(""),
@@ -3035,6 +3075,7 @@ def save_setup(
     # the people boxes is not a reason to lose the rest of the setup.
     if handle:
         _save_managers(league, handle, display_name, notes)
+    _save_name_style(league, name_style)
 
     year = None
     if founded_year.strip().isdigit():

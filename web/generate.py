@@ -131,8 +131,39 @@ def manager_directory(games: list) -> list[dict[str, str]]:
     return list(seen.values())
 
 
+#: How the paper refers to the people in a league (John, 9 Oct). "team" is
+#: the default and how every paper read before the setting existed; "first"
+#: means the name the commissioner typed in the leaguemates boxes. A person
+#: with no name typed falls back to their team name either way — never to a
+#: platform username.
+NAME_STYLES = ("team", "first")
+
+
+def name_style(league: dict[str, Any] | None) -> str:
+    style = ((league or {}).get("name_style") or "team").strip().lower()
+    return style if style in NAME_STYLES else "team"
+
+
+def first_names_by_team(managers: list | None,
+                        teams: dict[str, str] | None) -> dict[str, str]:
+    """{team name: the name the league calls that person}.
+
+    For the pieces of the paper filled in by code rather than by the writer
+    (the pull quote's byline, the obituaries), which never see the league
+    background and so can't be told the rule in words.
+    """
+    out: dict[str, str] = {}
+    for m in managers or []:
+        name = (m.get("display_name") or "").strip()
+        team = ((teams or {}).get(m.get("handle") or "") or "").strip()
+        if name and team:
+            out[team] = name
+    return out
+
+
 def build_manager_context(managers: list,
-                          teams: dict[str, str] | None = None) -> str:
+                          teams: dict[str, str] | None = None,
+                          style: str = "team") -> str:
     """Who these people are, for the writer.
 
     Two separate things, and the second is the one that changes how a paper
@@ -152,14 +183,22 @@ def build_manager_context(managers: list,
     if not known:
         return ""
 
-    lines = [
-        "THE PEOPLE IN THIS LEAGUE, by team. Refer to each side by its TEAM "
-        "NAME; use the person's NAME only now and then, mostly for a "
-        "decision they made. Never write a platform username. "
-        "The notes are standing facts about that person; bring one up "
-        "when this week gives you a reason and leave it alone when it does "
-        "not. Never explain a note, and never invent one."
-    ]
+    notes_rule = ("The notes are standing facts about that person; bring one "
+                  "up when this week gives you a reason and leave it alone "
+                  "when it does not. Never explain a note, and never invent "
+                  "one.")
+    if style == "first":
+        rule = ("THE PEOPLE IN THIS LEAGUE, by team. THIS LEAGUE GOES BY FIRST "
+                "NAMES: call each person by the name given below — in "
+                "headlines, recaps, awards, everywhere — not by their team "
+                "name. Use a team name only where the team name is itself "
+                "the joke. A team with no name below goes by its team name. "
+                "Never write a platform username. ")
+    else:
+        rule = ("THE PEOPLE IN THIS LEAGUE, by team. Refer to each side by its "
+                "TEAM NAME; use the person's NAME only now and then, mostly "
+                "for a decision they made. Never write a platform username. ")
+    lines = [rule + notes_rule]
     for manager in known[:MAX_MANAGERS_IN_PROMPT]:
         handle = manager.get("handle") or ""
         name = (manager.get("display_name") or "").strip()
@@ -254,7 +293,7 @@ def build_league_context(league: dict[str, Any], lore_entries: list,
         )
         parts.extend(f"- {entry['entry']}" for entry in selected)
 
-    people = build_manager_context(managers, teams)
+    people = build_manager_context(managers, teams, name_style(league))
     if people:
         parts.append(people)
 
@@ -896,6 +935,9 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         editor_bits=editor_bits_for(db, season, week, week_data),
         national=_national.writer_facts(stack_up),
         must_use=must_use,
+        call_by=(first_names_by_team(
+                     managers, {m["handle"]: m["team_name"] for m in directory})
+                 if name_style(league) == "first" else None),
     )
     if stack_up:
         ai_content["national"] = stack_up

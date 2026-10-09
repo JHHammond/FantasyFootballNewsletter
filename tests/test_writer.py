@@ -2953,3 +2953,38 @@ def test_the_ledger_counts_what_fixing_cost():
     writer._ledger.fixing = False
     assert len(led.fix_calls) == 1 and abs(led.fix_cost() - 0.002) < 1e-9
     assert "tell fixes: 1 calls, $0.0020" in led.summary()
+
+
+# --- Team names or first names (John, 9 Oct) --------------------------------
+
+def test_a_first_name_league_signs_the_pull_quote_with_the_person(swap_client, no_sleeping):
+    ctx, winner, loser = _pq_names()
+    swap_client(lambda _k: _reply(f"QUOTE: We are revisiting the plan.\nBY: {loser}"))
+    out = writer.generate_pull_quote([ctx], call_by={loser: "Will"})
+    assert out["by"] == "Will"
+    assert out["team"] == ctx["loser"]
+
+
+def test_a_team_name_league_signs_the_pull_quote_with_the_team(swap_client, no_sleeping):
+    ctx, winner, loser = _pq_names()
+    swap_client(lambda _k: _reply(f"QUOTE: We are revisiting the plan.\nBY: {loser}"))
+    assert writer.generate_pull_quote([ctx])["by"] == loser
+
+
+def test_a_first_name_league_gets_first_names_in_the_obituaries():
+    dead = [{"name": "Ja'Marr Chase", "points": 3.2, "projected": 20.4,
+             "team": "Sell the Falcons", "manager": "WillDavidson10",
+             "nfl_team": "CIN"}]
+    named = " ".join(str(o) for o in writer.generate_obituaries(
+        dead, call_by={"Sell the Falcons": "Will"}))
+    assert "Will" in named and "Sell the Falcons" not in named
+
+    plain = " ".join(str(o) for o in writer.generate_obituaries(dead))
+    assert "Sell the Falcons" in plain
+
+
+def test_the_voice_guide_leaves_room_for_a_first_name_league():
+    """The voice guide is cached across every league, so the switch can't
+    live in it; it has to defer to the league background."""
+    assert "GOES BY FIRST" in writer.KEVLARVILLE_SYSTEM_PROMPT
+    assert "TEAM NAME" in writer.KEVLARVILLE_SYSTEM_PROMPT

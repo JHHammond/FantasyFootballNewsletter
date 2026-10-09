@@ -6268,3 +6268,92 @@ def test_clean_email_refuses_wildcard_characters():
     assert auth.clean_email("mike_jones@outlook.com") == "mike_jones@outlook.com"
     assert auth.clean_email("%@outlook.com") is None
     assert auth.clean_email("a*@outlook.com") is None
+
+
+# --- Team names or first names (John, 9 Oct) --------------------------------
+
+def test_a_league_goes_by_team_names_unless_told_otherwise():
+    from web.generate import name_style
+
+    assert name_style({}) == "team"
+    assert name_style({"name_style": None}) == "team"
+    assert name_style({"name_style": "nonsense"}) == "team"
+    assert name_style({"name_style": "first"}) == "first"
+
+
+def test_a_first_name_league_tells_the_writer_to_use_first_names():
+    from web.generate import build_manager_context
+
+    people = [{"handle": "WillDavidson10", "display_name": "Will", "notes": ""}]
+    teams = {"WillDavidson10": "Sell the Falcons"}
+
+    first = build_manager_context(people, teams, "first")
+    assert "GOES BY FIRST NAMES" in first
+    assert "- Sell the Falcons is Will" in first
+    assert "WillDavidson10" not in first
+
+    team = build_manager_context(people, teams)
+    assert "GOES BY FIRST NAMES" not in team
+    assert "TEAM NAME" in team
+
+
+def test_the_league_setting_reaches_the_league_background():
+    from web.generate import build_league_context
+
+    people = [{"handle": "will", "display_name": "Will", "notes": ""}]
+    ctx = build_league_context({"format": "redraft", "name_style": "first"},
+                               [], people, {"will": "Sell the Falcons"})
+    assert "GOES BY FIRST NAMES" in ctx
+
+
+def test_first_names_are_mapped_by_team_and_blanks_are_left_out():
+    from web.generate import first_names_by_team
+
+    got = first_names_by_team(
+        [{"handle": "will", "display_name": " Will "},
+         {"handle": "mike", "display_name": ""},
+         {"handle": "ghost", "display_name": "Casper"}],
+        {"will": "Sell the Falcons", "mike": "Mike's Team"})
+    assert got == {"Sell the Falcons": "Will"}
+
+
+def test_the_manage_page_offers_team_or_first_names(client, league):
+    demo_db.remember_managers(league["id"], ["mikevidan3"])
+    text = client.get("/l/secret-admin-token").text
+    assert 'name="name_style" value="team" checked' in text
+    assert 'name="name_style" value="first"' in text
+
+
+def test_saving_people_can_switch_the_paper_to_first_names(client, league):
+    demo_db.remember_managers(league["id"], ["mikevidan3"])
+
+    client.post("/l/secret-admin-token/managers", data={
+        "handle": ["mikevidan3"], "display_name": ["Mike"], "notes": [""],
+        "name_style": "first",
+    }, follow_redirects=False)
+    assert demo_db._LEAGUES[league["id"]]["name_style"] == "first"
+    text = client.get("/l/secret-admin-token").text
+    assert 'name="name_style" value="first" checked' in text
+
+    # A form without the field, or with junk in it, changes nothing.
+    for junk in ({}, {"name_style": "<script>"}):
+        client.post("/l/secret-admin-token/managers", data={
+            "handle": ["mikevidan3"], "display_name": ["Mike"], "notes": [""],
+            **junk}, follow_redirects=False)
+        assert demo_db._LEAGUES[league["id"]]["name_style"] == "first"
+
+    client.post("/l/secret-admin-token/managers", data={
+        "handle": ["mikevidan3"], "display_name": ["Mike"], "notes": [""],
+        "name_style": "team",
+    }, follow_redirects=False)
+    assert demo_db._LEAGUES[league["id"]]["name_style"] == "team"
+
+
+def test_each_notes_box_has_its_own_example(client, league):
+    """John, 9 Oct: twelve boxes all saying the same thing reads as a template."""
+    from web.app import templates
+    examples = templates.env.globals["note_examples"]
+    demo_db.remember_managers(league["id"], ["a", "b", "c"])
+    text = client.get("/l/secret-admin-token").text
+    for example in examples[:3]:
+        assert f'placeholder="{example}"' in text

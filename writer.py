@@ -292,6 +292,9 @@ they are the joke the league already enjoys. Use the person's real name (where
 the people list gives one) only now and then, mainly when the sentence is
 about a decision that person made. NEVER write a platform username (a handle
 like WillDavidson10) — John, 23 Sep: the whole paper goes by team names.
+THE ONE EXCEPTION: if the league background says THIS LEAGUE GOES BY FIRST
+NAMES, follow it — each person by the name it gives, everywhere, and the team
+name only where the team name is itself the joke.
 
 You do not know anybody's gender. Not the managers, not the players. Refer to
 a manager by their team name or their name, and to a player by their surname. Do
@@ -1862,7 +1865,7 @@ HOW A HEADLINE WORKS
 - A reader who hasn't read the story yet must understand it on first read.
   A pun is fine only if it lands without the story; if it needs explaining,
   write it straight.
-- Teams by their team names, the way the story does. Players by surname — BUT if
+- Each side by the same name the story uses for it. Players by surname — BUT if
   a player's surname is also the name of anybody in this league ({names}),
   use the player's full name, or the reader thinks it means their friend.
 - 5 to 10 words. A number is good if it is the point (a score, a margin).
@@ -2085,7 +2088,9 @@ HOW IT GOES
   the numbers. That is the sentence this paragraph exists for.
 - Let the margin pick the verb. Three points is a nail-biter; sixty is not a
   game. You do not need an adjective for the ones in between.
-- Call each side by its team name. Never a platform username.
+- Call each side by its team name, or by the manager's first name if the
+  league background says this league goes by first names. Never a platform
+  username.
 
 THIS IS THE ONE PART OF THE PAPER THAT PLAYS IT STRAIGHT.
 No insults here. None. The jokes belong in the game recaps where there is
@@ -2352,8 +2357,9 @@ HOW IT SHOULD READ:
 - Scores and margins to one decimal, never two: 11.98 is "12.0", or just
   "twelve".
 - One name per team, the same one all the way through: the team name, or the
-  manager's name if the league background gives one. Never switch between
-  them, and never invent a first name from a username.
+  manager's first name if the league background says this league goes by
+  first names. Never switch between them,
+  and never invent a first name from a username.
 - No injuries, illnesses or anything physical unless the line carries an
   injury tag. "He was limping", "a hamstring issue", "banged up" are
   invented facts. The same for plays, snap counts, quotes and game
@@ -2591,7 +2597,9 @@ write only step 2 — its explanation is printed word for word already.)
    namesake (his team, his role, how he's playing), which goes stale.
 2. One or two sentences on this week's winner.
 
-Round player scores to whole numbers. Refer to teams by their team names.
+Round player scores to whole numbers. In the body, call each side the way the
+rest of the paper does: its team name, or the manager's first name if the
+league background says this league goes by first names.
 Example body: "Every league has a Nick Foles: the backup who could have won it
 all, sitting there the whole time. This week it was Jake Ferguson, who scored
 20 on Sell the Falcons' bench while they started someone else."
@@ -2603,7 +2611,7 @@ THE STANDING AWARDS (the winner is decided — just write it):
 
 Format as a JSON array and nothing else:
 [{{"title": "TONY SNELL WINDSPRINT AWARD", "body": "...", "winner": "team name"}}, ...]
-"winner" is the team the award went to (for the league's own awards, the team
+"winner" is always the exact TEAM NAME the award went to (for the league's own awards, the team
 you chose, or "" if unclaimed).
 
 Inside jokes: {inside_jokes}
@@ -2625,7 +2633,7 @@ Inside jokes: {inside_jokes}
 
 
 def generate_pull_quote(game_contexts, commissioner_name="", system=None,
-                        model=None, body=""):
+                        model=None, body="", call_by=None):
     """The line blown up beside the lead story: a quote from a manager.
 
     It used to be a sentence summarising the lead game, which is the same
@@ -2740,6 +2748,11 @@ BEST: 1, 2 or 3
     speaker = matched or names["loser"]
     side = "winner" if speaker == names["winner"] else "loser"
     team = (ctx.get(side) or "").strip()
+    # A league that goes by first names (9 Oct) signs the quote with the
+    # person, and the team rides along underneath. The model still answers
+    # with a team name above — that is what keeps `by` to the two people in
+    # the game — and the swap happens here, never in the prompt.
+    speaker = ((call_by or {}).get(speaker) or speaker).strip()
     return {"quote": quote, "by": speaker,
             "team": team if team and team != speaker else ""}
 
@@ -2929,7 +2942,8 @@ def generate_game_teasers(game_contexts, commissioner_name="", inside_jokes="", 
     prompt = f"""
 Write ONE punchy teaser line (max 10 words) for each game below.
 These appear in the newspaper's "This Week" column as teasers.
-Be dramatic, funny, and specific. Reference team names.
+Be dramatic, funny, and specific. Name the sides the way the rest of the
+paper does (team names, or first names if the league goes by first names).
 If the commissioner ({commissioner_name}) is involved, be self-aggrandizing.
 No punctuation at the end. No markdown.
 
@@ -3061,7 +3075,7 @@ def _first_name(d) -> str:
     return name.split()[0]
 
 
-def generate_obituaries(dead, system=None, model=None):
+def generate_obituaries(dead, system=None, model=None, call_by=None):
     """Short, deadpan death notices for the week's lowest-scoring starters.
 
     No model call since 23 Sep — John: "simple if-then logic", a rotating set
@@ -3091,6 +3105,8 @@ def generate_obituaries(dead, system=None, model=None):
         # The team, not the handle (John, 23 Sep): "Survived by Wasteland".
         manager = ((d.get("team") or d.get("manager") or "").strip()
                    or "the team that started it")
+        # First-name leagues (9 Oct): "Survived by Will", not the team.
+        manager = (call_by or {}).get(manager) or manager
         stadium = STADIUMS.get((d.get("nfl_team") or "").upper())
         fill = {"first": _first_name(d), "manager": manager, "stadium": stadium,
                 "points": f"{float(d.get('points') or 0):.1f}"}
@@ -3177,7 +3193,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      custom_awards=None,
                                      commissioner_letter=None,
                                      nfl_notes="", national="",
-                                     must_use=None, editor_bits=None):
+                                     must_use=None, editor_bits=None,
+                                     call_by=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -3250,7 +3267,11 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # Obituaries are templates now (23 Sep), so they are filled in here rather
     # than queued: a task that never calls the API would count as a success
     # and hide an outage from the all-failed check.
-    obituary_notices = generate_obituaries(obituaries) if obituaries else []
+    # `call_by` is {team name: first name}, set only when the league goes by
+    # first names: the two bits of the paper filled in by code rather than by
+    # the writer need it, since they never see the league background.
+    obituary_notices = (generate_obituaries(obituaries, call_by=call_by)
+                        if obituaries else [])
 
     # Top-level tasks. The front headline is NOT here: it is written after
     # the lead story, from it — see the second wave below.
@@ -3429,7 +3450,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # so it can play off the story's best line instead of restating the score.
     headline_tasks["pull_quote"] = lambda: generate_pull_quote(
         [gc["ctx"] for gc in game_contexts], commissioner_name, sys_prompt,
-        model_for("pull_quote"), body=results.get("matchup_body_0") or "")
+        model_for("pull_quote"), body=results.get("matchup_body_0") or "",
+        call_by=call_by)
     for i, game_data in enumerate(game_contexts):
         headline_tasks[f"matchup_headline_{i}"] = (
             lambda c=game_data["ctx"], i=i: generate_matchup_headline(
