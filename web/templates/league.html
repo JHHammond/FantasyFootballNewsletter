@@ -213,12 +213,16 @@
             <span class="field-label">In the paper, call everyone by</span>
             <div class="radio-row">
                 <label class="radio-card">
-                    <input type="radio" name="name_style" value="team" {% if league.name_style != 'first' %}checked {% endif %}/>
+                    <input type="radio" name="name_style" value="team" {% if league.name_style not in ('first', 'mix') %}checked {% endif %}/>
                     <span><strong>Team name</strong><em>&ldquo;Sell the Falcons drops another one&rdquo;</em></span>
                 </label>
                 <label class="radio-card">
                     <input type="radio" name="name_style" value="first" {% if league.name_style == 'first' %}checked {% endif %}/>
                     <span><strong>First name</strong><em>&ldquo;Will drops another one&rdquo; &mdash; uses the names below</em></span>
+                </label>
+                <label class="radio-card">
+                    <input type="radio" name="name_style" value="mix" {% if league.name_style == 'mix' %}checked {% endif %}/>
+                    <span><strong>Mix it up</strong><em>&ldquo;Sell the Falcons drops another one. Will has no answers.&rdquo;</em></span>
                 </label>
             </div>
         </div>

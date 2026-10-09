@@ -292,9 +292,11 @@ they are the joke the league already enjoys. Use the person's real name (where
 the people list gives one) only now and then, mainly when the sentence is
 about a decision that person made. NEVER write a platform username (a handle
 like WillDavidson10) — John, 23 Sep: the whole paper goes by team names.
-THE ONE EXCEPTION: if the league background says THIS LEAGUE GOES BY FIRST
+THE EXCEPTIONS: if the league background says THIS LEAGUE GOES BY FIRST
 NAMES, follow it — each person by the name it gives, everywhere, and the team
-name only where the team name is itself the joke.
+name only where the team name is itself the joke. If it says THIS LEAGUE MIXES
+IT UP, go back and forth between the team name and the person's name, the way
+friends talk about each other.
 
 You do not know anybody's gender. Not the managers, not the players. Refer to
 a manager by their team name or their name, and to a player by their surname. Do
@@ -2089,8 +2091,8 @@ HOW IT GOES
 - Let the margin pick the verb. Three points is a nail-biter; sixty is not a
   game. You do not need an adjective for the ones in between.
 - Call each side by its team name, or by the manager's first name if the
-  league background says this league goes by first names. Never a platform
-  username.
+  league background says this league goes by first names, or a mix of the
+  two if it says this league mixes it up. Never a platform username.
 
 THIS IS THE ONE PART OF THE PAPER THAT PLAYS IT STRAIGHT.
 No insults here. None. The jokes belong in the game recaps where there is
@@ -2358,7 +2360,9 @@ HOW IT SHOULD READ:
   "twelve".
 - One name per team, the same one all the way through: the team name, or the
   manager's first name if the league background says this league goes by
-  first names. Never switch between them,
+  first names. Never switch between them — UNLESS the league background says
+  this league mixes it up: then switch freely, but give each side its team
+  name the first time it appears, so nobody loses track of who is who,
   and never invent a first name from a username.
 - No injuries, illnesses or anything physical unless the line carries an
   injury tag. "He was limping", "a hamstring issue", "banged up" are
@@ -2599,7 +2603,8 @@ write only step 2 — its explanation is printed word for word already.)
 
 Round player scores to whole numbers. In the body, call each side the way the
 rest of the paper does: its team name, or the manager's first name if the
-league background says this league goes by first names.
+league background says this league goes by first names, or either one if it
+says this league mixes it up.
 Example body: "Every league has a Nick Foles: the backup who could have won it
 all, sitting there the whole time. This week it was Jake Ferguson, who scored
 20 on Sell the Falcons' bench while they started someone else."
@@ -2943,7 +2948,8 @@ def generate_game_teasers(game_contexts, commissioner_name="", inside_jokes="", 
 Write ONE punchy teaser line (max 10 words) for each game below.
 These appear in the newspaper's "This Week" column as teasers.
 Be dramatic, funny, and specific. Name the sides the way the rest of the
-paper does (team names, or first names if the league goes by first names).
+paper does (team names, first names if the league goes by first names, a mix
+of both if the league mixes it up).
 If the commissioner ({commissioner_name}) is involved, be self-aggrandizing.
 No punctuation at the end. No markdown.
 
@@ -3075,7 +3081,8 @@ def _first_name(d) -> str:
     return name.split()[0]
 
 
-def generate_obituaries(dead, system=None, model=None, call_by=None):
+def generate_obituaries(dead, system=None, model=None, call_by=None,
+                        mix=False):
     """Short, deadpan death notices for the week's lowest-scoring starters.
 
     No model call since 23 Sep — John: "simple if-then logic", a rotating set
@@ -3105,8 +3112,10 @@ def generate_obituaries(dead, system=None, model=None, call_by=None):
         # The team, not the handle (John, 23 Sep): "Survived by Wasteland".
         manager = ((d.get("team") or d.get("manager") or "").strip()
                    or "the team that started it")
-        # First-name leagues (9 Oct): "Survived by Will", not the team.
-        manager = (call_by or {}).get(manager) or manager
+        # First-name leagues (9 Oct): "Survived by Will", not the team. A
+        # league that mixes it up gets every other notice by first name.
+        if not mix or i % 2:
+            manager = (call_by or {}).get(manager) or manager
         stadium = STADIUMS.get((d.get("nfl_team") or "").upper())
         fill = {"first": _first_name(d), "manager": manager, "stadium": stadium,
                 "points": f"{float(d.get('points') or 0):.1f}"}
@@ -3194,7 +3203,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      commissioner_letter=None,
                                      nfl_notes="", national="",
                                      must_use=None, editor_bits=None,
-                                     call_by=None):
+                                     call_by=None, name_mix=False):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -3270,7 +3279,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # `call_by` is {team name: first name}, set only when the league goes by
     # first names: the two bits of the paper filled in by code rather than by
     # the writer need it, since they never see the league background.
-    obituary_notices = (generate_obituaries(obituaries, call_by=call_by)
+    obituary_notices = (generate_obituaries(obituaries, call_by=call_by,
+                                            mix=name_mix)
                         if obituaries else [])
 
     # Top-level tasks. The front headline is NOT here: it is written after

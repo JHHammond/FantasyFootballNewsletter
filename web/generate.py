@@ -135,8 +135,8 @@ def manager_directory(games: list) -> list[dict[str, str]]:
 #: the default and how every paper read before the setting existed; "first"
 #: means the name the commissioner typed in the leaguemates boxes. A person
 #: with no name typed falls back to their team name either way — never to a
-#: platform username.
-NAME_STYLES = ("team", "first")
+#: platform username. "mix" (John, 9 Oct, same day) goes back and forth.
+NAME_STYLES = ("team", "first", "mix")
 
 
 def name_style(league: dict[str, Any] | None) -> str:
@@ -194,6 +194,15 @@ def build_manager_context(managers: list,
                 "name. Use a team name only where the team name is itself "
                 "the joke. A team with no name below goes by its team name. "
                 "Never write a platform username. ")
+    elif style == "mix":
+        rule = ("THE PEOPLE IN THIS LEAGUE, by team. THIS LEAGUE MIXES IT UP: "
+                "go back and forth between each side's team name and the "
+                "person's name given below — in headlines, recaps, awards, "
+                "everywhere — the way friends talk about each other. Give a "
+                "side its team name the first time it appears in a story so "
+                "a reader always knows who is meant. A team with no name "
+                "below goes by its team name. Never write a platform "
+                "username. ")
     else:
         rule = ("THE PEOPLE IN THIS LEAGUE, by team. Refer to each side by its "
                 "TEAM NAME; use the person's NAME only now and then, mostly "
@@ -937,7 +946,8 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         must_use=must_use,
         call_by=(first_names_by_team(
                      managers, {m["handle"]: m["team_name"] for m in directory})
-                 if name_style(league) == "first" else None),
+                 if name_style(league) in ("first", "mix") else None),
+        name_mix=name_style(league) == "mix",
     )
     if stack_up:
         ai_content["national"] = stack_up

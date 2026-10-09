@@ -6357,3 +6357,27 @@ def test_each_notes_box_has_its_own_example(client, league):
     text = client.get("/l/secret-admin-token").text
     for example in examples[:3]:
         assert f'placeholder="{example}"' in text
+
+
+def test_a_mix_it_up_league_tells_the_writer_to_go_back_and_forth():
+    from web.generate import build_manager_context, name_style
+
+    assert name_style({"name_style": "mix"}) == "mix"
+    ctx = build_manager_context(
+        [{"handle": "will", "display_name": "Will", "notes": ""}],
+        {"will": "Sell the Falcons"}, "mix")
+    assert "MIXES IT UP" in ctx
+    assert "GOES BY FIRST NAMES" not in ctx
+    assert "- Sell the Falcons is Will" in ctx
+
+
+def test_saving_people_can_switch_the_paper_to_mix_it_up(client, league):
+    demo_db.remember_managers(league["id"], ["mikevidan3"])
+    client.post("/l/secret-admin-token/managers", data={
+        "handle": ["mikevidan3"], "display_name": ["Mike"], "notes": [""],
+        "name_style": "mix",
+    }, follow_redirects=False)
+    assert demo_db._LEAGUES[league["id"]]["name_style"] == "mix"
+    text = client.get("/l/secret-admin-token").text
+    assert 'name="name_style" value="mix" checked' in text
+    assert 'name="name_style" value="team" checked' not in text

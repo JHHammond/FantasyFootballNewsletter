@@ -2988,3 +2988,12 @@ def test_the_voice_guide_leaves_room_for_a_first_name_league():
     live in it; it has to defer to the league background."""
     assert "GOES BY FIRST" in writer.KEVLARVILLE_SYSTEM_PROMPT
     assert "TEAM NAME" in writer.KEVLARVILLE_SYSTEM_PROMPT
+
+
+def test_a_mix_it_up_league_alternates_names_in_the_obituaries():
+    dead = [{"name": f"Player {n}", "points": 1.0, "team": "Sell the Falcons",
+             "nfl_team": "CIN"} for n in "ABCD"]
+    out = writer.generate_obituaries(
+        dead, call_by={"Sell the Falcons": "Will"}, mix=True)
+    named = ["Will" in o["body"] for o in out]
+    assert named == [False, True, False, True]
