@@ -68,7 +68,7 @@ import plans  # noqa: E402
 import printing  # noqa: E402
 import themes  # noqa: E402
 
-from . import auth, billing, emailer, images, legal, oauth, slugs  # noqa: E402
+from . import auth, billing, emailer, images, legal, oauth, picks, slugs  # noqa: E402
 from . import yahoo_auth  # noqa: E402
 from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
@@ -2721,6 +2721,7 @@ def manage(
         managers=managers_for_page(db, league, weeks),
         papers=papers,
         total_reads=sum(int(p.get("view_count") or 0) for p in papers),
+        line_voters=_line_voters(league, papers),
         regenerations=regenerations,
         regenerations_per_week=regenerations_allowed(owner),
         default_week=default_week(weeks, league["season"]),
@@ -4043,6 +4044,91 @@ def read_paper(request: Request, slug: str, season: int, week: int, embed: int =
         # Editions never change once published.
         headers={"Cache-Control": "public, max-age=3600, s-maxage=86400"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Votes on next week's lines (John, 12 Oct). The paper is cached HTML, so the
+# buttons in it fetch and post here; these answers are never cached. See
+# web/picks.py.
+# ---------------------------------------------------------------------------
+
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
+def _votes_league(request: Request, slug: str, season: int, week: int):
+    if _paper_lookup_blocked(request):
+        raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
+    league = db.league_by_public_slug(slug)
+    if not league or int(league.get("season") or 0) != int(season) or not 1 <= week <= 18:
+        _paper_miss(request)
+        raise HTTPException(status_code=404, detail="No paper at that address.")
+    return league
+
+
+def _line_voters(league: dict, papers: list) -> int:
+    """How many people voted on the latest paper's lines, for the manage
+    page. 0 on any failure, including 041 not run."""
+    if not papers:
+        return 0
+    latest = papers[0]
+    try:
+        rows = db.line_votes(league["id"], latest["season"], latest["week"])
+    except Exception:  # noqa: BLE001
+        return 0
+    return len({r.get("voter") for r in rows})
+
+
+@app.get("/p/{slug}/{season}/week-{week}/lines")
+def line_tallies(request: Request, slug: str, season: int, week: int, v: str = ""):
+    league = _votes_league(request, slug, season, week)
+    voter = v if picks.VOTER_RE.match(v or "") else ""
+    locked = picks.is_locked(season, week)
+    try:
+        rows = db.line_votes(league["id"], season, week)
+    except Exception:  # noqa: BLE001 — migration 041 not run: no buttons
+        return JSONResponse({"enabled": False}, headers=_NO_STORE)
+    return JSONResponse({
+        "enabled": True, "locked": locked,
+        "closes": picks.voting_closes(season, week).isoformat(),
+        "games": picks.public_view(rows, voter, locked),
+    }, headers=_NO_STORE)
+
+
+@app.post("/p/{slug}/{season}/week-{week}/lines")
+async def vote_on_line(request: Request, slug: str, season: int, week: int):
+    """{voter, game, side} as JSON. JSON only, on purpose: a cross-site form
+    can't send it without a preflight this site never approves."""
+    if "application/json" not in (request.headers.get("content-type") or ""):
+        return JSONResponse({"error": "JSON only."}, status_code=415, headers=_NO_STORE)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Bad vote."}, status_code=400, headers=_NO_STORE)
+    voter, game, side = (str(body.get(k) or "") for k in ("voter", "game", "side"))
+    if not (picks.VOTER_RE.match(voter) and picks.GAME_RE.match(game)
+            and side in picks.SIDES):
+        return JSONResponse({"error": "Bad vote."}, status_code=400, headers=_NO_STORE)
+
+    league = await run_in_threadpool(_votes_league, request, slug, season, week)
+    if picks.is_locked(season, week):
+        return JSONResponse({"locked": True, "error": "Voting has closed."},
+                            status_code=409, headers=_NO_STORE)
+    if await run_in_threadpool(_rate_limited, f"vote:{_client_ip(request)}",
+                               picks.VOTES_PER_IP_PER_HOUR):
+        return JSONResponse({"error": "Slow down."}, status_code=429, headers=_NO_STORE)
+    try:
+        await run_in_threadpool(db.save_line_vote, league["id"], season, week,
+                                game, voter, side)
+        rows = await run_in_threadpool(db.line_votes, league["id"], season, week)
+    except Exception:  # noqa: BLE001 — migration 041 not run
+        return JSONResponse({"error": "Voting isn't available."}, status_code=503,
+                            headers=_NO_STORE)
+    view = picks.public_view(rows, voter, False)
+    return JSONResponse({"enabled": True, "locked": False,
+                         "game": game, **view.get(game, {"mine": side})},
+                        headers=_NO_STORE)
 
 
 # ---------------------------------------------------------------------------

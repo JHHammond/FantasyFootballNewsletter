@@ -301,6 +301,8 @@ table.stats th { background: #0f1216 !important; color: #8d9bad !important; }
 .line-chip { border-color: #8d9bad !important; color: #ccd5e0 !important; }
 .line-tag { background: #e8ecf2 !important; color: #0b0d10 !important; border-color: #e8ecf2 !important; }
 .line-tag.coin { background: #c8a200 !important; color: #111 !important; border-color: #c8a200 !important; }
+/* The league's votes on the lines (12 Oct). */
+.lv-bar { background: #2b313c !important; }
 
 /* standings trend lines: light ink on the dark page */
 .spark { color: #e9edf2 !important; }

@@ -79,6 +79,25 @@ def week_final(week: int, season: int):
     return datetime.combine(tuesday, time(8, 0), tzinfo=timezone.utc)
 
 
+def thanksgiving(year: int) -> date:
+    """The fourth Thursday of November."""
+    first = date(year, 11, 1)
+    return first + timedelta(days=(3 - first.weekday()) % 7 + 21)
+
+
+def first_kickoff(week: int, season: int):
+    """When a week's first game starts, in UTC: the Thursday night game at
+    8:15pm Eastern, or 12:30pm on Thanksgiving. Voting on a week's lines
+    closes here (12 Oct). Flexed or international games never start earlier
+    than Thursday, so this is never late."""
+    from datetime import datetime, time, timezone
+    from zoneinfo import ZoneInfo
+    thursday = season_opener(season) + timedelta(days=7 * (week - 1))
+    at = time(12, 30) if thursday == thanksgiving(thursday.year) else time(20, 15)
+    return (datetime.combine(thursday, at, tzinfo=ZoneInfo("America/New_York"))
+            .astimezone(timezone.utc))
+
+
 def is_in_season(today: date | None = None) -> bool:
     """True between the opener and the end of week 18."""
     today = today or date.today()

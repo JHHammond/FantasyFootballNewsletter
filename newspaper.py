@@ -1059,51 +1059,141 @@ def build_numbers_box(team, sponsor=None, n=6):
         </aside>"""
 
 
-def _line_side(name, avatar, points, css):
+
+#: The league's votes on the lines (12 Oct, web/picks.py). The buttons ship
+#: hidden; this only shows them on the paper's own page on our domain — not
+#: the editor, the homepage preview, the PDF, or the raw storage copy — and
+#: only once the server says voting exists for this paper.
+LINE_VOTE_SCRIPT = """<script>
+(function () {
+  if (!/^\\/p\\/[^\\/]+\\/\\d{4}\\/week-\\d+\\/?$/.test(location.pathname)) return;
+  if (/[?&]embed=1/.test(location.search) || !window.fetch) return;
+  var cards = document.querySelectorAll(".lv[data-game]");
+  if (!cards.length) return;
+  var url = location.pathname.replace(/\\/$/, "") + "/lines";
+  var voter = null;
+  try { voter = localStorage.getItem("cd_voter"); } catch (e) {}
+  if (!voter || !/^[0-9a-f]{32}$/.test(voter)) {
+    var a = new Uint8Array(16);
+    if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(a);
+    else for (var i = 0; i < 16; i++) a[i] = Math.random() * 256 | 0;
+    voter = Array.prototype.map.call(a, function (b) {
+      return ("0" + b.toString(16)).slice(-2); }).join("");
+    try { localStorage.setItem("cd_voter", voter); } catch (e) {}
+  }
+  var note = document.querySelector(".lv-note");
+  var board = cards[0].parentNode;
+  function show(card, g, locked) {
+    g = g || {};
+    card.classList.toggle("voted", !!g.mine);
+    card.querySelectorAll(".lv-side").forEach(function (b) {
+      var on = g.mine === b.getAttribute("data-side");
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.disabled = !!locked;
+      b.querySelector(".lv-mark").textContent = on ? "\\u2713 Your pick" : "";
+    });
+    var split = card.querySelector(".lv-split");
+    var f = g.fav || 0, d = g.dog || 0, n = f + d;
+    if (typeof g.fav === "number" && n) {
+      var pf = Math.round(100 * f / n);
+      split.querySelector(".lv-bar span").style.width = pf + "%";
+      split.querySelector(".lv-pf").textContent = pf + "%";
+      split.querySelector(".lv-pd").textContent = (100 - pf) + "%";
+      split.querySelector(".lv-n").textContent = n + (n === 1 ? " vote" : " votes");
+      split.hidden = false;
+    } else split.hidden = true;
+  }
+  function closeAll() {
+    board.classList.remove("lv-open");
+    if (note) note.textContent = "Voting\\u2019s closed. Here\\u2019s how the league picked.";
+    cards.forEach(function (c) { c.querySelectorAll(".lv-side")
+      .forEach(function (b) { b.disabled = true; }); });
+  }
+  fetch(url + "?v=" + voter, { cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.enabled) return;
+      if (note) note.hidden = false;
+      if (!data.locked) board.classList.add("lv-open");
+      cards.forEach(function (card) {
+        show(card, data.games[card.getAttribute("data-game")], data.locked);
+        card.querySelectorAll(".lv-side").forEach(function (b) {
+          b.addEventListener("click", function () {
+            if (b.disabled) return;
+            var side = b.getAttribute("data-side");
+            show(card, { mine: side }, false);
+            fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                         body: JSON.stringify({ voter: voter, side: side,
+                                                game: card.getAttribute("data-game") }) })
+              .then(function (r) {
+                if (r.status === 409) { closeAll(); return null; }
+                return r.ok ? r.json() : null; })
+              .then(function (g) { if (g) show(card, g, false); })
+              .catch(function () {});
+          });
+        });
+      });
+      if (data.locked) closeAll();
+    })
+    .catch(function () {});
+})();
+</script>"""
+
+def _line_side(name, avatar, points, css, vote=False):
+    """One team on the board. With `vote`, a button the league taps to pick
+    that side (12 Oct) — disabled, and so plain text, until LINE_VOTE_SCRIPT
+    turns voting on, which it does only on the paper's own page."""
     face = (f'<img class="lt-avatar" src="{html_escape(avatar)}" alt="" />' if avatar
             else f'<span class="lt-avatar lt-initial">{html_escape((name or "?")[:1].upper())}</span>')
     pts = f'<span class="lt-proj">{float(points):.1f}</span>' if isinstance(points, (int, float)) else ""
-    return (f'<div class="line-team {css}">{face}'
-            f'<span class="lt-name">{html_escape(name)}</span>{pts}</div>')
+    inner = f'{face}<span class="lt-name">{html_escape(name)}</span>{pts}'
+    if not vote:
+        return f'<div class="line-team {css}">{inner}</div>'
+    return (f'<button type="button" class="line-team {css} lv-side" data-side="{css}" '
+            f'aria-pressed="false" disabled>{inner}'
+            f'<span class="lv-mark" aria-hidden="true"></span></button>')
 
 
 def _lines_items(lines, editable=False):
-    """Next week's board: two teams, a big number, and a bar.
+    """Next week's board: two teams and the spread between them.
 
-    No commentary (John's call) — the numbers are the joke. The bar is each
-    side's share of the projected total, which is exactly what the spread is
-    made of, so it shows the same thing the number says.
+    No commentary (John's call) — the numbers are the joke. Since 12 Oct the
+    league votes on it: tap a team to pick it, and a bar shows how the league
+    split. Pared down the same day (John: "it looks a bit busy"): no "favored"
+    chip — the minus sign says it — no tags, and no projection bar, so the
+    only bar on a card is the vote.
     """
+    from web.picks import line_key_for
     lines = [l for l in (lines or []) if l.get("favorite") and l.get("underdog")]
     if not lines:
         return ""
-    biggest = max((float(l.get("spread") or 0) for l in lines), default=0)
+    vote = not editable
     cards = []
     for l in lines:
         fav_pts, dog_pts = l.get("favorite_points"), l.get("underdog_points")
-        share = 50.0
-        if isinstance(fav_pts, (int, float)) and isinstance(dog_pts, (int, float)) and fav_pts + dog_pts > 0:
-            share = round(100 * fav_pts / (fav_pts + dog_pts), 1)
         spread = float(l.get("spread") or 0)
-        if l.get("pickem"):
-            big, tag = "PK", '<span class="line-tag coin">Coin flip</span>'
-        else:
-            big = f"&minus;{spread:g}"
-            tag = ('<span class="line-tag">Biggest spread</span>'
-                   if spread == biggest and len(lines) > 1 else "")
+        big = "PK" if l.get("pickem") else f"&minus;{spread:g}"
         total = l.get("total")
         ou = f'<span class="line-chip">O/U {float(total):g}</span>' if total else ""
+        attrs = (f' data-game="{html_escape(line_key_for(l))}"' if vote else "")
+        split = ('<div class="lv-split" hidden><div class="lv-bar"><span></span></div>'
+                 '<div class="lv-nums"><span class="lv-pf"></span><span class="lv-n">'
+                 '</span><span class="lv-pd"></span></div></div>') if vote else ""
         cards.append(f"""
-            <div class="line-card">
+            <div class="line-card{' lv' if vote else ''}"{attrs}>
                 <div class="line-teams">
-                    {_line_side(l["favorite"], l.get("favorite_avatar"), fav_pts, "fav")}
+                    {_line_side(l["favorite"], l.get("favorite_avatar"), fav_pts, "fav", vote)}
                     <div class="line-big">{big}</div>
-                    {_line_side(l["underdog"], l.get("underdog_avatar"), dog_pts, "dog")}
+                    {_line_side(l["underdog"], l.get("underdog_avatar"), dog_pts, "dog", vote)}
                 </div>
-                <div class="line-bar"><span style="width:{share}%"></span></div>
-                <div class="line-foot">{"" if l.get("pickem") else f'<span class="line-chip fav-chip">{html_escape(l["favorite"])} favored</span>'}{ou}{tag}</div>
+                {split}
+                {f'<div class="line-foot">{ou}</div>' if ou else ''}
             </div>""")
-    return "".join(cards)
+    if not vote:
+        return "".join(cards)
+    note = '<div class="lv-note" hidden>Tap a team to pick. Closes Thursday.</div>'
+    return note + "".join(cards) + LINE_VOTE_SCRIPT
 
 
 #: The most obituaries the back page prints. history.lowest_starters already
@@ -3528,6 +3618,30 @@ def _render_html(edition, theme=None):
         }}
         .line-tag {{ background: #111; color: #fff; }}
         .line-tag.coin {{ background: #c8a200; color: #111; border-color: #c8a200; }}
+        /* The league's votes (12 Oct). Inert until LINE_VOTE_SCRIPT opens
+           voting on the paper's own page; until then the teams are text. */
+        .lv-split[hidden], .lv-note[hidden] {{ display: none !important; }}
+        .lv-note {{ font-size: 12.5px; font-style: italic; margin: 2px 0 4px; }}
+        .lv-side {{ font: inherit; color: inherit; background: none; border: 0; margin: 0;
+                    padding: 6px 4px 4px; border-radius: 8px; width: 100%;
+                    -webkit-tap-highlight-color: transparent; }}
+        .lv-side:disabled {{ color: inherit; opacity: 1; cursor: default; }}
+        .lv-open .lv-side:not(:disabled) {{ cursor: pointer; transition: background .15s, box-shadow .15s; }}
+        .lv-open .lv-side:not(:disabled):hover {{ background: rgba(127,127,127,.10); }}
+        .lv-open .lv:not(.voted) .lv-mark::before {{ content: "Tap to pick"; }}
+        .lv-mark {{ display: block; min-height: 15px; margin-top: 4px; font-size: 10px;
+                    font-weight: 700; letter-spacing: 1px; text-transform: uppercase; opacity: .55; }}
+        .lv-side.on {{ box-shadow: inset 0 0 0 2px var(--accent); }}
+        .lv-side.on .lv-mark {{ color: var(--accent); opacity: 1; }}
+        .lv-side.on .lt-avatar {{ border-color: var(--accent); }}
+        .lv-split {{ margin: 8px 0 2px; }}
+        .lv-bar {{ height: 6px; background: #d9d4ca; display: flex; }}
+        .lv-bar span {{ display: block; height: 100%; background: var(--accent); transition: width .35s; }}
+        .lv-nums {{ display: flex; justify-content: space-between; align-items: baseline;
+                    font-size: 12px; font-weight: 700; margin-top: 4px; }}
+        .lv-n {{ font-weight: 400; font-size: 11px; opacity: .65; }}
+        .line-foot {{ justify-content: center; margin-top: 6px; }}
+        @media print {{ .lv-note, .lv-split, .lv-mark {{ display: none !important; }} }}
         .lines-board {{ padding: 4px 0; }}
         .line-row {{ padding: 9px 0; border-bottom: 1px solid #ddd; }}
         .line-match {{ font-size: 16px; }}

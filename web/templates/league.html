@@ -173,6 +173,9 @@
                     {% if p.view_count %}
                     &middot; {{ p.view_count }} {{ 'read' if p.view_count == 1 else 'reads' }}
                     {% endif %}
+                    {% if loop.first and line_voters %}
+                    &middot; {{ line_voters }} {{ 'person' if line_voters == 1 else 'people' }} voted on the lines
+                    {% endif %}
                     {% set used = [(p.generation_count or 1) - 1, 0]|max %}
                     {% if used %}
                     &middot; regenerated {{ used }} of {{ regenerations_per_week }}

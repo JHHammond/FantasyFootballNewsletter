@@ -612,6 +612,21 @@ def annotate_draft(games: list, picks: dict) -> None:
                     p["draft_note"] = "undrafted in this league (a pickup)"
 
 
+def league_picks_facts(db, league: dict[str, Any], week: int, week_data,
+                       last_lines: list | None) -> str:
+    """The writer's block on how the league's votes on last week's lines
+    went. "" on any failure: this is seasoning."""
+    if week <= 1 or not last_lines:
+        return ""
+    from . import picks
+    try:
+        rows = db.line_votes(league["id"], league["season"], week - 1)
+        return picks.writer_facts(picks.results(last_lines, week_data, rows))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[picks] skipped: {type(exc).__name__}: {exc}", flush=True)
+        return ""
+
+
 def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
     """Streaks, rematches and last week's paper for the writer, plus next
     week's betting lines. Every part is optional: a failure anywhere here
@@ -619,7 +634,7 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
     provider, lid, season = (league["provider"], league["platform_league_id"],
                              league["season"])
     out = {"briefing": "", "lines": [], "memories": {}, "trends": {},
-           "record_book": []}
+           "record_book": [], "last_lines": []}
     try:
         def fetch(w):
             return this_week if w == week else load_week(
@@ -633,6 +648,10 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
                 last_paper = (row or {}).get("ai_cache") or None
             except Exception:  # noqa: BLE001
                 last_paper = None
+
+        # Last paper's lines, so this one can say how the league's votes on
+        # them went (12 Oct, web/picks.py).
+        out["last_lines"] = list((last_paper or {}).get("lines") or [])
 
         pairs = [(str(m.teams[0].team_id), str(m.teams[1].team_id))
                  for m in this_week.matchups]
@@ -901,6 +920,14 @@ def generate_and_store(db, league: dict[str, Any], week: int,
             "Never list records, and never write \"earlier this season\".\n"
             + season_so_far["briefing"]
             + ("\n\n" + league_context if league_context else ""))
+
+    # HOW THE LEAGUE PICKED (12 Oct): readers voted on last paper's lines;
+    # the writer gets the results. Nothing at all if nobody voted, or 041
+    # isn't in.
+    picks_block = league_picks_facts(db, league, week, week_data,
+                                     season_so_far.get("last_lines"))
+    if picks_block:
+        league_context = picks_block + ("\n\n" + league_context if league_context else "")
 
     # BEST STORY LEADS (1 Oct). The games used to run in the platform's
     # matchup order. Ranked once here, before anything is written, and the

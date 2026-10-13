@@ -344,7 +344,7 @@ def test_the_back_page_follows_the_sketch():
     assert "<b>x</b>" not in html
     assert "Projected 12.0 &ndash; Scored 0.0" in html
     assert "&minus;7.5" in html and "O/U 245.5" in html
-    assert ">PK<" in html and "Coin flip" in html
+    assert ">PK<" in html
     # John: no commentary on the previews
     assert "Carson covers." not in html
 
@@ -378,19 +378,25 @@ def test_an_empty_back_page_prints_nothing():
     assert newspaper.render_back_page([], None, [], None) == ""
 
 
-def test_the_line_bar_is_the_favourites_share_of_the_projected_total():
+def test_the_board_is_pared_down_to_the_teams_the_spread_and_the_total():
+    """John, 12 Oct: "it looks a bit busy. I don't think we need to say who
+    is favored. They can tell." The projections stay; the bar, the chip and
+    the tags go."""
     html = newspaper.render_back_page([], None, [
         {"favorite": "A", "underdog": "B", "spread": 30.0, "total": 150.0,
-         "favorite_points": 90.0, "underdog_points": 60.0, "pickem": False}], None)
-    assert 'style="width:60.0%"' in html
-    assert "90.0" in html and "60.0" in html
+         "favorite_points": 90.0, "underdog_points": 60.0, "pickem": False},
+        {"favorite": "C", "underdog": "D", "spread": 1.5, "total": 150.0,
+         "favorite_points": 76.0, "underdog_points": 74.5, "pickem": False}], None)
+    assert "90.0" in html and "60.0" in html and "O/U 150" in html
+    assert "favored" not in html and "Biggest spread" not in html
+    assert 'class="line-bar"' not in html
 
 
 def test_a_pickem_names_no_favourite():
     html = newspaper.render_back_page([], None, [
         {"favorite": "Steve", "underdog": "Mark", "spread": 0.5, "pickem": True,
          "favorite_points": 120.2, "underdog_points": 119.8}], None)
-    assert "favored" not in html and "Coin flip" in html
+    assert "favored" not in html and ">PK<" in html
 
 
 def test_the_quote_byline_carries_the_team_name():

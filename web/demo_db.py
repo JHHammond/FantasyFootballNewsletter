@@ -116,6 +116,9 @@ def delete_league(league_id: str) -> None:
         for key in [k for k in _MANAGERS if k[0] == league_id]:
             del _MANAGERS[key]
 
+        for key in [k for k in list(_LINE_VOTES) if k[0] == league_id]:
+            del _LINE_VOTES[key]
+
         _LEAGUES.pop(league_id, None)
 
 
@@ -407,6 +410,21 @@ def leagues_with_auto_send() -> list[dict[str, Any]]:
 
 
 _TRIAL: set = set()
+
+#: (league_id, season, week, game, voter) -> side. Migration 041.
+_LINE_VOTES: dict = {}
+
+
+def save_line_vote(league_id: str, season: int, week: int, game: str,
+                   voter: str, side: str) -> None:
+    with _lock:
+        _LINE_VOTES[(league_id, int(season), int(week), game, voter)] = side
+
+
+def line_votes(league_id: str, season: int, week: int) -> list[dict[str, Any]]:
+    return [{"game": g, "voter": v, "side": s}
+            for (l, se, w, g, v), s in list(_LINE_VOTES.items())
+            if l == league_id and se == int(season) and w == int(week)]
 
 
 def trial_weeks(provider: str, platform_league_id: str, season: int) -> list[int]:

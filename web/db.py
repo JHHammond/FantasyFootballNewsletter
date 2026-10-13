@@ -1843,6 +1843,26 @@ def trial_weeks_by_league(season: int) -> dict[tuple, set]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Votes on next week's lines (migration 041)
+# ---------------------------------------------------------------------------
+
+def save_line_vote(league_id: str, season: int, week: int, game: str,
+                   voter: str, side: str) -> None:
+    """One vote per voter per game; voting again changes it."""
+    client().table("line_votes").upsert({
+        "league_id": league_id, "season": int(season), "week": int(week),
+        "game": game, "voter": voter, "side": side,
+        "updated_at": "now()",
+    }, on_conflict="league_id,season,week,game,voter").execute()
+
+
+def line_votes(league_id: str, season: int, week: int) -> list[dict[str, Any]]:
+    """Every vote on one paper's lines: [{game, voter, side}]."""
+    return _paged("line_votes", "game, voter, side", league_id=league_id,
+                  season=int(season), week=int(week))
+
+
 def count_trial_papers(season: int) -> int:
     res = (client().table("trial_papers").select("week", count="exact")
            .eq("season", int(season)).limit(1).execute())

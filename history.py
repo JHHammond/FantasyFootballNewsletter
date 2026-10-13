@@ -421,6 +421,11 @@ def round_spread(gap: float) -> float:
     return round(abs(gap) * 2) / 2
 
 
+def line_key(team_a, team_b) -> str:
+    """The same two teams give the same key in either order."""
+    return "-".join(sorted((str(team_a), str(team_b))))
+
+
 def betting_lines(next_week, histories: dict[str, TeamHistory]) -> list[dict]:
     """A line for every game next week.
 
@@ -445,6 +450,11 @@ def betting_lines(next_week, histories: dict[str, TeamHistory]) -> list[dict]:
         fav, dog, fav_pts, dog_pts = (a, b, pa, pb) if pa >= pb else (b, a, pb, pa)
         spread = round_spread(fav_pts - dog_pts)
         lines.append({
+            # Which game this is, for the league's votes on it (12 Oct): the
+            # two team ids, which survive a team renaming itself midweek.
+            "key": line_key(a.team_id, b.team_id),
+            "favorite_id": str(fav.team_id),
+            "underdog_id": str(dog.team_id),
             "favorite": fav.team_name,
             "favorite_manager": fav.manager.display_name,
             "favorite_avatar": fav.manager.avatar_url,
