@@ -190,3 +190,19 @@ class FantasyProvider(ABC):
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} name={self.name!r}>"
+
+
+def week_is_over(week: int, season: int) -> bool:
+    """Has this NFL week's last game been played, by our own clock?
+
+    ESPN and Yahoo only move their "current week" on hours after Monday
+    night — ESPN well into Tuesday morning — so going by them alone kept a
+    finished week off the picker until they got round to it (13 Oct, John:
+    "can we make week 5 go live? I'm getting comments"). Midnight Eastern
+    going into Tuesday, see nfl_week.week_final."""
+    from datetime import datetime, timezone
+    import nfl_week
+    try:
+        return datetime.now(timezone.utc) >= nfl_week.week_final(int(week), int(season))
+    except Exception:  # noqa: BLE001 — a bad season mustn't break the picker
+        return False

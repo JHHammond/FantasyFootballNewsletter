@@ -61,6 +61,7 @@ from typing import Any, Callable, Iterable, Optional
 
 import requests
 
+from . import base as _base
 from .base import (
     AuthRequired,
     FantasyProvider,
@@ -514,7 +515,15 @@ class YahooProvider(FantasyProvider):
         if _league_status(merged) == "complete":
             last = _int(merged.get("end_week"))
         else:
-            last = _int(merged.get("current_week")) - 1
+            current = _int(merged.get("current_week"))
+            last = current - 1
+            # Yahoo's current week is finished once Monday night is over,
+            # before Yahoo rolls on to the next one (13 Oct).
+            if current and _base.week_is_over(current, season):
+                last = current
+            end = _int(merged.get("end_week"))
+            if end:
+                last = min(last, end)
         return list(range(start, last + 1)) if last >= start else []
 
     def season_chain(self, league_id: str, max_hops: int = 10) -> list:

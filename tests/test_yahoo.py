@@ -74,8 +74,17 @@ def test_a_typed_id_is_refused_with_a_sentence(adapter):
         adapter.get_league("24680")
 
 
-def test_finished_weeks_stop_before_the_current_one(adapter):
+def test_finished_weeks_stop_before_the_current_one(adapter, monkeypatch):
+    import providers.base
+    monkeypatch.setattr(providers.base, "week_is_over", lambda w, s: False)
     assert adapter.available_weeks(KEY, 2026) == [1, 2, 3]
+
+
+def test_the_current_week_is_offered_once_monday_night_is_over(adapter, monkeypatch):
+    """13 Oct: Yahoo rolls its current week on after the last game is over."""
+    import providers.base
+    monkeypatch.setattr(providers.base, "week_is_over", lambda w, s: True)
+    assert adapter.available_weeks(KEY, 2026) == [1, 2, 3, 4]
 
 
 def test_user_leagues_lists_the_signed_in_accounts_leagues(adapter):

@@ -44,6 +44,7 @@ from typing import Any, Iterable, Optional
 
 import requests
 
+from . import base as _base
 from .base import (
     AuthRequired,
     FantasyProvider,
@@ -478,6 +479,17 @@ class ESPNProvider(FantasyProvider):
             done = int(current) - 1 if current else int(latest or 0) - 1
         except (TypeError, ValueError):
             return []
+
+        # ...but the week ESPN still calls current is finished once Monday
+        # night is over, hours before ESPN moves on (13 Oct). Only when the
+        # matchup period is a single NFL week, which every regular-season
+        # one is; a two-week playoff round waits for ESPN.
+        try:
+            if (current and latest and int(current) == int(latest)
+                    and _base.week_is_over(int(current), season)):
+                done = int(current)
+        except (TypeError, ValueError):
+            pass
 
         return list(range(1, max(done, 0) + 1))
 

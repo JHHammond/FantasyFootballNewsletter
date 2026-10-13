@@ -885,12 +885,22 @@ def test_espn_lineup_gap_finds_the_benched_stud(espn_week):
     assert team.lineup_gap > 20
 
 
-def test_espn_available_weeks_excludes_the_week_in_progress(espn):
+def test_espn_available_weeks_excludes_the_week_in_progress(espn, monkeypatch):
     """latestScoringPeriod counts the week being played right now, which has
     partial scores. A paper about a Sunday that is still happening is worse
     than no paper."""
+    import providers.base
+    monkeypatch.setattr(providers.base, "week_is_over", lambda w, s: False)
     assert espn.available_weeks(fixtures_espn.LEAGUE_ID,
                                 fixtures_espn.SEASON) == [1, 2]
+
+
+def test_espn_offers_its_current_week_once_monday_night_is_over(espn, monkeypatch):
+    """13 Oct: ESPN moves its current week on hours after the last game."""
+    import providers.base
+    monkeypatch.setattr(providers.base, "week_is_over", lambda w, s: True)
+    assert espn.available_weeks(fixtures_espn.LEAGUE_ID,
+                                fixtures_espn.SEASON) == [1, 2, 3]
 
 
 def test_espn_a_private_league_says_how_to_fix_it(tmp_path, monkeypatch):
