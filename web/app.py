@@ -419,6 +419,20 @@ def default_week(weeks: list[int], season) -> int | None:
     return max(finished) if finished else max(weeks)
 
 
+def _default_week_for(league: dict, owner: dict | None, weeks: list[int]) -> int | None:
+    """The picker's starting week, never one a free league isn't allowed to
+    make (13 Oct): late Monday night the server's date has already rolled to
+    Tuesday, so the free floor moved to the new week while the picker still
+    started on the old one, and pressing Generate said "free papers are for
+    week 5 onward"."""
+    week = default_week(weeks, league["season"])
+    if week is not None and not plans.is_paid(owner):
+        floor = earliest_free_week(league)
+        if week < floor and floor in weeks:
+            week = floor
+    return week
+
+
 def earliest_free_week(league: dict) -> int:
     """No free backfilling: a free paper is for the latest finished week or
     later. A league whose season isn't this one (an old season looked at in
@@ -2724,7 +2738,7 @@ def manage(
         line_voters=_line_voters(league, papers),
         regenerations=regenerations,
         regenerations_per_week=regenerations_allowed(owner),
-        default_week=default_week(weeks, league["season"]),
+        default_week=_default_week_for(league, owner, weeks),
         unfinished_weeks=unfinished_weeks(weeks, league["season"]),
         trial=trial_status(league, owner),
         trial_over=bool(trial_over),

@@ -85,9 +85,10 @@ def test_a_paper_for_an_unfinished_week_saves_nothing(monkeypatch, tmp_path):
 
 
 def test_week_final_is_the_tuesday_after():
-    # Week 2 of 2026 ends Monday 21 Sep; final at 08:00 UTC Tuesday 22 Sep.
-    assert not league_stats.week_is_final(2026, 2, datetime(2026, 9, 22, 7, tzinfo=timezone.utc))
-    assert league_stats.week_is_final(2026, 2, datetime(2026, 9, 22, 9, tzinfo=timezone.utc))
+    # Week 2 of 2026 ends Monday 21 Sep; final at midnight Eastern going
+    # into Tuesday 22 Sep, which is 04:00 UTC in September (13 Oct).
+    assert not league_stats.week_is_final(2026, 2, datetime(2026, 9, 22, 3, 59, tzinfo=timezone.utc))
+    assert league_stats.week_is_final(2026, 2, datetime(2026, 9, 22, 4, tzinfo=timezone.utc))
 
 
 # --- the collector ----------------------------------------------------------

@@ -71,12 +71,19 @@ def current_week(today: date | None = None, *, season: int | None = None) -> int
 
 
 def week_final(week: int, season: int):
-    """When a week's games are all over: 08:00 UTC on the Tuesday after it
-    (4am Eastern, clear of the latest Monday night finish). A paper written
-    before this has part of the week's scores."""
+    """When a week's games are all over: midnight Eastern going into the
+    Tuesday after it. A paper written before this has part of the week's
+    scores.
+
+    It was 4am Eastern until 13 Oct, which left people who'd watched Monday
+    night end waiting four hours for the week to unlock (John: "I'm getting
+    comments"). A Monday night game kicks off at 8:15 and is over by about
+    11:30; a late overtime is the only way past midnight."""
     from datetime import datetime, time, timezone
+    from zoneinfo import ZoneInfo
     tuesday = season_opener(season) + timedelta(days=7 * (week - 1) + 5)
-    return datetime.combine(tuesday, time(8, 0), tzinfo=timezone.utc)
+    return (datetime.combine(tuesday, time(0, 0), tzinfo=ZoneInfo("America/New_York"))
+            .astimezone(timezone.utc))
 
 
 def thanksgiving(year: int) -> date:

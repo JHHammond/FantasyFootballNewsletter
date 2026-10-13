@@ -5835,9 +5835,11 @@ def _early(league_id, week=3, season=2025, edited=False):
         paper["edited_at"] = paper["generated_at"]
 
 
-def test_the_week_ends_early_tuesday_morning():
+def test_the_week_ends_at_midnight_eastern_going_into_tuesday():
     import nfl_week
-    assert nfl_week.week_final(3, 2026).isoformat() == "2026-09-29T08:00:00+00:00"
+    assert nfl_week.week_final(3, 2026).isoformat() == "2026-09-29T04:00:00+00:00"
+    # Standard time from November: midnight Eastern is 05:00 UTC.
+    assert nfl_week.week_final(12, 2026).isoformat() == "2026-12-01T05:00:00+00:00"
 
 
 def test_a_paper_written_before_the_week_ended_is_rewritten(client, league, sent_emails, monkeypatch):
@@ -6381,3 +6383,15 @@ def test_saving_people_can_switch_the_paper_to_mix_it_up(client, league):
     text = client.get("/l/secret-admin-token").text
     assert 'name="name_style" value="mix" checked' in text
     assert 'name="name_style" value="team" checked' not in text
+
+
+def test_a_free_leagues_picker_never_starts_below_its_free_floor(monkeypatch, free_league):
+    """13 Oct: late Monday night the floor had moved to week 5 while the
+    picker still started on week 4, so Generate said "free papers are for
+    week 5 onward"."""
+    monkeypatch.setattr(webapp, "default_week", lambda weeks, season: 4)
+    monkeypatch.setattr(webapp, "earliest_free_week", lambda league: 5)
+    assert webapp._default_week_for(free_league, None, [3, 4, 5]) == 5
+    assert webapp._default_week_for(free_league, None, [3, 4]) == 4
+    paid = {"plan": "paid", "plan_status": "active"}
+    assert webapp._default_week_for(free_league, paid, [3, 4, 5]) == 4
