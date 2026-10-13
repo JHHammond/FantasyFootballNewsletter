@@ -414,6 +414,14 @@ def trial_weeks(provider: str, platform_league_id: str, season: int) -> list[int
                   if p == provider and l == str(platform_league_id) and s == int(season))
 
 
+def trial_weeks_by_league(season: int) -> dict[tuple, set]:
+    out: dict[tuple, set] = {}
+    for (p, l, s, w) in _TRIAL:
+        if s == int(season):
+            out.setdefault((p, str(l)), set()).add(int(w))
+    return out
+
+
 def record_trial_week(provider: str, platform_league_id: str, season: int,
                       week: int) -> None:
     with _lock:

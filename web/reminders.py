@@ -30,6 +30,8 @@ import os
 import time
 from typing import Any, Callable, Optional
 
+import plans
+
 
 def _secret() -> bytes:
     return (os.getenv("SESSION_SECRET") or os.getenv("TASK_KEY")
@@ -91,7 +93,6 @@ def teasers_for(rows: list[dict[str, Any]]) -> dict:
 
 def audience(db, season: int, week: int) -> list[dict[str, Any]]:
     """[{email, leagues: [{name, admin_token, teasers}]}], one per address."""
-    import plans
     from .generate import paper_name_for
 
     users = {u["id"]: u for u in db.all_users()}
@@ -108,6 +109,15 @@ def audience(db, season: int, week: int) -> list[dict[str, Any]]:
     except Exception:  # noqa: BLE001 — no stats means the plain version
         pass
 
+    # Where each league stands in the free trial (John, 12 Oct): the email
+    # says so when this is the last free paper, and doesn't promise a paper
+    # that's behind the paywall. None everywhere if 019 isn't readable, which
+    # sends the plain email, as before.
+    try:
+        trial: dict | None = db.trial_weeks_by_league(season)
+    except Exception:  # noqa: BLE001
+        trial = None
+
     by_email: dict[str, list[dict[str, Any]]] = {}
     for league in db.leagues_for_reminders(season):
         if league["id"] in done or not league.get("admin_token"):
@@ -120,10 +130,16 @@ def audience(db, season: int, week: int) -> list[dict[str, Any]]:
         if "@" not in email or email in paying or email in skip:
             continue
         key = (league.get("provider"), str(league.get("platform_league_id")))
+        trial_left = None
+        if trial is not None:
+            # This week's own row doesn't count: they haven't made it yet.
+            used = trial.get(key, set()) - {int(week)}
+            trial_left = max(0, plans.FREE_TRIAL_PAPERS - len(used))
         by_email.setdefault(email, []).append(
             {"name": paper_name_for(league), "admin_token": league["admin_token"],
              "league_name": (league.get("league_name") or "").strip(),
-             "teasers": teasers_for(stats.get(key, []))})
+             "teasers": teasers_for(stats.get(key, [])),
+             "trial_left": trial_left})
     return [{"email": e, "leagues": ls} for e, ls in sorted(by_email.items())]
 
 
@@ -140,6 +156,11 @@ def send(db, season: int, week: int, *, dry_run: bool = False,
               "errors": []}
     log(f"[remind] week {week}: {len(people)} address(es) to remind")
 
+    lefts = [l.get("trial_left") for p in people for l in p["leagues"]]
+    log(f"[remind] leagues: {sum(1 for x in lefts if x == 0)} trial used up, "
+        f"{sum(1 for x in lefts if x == 1)} on their last free paper, "
+        f"{sum(1 for x in lefts if x is not None and x > 1)} with more left")
+
     if dry_run:
         for p in people[:50]:
             log(f"  {p['email']}: " + ", ".join(l["name"] for l in p["leagues"]))
@@ -153,15 +174,21 @@ def send(db, season: int, week: int, *, dry_run: bool = False,
         # opened a customer's manage page). The button goes nowhere real.
         teasers = next((l["teasers"] for p in people for l in p["leagues"]
                         if l.get("teasers")), {})
-        sample = {"leagues": [{"name": "The Sample League Times",
-                               "league_name": "Sample League",
-                               "admin_token": "test-copy", "teasers": teasers}]}
-        result = emailer.send_reminder(test_to, week, sample["leagues"],
-                                       unsubscribe_token(test_to))
-        report["sent" if result.ok else "failed"] += 1
-        if not result.ok:
-            report["errors"].append(result.detail)
-        log(f"[remind] test copy to {test_to}: {'sent' if result.ok else result.detail}")
+        # One copy of each version (12 Oct): free papers left, the last free
+        # paper, and the trial used up.
+        for left, what in ((3, "free papers left"), (1, "last free paper"),
+                           (0, "trial used up")):
+            sample = [{"name": "The Sample League Times",
+                       "league_name": "Sample League",
+                       "admin_token": "test-copy", "teasers": teasers,
+                       "trial_left": left}]
+            result = emailer.send_reminder(test_to, week, sample,
+                                           unsubscribe_token(test_to))
+            report["sent" if result.ok else "failed"] += 1
+            if not result.ok:
+                report["errors"].append(result.detail)
+            log(f"[remind] test copy ({what}) to {test_to}: "
+                f"{'sent' if result.ok else result.detail}")
         return report
 
     campaign = campaign_for(season, week)

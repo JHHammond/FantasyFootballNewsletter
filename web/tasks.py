@@ -337,6 +337,7 @@ def main() -> int:
 
     # The reminder to commissioners who aren't paying (28 Sep):
     #   python -m web.tasks --remind [week] [--dry-run] [--test-to=you@x.com]
+    #   (--test-to sends three copies: free papers left, last free, trial used up)
     if "--remind" in sys.argv:
         from . import db, reminders
         import nfl_week

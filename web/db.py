@@ -1831,6 +1831,18 @@ def count_subscribers() -> int:
     return int(res.count or 0)
 
 
+def trial_weeks_by_league(season: int) -> dict[tuple, set]:
+    """{(provider, platform league id): {weeks with a free paper}} for the
+    whole season in one paged read — the reminder needs every league's trial
+    at once, and one query per league is thousands of round trips."""
+    out: dict[tuple, set] = {}
+    for r in _paged("trial_papers", "provider, platform_league_id, week",
+                    season=int(season)):
+        key = (r.get("provider"), str(r.get("platform_league_id")))
+        out.setdefault(key, set()).add(int(r["week"]))
+    return out
+
+
 def count_trial_papers(season: int) -> int:
     res = (client().table("trial_papers").select("week", count="exact")
            .eq("season", int(season)).limit(1).execute())

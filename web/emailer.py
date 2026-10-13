@@ -428,9 +428,10 @@ def _reminder_copy(week: int, facts: dict):
         if not isinstance(v, (int, float)):
             continue
         rows_html.append(
-            f'<div style="margin:0 0 12px;"><span style="font-family:Helvetica,Arial,sans-serif;'
-            f'font-size:12px;font-weight:700;letter-spacing:2px;color:#b3141c;">'
-            f'{label.upper()}</span><br>'
+            f'<div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;'
+            f'font-weight:700;letter-spacing:3px;color:#b3141c;margin:0 0 6px;">'
+            f'{label.upper()}</div>'
+            f'<div style="font-size:19px;line-height:1.45;color:#111;">'
             + html.escape(line).replace("{x}", _REDACT_HTML).replace("{n}", red(v))
             + "</div>")
         rows_text.append(f"{label.upper()}: "
@@ -442,13 +443,15 @@ def _reminder_copy(week: int, facts: dict):
         intro = f"Your league's Week {week} paper is ready to go."
         outro = ("Somebody had a week they'd rather forget. "
                  "Names are redacted until you print it.")
-    pitch = (f'<div style="margin:0 0 18px;">{html.escape(intro)}</div>'
-             + (f'<div style="font-size:18px;line-height:1.45;color:#111;">{"".join(rows_html)}</div>'
-                if rows_html else "")
-             + f'<div style="margin-top:6px;font-size:15px;font-style:italic;color:#5a5245;">'
+    rule = ('<div style="width:40px;height:1px;background:#d8d0c0;'
+            'margin:18px auto;font-size:0;line-height:0;">&nbsp;</div>')
+    pitch = (f'<div style="margin:0 0 22px;font-size:16px;color:#5a5245;">'
+             f'{html.escape(intro)}</div>'
+             + rule.join(rows_html)
+             + f'<div style="margin-top:22px;font-size:15px;font-style:italic;color:#5a5245;">'
                f'{html.escape(outro)}</div>')
     text = [intro, ""] + rows_text + ([""] if rows_text else []) + [outro]
-    return (f"Week {week} Was Wild in Your League",
+    return (f"Your League's Week {week} Paper Is Ready to Print",
             "Names redacted until you print it.",
             pitch, text, f"Print the Week {week} paper")
 
@@ -511,19 +514,66 @@ def send_reminder(to: str, week: int, leagues: list[dict],
                       "before anyone else can spin it."]
         single_label = f"Make my Week {w} paper"
 
+    # THE FREE TRIAL (John, 12 Oct). Each league carries `trial_left` from
+    # reminders.audience (None: unknown, so the email says nothing about it).
+    # Used up: say so, and price it, rather than promise a paper and land
+    # them on a paywall. Last one: say that too — it's the paper that sells.
+    import plans as _plans
+    lefts = [l.get("trial_left") for l in leagues]
+    out = bool(leagues) and all(isinstance(x, int) and x <= 0 for x in lefts)
+    last = not out and any(x == 1 for x in lefts)
+    if out:
+        price = _plans.PRICE_TEXT
+        if _plans.season_pass_enabled():
+            price += f" or {_plans.SEASON_PRICE_TEXT}"
+        n = _plans.FREE_TRIAL_PAPERS
+        subject = f"Don't Let Week {w} Go Unreported"
+        preheader = f"Your free editions are used. Keep it going for {_plans.PRICE_TEXT}."
+        line = (f"Your {n} free editions are used. Keep the presses running "
+                f"for {price}.")
+        season = (f'<div style="font-size:15px;color:#5a5245;margin-top:4px;">'
+                  f'or {e(_plans.SEASON_PRICE_TEXT.replace(" a season", ""))} '
+                  f'for the whole season</div>'
+                  if _plans.season_pass_enabled() else "")
+        pitch += f"""
+<div style="margin:28px auto 0;max-width:420px;background:#f6f1e6;border:1px solid #d8d0c0;
+            border-top:3px solid #111;padding:20px 22px;">
+  <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;
+              letter-spacing:3px;color:#b3141c;">YOUR {n} FREE EDITIONS ARE USED</div>
+  <div style="font-size:17px;color:#222;margin:10px 0 12px;">Keep the presses running.</div>
+  <div style="font-size:34px;font-weight:700;color:#111;line-height:1;">
+    {e(_plans.PRICE_TEXT.replace(" a month", ""))}<span style="font-size:16px;font-weight:400;color:#5a5245;"> a month</span></div>
+  {season}
+</div>"""
+        text_pitch = text_pitch + ["", line]
+        single_label = "Keep the paper coming"
+    elif last:
+        line = "This is your last free edition. Make it count."
+        pitch += """
+<div style="margin:28px auto 0;max-width:420px;border:2px solid #b3141c;background:#fff6f4;
+            padding:16px 20px;">
+  <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;
+              letter-spacing:3px;color:#b3141c;">LAST FREE EDITION</div>
+  <div style="font-size:18px;color:#111;margin-top:6px;">This one&rsquo;s on the house. Make it count.</div>
+</div>"""
+        text_pitch = text_pitch + ["", line]
+
     def label(l):
         if len(leagues) == 1:
             return single_label
+        if isinstance(l.get("trial_left"), int) and l["trial_left"] <= 0:
+            return f"Keep {l.get('league_name') or 'this league'} going"
         return f"Write {l.get('league_name') or 'this league'}"
 
+    big_button = _BUTTON.replace("padding:13px 26px", "padding:16px 34px") + "border-radius:3px;"
     buttons = "".join(f"""
     <tr><td align="center" style="padding:8px 28px;">
-      <a href="{base}/l/{e(l['admin_token'])}" style="{_BUTTON}">{e(label(l))}</a>
+      <a href="{base}/l/{e(l['admin_token'])}" style="{big_button}">{e(label(l))}</a>
     </td></tr>""" for l in leagues)
     address_line = (f'<div style="margin-top:6px;">{e(address)}</div>' if address else "")
     footer = f"""
-  <div style="margin-top:12px;padding-top:16px;border-top:1px solid #d8d0c0;
-              font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b6050;">
+  <div style="margin-top:12px;padding-top:16px;border-top:1px solid #d8d0c0;text-align:center;
+              font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#6b6050;">
     You connected a league at The Commissioner&rsquo;s Desk.
     <a href="{unsubscribe_url}" style="color:#6b6050;">Unsubscribe</a> from these reminders.
     {address_line}
@@ -538,8 +588,13 @@ def send_reminder(to: str, week: int, leagues: list[dict],
   <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#fffdf8;border:1px solid #d8d0c0;">
     <tr><td style="background:#b3141c;height:6px;line-height:6px;font-size:0;">&nbsp;</td></tr>
     <tr><td align="center" style="padding:22px 28px 0;"><a href="{base}/"><img src="{base}/static/brand/logo-mark@2x.png" width="96" height="56" alt="The Commissioner&rsquo;s Desk" style="display:block;border:0;width:96px;height:56px;"></a></td></tr>
-    <tr><td align="center" style="padding:10px 28px 6px;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:3px;color:#6b6050;">THE COMMISSIONER&rsquo;S DESK &nbsp;&bull;&nbsp; WEEK {w}</td></tr>
-    <tr><td style="padding:18px 36px 14px;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:1.55;color:#222;">{pitch}</td></tr>{buttons}
+    <tr><td align="center" style="padding:12px 36px 0;">
+      <div style="border-top:3px double #111;border-bottom:1px solid #111;padding:7px 0;
+                  font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:3px;color:#111;">
+        THE COMMISSIONER&rsquo;S DESK &nbsp;&bull;&nbsp; WEEK {w} EDITION</div></td></tr>
+    <tr><td align="center" style="padding:26px 36px 0;font-family:Georgia,'Times New Roman',serif;
+                                  font-size:30px;line-height:1.15;font-weight:700;color:#111;">{e(subject)}</td></tr>
+    <tr><td align="center" style="padding:16px 40px 18px;text-align:center;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:1.55;color:#222;">{pitch}</td></tr>{buttons}
     <tr><td style="padding:22px 28px 24px;">{footer}</td></tr>
   </table>
 </td></tr></table>

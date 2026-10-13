@@ -83,7 +83,7 @@ def test_dry_run_and_test_send_mark_nothing(monkeypatch):
                         lambda to, *a, **k: sent.append(to) or emailer.SendResult(ok=True))
     reminders.send(demo_db, SEASON, WEEK, dry_run=True, log=lambda s: None)
     reminders.send(demo_db, SEASON, WEEK, test_to="me@x.com", log=lambda s: None)
-    assert sent == ["me@x.com"]
+    assert sent == ["me@x.com"] * 3    # one of each version (12 Oct)
     assert reminders.audience(demo_db, SEASON, WEEK)   # still due
 
 
@@ -193,7 +193,7 @@ def _send_week(week, teasers):
 def test_week_four_is_the_redacted_desk(monkeypatch):
     got = _capture(monkeypatch)
     _send_week(4, {"low": 62.3, "low_win": 88.1, "bench": 38.9, "blowout": 54.2, "top": 41})
-    assert got["subject"] == "Week 4 Was Wild in Your League"
+    assert got["subject"] == "Your League's Week 4 Paper Is Ready to Print"
     t = got["text"]
     assert "LOWEST SCORE: \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 put up 62.3." in t
     assert "FRAUD WATCH:" in t and "won with 88.1" in t
@@ -208,7 +208,7 @@ def test_missing_numbers_drop_their_lines(monkeypatch):
     _send_week(5, {"low": 62.3})
     assert "LOWEST SCORE" in got["text"] and "FRAUD WATCH" not in got["text"]
     _send_week(9, {})
-    assert got["subject"] == "Week 9 Was Wild in Your League"
+    assert got["subject"] == "Your League's Week 9 Paper Is Ready to Print"
     assert "Somebody had a week" in got["text"] and "{" not in got["body"]
 
 
@@ -248,3 +248,79 @@ def test_the_reminder_carries_the_logo(monkeypatch):
     got = _capture(monkeypatch)
     _send_week(4, {"low": 71.4})
     assert "/static/brand/logo-mark@2x.png" in got["body"]
+
+
+# --- The free trial in the reminder (John, 12 Oct) --------------------------
+
+def _trial(name, *weeks):
+    for w in weeks:
+        demo_db.record_trial_week("sleeper", name, SEASON, w)
+
+
+@pytest.fixture
+def trial_store():
+    demo_db._TRIAL.clear()
+    yield
+    demo_db._TRIAL.clear()
+
+
+def test_the_audience_knows_where_each_league_is_in_the_trial(trial_store):
+    _league("Alpha", owner_email="a@x.com")
+    _league("Beta", owner_email="b@x.com")
+    _league("Gamma", owner_email="c@x.com")
+    _trial("Alpha", 1)
+    _trial("Beta", 1, 2)
+    _trial("Gamma", 0, 1, 2)          # three earlier weeks: used up
+    people = {p["email"]: p["leagues"][0]["trial_left"]
+              for p in reminders.audience(demo_db, SEASON, WEEK)}
+    assert people == {"a@x.com": 2, "b@x.com": 1, "c@x.com": 0}
+
+
+def test_this_weeks_own_trial_row_does_not_count(trial_store):
+    _league("Alpha", owner_email="a@x.com")
+    _trial("Alpha", 1, WEEK)            # e.g. a second league row made it
+    [p] = reminders.audience(demo_db, SEASON, WEEK)
+    assert p["leagues"][0]["trial_left"] == 2
+
+
+def _send_trial(left, week=5):
+    emailer.send_reminder("a@b.com", week, [{
+        "name": "X", "admin_token": "tok", "league_name": "Alpha",
+        "teasers": {"low": 62.3}, "trial_left": left}], "t.sig")
+
+
+def test_the_last_free_paper_says_so(monkeypatch):
+    got = _capture(monkeypatch)
+    _send_trial(1)
+    assert got["subject"] == "Your League's Week 5 Paper Is Ready to Print"
+    assert "This is your last free edition. Make it count." in got["text"]
+    assert "Print the Week 5 paper" in got["body"]
+
+
+def test_a_used_up_trial_is_priced_not_promised(monkeypatch):
+    got = _capture(monkeypatch)
+    _send_trial(0)
+    assert got["subject"] == "Don't Let Week 5 Go Unreported"
+    assert "free editions are used" in got["text"] and "$4.99" in got["text"]
+    assert "Keep the paper coming" in got["body"]
+    assert "Print the Week 5 paper" not in got["body"]
+    assert "last free edition" not in got["text"]
+
+
+def test_plenty_left_or_unknown_is_the_usual_email(monkeypatch):
+    got = _capture(monkeypatch)
+    for left in (3, 2, None):
+        _send_trial(left)
+        assert got["subject"] == "Your League's Week 5 Paper Is Ready to Print"
+        assert "free edition" not in got["text"]
+
+
+def test_the_test_send_is_one_copy_of_each_version(monkeypatch, trial_store):
+    sent = []
+    monkeypatch.setattr(emailer, "_send", lambda to, subject, body, **kw:
+                        sent.append((subject, kw.get("text_body")))
+                        or emailer.SendResult(ok=True))
+    reminders.send(demo_db, SEASON, 5, test_to="me@x.com", log=lambda *_: None)
+    assert len(sent) == 3
+    assert "last free edition" in sent[1][1]
+    assert sent[2][0] == "Don't Let Week 5 Go Unreported"
