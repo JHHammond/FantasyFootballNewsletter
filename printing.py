@@ -69,7 +69,10 @@ BASE_PRINT_CSS = """
     .subscribe-form,
     .image-slot-empty,
     .ce-remove,
-    button,
+    /* Except the teams on the lines board: since 12 Oct each side is a
+       button the league taps to vote, and hiding every button took the
+       teams out of the PDF and left only the spreads. */
+    button:not(.lv-side),
     input,
     select,
     textarea {
@@ -675,7 +678,7 @@ html, body { margin: 0 !important; padding: 0 !important; }
     max-width: none !important;
 }
 .print-button, .ce-bar, .subscribe-form, .image-slot-empty, .ce-remove,
-button, input, select, textarea { display: none !important; }
+button:not(.lv-side), input, select, textarea { display: none !important; }
 .image-wrap, .image-wrap-editing { resize: none !important; }
 /* It is a file, not ink on a sheet: print every colour, exactly as on screen. */
 * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -806,10 +809,20 @@ PRINT_SCRIPT = (
         // Any sliver below the paper shows the body, so make it the paper.
         if (page) doc.body.style.background = win.getComputedStyle(page).backgroundColor;
         var root = doc.documentElement;
+        // ONE PAGE, WHATEVER PRINT DOES (19 Oct: the giant blank second page
+        // came back). The page is exactly as tall as the paper measured on
+        // screen, so if print lays it out even a few pixels taller, the
+        // overflow becomes a whole second page of the same height. The slack
+        // covers small differences (it shows as a band of paper colour under
+        // the footer), and the clip makes a second page impossible: anything
+        // past the sheet is cut rather than paginated. html has to be clipped
+        // too, or body's overflow passes to the viewport and does nothing.
         var h = Math.max(Math.ceil(root.getBoundingClientRect().height),
-                         root.scrollHeight) + 12;
+                         root.scrollHeight) + 40;
         var size = doc.createElement("style");
-        size.textContent = "@page { size: " + WIDTH + "px " + h + "px; margin: 0; }";
+        size.textContent = "@page { size: " + WIDTH + "px " + h + "px; margin: 0; }\n" +
+          "html { overflow: hidden !important; }\n" +
+          "body { height: " + h + "px !important; overflow: clip !important; }";
         doc.head.appendChild(size);
         win.addEventListener("afterprint", cleanup);
         try { win.focus(); win.print(); } catch (e) { cleanup(); paged(); return; }

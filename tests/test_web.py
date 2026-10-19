@@ -6395,3 +6395,31 @@ def test_a_free_leagues_picker_never_starts_below_its_free_floor(monkeypatch, fr
     assert webapp._default_week_for(free_league, None, [3, 4]) == 4
     paid = {"plan": "paid", "plan_status": "active"}
     assert webapp._default_week_for(free_league, paid, [3, 4, 5]) == 4
+
+
+# --- the lines board survives Save as PDF (13 Oct) ---------------------------
+
+def test_print_css_keeps_the_teams_on_the_lines_board():
+    """Each team on the lines board is a <button> (the league votes on it).
+    Both print stylesheets hide buttons, so they must spare .lv-side."""
+    import printing
+    import re
+    for css in (printing.LONG_PRINT_CSS, printing.PRINT_CSS if hasattr(printing, "PRINT_CSS") else ""):
+        assert not re.search(r"(^|[\s,])button\s*[,{]", css)
+    assert "button:not(.lv-side)" in printing.LONG_PRINT_CSS
+    src = open(printing.__file__).read()
+    assert src.count("button:not(.lv-side)") == 2
+
+
+# --- the long PDF can't spill onto a second page (19 Oct) -------------------
+
+def test_long_pdf_clips_to_one_page():
+    """The page is sized to the paper as measured on screen. If print lays it
+    out any taller, the overflow is a whole second page the same height, so
+    the copy is clipped to the sheet (html too, or body's overflow is handed
+    to the viewport and clips nothing)."""
+    import printing
+    js = printing.PRINT_SCRIPT
+    assert "html { overflow: hidden !important; }" in js
+    assert 'body { height: " + h + "px !important; overflow: clip !important; }' in js
+    assert "root.scrollHeight) + 40" in js
