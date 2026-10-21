@@ -107,6 +107,9 @@ def fake_load(monkeypatch, tmp_path):
         return wd
 
     monkeypatch.setattr(providers, "load_week", load_week)
+    # Trades (045) are fetched in the same loop. Nothing in this file is about
+    # them, and no test may touch the network: give every league none.
+    monkeypatch.setattr(providers, "load_transactions", lambda *a, **k: [])
     monkeypatch.setattr(league_stats, "week_is_final", lambda s, w, now=None: True)
     return calls
 
@@ -153,11 +156,13 @@ def test_an_unfinished_week_is_refused(monkeypatch):
 
 
 def test_it_paces_itself(fake_load):
+    """Two calls to a platform for one league — the week and its trades —
+    so two waits. The pace is per request, not per league."""
     _league("A", pid="a")
     slept = []
     league_stats.collect_week(demo_db, 3, season=SEASON, sleep=slept.append,
                               log=lambda s: None)
-    assert slept == [league_stats.PACE["yahoo"]]
+    assert slept == [league_stats.PACE["yahoo"]] * 2
 
 
 # --- leaderboards -----------------------------------------------------------

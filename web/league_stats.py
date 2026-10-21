@@ -239,7 +239,8 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
 
     season = int(season or nfl_week.current_season())
     report = {"week": week, "season": season, "leagues": 0, "collected": 0,
-              "skipped_done": 0, "no_data": 0, "errors": 0, "rows": 0}
+              "skipped_done": 0, "no_data": 0, "errors": 0, "rows": 0,
+              "scanned": 0, "trades": 0}
 
     if not week_is_final(season, week):
         log(f"Week {week} isn't final yet; nothing collected.")
@@ -269,6 +270,13 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
         done = db.lineup_league_ids(season, week)
     else:
         done = db.team_week_league_ids(season, week)
+    # Trades (045) are collected alongside, and tracked separately: a league
+    # whose week is already stored still has to be ASKED about its trades,
+    # so a season collected before 045 fills in on the next run — the same
+    # shape as lineups filling in after 029. Scanned, not "has trades": a
+    # league that made none is still a league we have looked at.
+    trading = db.trades_ready()
+    scanned = db.trade_scan_league_ids(season, week) if trading else set()
 
     # Each platform runs on its own, with a few workers each (1 Oct: three
     # weeks of 1,400 leagues one at a time took hours). Every worker keeps
@@ -279,7 +287,8 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     from concurrent.futures import ThreadPoolExecutor
 
     lock = threading.Lock()
-    todo = [l for l in pool if l["id"] not in done]
+    todo = [l for l in pool
+            if l["id"] not in done or (trading and l["id"] not in scanned)]
     report["skipped_done"] = len(pool) - len(todo)
     started = time.time()
     counter = {"n": 0}
@@ -288,14 +297,17 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
         if should_stop():
             return
         try:
-            wd = load_week(league["provider"], league["platform_league_id"],
-                           season, week)
-            n = save_week(db, league, wd, ctx, extended=extended)
+            if league["id"] in done:
+                n = -1                       # already stored; here for trades
+            else:
+                wd = load_week(league["provider"], league["platform_league_id"],
+                               season, week)
+                n = save_week(db, league, wd, ctx, extended=extended)
             with lock:
-                if n:
+                if n > 0:
                     report["collected"] += 1
                     report["rows"] += n
-                else:
+                elif n == 0:
                     report["no_data"] += 1
         except ProviderError as exc:
             # Unplayed, private, deleted, never drafted: all ordinary for a
@@ -311,6 +323,20 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
                 report["errors"] += 1
             log(f"  ERROR {league.get('league_name')} ({league['provider']}): "
                 f"{type(exc).__name__}: {exc}")
+        if trading and league["id"] not in scanned and not should_stop():
+            try:
+                from web import trades as trades_mod
+                got = trades_mod.collect_league(db, league, season, week, ctx)
+                with lock:
+                    report["scanned"] += 1
+                    report["trades"] += got
+            except Exception as exc:  # noqa: BLE001 — never the week's scores
+                with lock:
+                    quiet = report["errors"] > 20
+                if not quiet:
+                    log(f"  no trades: {league.get('league_name')} "
+                        f"({league['provider']}): {type(exc).__name__}: {exc}")
+            sleep(PACE.get(league["provider"], 1.0))
         sleep(PACE.get(league["provider"], 1.0))
         with lock:
             counter["n"] += 1
@@ -339,6 +365,9 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     log(f"Week {week}: {report['collected']} leagues collected "
         f"({report['rows']} team rows), {report['skipped_done']} already done, "
         f"{report['no_data']} with no data, {report['errors']} errors.")
+    if trading:
+        log(f"Week {week}: {report['trades']} trades found in "
+            f"{report['scanned']} leagues scanned.")
     return report
 
 

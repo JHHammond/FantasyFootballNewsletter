@@ -1735,6 +1735,57 @@ def leagues_for_reminders(season: int) -> list[dict[str, Any]]:
                   season=int(season))
 
 
+# --- Trades (045) -----------------------------------------------------------
+
+def upsert_trades(heads: list[dict[str, Any]], players: list[dict[str, Any]]) -> None:
+    """One week's trades for one league. Idempotent on trade_key, so a
+    re-collection of a week already scanned changes nothing."""
+    if heads:
+        for i in range(0, len(heads), 500):
+            client().table("trades").upsert(
+                heads[i:i + 500], on_conflict="league_id,season,trade_key").execute()
+    if players:
+        for i in range(0, len(players), 500):
+            client().table("trade_players").upsert(
+                players[i:i + 500],
+                on_conflict="league_id,season,trade_key,player_key").execute()
+
+
+def upsert_trade_scan(row: dict[str, Any]) -> None:
+    client().table("trade_scans").upsert(
+        row, on_conflict="league_id,season,week").execute()
+
+
+def trades_ready() -> bool:
+    """False until migration 045 is run, so the collector can skip quietly."""
+    try:
+        client().table("trade_scans").select("league_id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def trade_scan_league_ids(season: int, week: int) -> set[str]:
+    """Leagues already looked at for this week, so a rerun skips them. A
+    league with no trades is in here too — that is the point of the table."""
+    out: set[str] = set()
+    start, page = 0, 1000
+    while True:
+        res = (client().table("trade_scans").select("league_id")
+               .eq("season", int(season)).eq("week", int(week))
+               .order("league_id").range(start, start + page - 1).execute())
+        rows = res.data or []
+        out.update(r["league_id"] for r in rows)
+        if len(rows) < page:
+            return out
+        start += page
+
+
+def trade_volume(season: int) -> dict[str, Any]:
+    """See migration 045: how much there is to work with, by week."""
+    return _rpc_json("trade_volume", {"p_season": int(season)}) or {}
+
+
 def team_weeks_for_leagues(season: int, week: int,
                            league_ids: list[str]) -> list[dict[str, Any]]:
     """One week's teams for a handful of leagues — the "use my team" picker

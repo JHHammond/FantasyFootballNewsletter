@@ -3715,3 +3715,9 @@ html.nb-lock { overflow: hidden; }
 }
 .at-all-team select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .at-all-filters + .at-all-note { border-top: 0; margin-top: 0; padding-top: 8px; }
+/* The trades panel: staff only, and only until there's a market to show. */
+.at-trades { margin-top: 26px; }
+.at-trades .ar-figs { margin: 14px auto 10px; max-width: 560px; }
+.at-trade-weeks { margin-top: 6px; }
+.at-trade-weeks li { padding: 7px 0; }
+.at-trades-busy { margin-top: 12px; }

@@ -493,6 +493,11 @@ def yahoo_tokens_ready() -> bool:
 
 
 _TEAM_WEEKS: dict[tuple, dict[str, Any]] = {}
+#: Trades (045): headers, the players who moved, and which leagues we
+#: have looked at.
+_TRADES: dict[tuple, dict[str, Any]] = {}
+_TRADE_PLAYERS: dict[tuple, dict[str, Any]] = {}
+_TRADE_SCANS: dict[tuple, dict[str, Any]] = {}
 
 
 def all_leagues(season: int) -> list[dict[str, Any]]:
@@ -1174,6 +1179,69 @@ def record_reminder(email: str, campaign: str) -> None:
 
 def reminders_ready() -> bool:
     return True
+
+
+# --- Trades (045) -----------------------------------------------------------
+
+def upsert_trades(heads: list[dict[str, Any]], players: list[dict[str, Any]]) -> None:
+    with _lock:
+        for r in heads:
+            _TRADES[(r["league_id"], int(r["season"]), r["trade_key"])] = dict(r)
+        for r in players:
+            _TRADE_PLAYERS[(r["league_id"], int(r["season"]), r["trade_key"],
+                            r["player_key"])] = dict(r)
+
+
+def upsert_trade_scan(row: dict[str, Any]) -> None:
+    with _lock:
+        _TRADE_SCANS[(row["league_id"], int(row["season"]), int(row["week"]))] = dict(row)
+
+
+def trades_ready() -> bool:
+    return True
+
+
+def trade_scan_league_ids(season: int, week: int) -> set[str]:
+    return {r["league_id"] for r in _TRADE_SCANS.values()
+            if int(r["season"]) == int(season) and int(r["week"]) == int(week)}
+
+
+def trade_volume(season: int) -> dict[str, Any]:
+    """The SQL function's twin (migration 045)."""
+    season = int(season)
+    scans = [r for r in _TRADE_SCANS.values() if int(r["season"]) == season]
+    moves = [r for r in _TRADE_PLAYERS.values() if int(r["season"]) == season]
+    weeks = []
+    for wk in sorted({int(r["week"]) for r in scans}):
+        mine = [r for r in moves if int(r["week"]) == wk]
+        weeks.append({
+            "week": wk,
+            "leagues": sum(1 for r in scans if int(r["week"]) == wk),
+            "trades": sum(int(r.get("trades") or 0) for r in scans if int(r["week"]) == wk),
+            "players": len(mine),
+            "resolved": sum(1 for r in mine if _resolved(r["player_key"])),
+        })
+    busiest: dict = {}
+    for r in moves:
+        e = busiest.setdefault(r["player_key"], {"player_key": r["player_key"],
+                                                 "name": r.get("name") or "", "moves": 0})
+        e["moves"] += 1
+        e["name"] = max(e["name"], r.get("name") or "")
+    return {
+        "season": season, "weeks": weeks,
+        "trades": len({(r["league_id"], r["trade_key"]) for r in _TRADES.values()
+                       if int(r["season"]) == season}),
+        "players": len({r["player_key"] for r in moves}),
+        "busiest": sorted(busiest.values(),
+                          key=lambda e: (-e["moves"], e["player_key"]))[:10],
+    }
+
+
+def _resolved(key: str) -> bool:
+    """A Sleeper id (digits) or a defense (a team code), the way the SQL
+    function tests it."""
+    k = str(key or "")
+    return k.isdigit() or (2 <= len(k) <= 3 and k.isalpha() and k.isupper())
 
 
 def team_weeks_for_leagues(season: int, week: int,

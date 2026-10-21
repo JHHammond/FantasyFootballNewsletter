@@ -1229,8 +1229,19 @@ def _around_page(request: Request, week: int, season: int, *, public: bool,
                    weeks=list(range(1, max(latest, 1) + 1)),
                    describe=around.describe, pct=around.pct, photo=around.photo,
                    mine=around.my_teams(db, user, season, week),
+                   trade_volume=_trade_volume(season) if staff else None,
                    shared=shared, card_base=f"{public_base_url()}/around/card.png",
                    job=league_stats.job_status() if staff else {})
+
+
+def _trade_volume(season: int) -> Optional[dict]:
+    """How many trades we have collected, for the staff panel. None until
+    migration 045 is run, and never an error page."""
+    try:
+        return db.trade_volume(season) or None
+    except Exception as exc:  # noqa: BLE001
+        print(f"[around] no trade volume: {type(exc).__name__}: {exc}", flush=True)
+        return None
 
 
 def around_public() -> bool:

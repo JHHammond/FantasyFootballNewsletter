@@ -495,6 +495,45 @@
     <pre class="ar-log">{{ job.log|join('\n') }}</pre>
     {% endif %}
 </section>
+
+{# ------------------------------------------------------- trades, collected #}
+{% set TV = trade_volume %}
+<section class="card ar-collect at-trades">
+    <h2 class="card-title">Trades &middot; staff only</h2>
+    {% if not TV %}
+    <p class="card-sub">Nothing collected yet. Run <code>migrations/045_trades.sql</code>
+        in the Supabase SQL Editor, then press &ldquo;Collect weeks 1&ndash;{{ latest }}&rdquo;
+        above: a league whose week is already stored is still asked about its trades,
+        so the season fills in on the next run.</p>
+    {% else %}
+    <p class="card-sub">
+        What there is to build a market on. Nothing values anything yet &mdash; this is
+        the number that decides how. A player who didn&rsquo;t resolve to a Sleeper id
+        can&rsquo;t be joined to what he went on to score.
+    </p>
+    <section class="figures ar-figs" aria-label="Trades collected">
+        <div class="figure"><strong>{{ '{:,}'.format(TV.trades or 0) }}</strong><span>trades</span></div>
+        <div class="figure"><strong>{{ '{:,}'.format(TV.players or 0) }}</strong><span>players traded</span></div>
+        <div class="figure"><strong>{{ TV.weeks|length }}</strong><span>weeks scanned</span></div>
+    </section>
+    {% if TV.weeks %}
+    <ol class="ar-list at-trade-weeks">
+        {% for w in TV.weeks %}
+        <li>
+            <span class="ar-name">Week {{ w.week }}<small>{{ '{:,}'.format(w.leagues) }} leagues scanned
+                {%- if w.players %} &middot; {{ '{:,}'.format(w.players) }} players moved
+                &middot; {{ ((100 * w.resolved / w.players)|round)|int }}% matched to Sleeper{% endif %}</small></span>
+            <span class="ar-val"><b>{{ '{:,}'.format(w.trades) }}</b> trades</span>
+        </li>
+        {% endfor %}
+    </ol>
+    {% endif %}
+    {% if TV.busiest %}
+    <p class="card-sub at-trades-busy"><strong>Most traded:</strong>
+        {% for p in TV.busiest %}{{ p.name or p.player_key }} ({{ p.moves }}){{ ', ' if not loop.last }}{% endfor %}</p>
+    {% endif %}
+    {% endif %}
+</section>
 {% endif %}
 {% endif %}{# ready #}
 
