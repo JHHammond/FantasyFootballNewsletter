@@ -225,6 +225,7 @@ def _sign_up(client, plan):
 def test_staff_only(web):
     _sign_up(web, "paid")
     assert web.get("/staff/around").status_code == 404
+    assert web.get("/around").status_code == 404          # until AROUND_PUBLIC=1
     assert web.post("/staff/around/collect", data={"weeks": "1-2"}).status_code == 404
 
 
@@ -234,7 +235,7 @@ def test_staff_page_renders_boards(web):
     demo_db.upsert_team_weeks([_row(lg, "Sad Sacks", 41.2, result="L", opp=120.0)])
     r = web.get("/staff/around?week=3")
     assert r.status_code == 200
-    assert "Lowest scores" in r.text and "Sad Sacks" in r.text
+    assert "Halls of fame and shame" in r.text and "Sad Sacks" in r.text
     assert "Collect weeks 1" in r.text
 
 

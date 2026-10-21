@@ -54,10 +54,12 @@ def robots_txt(base: str) -> str:
 
 def public_pages() -> list[tuple[str, str, bool]]:
     """(path, changefreq, changes daily) for every page worth finding. The luck and
-    rankings pages join when they open to the public."""
+    rankings pages, and Around the Leagues, join when they open to the public."""
     pages = [("/", "daily", True)]
     if os.getenv("LUCK_PUBLIC", "").strip() == "1":
         pages.append(("/luck", "weekly", True))
+    if os.getenv("AROUND_PUBLIC", "").strip() == "1":
+        pages.append(("/around", "weekly", True))
     pages += [("/privacy", "yearly", False), ("/terms", "yearly", False)]
     return pages
 

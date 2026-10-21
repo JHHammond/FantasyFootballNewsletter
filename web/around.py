@@ -7,9 +7,18 @@ ten minutes, turned into figures, boards and chart geometry. Charts are
 drawn as inline SVG from these numbers: no chart library, nothing loaded
 from anywhere, and they print.
 
-PUBLIC vs STAFF: the page is staff-only today. `public=True` (or
-?preview=public) renders it the way readers would see it: no team or
-manager names, only descriptions ("a 12-team PPR league on Sleeper").
+PUBLIC vs STAFF: /around is the public page (open once AROUND_PUBLIC=1
+is set on Render; staff can always see it). /staff/around is the same page
+with team names in dashed red tags and the collector at the bottom. The
+public page never names a team or a manager, only describes one ("a
+12-team PPR league on Sleeper").
+
+THE FRONT (21 Oct): the page used to open on a pile of ten-row lists. It now
+opens like a newspaper: a banner headline written from the week's most
+striking number, four short stories, and three players with their pictures.
+All of it is picked here from figures the page already had, so nothing new
+is queried and nothing is invented: every sentence is one of the numbers
+below, said out loud.
 """
 
 from __future__ import annotations
@@ -134,6 +143,122 @@ def pct(x: Optional[float], digits: int = 0) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Where a score ranks
+# ---------------------------------------------------------------------------
+
+#: The ladder the readout and the share card both read from: the lowest
+#: percentile that earns each verdict, best first.
+VERDICTS = [
+    (99, "One of the best in the country.", "TOP 1%"),
+    (90, "A top-10% week.", "TOP 10%"),
+    (75, "A strong week.", "TOP 25%"),
+    (50, "Better than most.", "ABOVE PAR"),
+    (25, "Below the middle.", "BELOW PAR"),
+    (10, "A rough one.", "BOTTOM 25%"),
+    (0, "One of the worst in the country.", "BOTTOM 10%"),
+]
+
+
+def verdict(p: int) -> tuple[str, str]:
+    """(the sentence, the stamp) for a percentile."""
+    for floor, words, stamp in VERDICTS:
+        if p >= floor:
+            return words, stamp
+    return VERDICTS[-1][1], VERDICTS[-1][2]
+
+
+def ordinal(n: int) -> str:
+    """728 -> '728th'."""
+    if 11 <= (n % 100) <= 13:
+        return f"{n:,}th"
+    return f"{n:,}" + {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+
+
+def _below(arr: list, v: float) -> float:
+    """The share of teams scoring less than v, read off a 101-point
+    percentile array. The twin of below() in the page's script: the page
+    answers as you type and the share card answers on the server, and the
+    two must agree."""
+    if not arr:
+        return 0.0
+    if v <= arr[0]:
+        return 0.0
+    if v >= arr[-1]:
+        return 1.0
+    for i in range(1, len(arr)):
+        if v <= arr[i]:
+            span = arr[i] - arr[i - 1]
+            f = (v - arr[i - 1]) / span if span > 0 else 0.0
+            return (i - 1 + f) / (len(arr) - 1)
+    return 1.0
+
+
+def rank(pct: dict, score: float, fmt: str = "all") -> Optional[dict[str, Any]]:
+    """Where one score lands among the week's teams, or None if that pool
+    wasn't collected. `place` counts the teams at or above it, so the best
+    score in the country is 1st."""
+    arr = (pct or {}).get(fmt)
+    teams = int((pct or {}).get(f"n_{fmt}") or 0)
+    if not arr or not teams:
+        return None
+    share = _below(arr, float(score))
+    beat = round(share * teams)
+    p = round(share * 100)
+    words, stamp = verdict(p)
+    return {"score": float(score), "pct": p, "beat": beat, "teams": teams,
+            "place": max(1, teams - beat), "verdict": words, "stamp": stamp}
+
+
+def my_teams(db, user: Optional[dict], season: int, week: int) -> list[dict[str, Any]]:
+    """The signed-in viewer's own teams for this week, so the lookup can
+    fill itself in instead of asking them to go and read their score off
+    another site.
+
+    Their leagues only, and their own teams' names — this is the one place
+    on the page where a team is named, and it is named to the person who
+    owns it. Never raises: the lookup still takes a typed score.
+    """
+    if not user:
+        return []
+    try:
+        leagues = [l for l in db.leagues_for_user(user["id"])
+                   if int(l.get("season") or 0) == int(season)][:20]
+        if not leagues:
+            return []
+        by_id = {str(l["id"]): l for l in leagues}
+        rows = db.team_weeks_for_leagues(season, week, list(by_id)) or []
+    except Exception as exc:  # noqa: BLE001 — a convenience is never worth the page
+        print(f"[around] no connected teams for the lookup: {exc}", flush=True)
+        return []
+
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        lg = by_id.get(str(r.get("league_id")))
+        if lg is None or (r.get("points") or 0) <= 0:
+            continue
+        e = out.setdefault(str(lg["id"]), {
+            "league": lg.get("paper_name") or lg.get("league_name") or "Your league",
+            "scoring": (r.get("scoring_type") or ""), "teams": []})
+        e["teams"].append({
+            "id": str(r.get("team_id")),
+            "name": (r.get("team_name") or "").strip() or "Unnamed team",
+            "points": round(float(r["points"]), 2),
+            "ppr": round(float(r["ppr_points"]), 2) if r.get("ppr_points") is not None else None,
+            "mine": str(r.get("team_id")) == str(lg.get("my_team_id") or ""),
+        })
+    for e in out.values():
+        # Their own team first when we know it (it's saved at connect time),
+        # then the rest of the league alphabetically.
+        e["teams"].sort(key=lambda t: (not t["mine"], t["name"].lower()))
+    return [e for e in out.values() if e["teams"]]
+
+
+#: What each pool is called in a sentence.
+POOL = {"all": "fantasy teams", "ppr": "PPR teams", "half_ppr": "half-PPR teams",
+        "std": "standard-scoring teams"}
+
+
+# ---------------------------------------------------------------------------
 # Charts
 # ---------------------------------------------------------------------------
 
@@ -217,6 +342,144 @@ def _groups(rows: list[dict]) -> dict[str, list[dict]]:
     return {"groups": out, "hidden": hidden}
 
 
+# ---------------------------------------------------------------------------
+# The front: a headline, four stories and three players
+# ---------------------------------------------------------------------------
+
+#: A flop only makes the banner when this share of the week's lineups
+#: started him: "312 teams started him" is a list entry, not a headline.
+HEADLINE_FLOP_SHARE = 0.15
+#: A losing score this high (PPR) is a headline on its own.
+HEADLINE_HEARTBREAK = 160.0
+
+
+def _num(v: Optional[float]) -> str:
+    return f"{float(v):.1f}" if v is not None else "–"
+
+
+def _std(r: dict) -> Optional[float]:
+    return r.get("ppr_points") if r.get("ppr_points") is not None else r.get("points")
+
+
+def _pronoun(p: dict) -> str:
+    return "They" if p.get("position") == "DEF" else "He"
+
+
+def _skill(rows: list[dict]) -> Optional[dict]:
+    """The first player who isn't a kicker or a defense, else the first.
+    Everybody starts a kicker; 'everybody started Tyler Bass' is true every
+    week and news in none of them."""
+    return next((p for p in rows if p.get("position") not in ("K", "DEF")),
+                rows[0] if rows else None)
+
+
+def photo(p: Optional[dict]) -> Optional[str]:
+    if not p:
+        return None
+    from .luck import photo_url
+    return photo_url(p.get("player_key"), p.get("position"))
+
+
+def front(a: dict) -> dict[str, Any]:
+    """The banner headline, its deck, the four stories and the three player
+    cards. Every piece is optional; the template leaves out what's missing."""
+    P = a.get("players") or {}
+    halls = a.get("halls") or {}
+    lu = a.get("lineup") or {}
+    lineup_teams = (a.get("summary") or {}).get("lineup_teams") or 0
+
+    flop = _skill(P.get("flops") or [])
+    sleeper = (P.get("sleepers") or [None])[0]
+    carry = (P.get("top_on") or [None])[0]
+    heart = (a.get("unlucky") or [None])[0]
+    robbery = (a.get("lucky") or [None])[0]
+    bench = (halls.get("bench") or [None])[0]
+    blowout = (halls.get("blowouts") or [None])[0]
+
+    # The banner: the first of these that's big enough to shout about.
+    head = deck = None
+    if flop and lineup_teams and flop["started"] >= HEADLINE_FLOP_SHARE * lineup_teams:
+        head = (f"{flop['started']:,} Teams Started {flop['name']}. "
+                f"{_pronoun(flop)} Scored {_num(flop['ppr'])}.")
+        deck = "The rest of the week, across every league we follow, wasn't much kinder."
+    elif heart and (_std(heart) or 0) >= HEADLINE_HEARTBREAK:
+        head = f"{_num(_std(heart))} Points. Still Lost."
+        deck = (f"{describe(heart, True)} put up one of the best scores in the country "
+                f"and drew the one opponent who did better.")
+    elif lu.get("lineup_losses"):
+        head = (f"{lu['lineup_losses']:,} Teams Lost With the Winning Lineup "
+                f"Sitting on Their Bench")
+        deck = "Every one of them had the points. They just didn't start them."
+    elif a.get("teams"):
+        head = f"{a['teams']:,} Teams. One Scoreboard."
+
+    stories = []
+    if heart:
+        stories.append({
+            "kicker": "The heartbreaker", "big": _num(_std(heart)), "unit": "points",
+            "head": "The best score that lost",
+            "body": (f"{describe(heart, True)} scored {_num(heart.get('points'))} and lost "
+                     f"to {_num(heart.get('opponent_points'))}."),
+            "row": heart})
+    if robbery:
+        stories.append({
+            "kicker": "Highway robbery", "big": _num(_std(robbery)), "unit": "points",
+            "head": "The worst score that won",
+            "body": (f"{describe(robbery, True)} won {_num(robbery.get('points'))}"
+                     f"–{_num(robbery.get('opponent_points'))}. Nobody asked how."),
+            "row": robbery})
+    if bench and bench.get("bench_left"):
+        who = bench.get("best_bench_player")
+        stories.append({
+            "kicker": "The bench disaster", "big": _num(bench["bench_left"]),
+            "unit": "points on the bench",
+            "head": "Points left sitting down",
+            "body": (f"{describe(bench, True)} scored {_num(bench.get('points'))}"
+                     + (f" with {who} on the bench." if who else
+                        " and could have had far more.")),
+            "row": bench})
+    if blowout and blowout.get("margin"):
+        stories.append({
+            "kicker": "The beatdown", "big": _num(blowout["margin"]),
+            "unit": "point margin",
+            "head": "The biggest blowout",
+            "body": (f"{describe(blowout, True)} won {_num(blowout.get('points'))}"
+                     f"–{_num(blowout.get('opponent_points'))}."),
+            "row": blowout})
+
+    # The cards lead with the player's photo, so the figures live inside the
+    # sentence rather than as a number over it (John, 21 Oct).
+    stars = []
+    if carry:
+        stars.append({"kicker": "Carried the most teams", "p": carry,
+                      "line": (f"The top scorer on {carry['teams']:,} teams this week, "
+                               f"more lineups than anyone else in the country.")})
+    if flop:
+        stars.append({"kicker": "The bust", "p": flop,
+                      "line": (f"{_pronoun(flop)} started on {flop['started']:,} teams "
+                               f"and scored {_num(flop['ppr'])}.")})
+    if sleeper:
+        sat = pct(1 - (sleeper.get("start_pct") or 0))
+        stars.append({"kicker": "The one nobody started", "p": sleeper,
+                      "line": (f"{_pronoun(sleeper)} scored {_num(sleeper['ppr'])} "
+                               f"on {sleeper['rostered']:,} rosters, and {sat} of them "
+                               f"left {'them' if sleeper.get('position') == 'DEF' else 'him'} "
+                               f"on the bench.")})
+    return {"headline": head, "deck": deck, "stories": stories, "stars": stars}
+
+
+def faceoff_deltas(faceoffs: dict, avg: Optional[float]) -> None:
+    """Each group's average against the national one (+1.2, -0.8): the
+    groups sit within a few points of each other, which bars from zero
+    can't show and a signed number can."""
+    if avg is None:
+        return
+    for gs in (faceoffs.get("groups") or {}).values():
+        for g in gs:
+            if g.get("avg_ppr") is not None:
+                g["delta"] = round(g["avg_ppr"] - avg, 1)
+
+
 def build(db, season: int, week: int, *, public: bool = False) -> dict[str, Any]:
     wk = _cached(("w", season, week),
                  lambda: db.around_week(season, week, MIN_STARTS)) or {}
@@ -243,7 +506,7 @@ def build(db, season: int, week: int, *, public: bool = False) -> dict[str, Any]
             figures.append({"value": lineup_share, "label": "losses were lineup losses"})
 
     weeks = ss.get("weeks") or []
-    return {
+    out = {
         "public": public,
         "season": season, "week": week,
         "teams": teams,
@@ -269,3 +532,6 @@ def build(db, season: int, week: int, *, public: bool = False) -> dict[str, Any]
         "tracker": ss.get("tracker") or {},
         "min_group": MIN_GROUP,
     }
+    faceoff_deltas(out["faceoffs"], s.get("avg_ppr"))
+    out["front"] = front(out)
+    return out

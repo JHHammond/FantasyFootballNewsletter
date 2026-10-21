@@ -1735,6 +1735,21 @@ def leagues_for_reminders(season: int) -> list[dict[str, Any]]:
                   season=int(season))
 
 
+def team_weeks_for_leagues(season: int, week: int,
+                           league_ids: list[str]) -> list[dict[str, Any]]:
+    """One week's teams for a handful of leagues — the "use my team" picker
+    on Around the Leagues. Scoped to leagues the signed-in viewer owns, so
+    it is never more than a few dozen rows."""
+    ids = [str(i) for i in (league_ids or []) if i][:20]
+    if not ids:
+        return []
+    res = (client().table("team_weeks")
+           .select("league_id, team_id, team_name, points, ppr_points, scoring_type")
+           .eq("season", int(season)).eq("week", int(week))
+           .in_("league_id", ids).execute())
+    return res.data or []
+
+
 def team_weeks_for_week(season: int, week: int) -> list[dict[str, Any]]:
     """Every collected team row for one week — the reminder's teasers."""
     return _paged("team_weeks", "provider, platform_league_id, points, margin, "

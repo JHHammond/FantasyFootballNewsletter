@@ -237,16 +237,159 @@ def test_the_page_and_its_public_preview(web, monkeypatch):
     league_stats.save_week(demo_db, lg, _week(monkeypatch), _ctx())
     r = web.get("/staff/around?week=3")
     assert r.status_code == 200
-    for words in ("Where does your score rank?", "The lineup desk", "The players",
-                  "Face-offs", "The season so far", "Joe Burrow", "Collect weeks 1"):
+    for words in ("Where does your score rank?", "The lineup desk", "The player boards",
+                  "Face-offs", "The season so far", "Joe Burrow", "Collect weeks 1",
+                  "See the public page"):
         assert words in r.text, words
     assert "Hank&#39;s Heroes" in r.text or "Hank's Heroes" in r.text   # staff see names
 
-    pub = web.get("/staff/around?week=3&preview=public")
+    # The old preview link goes to the public page, which staff can always see.
+    old = web.get("/staff/around?week=3&preview=public", follow_redirects=False)
+    assert old.status_code == 303 and old.headers["location"] == "/around?week=3"
+    pub = web.get("/around?week=3")
     assert pub.status_code == 200
     assert "Hank" not in pub.text                     # nobody's team name
-    assert "Collect weeks" not in pub.text
+    assert "Collect weeks" not in pub.text and "See the public page" not in pub.text
     assert "4-team" in pub.text or "league on Yahoo" in pub.text
+    assert "Make your league" in pub.text             # the pitch, public only
+
+
+def test_around_is_closed_until_the_flag_is_set(web, monkeypatch):
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    monkeypatch.delenv("AROUND_PUBLIC", raising=False)
+    assert web.get("/around").status_code == 404
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    lg = _league()
+    league_stats.save_week(demo_db, lg, _week(monkeypatch), _ctx())
+    r = web.get("/around?week=3")
+    assert r.status_code == 200
+    assert "Hank" not in r.text and "Collect weeks" not in r.text
+    assert "Where does your score rank?" in r.text
+
+
+def test_the_front_headline_and_stories():
+    def tw(team, ppr, result, opp, **kw):
+        return dict(_tw("L1", team, ppr, result, opp, team_count=10, **kw), ppr_points=ppr)
+    rows = [tw("a", 171.2, "L", 175.0), tw("b", 175.0, "W", 171.2),
+            tw("c", 61.0, "W", 58.0, bench_left=44.5, optimal_points=105.5,
+               best_bench_player="Josh Allen"),
+            tw("d", 58.0, "L", 61.0)]
+    wk = league_stats.compute_week(rows, [], {}, SEASON, 3)
+    a = {"players": wk["players"], "halls": wk["halls"], "lineup": wk["lineup"],
+         "summary": wk["summary"], "unlucky": wk["unlucky"], "lucky": wk["lucky"],
+         "teams": 4}
+    f = around.front(a)
+    # No lineups, so no flop: the 171.2 that lost is the banner.
+    assert f["headline"] == "171.2 Points. Still Lost."
+    kickers = [s["kicker"] for s in f["stories"]]
+    assert kickers[:3] == ["The heartbreaker", "Highway robbery", "The bench disaster"]
+    assert "Josh Allen" in f["stories"][2]["body"]
+    # The words describe a team; they never name one.
+    assert all(s["body"].startswith("A 10-team PPR league on Sleeper") for s in f["stories"])
+
+    # A flop started by enough of the week's lineups takes the banner.
+    a["summary"] = dict(a["summary"], lineup_teams=100)
+    a["players"] = dict(a["players"], flops=[
+        {"player_key": "k", "name": "Kicker Guy", "position": "K", "started": 90, "ppr": 1.0},
+        {"player_key": "1", "name": "Star Back", "position": "RB", "started": 40, "ppr": 2.1}])
+    f = around.front(a)
+    assert f["headline"] == "40 Teams Started Star Back. He Scored 2.1."   # not the kicker
+    assert f["stars"][0]["kicker"] == "The bust" and f["stars"][0]["p"]["name"] == "Star Back"
+
+
+def test_where_a_score_ranks():
+    pct = {"all": [round(40 + 1.6 * i, 1) for i in range(101)], "n_all": 3512,
+           "half_ppr": [round(40 + 1.2 * i, 1) for i in range(101)], "n_half_ppr": 1250}
+    r = around.rank(pct, 171.2)
+    assert (r["pct"], r["teams"]) == (82, 3512)
+    assert r["beat"] + r["place"] == r["teams"]          # beaten + at-or-above
+    assert r["stamp"] == "TOP 25%" and r["verdict"] == "A strong week."
+    assert around.rank(pct, 171.2, "half_ppr")["teams"] == 1250
+    assert around.rank(pct, 171.2, "std") is None        # not collected
+    # The ends, where interpolation has nothing to lean on.
+    assert around.rank(pct, 0)["pct"] == 0 and around.rank(pct, 0)["place"] == 3512
+    assert around.rank(pct, 400)["pct"] == 100 and around.rank(pct, 400)["place"] == 1
+    assert [around.ordinal(n) for n in (1, 2, 3, 11, 13, 21, 112, 728)] == \
+        ["1st", "2nd", "3rd", "11th", "13th", "21st", "112th", "728th"]
+
+
+def test_the_script_and_the_card_agree_on_a_rank():
+    """The page answers as you type and the card answers on the server. If
+    the two drift, a share says something the page never said."""
+    import re
+    page = (Path(__file__).resolve().parent.parent
+            / "web" / "templates" / "around.html").read_text()
+    js = page[page.index("function below("):page.index("function verdict(")]
+    assert "arr.length - 1" in js and "v <= arr[0]" in js   # the same shape
+    # Every verdict the script can print is one the server can print.
+    said = set(re.findall(r'"([^"]+\.)"', page[page.index("function verdict("):
+                                                page.index("function ordinal(")]))
+    assert said == {words for _, words, _ in around.VERDICTS}
+
+
+def test_the_lookups_own_teams(monkeypatch):
+    lg = _league()
+    demo_db.update_league(lg["id"], {"user_id": "u1", "my_team_id": "b"})
+    rows = [_tw(lg["id"], t, pts, "W", 90) for t, pts in (("a", 120.0), ("b", 140.0))]
+    for r in rows:
+        r["team_name"] = {"a": "Zebras", "b": "Anteaters"}[r["team_id"]]
+    demo_db.upsert_team_weeks(rows)
+    mine = around.my_teams(demo_db, {"id": "u1"}, SEASON, 3)
+    assert len(mine) == 1 and len(mine[0]["teams"]) == 2
+    # Their own team first, whatever it's called, then the rest by name.
+    assert [t["name"] for t in mine[0]["teams"]] == ["Anteaters", "Zebras"]
+    assert mine[0]["teams"][0]["mine"] is True
+    assert around.my_teams(demo_db, None, SEASON, 3) == []          # signed out
+
+    def boom(*a, **k):
+        raise RuntimeError("supabase is having a day")
+    monkeypatch.setattr(demo_db, "team_weeks_for_leagues", boom)
+    assert around.my_teams(demo_db, {"id": "u1"}, SEASON, 3) == []  # never raises
+
+
+def test_the_share_card(web, monkeypatch):
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    lg = _league()
+    league_stats.save_week(demo_db, lg, _week(monkeypatch), _ctx())
+    r = web.get("/around/card.png?score=120.5&week=3")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n" and len(r.content) > 5000
+    for size in ("story", "og", "nonsense"):          # nonsense falls back
+        assert web.get(f"/around/card.png?score=120.5&week=3&size={size}").status_code == 200
+    # A score nobody could have scored isn't a card.
+    for bad in ("", "abc", "-5", "9999", "NaN"):
+        assert web.get(f"/around/card.png?score={bad}&week=3").status_code == 404
+    # A shared link previews as its own card.
+    page = web.get("/around?score=120.5")
+    assert "/around/card.png?score=120.50" in page.text
+    assert "/static/brand/og-image.png" in web.get("/around").text
+
+    monkeypatch.delenv("AROUND_PUBLIC", raising=False)
+    assert web.get("/around/card.png?score=120.5&week=3").status_code == 404
+
+
+def test_the_demo_seeder_finds_real_sleeper_ids(monkeypatch):
+    """The demo is only honest if its players carry real Sleeper ids: that's
+    where the page gets their photos. Offline, it must still run."""
+    from scripts import demo_around as demo
+    raw = {"4866": {"full_name": "Brian Thomas Jr.", "position": "WR", "team": "JAX"},
+           "9001": {"full_name": "Brian Thomas", "position": "WR", "team": "NYG"},
+           "4984": {"full_name": "Josh Allen", "position": "QB", "team": "BUF"},
+           "PIT": {"first_name": "Pittsburgh", "last_name": "Steelers",
+                   "position": "DEF", "team": "PIT"}}
+    monkeypatch.setattr(ppr, "fetch_index", lambda: ppr.build_index(raw))
+    keys = demo.sleeper_keys()
+    assert keys["Brian Thomas Jr."] == "4866"        # not his name-twin on the Giants
+    assert keys["Josh Allen"] == "4984" and keys["Steelers D/ST"] == "PIT"
+    assert around.photo({"player_key": keys["Josh Allen"], "position": "QB"})
+
+    monkeypatch.setattr(ppr, "fetch_index", lambda: (_ for _ in ()).throw(OSError("offline")))
+    assert demo.sleeper_keys() == {}                  # and the demo still runs
+    demo.KEYS.clear()
+    assert around.photo({"player_key": demo._key("Josh Allen"), "position": "QB"}) is None
 
 
 def test_page_before_migration_029(web, monkeypatch):

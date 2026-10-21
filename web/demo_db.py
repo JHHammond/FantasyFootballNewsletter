@@ -1176,6 +1176,15 @@ def reminders_ready() -> bool:
     return True
 
 
+def team_weeks_for_leagues(season: int, week: int,
+                           league_ids: list[str]) -> list[dict[str, Any]]:
+    keep = {str(i) for i in (league_ids or []) if i}
+    cols = ("league_id", "team_id", "team_name", "points", "ppr_points", "scoring_type")
+    return [{k: r.get(k) for k in cols} for r in _TEAM_WEEKS.values()
+            if str(r["league_id"]) in keep and int(r["season"]) == int(season)
+            and int(r["week"]) == int(week)]
+
+
 def team_weeks_for_week(season: int, week: int) -> list[dict[str, Any]]:
     return [dict(r) for r in _TEAM_WEEKS.values()
             if r.get("season") == int(season) and r.get("week") == int(week)]

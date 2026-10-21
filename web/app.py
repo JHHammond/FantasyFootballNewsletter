@@ -44,6 +44,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -211,6 +212,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 templates.env.globals["demo_mode"] = DEMO_MODE
+templates.env.globals["around_open"] = lambda: os.getenv("AROUND_PUBLIC", "").strip() == "1"
 
 
 def static_url(name: str) -> str:
@@ -1195,12 +1197,9 @@ def staff_papers(request: Request, week: int = 0, sample: int = 0,
                    sample=sample, sent=sent)
 
 
-@app.get("/staff/around", response_class=HTMLResponse)
-def staff_around(request: Request, week: int = 0, season: int = 0,
-                 preview: str = ""):
-    """Around the Leagues. Staff-only for now; ?preview=public shows it the
-    way readers would see it, with no team or manager names."""
-    _require_staff(request)
+def _around_page(request: Request, week: int, season: int, *, public: bool,
+                 staff: bool, user: Optional[dict] = None,
+                 score: str = "") -> HTMLResponse:
     import nfl_week
     from . import around, league_stats
 
@@ -1212,16 +1211,108 @@ def staff_around(request: Request, week: int = 0, season: int = 0,
     a = None
     if ready:
         if lineups_ready:
-            a = around.build(db, season, week, public=preview == "public")
-        else:
-            a = {"public": preview == "public", "teams": 0, "summary": {},
+            try:
+                a = around.build(db, season, week, public=public)
+            except RuntimeError:
+                # The national query timed out with nothing cached yet. The
+                # public page says "back shortly" rather than a 500.
+                a = None
+        if a is None:
+            a = {"public": public, "teams": 0, "summary": {}, "front": {},
                  "pct": {}, "hist": {}, "season_data": {}, "halls": {}}
-    return _render(request, "staff_around.html", ready=ready,
-                   lineups_ready=lineups_ready, a=a,
+    # A shared /around?score=141.6 link previews as that score's card.
+    shared = around.rank(a.get("pct") or {}, _a_score(score)) if a and score else None
+    return _render(request, "around.html", ready=ready,
+                   lineups_ready=lineups_ready, a=a, staff=staff,
+                   base_path="/around" if public and not staff else "/staff/around",
                    season=season, week=week, latest=latest,
                    weeks=list(range(1, max(latest, 1) + 1)),
-                   describe=around.describe, pct=around.pct,
-                   job=league_stats.job_status())
+                   describe=around.describe, pct=around.pct, photo=around.photo,
+                   mine=around.my_teams(db, user, season, week),
+                   shared=shared, card_base=f"{public_base_url()}/around/card.png",
+                   job=league_stats.job_status() if staff else {})
+
+
+def around_public() -> bool:
+    return os.getenv("AROUND_PUBLIC", "").strip() == "1"
+
+
+#: A typed score the lookup will accept. Anything outside this is somebody
+#: playing with the query string, not a fantasy score.
+MAX_SCORE = 400.0
+
+
+def _a_score(raw) -> Optional[float]:
+    try:
+        v = round(float(raw), 2)
+    except (TypeError, ValueError):
+        return None
+    return v if 0 <= v <= MAX_SCORE else None
+
+
+@app.get("/around", response_class=HTMLResponse)
+def around_page(request: Request, week: int = 0, score: str = ""):
+    """Around the Leagues, for everybody: every connected league's week in
+    one scoring system, no team or manager names. Open once AROUND_PUBLIC=1
+    is set on Render; staff can always see it (it's their public preview)."""
+    user = current_user(request)
+    staff = bool(user and user.get("plan") == plans.STAFF)
+    if not around_public() and not staff:
+        raise HTTPException(status_code=404)
+    return _around_page(request, week, 0, public=True, staff=False,
+                        user=user, score=score)
+
+
+@app.get("/around/card.png")
+def around_card_image(request: Request, score: str = "", week: int = 0,
+                      fmt: str = "all", size: str = "square", team: str = ""):
+    """The rank as a picture, for sharing. Everything it draws comes off
+    the query string, so it is clamped here: a score in range, a pool we
+    actually hold, and a team name only as long as a card can print."""
+    import nfl_week
+    from . import around, around_card
+
+    user = current_user(request)
+    if not around_public() and not (user and user.get("plan") == plans.STAFF):
+        raise HTTPException(status_code=404)
+    points = _a_score(score)
+    if points is None:
+        raise HTTPException(status_code=404)
+    # To one decimal, which is all the card prints: an arbitrary float would
+    # mean an unbounded set of distinct images to draw and cache.
+    points = round(points, 1)
+    season = nfl_week.current_season()
+    latest = nfl_week.completed_week()
+    week = min(max(week or latest, 1), max(latest, 1))
+    fmt = fmt if fmt in around.POOL else "all"
+    size = size if size in around_card.SIZES else "square"
+    try:
+        a = around.build(db, season, week)
+    except RuntimeError:
+        raise HTTPException(status_code=503) from None
+    r = around.rank(a.get("pct") or {}, points, fmt)
+    if not r:
+        raise HTTPException(status_code=404)
+    png = around_card.render(
+        r, week=week, pool=around.POOL[fmt], size=size,
+        team_name=clean_text(team, max_length=40).strip() or None,
+        hist=[{"lo": c["lo"], "n": c["n"]} for c in (a.get("hist") or {}).get("cols", [])])
+    return Response(png, media_type="image/png", headers={
+        "Cache-Control": "public, max-age=900",
+        "Content-Disposition": f'inline; filename="around-week-{week}-{size}.png"'})
+
+
+@app.get("/staff/around", response_class=HTMLResponse)
+def staff_around(request: Request, week: int = 0, season: int = 0,
+                 preview: str = ""):
+    """The same page with team names (dashed red tags) and the collector.
+    ?preview=public is kept for old links; /around is the real preview."""
+    _require_staff(request)
+    if preview == "public":
+        return RedirectResponse(f"/around?week={week}" if week else "/around",
+                                status_code=303)
+    return _around_page(request, week, season, public=False, staff=True,
+                        user=current_user(request))
 
 
 @app.post("/staff/around/collect")
