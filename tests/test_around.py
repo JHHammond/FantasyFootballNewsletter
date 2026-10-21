@@ -371,6 +371,100 @@ def test_the_share_card(web, monkeypatch):
     assert web.get("/around/card.png?score=120.5&week=3").status_code == 404
 
 
+def test_scores_we_do_not_believe_stay_out(monkeypatch):
+    """21 Oct, from the live staff page. Two shapes reached the stories:
+
+      * a team whose starters all matched Sleeper but whose week had no
+        stat lines, stored as ppr_points 0.00 beside a real 114.30. It was
+        "0.0 points — the worst score that won", over a story saying the
+        team scored 114.3.
+      * a 4-team league starting twenty players, averaging ~317 in plain
+        PPR. Its own points and its PPR points agree, so the "is this
+        league standard?" ratio test passed it, and it owned every board.
+    """
+    rows = []
+    # eight ordinary leagues
+    for lg in range(8):
+        for t in range(12):
+            p = 100.0 + t * 4
+            rows.append(_tw(f"ok{lg}", f"t{t}", p, "W" if t % 2 else "L", p - 3,
+                            team_count=12, ppr_points=p - 1))
+    # the 4-team league with enormous lineups
+    for t, p in enumerate((315.7, 365.3, 288.1, 301.4)):
+        rows.append(_tw("big", f"b{t}", p, "L" if t % 2 else "W", 300.0,
+                        team_count=4, ppr_points=p))
+    # the team whose standardized score came back as nothing
+    rows.append(_tw("ghost", "g1", 114.3, "W", 110.2, team_count=12, ppr_points=0.0))
+    rows.append(_tw("ghost", "g2", 110.2, "L", 114.3, team_count=12, ppr_points=105.0))
+    for t in range(2, 12):
+        rows.append(_tw("ghost", f"g{t}", 118.0, "W", 110.0, team_count=12, ppr_points=117.0))
+
+    wk = league_stats.compute_week(rows, [], {}, SEASON, 3)
+    std = [r["ppr_points"] for r in wk["halls"]["highest"] + wk["halls"]["lowest"]
+           + wk["unlucky"] + wk["lucky"]]
+    assert std, "something should still be on the boards"
+    assert all(40 <= v <= 200 for v in std), std      # no 0.00, no 315.7
+    assert all(r["league_id"] != "big" for r in wk["halls"]["highest"])
+    assert wk["lucky"][0]["ppr_points"] > 0
+    assert wk["summary"]["compared"] == 8 * 12 + 11   # everyone but big, and not g1
+    assert wk["summary"]["custom_leagues"] == 1       # the big league's own points
+
+    # g1's own 114.3 is still real in its own league, so it still counts
+    # anywhere a league's own points are read: only its standardized 0.00
+    # is untrusted. Its league is not a "custom scoring" league either.
+    assert wk["pct"]["n_ppr"] == 8 * 12 + 12          # the ghost league included
+    assert wk["summary"]["median_raw"] > 100          # its 114.3 is in the raw pool
+
+    # The front page reads from those boards, so it's clean too.
+    f = around.front(dict(wk, teams=wk["summary"]["teams"], front={}))
+    assert "315.7" not in str(f) and "0.0 points" not in str(f)
+    for story in f["stories"]:
+        assert "0.0" != story["big"]
+
+
+def test_a_league_rescued_by_standardizing_still_counts():
+    """The other side of the same coin: a league averaging 1,052 of its own
+    points standardizes to an ordinary 130, and that is exactly what
+    standardizing is for (30 Sep). It must not be thrown out with the 317s."""
+    rows = []
+    for t in range(12):
+        own = 1000.0 + t * 10
+        rows.append(_tw("wild", f"w{t}", own, "W" if t % 2 else "L", own - 20,
+                        team_count=12, ppr_points=120.0 + t))
+    for t in range(12):
+        p = 110.0 + t
+        rows.append(_tw("plain", f"p{t}", p, "W" if t % 2 else "L", p - 2,
+                        team_count=12, ppr_points=p))
+    wk = league_stats.compute_week(rows, [], {}, SEASON, 3)
+    assert wk["summary"]["compared"] == 24          # both leagues compared
+    assert wk["summary"]["custom_leagues"] == 1     # only the wild one's own points
+    assert max(h["lo"] for h in wk["hist"]) < 200
+    assert all(r["league_id"] == "plain" for r in wk["halls"]["blowouts"])
+
+
+def test_every_player_rides_along_for_the_search():
+    rows = [_tw("L1", t, 100 + i, "W" if i % 2 else "L", 100)
+            for i, t in enumerate("abcd")]
+    lu = []
+    for i, t in enumerate("abcd"):
+        for key in ("star", "dud", "deep"):
+            lu.append({"league_id": "L1", "season": SEASON, "week": 3, "team_id": t,
+                       "player_key": key, "slot": "QB" if key != "deep" else "BN",
+                       "started": key != "deep",
+                       "points": {"star": 30.0, "dud": 1.0, "deep": 9.0}[key],
+                       "ppr_points": {"star": 30.0, "dud": 1.0, "deep": 9.0}[key]})
+    players = {"star": {"name": "Star Man", "position": "QB"}}
+    wk = league_stats.compute_week(rows, lu, players, SEASON, 3, min_starts=2)
+    everyone = wk["players"]["all"]
+    assert {p["player_key"] for p in everyone} == {"star", "dud", "deep"}
+    # Ranked by how many rosters he is on, and carrying every board's number
+    # so the page can re-rank without asking the database again.
+    assert everyone[0]["rostered"] == 4
+    star = next(p for p in everyone if p["player_key"] == "star")
+    assert star["teams"] == 4 and star["started"] == 4 and star["win_pct"] == 0.5
+    assert star["name"] == "Star Man"
+
+
 def test_the_demo_seeder_finds_real_sleeper_ids(monkeypatch):
     """The demo is only honest if its players carry real Sleeper ids: that's
     where the page gets their photos. Offline, it must still run."""

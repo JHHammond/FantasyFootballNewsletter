@@ -3634,3 +3634,59 @@ html.nb-lock { overflow: hidden; }
 /* The placeholder em dash at 88px reads as a stray red rule; the prompt
    alone is cleaner until there's an answer. */
 .ar-out-empty .ar-rank-big { display: none; }
+
+
+/* ---------- every player, searchable (21 Oct) ---------- */
+/* The boards show ten apiece. This opens the same week to the whole list,
+   ranked by whichever board is showing, and filters it as you type. */
+.visually-hidden {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+/* Its own card under the board, not a strip hanging off the section. */
+.at-all {
+    background: var(--paper); margin-top: 14px; padding: 14px 20px 16px;
+    box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 10px 22px -14px rgba(40, 30, 10, .45);
+}
+.at-all-bar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 0 0 2px;
+}
+.at-all-toggle {
+    font-family: "Barlow Condensed", sans-serif; font-size: 14px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.3px; cursor: pointer;
+    background: none; border: 0; padding: 4px 0; color: var(--accent);
+    display: inline-flex; align-items: center; gap: 8px;
+}
+.at-all-toggle:hover { color: var(--ink); }
+.at-all-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.at-all-count {
+    font-family: "Barlow", sans-serif; font-size: 11.5px; letter-spacing: .4px;
+    background: var(--ink); color: #fff; padding: 1px 6px; border-radius: 9px;
+}
+.at-all-search { flex: 1 1 240px; max-width: 360px; }
+.at-all-search[hidden] { display: none; }
+.at-all-search input {
+    width: 100%; font: 500 15px "Barlow", sans-serif; padding: 7px 11px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+}
+.at-all-search input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--ink); }
+.at-all-panel[hidden] { display: none; }
+.at-all-note {
+    font-family: "Barlow Condensed", sans-serif; font-size: 12.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.4px; color: var(--muted);
+    padding: 12px 0 4px; border-top: 1px solid var(--line); margin-top: 12px;
+}
+.at-all-rows { max-height: 560px; overflow-y: auto; }
+.at-all-rows li { gap: 12px; }
+.at-all-rank {
+    flex: none; width: 30px; align-self: center; text-align: right;
+    font-family: "Anton", sans-serif; font-size: 15px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+.at-all-rows .ar-val b { font-size: 18px; }
+.at-all-rows li::before { content: none; }       /* ranked by place, not by row */
+@media (max-width: 560px) {
+    .at-all-search { max-width: none; }
+    .at-all-rows { max-height: 420px; }
+}

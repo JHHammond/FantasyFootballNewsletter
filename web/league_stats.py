@@ -507,6 +507,28 @@ def _size(n):
             else "14" if n <= 14 else "16+")
 
 
+#: A league average outside this band isn't a fantasy week. A 4-team league
+#: starting twenty players averaged 317 in plain PPR (21 Oct) and owned every
+#: board; a league scoring defenders averaged 1,052 (30 Sep).
+MIN_LEAGUE_AVG, MAX_LEAGUE_AVG = 40.0, 200.0
+def believable_std(points, ppr) -> bool:
+    """Is this team's standardized score one we'd print?
+
+    It has to exist and be more than nothing. A lineup whose starters all
+    matched Sleeper but whose week had no stat lines came back 0.00 beside a
+    real 114.30 — and 0.00 was then the lowest score in America (21 Oct).
+    Every starter unmatched scores the league's own points instead, so a
+    team with any scoring starter at all clears this.
+
+    Deliberately NOT a comparison with the league's own points: a league
+    averaging 1,052 (30 Sep) standardizes to a perfectly ordinary 130, and
+    rescuing exactly those leagues is what standardizing is for. A league
+    whose standardized scores are themselves absurd is caught per league,
+    by MIN_LEAGUE_AVG/MAX_LEAGUE_AVG.
+    """
+    return ppr is not None and points is not None and ppr > 0
+
+
 def compute_week(team_rows: list[dict], lineup_rows: list[dict],
                  players: dict[str, dict], season: int, week: int,
                  min_starts: int = 150) -> dict:
@@ -519,29 +541,30 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
             for k in ("points", "ppr_points", "opponent_points", "margin",
                       "optimal_points", "bench_left", "ppr_coverage"):
                 r[k] = f(r.get(k))
-            r["std_pts"] = r["ppr_points"] if r["ppr_points"] is not None else r["points"]
+            r["std_ok"] = believable_std(r["points"], r["ppr_points"])
+            r["std_pts"] = r["ppr_points"] if r["std_ok"] else r["points"]
             tw.append(r)
     # Which teams count where (see the SQL): in_sd for cross-league
     # comparisons, in_norm for anything read from a league's own points.
-    has_std = any(r["ppr_points"] is not None for r in tw)
+    has_std = any(r["std_ok"] for r in tw)
     per_league: dict = {}
     for r in tw:
         e = per_league.setdefault(r["league_id"], ([], []))
         e[0].append(r["points"])
-        if r["ppr_points"] is not None:
+        if r["std_ok"]:
             e[1].append(r["ppr_points"])
-    okl = set()
+    okl, okppr = set(), set()
     for lid, (raw, ppr) in per_league.items():
         raw_avg, ppr_avg = _avg(raw), _avg(ppr)
-        if ppr_avg is not None and ppr_avg > 0:
-            ok = 0.7 <= raw_avg / ppr_avg <= 1.3
-        else:
-            ok = 40 <= raw_avg <= 200
-        if ok:
+        if ppr_avg is not None and MIN_LEAGUE_AVG <= ppr_avg <= MAX_LEAGUE_AVG:
+            okppr.add(lid)
+        if (MIN_LEAGUE_AVG <= raw_avg <= MAX_LEAGUE_AVG
+                and (ppr_avg is None or 0.7 <= raw_avg / ppr_avg <= 1.3)):
             okl.add(lid)
     for r in tw:
         r["in_norm"] = r["league_id"] in okl
-        r["in_sd"] = (r["ppr_points"] is not None) if has_std else r["in_norm"]
+        r["in_sd"] = ((r["std_ok"] and r["league_id"] in okppr) if has_std
+                      else r["in_norm"])
     sd = [r for r in tw if r["in_sd"]]
     norm = [r for r in tw if r["in_norm"]]
 
@@ -606,6 +629,9 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
             "start_pct": _r(e["started"] / e["rostered"], 3) if e["rostered"] else None,
             "win_pct": _r(e["wins"] / e["started"], 3) if e["started"] else None,
             "wins": e["wins"], "ppr": e["ppr"], "best": e["best"],
+            # How many lineups he was the best player in (the "carried the
+            # most teams" board), so the full list can be ranked by it too.
+            "teams": (top_on.get(key) or {}).get("teams", 0),
             "bench_total": _r(sum(e["bench"]), 2),
             "bench_avg": _r(_avg(e["bench"]), 2),
         })
@@ -649,7 +675,7 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
             "custom_leagues": len({r["league_id"] for r in tw if not r["in_norm"]}),
             "avg_raw": _r(_avg(pts)), "median_raw": _r(_pct(pts, 0.5)),
             "avg_ppr": _r(_avg(std)), "median_ppr": _r(_pct(std, 0.5)),
-            "standardized": sum(1 for r in tw if r["ppr_points"] is not None),
+            "standardized": sum(1 for r in tw if r["std_ok"]),
             "coverage": _r(_avg(cov), 3),
             "lineup_teams": len({(l["league_id"], l["team_id"]) for l in lut}),
         },
@@ -704,6 +730,10 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
             "sleepers": top([c for c in pcard if c["rostered"] >= 100
                              and c["ppr"] is not None and c["start_pct"] < 0.25],
                             lambda c: (-c["ppr"], pk(c)), 5),
+            # Every player, for the expanded board and its search. Capped:
+            # the tail is players on a handful of rosters, and this rides in
+            # a cached JSON the page ships whole.
+            "all": top(pcard, lambda c: (-c["rostered"], pk(c)), 400),
             "min_starts": min_starts,
         },
     }
