@@ -427,6 +427,21 @@ def line_votes(league_id: str, season: int, week: int) -> list[dict[str, Any]]:
             if l == league_id and se == int(season) and w == int(week)]
 
 
+_TRADE_VOTES: dict = {}
+
+
+def save_trade_vote(league_id: str, season: int, week: int, trade: str,
+                    voter: str, side: str) -> None:
+    with _lock:
+        _TRADE_VOTES[(league_id, int(season), int(week), trade, voter)] = side
+
+
+def trade_votes(league_id: str, season: int, week: int) -> list[dict[str, Any]]:
+    return [{"trade": t, "voter": v, "side": s}
+            for (l, se, w, t, v), s in list(_TRADE_VOTES.items())
+            if l == league_id and se == int(season) and w == int(week)]
+
+
 def trial_weeks(provider: str, platform_league_id: str, season: int) -> list[int]:
     return sorted(w for (p, l, s, w) in _TRIAL
                   if p == provider and l == str(platform_league_id) and s == int(season))

@@ -405,6 +405,8 @@ class TransactionPlayer:
     name: str
     position: Optional[str] = None
     nfl_team: Optional[str] = None
+    #: For the trade cards (20 Oct). None where the platform's feed has none.
+    headshot_url: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

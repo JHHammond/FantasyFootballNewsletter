@@ -1152,6 +1152,80 @@ LINE_VOTE_SCRIPT = """<script>
 })();
 </script>"""
 
+
+#: The league's votes on who won each trade (20 Oct, web/trade_picks.py).
+#: Same rules as LINE_VOTE_SCRIPT: only on the paper's own page on our
+#: domain, only once the server says voting exists, and the same anonymous
+#: voter id, so one browser is one vote.
+TRADE_VOTE_SCRIPT = r"""<script>
+(function () {
+  if (!/^\/p\/[^\/]+\/\d{4}\/week-\d+\/?$/.test(location.pathname)) return;
+  if (/[?&]embed=1/.test(location.search) || !window.fetch) return;
+  var cards = document.querySelectorAll(".trade-card.tv[data-trade]");
+  if (!cards.length) return;
+  var url = location.pathname.replace(/\/$/, "") + "/trades";
+  var voter = null;
+  try { voter = localStorage.getItem("cd_voter"); } catch (e) {}
+  if (!voter || !/^[0-9a-f]{32}$/.test(voter)) {
+    var a = new Uint8Array(16);
+    if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(a);
+    else for (var i = 0; i < 16; i++) a[i] = Math.random() * 256 | 0;
+    voter = Array.prototype.map.call(a, function (b) {
+      return ("0" + b.toString(16)).slice(-2); }).join("");
+    try { localStorage.setItem("cd_voter", voter); } catch (e) {}
+  }
+  function show(card, t, locked) {
+    t = t || {};
+    card.querySelectorAll(".tv-side").forEach(function (b) {
+      var on = t.mine === b.getAttribute("data-side");
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.disabled = !!locked;
+    });
+    var split = card.querySelector(".tv-split");
+    var x = t.a || 0, y = t.b || 0, n = x + y;
+    if (typeof t.a === "number" && n) {
+      var pa = Math.round(100 * x / n);
+      split.querySelector(".tv-bar span").style.width = pa + "%";
+      split.querySelector(".tv-pa").textContent = pa + "%";
+      split.querySelector(".tv-pb").textContent = (100 - pa) + "%";
+      split.querySelector(".tv-n").textContent = n + (n === 1 ? " vote" : " votes");
+      split.hidden = false;
+    } else split.hidden = true;
+    var q = card.querySelector(".tv-q");
+    if (locked) q.textContent = "Who won the trade? Voting’s closed.";
+  }
+  fetch(url + "?v=" + voter, { cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.enabled) return;
+      cards.forEach(function (card) {
+        var key = card.getAttribute("data-trade");
+        card.querySelector(".tv-row").hidden = false;
+        show(card, data.trades[key], data.locked);
+        card.querySelectorAll(".tv-side").forEach(function (b) {
+          b.addEventListener("click", function () {
+            if (b.disabled) return;
+            var side = b.getAttribute("data-side");
+            show(card, { mine: side }, false);
+            fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                         body: JSON.stringify({ voter: voter, trade: key, side: side }) })
+              .then(function (r) {
+                if (r.status === 409) {
+                  cards.forEach(function (c) { show(c, {}, true); });
+                  return null;
+                }
+                return r.ok ? r.json() : null; })
+              .then(function (t) { if (t) show(card, t, false); })
+              .catch(function () {});
+          });
+        });
+      });
+    })
+    .catch(function () {});
+})();
+</script>"""
+
 def _line_side(name, avatar, points, css, vote=False):
     """One team on the board. With `vote`, a button the league taps to pick
     that side (12 Oct) — disabled, and so plain text, until LINE_VOTE_SCRIPT
@@ -1258,7 +1332,7 @@ def render_back_page(obituaries=None, promo=None, lines=None,
     trades = [t for t in (transactions or [])
               if is_trade(t) and t.get("status") == "complete"]
     others = [t for t in (transactions or []) if not is_trade(t)]
-    trades_html = render_trades_html(trades)
+    trades_html = render_trades_html(trades, vote=not editable)
     wire = render_transactions_html(others, editable) if others else ""
     if not (obits or records or lines_html or wire or trades_html):
         return ""
@@ -1871,9 +1945,88 @@ def get_player_headshot_url(player_id):
     return f"https://sleepercdn.com/content/nfl/players/{player_id}.jpg"
 
 
-def render_trades_html(trades):
+# ── DRAFT REGRETS (20 Oct) ─────────────────────────────────────────────────
+# The draft re-graded with the season so far (web/draft_regrets.py). Frozen
+# into the paper at generation, like the record book.
+
+def _dr_card(r, kind):
+    name = html_escape(r.get("player") or "")
+    face = (f'<img class="dr-face" src="{html_escape(r["headshot"])}" alt="" '
+            f'onerror="this.style.visibility=\'hidden\'" />'
+            if r.get("headshot") else
+            f'<span class="dr-face dr-initial">{html_escape((r.get("player") or "?")[:1])}</span>')
+    # Where he is now, in brackets after the team that drafted him (John,
+    # 20 Oct: no tags): "champayyy (now on nickarrowood)".
+    where = r.get("where") or ""
+    if where.startswith("now on "):
+        note = where
+    elif where in ("cut", "injured"):
+        note = where
+    elif r.get("injured"):
+        note = "injured"
+    else:
+        note = ""
+    team = html_escape(r.get("team") or "")
+    if note:
+        team += f' <span class="dr-where">({html_escape(note)})</span>'
+    return f"""
+        <div class="dr-card dr-{kind}">
+            {face}
+            <div class="dr-who">
+                <div class="dr-name">{name}</div>
+                <div class="dr-meta">Round {html_escape(str(r.get("round") or "?"))} &middot; {team}</div>
+            </div>
+            <div class="dr-move">
+                <span class="dr-was">{html_escape(r.get("drafted_as") or "")}</span>
+                <span class="dr-arrow" aria-label="now">&rarr;</span>
+                <span class="dr-now">{html_escape(r.get("now") or "")}</span>
+                <div class="dr-pts">{float(r.get("points") or 0):.1f} pts</div>
+            </div>
+        </div>"""
+
+
+def render_draft_regrets_html(regrets):
+    """Steals | regrets. "" when the
+    paper has none (before Week 4, keeper and dynasty leagues, no draft)."""
+    if not regrets:
+        return ""
+    steals = "".join(_dr_card(r, "steal") for r in regrets.get("steals") or [])
+    sorry = "".join(_dr_card(r, "regret") for r in regrets.get("regrets") or [])
+    if not (steals or sorry):
+        return ""
+    cols = ""
+    if steals:
+        cols += f'<div class="dr-col"><div class="dr-label dr-label-steal">Steals</div>{steals}</div>'
+    if sorry:
+        cols += f'<div class="dr-col"><div class="dr-label dr-label-regret">Regrets</div>{sorry}</div>'
+    through = int(regrets.get("through_week") or 0)
+    return f"""
+        <div class="full-section draft-regrets" id="draft">
+            <h2 class="section-title-full">Draft Regrets</h2>
+            <div class="section-note dr-note">Through Week {through}: where they were drafted, where they rank now.</div>
+            {f'<div class="dr-pair">{cols}</div>' if cols else ''}
+        </div>"""
+
+
+def _trade_player(pl):
+    """One player on a trade card: photo, name, position and NFL team."""
+    name = pl.get("name") or "a player"
+    url = pl.get("headshot_url")
+    face = (f'<img class="tr-face" src="{safe(url)}" alt="" '
+            f'onerror="this.style.visibility=\'hidden\'" />' if url else
+            f'<span class="tr-face tr-initial">{safe(name[:1].upper())}</span>')
+    where = " &middot; ".join(safe(x) for x in (pl.get("position"), pl.get("nfl_team")) if x)
+    return (f'<div class="tr-player">{face}<div class="tr-who">'
+            f'<div class="tr-name">{safe(name)}</div>'
+            + (f'<div class="tr-pos">{where}</div>' if where else "")
+            + '</div></div>')
+
+
+def render_trades_html(trades, vote=False):
     """The week's trades, one card each, every side shown together (25 Sep):
-    what each team came away with — players, draft picks and FAAB."""
+    what each team came away with — players, draft picks and FAAB. Players
+    with their photos since 20 Oct (John: "make the trade part look a bit
+    better")."""
     cards = []
     for t in trades or []:
         teams = list(t.get("teams") or [])
@@ -1887,23 +2040,39 @@ def render_trades_html(trades):
             continue
         sides = []
         for team in teams:
-            got = []
-            for who, pl in (t.get("adds") or []):
-                if who == team:
-                    where = "/".join(x for x in (pl.get("position"), pl.get("nfl_team")) if x)
-                    got.append(f'{safe(pl.get("name") or "a player")}'
-                               + (f' <span class="wire-pos">{safe(where)}</span>' if where else ""))
-            for who, label in (t.get("picks") or []):
-                if who == team:
-                    got.append(f'<span class="trade-pick">{safe(label)}</span>')
-            for _frm, to, amount in (t.get("faab") or []):
-                if to == team:
-                    got.append(f'<span class="trade-pick">${int(amount)} FAAB</span>')
-            items = "".join(f"<li>{g}</li>" for g in got) or "<li class='trade-none'>Nothing but relief</li>"
-            sides.append(f'<div class="trade-side"><div class="trade-team">'
-                         f'{safe(team)} <span>gets</span></div><ul>{items}</ul></div>')
-        swap = '<div class="trade-swap" aria-hidden="true">&#8644;</div>'
-        cards.append(f'<div class="trade-card">{swap.join(sides)}</div>')
+            players = [_trade_player(pl) for who, pl in (t.get("adds") or []) if who == team]
+            extras = [safe(label) for who, label in (t.get("picks") or []) if who == team]
+            extras += [f"${int(amount)} FAAB" for _frm, to, amount in (t.get("faab") or [])
+                       if to == team]
+            body = "".join(players)
+            if extras:
+                body += '<div class="tr-extras">' + "".join(
+                    f'<span class="tr-chip">{x}</span>' for x in extras) + "</div>"
+            if not body:
+                body = '<div class="tr-none">Nothing but relief</div>'
+            sides.append(f'<div class="tr-side"><div class="tr-team">{safe(team)}'
+                         f'<span class="tr-gets">receives</span></div>{body}</div>')
+        swap = '<div class="tr-swap" aria-hidden="true"><span>&#8644;</span></div>'
+        # WHO WON THE TRADE? (20 Oct): two-team trades on the paper's own
+        # page. Shipped hidden; TRADE_VOTE_SCRIPT shows it once the server
+        # says voting exists. Never in the editor or the PDF.
+        from web.trade_picks import trade_key, votable
+        if vote and votable(t) and len(teams) == 2:
+            buttons = "".join(
+                f'<button type="button" class="tv-side" data-side="{side}" '
+                f'aria-pressed="false" disabled>{safe(team)}</button>'
+                for side, team in zip(("a", "b"), teams))
+            ballot = ('<div class="tv-row" hidden><div class="tv-q">Who won the trade?</div>'
+                      f'<div class="tv-btns">{buttons}</div>'
+                      '<div class="tv-split" hidden><div class="tv-bar"><span></span></div>'
+                      '<div class="tv-nums"><span class="tv-pa"></span><span class="tv-n">'
+                      '</span><span class="tv-pb"></span></div></div></div>')
+            cards.append(f'<div class="trade-card tv" data-trade="{trade_key(t)}">'
+                         f'{swap.join(sides)}{ballot}</div>')
+        else:
+            cards.append(f'<div class="trade-card">{swap.join(sides)}</div>')
+    if vote and any('class="trade-card tv"' in c for c in cards):
+        cards.append(TRADE_VOTE_SCRIPT)
     return "".join(cards)
 
 
@@ -2526,6 +2695,7 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             editable=editable,
         ),
         "awards_html": awards_html,
+        "draft_regrets_html": render_draft_regrets_html((ai_content or {}).get("draft_regrets")),
         "back_page_html": render_back_page(
             obituaries=(ai_content or {}).get("obituaries"),
             record_book=(ai_content or {}).get("record_book"),
@@ -2608,6 +2778,7 @@ SECTION_NAV = (
     ("games", "Games", "matchup_stories_html"),
     ("awards", "Awards", "awards_html"),
     ("rankings", "Rankings", "power_rankings_html"),
+    ("draft", "Draft", "draft_regrets_html"),
     ("back-page", "Back Page", "back_page_html"),
 )
 
@@ -3147,6 +3318,38 @@ def _render_html(edition, theme=None):
             margin: 24px 0 0;
         }}
 
+        /* ── DRAFT REGRETS (20 Oct) ── */
+        .dr-pair {{ display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; margin-top: 6px; }}
+        .dr-label {{ font-size: 11px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
+                     padding: 6px 0 5px; border-bottom: 2px solid #111; margin-bottom: 4px; }}
+        .dr-label-steal {{ color: #1f7a3a; border-color: #1f7a3a; }}
+        .dr-label-regret {{ color: var(--accent, #c40000); border-color: var(--accent, #c40000); }}
+        .dr-card {{ display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 10px;
+                    align-items: center; padding: 10px 0; border-bottom: 1px solid #ddd; }}
+        .dr-face {{ width: 46px; height: 46px; border-radius: 50%; object-fit: cover; object-position: 50% 15%;
+                    border: 2px solid #16130f; background: #ece6da; display: block; box-sizing: border-box; }}
+        .dr-initial {{ display: flex; align-items: center; justify-content: center; font-weight: 900;
+                       font-size: 18px; color: #777; }}
+        .dr-regret .dr-face {{ filter: grayscale(1); }}
+        .dr-name {{ font-weight: 800; font-size: 15px; line-height: 1.2; overflow-wrap: anywhere; }}
+        .dr-where {{ font-style: italic; }}
+        .dr-meta {{ font-size: 11.5px; opacity: .7; margin-top: 2px; }}
+        .dr-move {{ text-align: right; white-space: nowrap; font-family: Georgia, serif; font-weight: 900; }}
+        .dr-was {{ font-size: 14px; opacity: .55; }}
+        .dr-arrow {{ font-size: 14px; opacity: .55; margin: 0 2px; }}
+        .dr-now {{ font-size: 22px; }}
+        .dr-steal .dr-now {{ color: #1f7a3a; }}
+        .dr-regret .dr-now {{ color: var(--accent, #c40000); }}
+        .dr-pts {{ font-family: inherit; font-size: 11px; font-weight: 700; opacity: .6; }}
+        @media screen and (max-width: 760px) {{
+            .dr-pair {{ grid-template-columns: 1fr; }}
+            .dr-label-regret {{ margin-top: 14px; }}
+        }}
+        @media print {{
+            .dr-card {{ break-inside: avoid; }}
+            .dr-label {{ break-after: avoid; }}
+        }}
+
         /* One line under a section heading, for the sections whose name is a
            joke rather than a description. Somebody opening their first paper
            has no idea what "Detention" is, and the answer is four words long —
@@ -3538,21 +3741,61 @@ def _render_html(edition, theme=None):
         .bp-tx.has-top {{ border-top: 3px solid #111; }}
         .bp-trades {{ grid-area: trades; }}
         .bp-trades.has-top {{ border-top: 3px solid #111; }}
-        .trade-card {{
-            display: flex; align-items: stretch; gap: 14px;
-            padding: 12px 0; border-bottom: 1px dotted #cfc8b8;
-        }}
+        /* Trade cards (20 Oct): each side's haul with photos, a swap badge
+           between them. */
+        .trade-card {{ display: flex; align-items: stretch; gap: 0;
+                       padding: 14px 0; border-bottom: 1px solid #ddd; }}
         .trade-card:last-child {{ border-bottom: 0; }}
-        .trade-side {{ flex: 1; min-width: 0; }}
-        .trade-team {{ font-weight: 800; font-size: 15px; margin-bottom: 4px; }}
-        .trade-team span {{ font-weight: 400; font-style: italic; opacity: 0.7; }}
-        .trade-side ul {{ margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.5; }}
-        .trade-pick {{ font-style: italic; }}
-        .trade-none {{ list-style: none; margin-left: -18px; opacity: 0.6; font-style: italic; }}
-        .trade-swap {{ align-self: center; font-size: 26px; color: var(--accent, #c40000); }}
-        @media (max-width: 600px) {{
-            .trade-card {{ flex-direction: column; gap: 6px; }}
-            .trade-swap {{ align-self: flex-start; transform: rotate(90deg); font-size: 20px; }}
+        .tr-side {{ flex: 1; min-width: 0; }}
+        .tr-team {{ font-weight: 800; font-size: 15px; padding-bottom: 6px; margin-bottom: 4px;
+                    border-bottom: 2px solid #111; overflow-wrap: anywhere; }}
+        .tr-gets {{ display: block; font-size: 9.5px; font-weight: 800; letter-spacing: 1.5px;
+                    text-transform: uppercase; opacity: .55; margin-top: 1px; }}
+        .tr-player {{ display: flex; align-items: center; gap: 10px; padding: 7px 0; }}
+        .tr-face {{ width: 40px; height: 40px; flex: none; border-radius: 50%; object-fit: cover;
+                    object-position: 50% 15%; border: 2px solid #16130f; background: #ece6da;
+                    box-sizing: border-box; display: block; }}
+        .tr-initial {{ display: flex; align-items: center; justify-content: center;
+                       font-weight: 900; font-size: 16px; color: #777; }}
+        .tr-name {{ font-weight: 700; font-size: 14.5px; line-height: 1.2; overflow-wrap: anywhere; }}
+        .tr-pos {{ font-size: 11px; opacity: .65; margin-top: 1px; }}
+        .tr-extras {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }}
+        .tr-chip {{ font-size: 11.5px; font-weight: 700; padding: 3px 8px;
+                    border: 1px solid #16130f; border-radius: 999px; }}
+        .tr-none {{ font-style: italic; opacity: .6; padding: 7px 0; }}
+        .tr-swap {{ flex: none; width: 52px; display: flex; align-items: center; justify-content: center; }}
+        .tr-swap span {{ width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center;
+                         justify-content: center; font-size: 18px; color: #fff;
+                         background: var(--accent, #c40000); }}
+        @media screen and (max-width: 600px) {{
+            .trade-card {{ flex-direction: column; }}
+            .tr-swap {{ width: auto; height: 44px; }}
+            .tr-swap span {{ transform: rotate(90deg); }}
+        }}
+        /* Who won the trade? (20 Oct) */
+        .trade-card.tv {{ flex-wrap: wrap; }}
+        .tv-row {{ flex: 1 0 100%; margin-top: 12px; padding-top: 10px; border-top: 1px dotted #cfc8b8; }}
+        .tv-row[hidden], .tv-split[hidden] {{ display: none !important; }}
+        .tv-q {{ font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase;
+                 opacity: .6; margin-bottom: 8px; text-align: center; }}
+        .tv-btns {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
+        .tv-side {{ font: inherit; font-weight: 700; font-size: 14px; color: inherit; background: none;
+                    border: 2px solid #16130f; border-radius: 999px; padding: 8px 12px; cursor: pointer;
+                    overflow-wrap: anywhere; -webkit-tap-highlight-color: transparent;
+                    transition: background .15s, color .15s; }}
+        .tv-side:disabled {{ cursor: default; }}
+        .tv-side:not(:disabled):hover {{ background: rgba(127,127,127,.10); }}
+        .tv-side.on, .tv-side.on:hover, .tv-side.on:disabled {{
+            background: var(--accent, #c40000) !important; border-color: var(--accent, #c40000); color: #fff; }}
+        .tv-split {{ margin-top: 10px; }}
+        .tv-bar {{ height: 6px; background: #d9d4ca; display: flex; }}
+        .tv-bar span {{ display: block; height: 100%; background: var(--accent, #c40000); transition: width .35s; }}
+        .tv-nums {{ display: flex; justify-content: space-between; align-items: baseline;
+                    font-size: 12px; font-weight: 700; margin-top: 4px; }}
+        .tv-n {{ font-weight: 400; font-size: 11px; opacity: .65; }}
+        @media print {{
+            .trade-card {{ break-inside: avoid; }}
+            .tv-row {{ display: none !important; }}
         }}
         .rb-after-obits {{ margin-top: 18px; border-top: 3px solid #111; padding-top: 14px; }}
         .bp-obits > .obit:nth-last-child(2) {{ border-bottom: 0; }}
@@ -4401,6 +4644,10 @@ def _render_html(edition, theme=None):
                 {edition['power_rankings_html']}
             </div>
         </div>
+
+        <!-- DRAFT REGRETS (20 Oct): nothing at all before Week 4, or in a
+             keeper or dynasty league -->
+        {edition.get('draft_regrets_html', '')}
 
         <!-- THE BACK PAGE: obituaries | promo | next week, transactions -->
         <div class="nav-anchor" id="back-page"></div>

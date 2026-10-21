@@ -634,11 +634,14 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
     provider, lid, season = (league["provider"], league["platform_league_id"],
                              league["season"])
     out = {"briefing": "", "lines": [], "memories": {}, "trends": {},
-           "record_book": [], "last_lines": []}
+           "record_book": [], "last_lines": [], "weeks": []}
     try:
         def fetch(w):
-            return this_week if w == week else load_week(
+            wd = this_week if w == week else load_week(
                 provider, lid, season, w, with_optimizer=False)
+            # Kept for draft regrets (20 Oct), which needs the same weeks.
+            out["weeks"].append(wd)
+            return wd
         results = history.load_season(fetch, week)
 
         last_paper = None
@@ -909,9 +912,25 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     news_items = split_news(news)
     must_use = route_jokes(must_lore + news_items, week_data, managers)
 
-    annotate_draft(games, _draft_picks(league))
+    draft = _draft_picks(league)
+    annotate_draft(games, draft)
 
     season_so_far = _season_briefing(db, league, week, week_data)
+
+    # DRAFT REGRETS (20 Oct): the draft re-graded with the season so far.
+    # Redraft only (_draft_picks is empty otherwise), Week 4 on. Garnish:
+    # any failure costs this section and nothing else.
+    regrets = None
+    try:
+        from . import draft_regrets
+        regrets = draft_regrets.build(season_so_far.get("weeks") or [], draft, week)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[draft regrets] skipped: {type(exc).__name__}: {exc}", flush=True)
+    if regrets:
+        from . import draft_regrets
+        regret_facts = draft_regrets.writer_facts(regrets)
+        if regret_facts:
+            league_context = (league_context + "\n\n" if league_context else "") + regret_facts
     if season_so_far["briefing"]:
         league_context = (
             "BACKGROUND ON THE SEASON — for you, not to recite. Use a fact "
@@ -995,6 +1014,8 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         ai_content["trends"] = season_so_far["trends"]
     if season_so_far.get("record_book"):
         ai_content["record_book"] = season_so_far["record_book"]
+    if regrets:
+        ai_content["draft_regrets"] = regrets
 
     # The third free paper says so, on the page every reader sees (25 Sep).
     if trial_last:

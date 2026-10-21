@@ -242,12 +242,12 @@ def test_sleeper_draft_picks_come_from_the_completed_draft(monkeypatch, tmp_path
     calls = {
         "/league/L/drafts": [{"draft_id": "old", "status": "pre_draft"},
                              {"draft_id": "D", "status": "complete", "start_time": 5}],
-        "/draft/D/picks": [{"player_id": "4046", "round": 1, "pick_no": 3},
+        "/draft/D/picks": [{"player_id": "4046", "round": 1, "pick_no": 3, "roster_id": 7},
                            {"player_id": None, "round": 2, "pick_no": 14}],
     }
     monkeypatch.setattr(p, "_get", lambda url, params=None: next(
         v for k, v in calls.items() if url.endswith(k)))
-    assert p.draft_picks("L", 2026) == {"4046": {"round": 1, "overall": 3}}
+    assert p.draft_picks("L", 2026) == {"4046": {"round": 1, "overall": 3, "team_id": "7"}}
 
 
 def test_a_season_high_needs_three_earlier_games():

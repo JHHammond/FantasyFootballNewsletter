@@ -181,7 +181,8 @@ def test_the_optimizer_accepts_it(adapter):
 
 def test_draft_picks(adapter):
     picks = adapter.draft_picks(KEY, 2026)
-    assert picks["31001"] == {"round": 1, "overall": 1}
+    assert picks["31001"] == {"round": 1, "overall": 1,
+                              "team_id": fx.TEAMS[0][0]}
 
 
 def test_transactions(adapter):

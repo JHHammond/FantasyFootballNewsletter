@@ -427,8 +427,10 @@ class ESPNProvider(FantasyProvider):
         for pk in picks:
             pid = pk.get("playerId")
             if pid is not None and int(pid) > 0:
+                tid = pk.get("teamId")
                 out[str(pid)] = {"round": int(pk.get("roundId") or 0),
-                                 "overall": int(pk.get("overallPickNumber") or 0)}
+                                 "overall": int(pk.get("overallPickNumber") or 0),
+                                 "team_id": str(tid) if tid is not None else None}
         return out
 
     def get_league(self, league_id: str, season: Optional[int] = None) -> League:
@@ -815,6 +817,8 @@ class ESPNProvider(FantasyProvider):
                 name=info.get("name") or "A player",
                 position=info.get("position"),
                 nfl_team=info.get("nfl_team"),
+                headshot_url=(None if info.get("position") in ("DEF", "D/ST")
+                              else _headshot(player_id, None)),
             )
 
         out: list[Transaction] = []

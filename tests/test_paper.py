@@ -502,7 +502,8 @@ _WAIVER = {"kind": "waiver", "status": "complete", "week": 3, "teams": ["Hands"]
 def test_trades_get_their_own_section_with_every_side():
     html = newspaper.render_back_page([], None, [], [_TRADE, _WAIVER])
     trades = html[html.index(">Trades<"):html.index(">Transactions<")]
-    assert "Wasteland <span>gets</span>" in trades and "Satan <span>gets</span>" in trades
+    assert ('Wasteland<span class="tr-gets">receives' in trades
+            and 'Satan<span class="tr-gets">receives' in trades)
     assert "Bijan Robinson" in trades and "Josh Allen" in trades
     assert "2027 1st-round pick (Wasteland&#x27;s)" in trades or "2027 1st-round pick (Wasteland's)" in trades
     assert "$15 FAAB" in trades
@@ -638,3 +639,16 @@ def test_orderable_markers_only_when_editing():
     assert "data-order-group" not in newspaper.render_standings_html(rows)
     html = newspaper.render_standings_html(rows, editable=True)
     assert 'data-order-name="Alex &quot;The&quot; Barn"' in html
+
+
+def test_trade_cards_show_player_photos_and_fall_back_to_an_initial():
+    """20 Oct: photos on the trade cards; a platform with none (Yahoo's feed)
+    gets the player's initial, never a broken image."""
+    with_photo = dict(_TRADE)
+    adds = [(team, dict(pl, headshot_url=f"https://x.test/{i}.jpg") if i == 0 else dict(pl))
+            for i, (team, pl) in enumerate(_TRADE["adds"])]
+    with_photo["adds"] = adds
+    html = newspaper.render_back_page([], None, [], [with_photo])
+    assert 'class="tr-face" src="https://x.test/0.jpg"' in html
+    assert "this.style.visibility" in html
+    assert 'class="tr-face tr-initial"' in html

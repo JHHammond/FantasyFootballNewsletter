@@ -1863,6 +1863,24 @@ def line_votes(league_id: str, season: int, week: int) -> list[dict[str, Any]]:
                   season=int(season), week=int(week))
 
 
+# Votes on who won each trade (migration 043)
+
+def save_trade_vote(league_id: str, season: int, week: int, trade: str,
+                    voter: str, side: str) -> None:
+    """One vote per voter per trade; voting again changes it."""
+    client().table("trade_votes").upsert({
+        "league_id": league_id, "season": int(season), "week": int(week),
+        "trade": trade, "voter": voter, "side": side,
+        "updated_at": "now()",
+    }, on_conflict="league_id,season,week,trade,voter").execute()
+
+
+def trade_votes(league_id: str, season: int, week: int) -> list[dict[str, Any]]:
+    """Every vote on one paper's trades: [{trade, voter, side}]."""
+    return _paged("trade_votes", "trade, voter, side", league_id=league_id,
+                  season=int(season), week=int(week))
+
+
 def count_trial_papers(season: int) -> int:
     res = (client().table("trial_papers").select("week", count="exact")
            .eq("season", int(season)).limit(1).execute())

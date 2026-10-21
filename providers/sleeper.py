@@ -511,12 +511,16 @@ class SleeperProvider(FantasyProvider):
             for pk in picks:
                 pid = pk.get("player_id")
                 if pid:
+                    # team_id (20 Oct, draft regrets): the roster that made
+                    # the pick, the same id as Team.team_id.
+                    rid = pk.get("roster_id")
                     out[str(pid)] = {"round": int(pk.get("round") or 0),
-                                     "overall": int(pk.get("pick_no") or 0)}
+                                     "overall": int(pk.get("pick_no") or 0),
+                                     "team_id": str(rid) if rid is not None else None}
             return out
 
         return self.cache.get_or_fetch(
-            f"draft:{league_id}:{season}", TTL_LEAGUE_META, fetch) or {}
+            f"draft2:{league_id}:{season}", TTL_LEAGUE_META, fetch) or {}
 
     def available_weeks(self, league_id: str, season: int) -> list[int]:
         """Every week that has at least one team with points on the board.
@@ -765,14 +769,18 @@ class SleeperProvider(FantasyProvider):
                 if 2 <= len(code) <= 4 and code.isalpha():
                     return TransactionPlayer(player_id=pid,
                                              name=f"{code} D/ST",
-                                             position="DEF", nfl_team=code)
+                                             position="DEF", nfl_team=code,
+                                             headshot_url=f"{TEAM_LOGO_URL}/{code.lower()}.png")
                 full = pid
 
+            pos = info.get("position")
             return TransactionPlayer(
                 player_id=pid,
                 name=full,
-                position=info.get("position"),
+                position=pos,
                 nfl_team=info.get("team"),
+                headshot_url=(f"{TEAM_LOGO_URL}/{pid.lower()}.png" if pos == "DEF"
+                              else f"{HEADSHOT_URL}/{pid}.jpg") if info else None,
             )
 
         def team(roster_id) -> str:

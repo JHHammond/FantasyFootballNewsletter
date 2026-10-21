@@ -4145,6 +4145,63 @@ async def vote_on_line(request: Request, slug: str, season: int, week: int):
                         headers=_NO_STORE)
 
 
+# Votes on who won each trade (John, 20 Oct): the twin of the lines above,
+# with the same lock (the next week's first kickoff) and the same per-IP
+# limit. See web/trade_picks.py.
+
+@app.get("/p/{slug}/{season}/week-{week}/trades")
+def trade_tallies(request: Request, slug: str, season: int, week: int, v: str = ""):
+    from web import trade_picks
+    league = _votes_league(request, slug, season, week)
+    voter = v if picks.VOTER_RE.match(v or "") else ""
+    locked = picks.is_locked(season, week)
+    try:
+        rows = db.trade_votes(league["id"], season, week)
+    except Exception:  # noqa: BLE001 — migration 043 not run: no buttons
+        return JSONResponse({"enabled": False}, headers=_NO_STORE)
+    return JSONResponse({
+        "enabled": True, "locked": locked,
+        "trades": trade_picks.public_view(rows, voter, locked),
+    }, headers=_NO_STORE)
+
+
+@app.post("/p/{slug}/{season}/week-{week}/trades")
+async def vote_on_trade(request: Request, slug: str, season: int, week: int):
+    """{voter, trade, side} as JSON, for the same reason as the lines."""
+    from web import trade_picks
+    if "application/json" not in (request.headers.get("content-type") or ""):
+        return JSONResponse({"error": "JSON only."}, status_code=415, headers=_NO_STORE)
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Bad vote."}, status_code=400, headers=_NO_STORE)
+    voter, trade, side = (str(body.get(k) or "") for k in ("voter", "trade", "side"))
+    if not (picks.VOTER_RE.match(voter) and trade_picks.TRADE_RE.match(trade)
+            and side in trade_picks.SIDES):
+        return JSONResponse({"error": "Bad vote."}, status_code=400, headers=_NO_STORE)
+
+    league = await run_in_threadpool(_votes_league, request, slug, season, week)
+    if picks.is_locked(season, week):
+        return JSONResponse({"locked": True, "error": "Voting has closed."},
+                            status_code=409, headers=_NO_STORE)
+    if await run_in_threadpool(_rate_limited, f"vote:{_client_ip(request)}",
+                               picks.VOTES_PER_IP_PER_HOUR):
+        return JSONResponse({"error": "Slow down."}, status_code=429, headers=_NO_STORE)
+    try:
+        await run_in_threadpool(db.save_trade_vote, league["id"], season, week,
+                                trade, voter, side)
+        rows = await run_in_threadpool(db.trade_votes, league["id"], season, week)
+    except Exception:  # noqa: BLE001 — migration 043 not run
+        return JSONResponse({"error": "Voting isn't available."}, status_code=503,
+                            headers=_NO_STORE)
+    view = trade_picks.public_view(rows, voter, False)
+    return JSONResponse({"enabled": True, "locked": False,
+                         "trade": trade, **view.get(trade, {"mine": side})},
+                        headers=_NO_STORE)
+
+
 # ---------------------------------------------------------------------------
 # Subscriptions
 # ---------------------------------------------------------------------------

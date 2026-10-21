@@ -758,8 +758,10 @@ class YahooProvider(FantasyProvider):
             pick = _merge(row)
             pid = _raw_id(pick.get("player_key"))
             if pid:
+                tk = pick.get("team_key")
                 out[pid] = {"round": _int(pick.get("round")),
-                            "overall": _int(pick.get("pick"))}
+                            "overall": _int(pick.get("pick")),
+                            "team_id": str(tk) if tk else None}
         return out
 
     # -- transactions ------------------------------------------------------
