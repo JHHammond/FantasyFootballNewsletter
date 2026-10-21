@@ -41,6 +41,10 @@ class Result:
     opp_team: str
     opp_manager: str
     opp_points: float
+    #: This week's result against the league median, in a league that plays
+    #: one ("W"/"L"/"T"); None otherwise (20 Oct). `outcome` stays the real
+    #: game, so streaks and rematches are about games; records add both.
+    median: Optional[str] = None
 
     @property
     def outcome(self) -> str:
@@ -63,7 +67,8 @@ def results_from_weeks(weeks: list) -> list[Result]:
                     manager=me.manager.display_name, points=float(me.points or 0),
                     opp_id=str(them.team_id), opp_team=them.team_name,
                     opp_manager=them.manager.display_name,
-                    opp_points=float(them.points or 0)))
+                    opp_points=float(them.points or 0),
+                    median=getattr(me, "median_result", None)))
     return out
 
 
@@ -128,6 +133,14 @@ def team_histories(results: list[Result], through_week: int) -> dict[str, TeamHi
                 h.losses += 1
             else:
                 h.ties += 1
+            # The median game counts in the record, not in `games`, which is
+            # what points per game divides by.
+            if r.median == "W":
+                h.wins += 1
+            elif r.median == "L":
+                h.losses += 1
+            elif r.median == "T":
+                h.ties += 1
         h.streak_kind, h.streak_len = streak(rs)
         before = [r for r in rs if r.week < through_week]
         h.last = before[-1] if before else None
@@ -158,6 +171,11 @@ def previously_on(results: list[Result], week: int,
 
     hist = team_histories(results, week)
     lines: list[str] = []
+    if any(r.median for r in results if r.week <= week):
+        lines.append("This league plays the median: every week each team also "
+                     "gets a win for a top-half score and a loss for a "
+                     "bottom-half one, so a week is two results and the "
+                     "records below count both.")
 
     for h in sorted(hist.values(), key=lambda h: (-h.wins, -h.points_for)):
         bits = [f"{h.team}: {h.record} after this week"]

@@ -875,7 +875,29 @@ def _records_line(ctx) -> str:
         return ("Records are not given here; do not state anybody's record.\n")
     return (f"Records AFTER this game: {ctx.get('winner')} {w}, "
             f"{ctx.get('loser')} {l}. If you mention a record, use exactly "
-            f"these; never work one out yourself.\n")
+            f"these; never work one out yourself.\n" + _median_line(ctx))
+
+
+_MEDIAN_WORDS = {"W": "beat the league median (a top-half score: an extra win)",
+                 "L": "fell below the league median (a bottom-half score: an extra loss)",
+                 "T": "landed exactly on the league median (an extra tie)"}
+
+
+def _median_line(ctx) -> str:
+    """A median league (20 Oct): every team also plays the whole league each
+    week, so a team can lose its game and still go 1-1 on the week, or win
+    it and go 1-1. Told nothing, the writer would call a 1-1 week a loss."""
+    w, l = ctx.get("winner_median"), ctx.get("loser_median")
+    if w not in _MEDIAN_WORDS or l not in _MEDIAN_WORDS:
+        return ""
+    line = (f"This league also plays the median every week, and the records "
+            f"above include it. {ctx.get('winner')} {_MEDIAN_WORDS[w]}; "
+            f"{ctx.get('loser')} {_MEDIAN_WORDS[l]}.")
+    if l == "W":
+        line += f" So {ctx.get('loser')} lost the game but still went 1-1 on the week."
+    if w == "L":
+        line += f" So {ctx.get('winner')} won the game but only went 1-1 on the week."
+    return line + "\n"
 
 
 def _wire_name(name) -> str:
@@ -1135,6 +1157,7 @@ def build_game_context(game):
         "winner_owner": winner_team.get("owner_name"),
         "winner_score": _one_decimal(winner_team.get("points")),
         "winner_record": winner_team.get("record_after") or winner_team.get("record"),
+        "winner_median": winner_team.get("median_result"),
         "winner_lineup_gap": winner_team.get("lineup_gap", 0),
         "winner_top_performer": format_performer(winner_team.get("top_performer")),
         "winner_bottom_performer": format_performer(winner_team.get("bottom_performer")),
@@ -1145,6 +1168,7 @@ def build_game_context(game):
         "loser_owner": loser_team.get("owner_name"),
         "loser_score": _one_decimal(loser_team.get("points")),
         "loser_record": loser_team.get("record_after") or loser_team.get("record"),
+        "loser_median": loser_team.get("median_result"),
         "loser_lineup_gap": loser_team.get("lineup_gap", 0),
         "loser_top_performer": format_performer(loser_team.get("top_performer")),
         "loser_bottom_performer": format_performer(loser_team.get("bottom_performer")),

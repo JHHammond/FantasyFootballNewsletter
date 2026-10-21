@@ -596,11 +596,22 @@ def build_stats_box(summary):
 
 
 def parse_record(record):
+    """(wins, losses) from "7-5" or "7-4-1". A record with a tie used to fail
+    the two-part split and come back 0-0, which sank that team to the foot of
+    the standings; median leagues (20 Oct) make ties routine."""
     try:
-        wins, losses = record.split("-")
-        return int(wins), int(losses)
+        parts = [int(x) for x in str(record).split("-")]
+        return parts[0], parts[1]
     except Exception:
         return 0, 0
+
+
+def _record_ties(record) -> int:
+    try:
+        parts = [int(x) for x in str(record).split("-")]
+        return parts[2] if len(parts) > 2 else 0
+    except Exception:
+        return 0
 
 
 def build_standings(matchups):
@@ -623,7 +634,8 @@ def build_standings(matchups):
     standings = list(teams.values())
     standings.sort(
         key=lambda t: (
-            parse_record(t["record"])[0],
+            # A tie is half a win, so 7-4-1 sits above 7-5.
+            parse_record(t["record"])[0] + _record_ties(t["record"]) / 2,
             t["points"],
         ),
         reverse=True,

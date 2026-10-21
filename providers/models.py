@@ -209,6 +209,10 @@ class Team:
     ties: int = 0
     # Filled in by the optimizer, not the provider.
     optimal_points: Optional[float] = None
+    # THIS week's result against the league median ("W", "L" or "T"), in a
+    # league that plays one (20 Oct). None everywhere else. wins/losses/ties
+    # above already include the median results of earlier weeks.
+    median_result: Optional[str] = None
 
     @property
     def record(self) -> str:
@@ -362,6 +366,14 @@ class League:
     #: hasn't drafted has no matchups at all, which is a very different problem
     #: from "that week hasn't been played."
     status: Optional[str] = None
+    #: League median games (20 Oct): every week, each team also plays the
+    #: whole league — top half by score gets a win, bottom half a loss — on
+    #: top of its real game. The last week that counts (the regular season;
+    #: platforms switch it off for the playoffs). None: the league doesn't.
+    median_through_week: Optional[int] = None
+
+    def plays_median(self, week: int) -> bool:
+        return self.median_through_week is not None and 0 < week <= self.median_through_week
 
     @property
     def starting_slots(self) -> list[str]:
@@ -486,3 +498,33 @@ class WeekData:
             "matchups": [m.to_dict() for m in self.matchups],
             "byes": [t.to_dict() for t in self.byes],
         }
+
+
+def median_outcomes(scores: dict[str, float]) -> dict[str, str]:
+    """Each team's result against the league median for one week.
+
+    The top half by score gets a "W" and the bottom half an "L", the way
+    Sleeper scores it. Two edge cases, both settled as ties because neither
+    team did better than the other:
+      * a dead heat across the cut: every team on the cutoff score gets "T";
+      * an odd number of teams: the one in the middle IS the median, "T".
+    Fewer than two teams: nothing to compare, {}.
+    """
+    ranked = sorted(scores.items(), key=lambda kv: -float(kv[1] or 0))
+    n = len(ranked)
+    if n < 2:
+        return {}
+    half = n // 2
+    out: dict[str, str] = {}
+    if n % 2:
+        cut_scores = {float(ranked[half][1] or 0)}
+    else:
+        hi, lo = float(ranked[half - 1][1] or 0), float(ranked[half][1] or 0)
+        cut_scores = {hi} if hi == lo else set()
+    for i, (team_id, pts) in enumerate(ranked):
+        pts = float(pts or 0)
+        if pts in cut_scores:
+            out[str(team_id)] = "T"
+        else:
+            out[str(team_id)] = "W" if i < half else "L"
+    return out

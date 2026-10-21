@@ -75,6 +75,9 @@ def team_to_legacy(team: Team) -> dict[str, Any]:
         "wins": team.wins,
         "losses": team.losses,
         "ties": team.ties,
+        # "W"/"L"/"T" against the league median this week; None when the
+        # league doesn't play one (20 Oct).
+        "median_result": team.median_result,
         "empty_slots": team.empty_slots,
         "starters": starters_ids,
         "players": all_ids,
@@ -130,6 +133,13 @@ def _record_after(team: Team, result: str) -> str:
     elif result == "lost":
         losses += 1
     else:
+        ties += 1
+    # A median league's second game this week (20 Oct).
+    if team.median_result == "W":
+        wins += 1
+    elif team.median_result == "L":
+        losses += 1
+    elif team.median_result == "T":
         ties += 1
     base = f"{wins}-{losses}"
     return f"{base}-{ties}" if ties else base

@@ -163,7 +163,10 @@ def get_weekly_storylines(games):
 
     for team in all_teams:
         wins = int(team["record"].split("-")[0])
-        if wins >= 8 and team["points"] < fraud_score:
+        # Eight wins means eight weeks of winning; a median league banks two
+        # results a week, so it takes sixteen (20 Oct).
+        need = 16 if team.get("median_result") else 8
+        if wins >= need and team["points"] < fraud_score:
             fraud = team
             fraud_score = team["points"]
 

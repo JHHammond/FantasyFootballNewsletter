@@ -36,6 +36,7 @@ from .cache import (
     TTL_PROJECTIONS,
 )
 from .models import (
+    median_outcomes,
     BENCH_SLOTS,
     League,
     Manager,
@@ -128,6 +129,20 @@ def _slim_players(raw) -> dict:
             out[str(pid)] = {}
     return out
 
+
+
+def _median_through_week(settings: dict) -> int | None:
+    """The last week a league's median game counts, from Sleeper's league
+    settings: `league_average_match` is 1 when the league plays the median,
+    and it runs through the regular season, i.e. the week before
+    `playoff_week_start`. None for every other league."""
+    try:
+        if int(settings.get("league_average_match") or 0) != 1:
+            return None
+        start = int(settings.get("playoff_week_start") or 0)
+    except (TypeError, ValueError):
+        return None
+    return start - 1 if start > 1 else 18
 
 class SleeperProvider(FantasyProvider):
     name = "sleeper"
@@ -394,7 +409,8 @@ class SleeperProvider(FantasyProvider):
 
     # -- records -----------------------------------------------------------
 
-    def _records_entering_week(self, league_id: str, week: int) -> dict[str, dict]:
+    def _records_entering_week(self, league_id: str, week: int,
+                               median_through: int | None = None) -> dict[str, dict]:
         """Replay weeks 1..week-1 to get each roster's record at kickoff.
 
         Sleeper's roster["settings"]["wins"] already reflects the week you're
@@ -434,6 +450,16 @@ class SleeperProvider(FantasyProvider):
                 else:
                     records[a_id]["ties"] += 1
                     records[b_id]["ties"] += 1
+
+            # League median (20 Oct): a second result for every team that
+            # played. Without this, a median league's records in the paper
+            # were the head-to-head half only, and disagreed with Sleeper.
+            if median_through is not None and prior_week <= median_through:
+                scores = {str(r["roster_id"]): _to_float(r.get("custom_points") or r.get("points"))
+                          for r in rows if r.get("matchup_id") is not None}
+                for rid, outcome in median_outcomes(scores).items():
+                    row = records.setdefault(rid, {"wins": 0, "losses": 0, "ties": 0})
+                    row[{"W": "wins", "L": "losses", "T": "ties"}[outcome]] += 1
 
         return records
 
@@ -561,6 +587,7 @@ class SleeperProvider(FantasyProvider):
 
         avatar = data.get("avatar")
         return League(
+            median_through_week=_median_through_week(data.get("settings") or {}),
             provider=self.name,
             league_id=str(league_id),
             name=data.get("name") or "Fantasy League",
@@ -588,7 +615,7 @@ class SleeperProvider(FantasyProvider):
 
         players_index = self._player_index()
         projections = self._projections(season, week) if self.supports_projections else {}
-        records = self._records_entering_week(league_id, week)
+        records = self._records_entering_week(league_id, week, league.median_through_week)
 
         # user_id -> Manager
         managers: dict[str, Manager] = {}
@@ -686,6 +713,12 @@ class SleeperProvider(FantasyProvider):
             matchups.append(
                 Matchup(matchup_id=str(mid), teams=(build_team(rows[0]), build_team(rows[1])))
             )
+
+        if league.plays_median(week):
+            playing = [t for m in matchups for t in m.teams]
+            outcomes = median_outcomes({t.team_id: t.points for t in playing})
+            for t in playing:
+                t.median_result = outcomes.get(t.team_id)
 
         return WeekData(league=league, week=week, matchups=matchups, byes=byes)
 
