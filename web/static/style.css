@@ -3694,3 +3694,24 @@ html.nb-lock { overflow: hidden; }
     .at-all-search { max-width: none; }
     .at-all-rows { max-height: 420px; }
 }
+/* The filter row above the full list: position as chips, team as a picker,
+   both built from the week's own players so nothing empty is offered. */
+.at-all-filters {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 12px 0 2px; border-top: 1px solid var(--line); margin-top: 12px;
+}
+.at-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.at-chip {
+    font: 700 11.5px "Barlow Condensed", sans-serif; letter-spacing: 1.2px;
+    text-transform: uppercase; cursor: pointer; padding: 4px 10px;
+    border: 1px solid var(--line); background: transparent; color: var(--ink-2);
+}
+.at-chip:hover { border-color: var(--ink); color: var(--ink); }
+.at-chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.at-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.at-all-team select {
+    font: 500 13px "Barlow", sans-serif; padding: 4px 8px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+}
+.at-all-team select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.at-all-filters + .at-all-note { border-top: 0; margin-top: 0; padding-top: 8px; }

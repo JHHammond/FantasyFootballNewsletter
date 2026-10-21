@@ -306,6 +306,15 @@
                 </label>
             </div>
             <div class="at-all-panel" id="at-all-panel" hidden>
+                {# Filled from the week's own players, so a position or a team
+                   nobody rostered never gets a control. #}
+                <div class="at-all-filters">
+                    <div class="at-chips" id="at-all-pos" role="group" aria-label="Filter by position"></div>
+                    <label class="at-all-team">
+                        <span class="visually-hidden">Filter by NFL team</span>
+                        <select id="at-all-teamsel"><option value="">Every NFL team</option></select>
+                    </label>
+                </div>
                 <p class="at-all-note" id="at-all-note"></p>
                 <ol class="ar-list at-rows at-all-rows" id="at-all-rows"></ol>
             </div>
@@ -689,14 +698,58 @@
         allRows = document.getElementById("at-all-rows"),
         allNote = document.getElementById("at-all-note"),
         allSearch = document.getElementById("at-all-search"),
-        allQ = document.getElementById("at-all-q");
+        allQ = document.getElementById("at-all-q"),
+        allPos = document.getElementById("at-all-pos"),
+        allTeam = document.getElementById("at-all-teamsel");
+    var posPick = "", teamPick = "";
     var allKey = "win_best", allOpen = false;   // the first board above
+
+    function buildFilters() {
+        if (!allPos || allPos.childNodes.length) return;
+        var order = ["QB", "RB", "WR", "TE", "K", "DEF"];
+        var have = {}, teams = {};
+        ALL.forEach(function (p) {
+            if (p.position) have[p.position] = 1;
+            if (p.nfl_team) teams[p.nfl_team] = 1;
+        });
+        var list = order.filter(function (x) { return have[x]; })
+            .concat(Object.keys(have).filter(function (x) { return order.indexOf(x) < 0; }).sort());
+        [""].concat(list).forEach(function (pos) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "at-chip" + (pos ? "" : " on");
+            b.setAttribute("aria-pressed", pos ? "false" : "true");
+            b.textContent = pos || "All";
+            b.addEventListener("click", function () {
+                posPick = pos;
+                Array.prototype.forEach.call(allPos.children, function (c) {
+                    var on = c === b;
+                    c.classList.toggle("on", on);
+                    c.setAttribute("aria-pressed", on ? "true" : "false");
+                });
+                renderAll();
+            });
+            allPos.appendChild(b);
+        });
+        Object.keys(teams).sort().forEach(function (t) {
+            var o = document.createElement("option");
+            o.value = t; o.textContent = t;
+            allTeam.appendChild(o);
+        });
+        allTeam.addEventListener("change", function () {
+            teamPick = allTeam.value; renderAll();
+        });
+    }
 
     function renderAll() {
         if (!allOpen || !allRows) return;
         var board = BOARDS[allKey] || BOARDS.win_best;
         var q = (allQ.value || "").trim().toLowerCase();
-        var pool = ALL.filter(function (p) { return !board.keep || board.keep(p); });
+        var pool = ALL.filter(function (p) {
+            return (!board.keep || board.keep(p))
+                && (!posPick || p.position === posPick)
+                && (!teamPick || p.nfl_team === teamPick);
+        });
         var ranked = pool.slice().sort(function (x, y) {
             var a1 = board.sort(x), b1 = board.sort(y);
             return a1 === b1 ? (x.name || "").localeCompare(y.name || "") : a1 - b1;
@@ -734,11 +787,18 @@
                 + (p.nfl_team ? " · " + p.nfl_team : "");
             li.querySelector(".ar-val b").textContent = (BOARDS[allKey] || BOARDS.win_best).val(p);
         });
-        var qual = board.qual || "";
+        // "1 RB on PHI", not "1 RBs on PHI".
+        function noun(n) {
+            var one = n === 1;
+            return (posPick ? " " + posPick + (one ? "" : "s") : one ? " player" : " players")
+                + (teamPick ? " on " + teamPick : "") + (board.qual || "");
+        }
         allNote.textContent = !rows.length
-            ? (q ? "Nobody by that name was rostered this week." : "Nothing to show yet.")
-            : (q ? "Showing " + fmtInt(rows.length) + " of " + fmtInt(ranked.length) + " players" + qual
-                 : "All " + fmtInt(ranked.length) + " players" + qual + ", ranked")
+            ? (q ? "Nobody by that name matches those filters."
+                 : "Nobody matches those filters.")
+            : (q ? "Showing " + fmtInt(rows.length) + " of " + fmtInt(ranked.length) + noun(ranked.length)
+                 : ranked.length === 1 ? "The only" + noun(1)
+                 : "All " + fmtInt(ranked.length) + noun(ranked.length) + ", ranked")
               + (hidden ? ", the first 150." : ".");
     }
     function openAll(on) {
@@ -747,7 +807,7 @@
         allSearch.hidden = !on;
         allToggle.setAttribute("aria-expanded", on ? "true" : "false");
         allToggle.firstChild.textContent = on ? "Hide the full list " : "Show every player ";
-        if (on) { renderAll(); allQ.focus(); }
+        if (on) { buildFilters(); renderAll(); allQ.focus(); }
     }
     if (allToggle) {
         allToggle.addEventListener("click", function () { openAll(!allOpen); });
