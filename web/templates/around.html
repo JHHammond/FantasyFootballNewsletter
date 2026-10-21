@@ -245,12 +245,14 @@
     {% if not a.has_lineups %}
     <p class="ar-empty">Lineups for week {{ week }} haven&rsquo;t been collected yet.{% if staff %} Once migration 029 is in, run the collector below for this week and this section fills in.{% endif %}</p>
     {% else %}
+    {# John, 21 Oct: win rate leads. The first board is the one the page opens
+       on, and the expanded list below ranks by it until a tab is clicked. #}
     {% set boards = [
-        ('started', 'Most started', 'Started on the most teams, and what he gave them.', P.started),
-        ('benched', 'Benched', 'Points scored from the bench, added up across every team that sat him.', P.benched),
         ('win_best', 'Best win rate', 'Win rate for teams that started him. At least ' ~ P.min_starts ~ ' starts.', P.win_best),
         ('win_worst', 'Worst win rate', 'Same rule. Starting these players was a coin flip you mostly lost.', P.win_worst),
         ('top_on', 'Carried teams', 'How many lineups he was the best player in.', P.top_on),
+        ('started', 'Most started', 'Started on the most teams, and what he gave them.', P.started),
+        ('benched', 'Benched', 'Points scored from the bench, added up across every team that sat him.', P.benched),
     ] %}
     <div class="at-tabs" data-tabs>
         <div class="at-tablist" role="tablist">
@@ -655,20 +657,26 @@
     // them, ranked by whichever board is open and filtered as you type.
     var ALL = {{ ((((a.players or {}).get('all')) or []) if a else [])|tojson }};
     var MIN_STARTS = {{ ((a.players or {}).get('min_starts') or 150) if a else 150 }};
+    // `keep` is each board's own rule, so the count in the note matches the
+    // list: the win-rate boards only mean something past a floor of starts.
     var BOARDS = {
         started:   {sort: function (p) { return -p.started; },
                     val: function (p) { return fmtInt(p.started) + " starts"; }},
         benched:   {sort: function (p) { return -p.bench_total; },
                     keep: function (p) { return p.benched > 0; },
+                    qual: " who scored from a bench",
                     val: function (p) { return fmtInt(Math.round(p.bench_total)) + " pts"; }},
         win_best:  {sort: function (p) { return -p.win_pct; },
                     keep: function (p) { return p.started >= MIN_STARTS; },
+                    qual: " with " + MIN_STARTS + "+ starts",
                     val: function (p) { return pctOf(p.win_pct) + " won"; }},
         win_worst: {sort: function (p) { return p.win_pct; },
                     keep: function (p) { return p.started >= MIN_STARTS; },
+                    qual: " with " + MIN_STARTS + "+ starts",
                     val: function (p) { return pctOf(p.win_pct) + " won"; }},
         top_on:    {sort: function (p) { return -p.teams; },
                     keep: function (p) { return p.teams > 0; },
+                    qual: " who were a team's best player",
                     val: function (p) { return fmtInt(p.teams) + " teams"; }}
     };
     function fmtInt(n) { return (n || 0).toLocaleString(); }
@@ -682,11 +690,11 @@
         allNote = document.getElementById("at-all-note"),
         allSearch = document.getElementById("at-all-search"),
         allQ = document.getElementById("at-all-q");
-    var allKey = "started", allOpen = false;
+    var allKey = "win_best", allOpen = false;   // the first board above
 
     function renderAll() {
         if (!allOpen || !allRows) return;
-        var board = BOARDS[allKey] || BOARDS.started;
+        var board = BOARDS[allKey] || BOARDS.win_best;
         var q = (allQ.value || "").trim().toLowerCase();
         var pool = ALL.filter(function (p) { return !board.keep || board.keep(p); });
         var ranked = pool.slice().sort(function (x, y) {
@@ -724,12 +732,13 @@
                 fmtInt(p.rostered) + " rosters · started " + pctOf(p.start_pct)
                 + (p.ppr !== null && p.ppr !== undefined ? " · scored " + pts(p.ppr) : "")
                 + (p.nfl_team ? " · " + p.nfl_team : "");
-            li.querySelector(".ar-val b").textContent = (BOARDS[allKey] || BOARDS.started).val(p);
+            li.querySelector(".ar-val b").textContent = (BOARDS[allKey] || BOARDS.win_best).val(p);
         });
+        var qual = board.qual || "";
         allNote.textContent = !rows.length
             ? (q ? "Nobody by that name was rostered this week." : "Nothing to show yet.")
-            : (q ? "Showing " + fmtInt(rows.length) + " of " + fmtInt(ranked.length) + " players"
-                 : "All " + fmtInt(ranked.length) + " players, ranked")
+            : (q ? "Showing " + fmtInt(rows.length) + " of " + fmtInt(ranked.length) + " players" + qual
+                 : "All " + fmtInt(ranked.length) + " players" + qual + ", ranked")
               + (hidden ? ", the first 150." : ".");
     }
     function openAll(on) {
