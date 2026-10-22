@@ -171,6 +171,7 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
     fmt_mult = {"ppr": 1.0, "half_ppr": 0.9, "std": 0.8}
 
     tw_rows, lu_rows = [], []
+    rosters: dict[str, list] = {}
     for li in range(n_leagues):
         lid = f"demo-{li}"
         size, prov, fmt = rng.choice(sizes), rng.choice(providers), rng.choice(fmts)
@@ -193,6 +194,7 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
             ghost = rng.random() < 0.04
             teams.append({"id": f"t{t}", "name": name, "roster": roster, "ghost": ghost,
                           "mgr": f"manager{li}_{t}"})
+        rosters[lid] = teams
 
         for w in range(1, weeks + 1):
             sc = scores[w]
@@ -257,6 +259,112 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
                     })
     demo_db.upsert_team_weeks(tw_rows)
     demo_db.upsert_lineups(lu_rows)
+    _trade(demo_db, rosters, season, weeks, rng)
+
+
+def _trade(demo_db, rosters: dict, season: int, weeks: int,
+           rng: random.Random) -> None:
+    """Invent a season of trades, so the market panel can be looked at.
+
+    The point is to produce trades the solver finds hard in the same ways
+    real ones are, because an easy fake would make the panel look better
+    than it is:
+
+      * Both sides have to think they won. A manager values a player at his
+        weekly mean plus a private error, held steady so he is consistently
+        high on a player rather than re-rolling at every offer, and a trade
+        only happens if both come out ahead by their own reckoning. That
+        selection bias is the thing most likely to break the estimator, so
+        the demo has it.
+      * Bundles are lopsided — one-for-two and two-for-three, not just
+        swaps — which is where a missing roster-spot charge would show.
+      * About a sixth carry a draft pick or FAAB and a few are three-way.
+        Those are exactly the trades the market throws away, so the panel's
+        "usable trades" count and its note mean something here.
+      * Every trade carries a real timestamp inside its week, because the
+        daily line is drawn off those stamps and a flat one would hide a
+        drift bug.
+
+    What it does NOT do is move the players. The lineups above come from
+    fixed rosters, and rewriting them after each trade would be a
+    simulation of a season rather than a demo of a page, so a traded player
+    keeps turning up on his old team's bench. That costs the market nothing
+    — it reads trades, not rosters — but it does mean this demo cannot be
+    used to check the collector.
+    """
+    import datetime as dt
+
+    import nfl_week
+    try:
+        opener = nfl_week.season_opener(season)
+    except Exception:  # noqa: BLE001
+        opener = dt.date(season, 9, 4)
+
+    def view(mgr: str, p) -> float:
+        """One manager's standing private opinion of one player."""
+        r = random.Random(hash((mgr, p[0])) & 0xFFFFFFFF)
+        return max(1.0, p[3] * (1 + r.gauss(0, 0.22)))
+
+    heads, moves, scans = [], [], []
+    for lid, teams in rosters.items():
+        scans.append({"league_id": lid, "season": season, "week": weeks,
+                      "trades": 0, "scanned_at": dt.datetime.now(dt.UTC).isoformat()})
+        # A target number of ACTUAL trades, not of attempts. Mutual gain
+        # turns down about nine offers in ten, which is realistic and would
+        # otherwise leave the whole country with too few trades for anybody
+        # to clear MIN_TRADES.
+        want, tries, n = rng.randint(3, 11), 0, 0
+        while n < want and tries < want * 60:
+            tries += 1
+            a, b = rng.sample(teams, 2)
+            na, nb = rng.choice([1, 1, 1, 2, 2, 3]), rng.choice([1, 1, 2, 2, 3])
+            if len(a["roster"]) < na or len(b["roster"]) < nb:
+                continue
+            give = rng.sample(a["roster"], na)          # a sends these
+            get = rng.sample(b["roster"], nb)           # a receives these
+            if {p[0] for p in give} & {p[0] for p in get}:
+                continue
+            a_gain = (sum(view(a["mgr"], p) for p in get)
+                      - sum(view(a["mgr"], p) for p in give))
+            b_gain = (sum(view(b["mgr"], p) for p in give)
+                      - sum(view(b["mgr"], p) for p in get))
+            if a_gain <= 0 or b_gain <= 0:
+                continue
+            n += 1
+
+            week = rng.randint(1, max(1, weeks))
+            when = (dt.datetime.combine(opener + dt.timedelta(days=7 * (week - 1)),
+                                        dt.time(0, 0), dt.UTC)
+                    + dt.timedelta(days=rng.randint(0, 6), hours=rng.randint(0, 23),
+                                   minutes=rng.randint(0, 59)))
+            key = f"demo-tr-{lid}-{n}"
+            picks = ([[a["id"], f"{season + 1} {rng.choice(['1st', '2nd', '3rd'])}"]]
+                     if rng.random() < 0.13 else [])
+            faab = [[b["id"], rng.choice([5, 10, 25])]] if rng.random() < 0.05 else []
+
+            heads.append({"league_id": lid, "season": season, "week": week,
+                          "trade_key": key, "provider": "sleeper",
+                          "teams": [a["name"], b["name"]], "picks": picks,
+                          "faab": faab, "traded_at": when.isoformat()})
+            for side, (frm, to) in ((give, (a, b)), (get, (b, a))):
+                for p in side:
+                    moves.append({"league_id": lid, "season": season, "week": week,
+                                  "trade_key": key, "player_key": _key(p[0]),
+                                  "name": p[0], "position": p[1], "nfl_team": p[2],
+                                  "from_team": frm["name"], "to_team": to["name"]})
+            if rng.random() < 0.03 and len(teams) > 2:
+                c = next((t for t in teams if t["id"] not in (a["id"], b["id"])), None)
+                if c and c["roster"]:
+                    p = rng.choice(c["roster"])
+                    moves.append({"league_id": lid, "season": season, "week": week,
+                                  "trade_key": key, "player_key": _key(p[0]),
+                                  "name": p[0], "position": p[1], "nfl_team": p[2],
+                                  "from_team": c["name"], "to_team": a["name"]})
+    demo_db.upsert_trades(heads, moves)
+    for s in scans:
+        demo_db.upsert_trade_scan(s)
+    pure = sum(1 for h in heads if not h["picks"] and not h["faab"])
+    print(f"[demo] {len(heads):,} trades invented, {pure:,} player-for-player")
 
 
 def main() -> None:

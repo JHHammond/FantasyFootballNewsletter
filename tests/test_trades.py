@@ -547,16 +547,54 @@ def test_the_market_prints_a_price_against_book():
     rows_by = {r["player_key"]: r for r in out["board"]}
     star, mid, solid = rows_by["star"], rows_by["mid"], rows_by["solid"]
 
-    # The board still ranks them in the order the trades imply.
+    # The board ranks them in the order the trades imply, and usage agrees
+    # here, so every premium sits at book and the ranks line up.
     assert star["value"] > mid["value"] > solid["value"]
-    # Usage pulls them apart much further than the trades do, so the star
-    # is cheap against his book and the middling man is dear against his.
-    assert star["prior"] > mid["prior"] > solid["prior"]
-    assert star["premium"] < 0.95, star
-    assert mid["premium"] > 1.0, mid
-    # And the man at replacement level has no book to be over.
-    assert solid["premium"] is None, solid
-    assert solid["value"] and solid["prior"] is not None
+    assert (star["book_rank"], mid["book_rank"], solid["book_rank"]) == (1, 2, 3)
+    assert (star["price_rank"], mid["price_rank"], solid["price_rank"]) == (1, 2, 3)
+    assert all(r["premium"] == 1.0 for r in (star, mid, solid))
+    assert star["book"] and solid["book"]
+
+
+def test_book_compares_standing_not_units():
+    """The bug this guards is one I shipped and had to take back out.
+
+    A plain price-divided-by-prior ratio looked almost plausible and was
+    nonsense: the prior is multiplicative (points above replacement TIMES
+    starts) so its spread is roughly the square of the market's, which is
+    additive. On real demo data every single star came out 60-77% "under
+    book" and every cheap player over it — the ratio was measuring the
+    units, not the market.
+
+    So the prior is mapped onto the price distribution rank for rank
+    first. Below, usage likes A least and the field pays him most, and
+    that disagreement is the whole point: he must come out OVER book while
+    C, whom usage loves and nobody pays for, comes out under.
+    """
+    from web import trade_market
+    ranked = [{"player_key": "a", "value": 100.0},
+              {"player_key": "b", "value": 60.0},
+              {"player_key": "c", "value": 20.0}]
+    # Usage order is the exact reverse of the price order, and on a wildly
+    # wider scale — which is what used to break it.
+    trade_market.book(ranked, {"a": 0.2, "b": 3.0, "c": 40.0})
+    a, b, c = ranked
+    assert (c["book_rank"], b["book_rank"], a["book_rank"]) == (1, 2, 3)
+    assert (a["price_rank"], b["price_rank"], c["price_rank"]) == (1, 2, 3)
+    # Book is drawn from the prices themselves, so it never leaves the scale.
+    assert {r["book"] for r in ranked} == {100.0, 60.0, 20.0}
+    assert a["premium"] == 5.0 and c["premium"] == 0.2
+    assert b["premium"] == 1.0          # middle of both orders
+
+
+def test_one_priced_player_has_nothing_to_compare_against():
+    """Book is built out of the spread of prices, so a board of one has no
+    spread and says nothing rather than 1.00 for everybody."""
+    from web import trade_market
+    ranked = [{"player_key": "only", "value": 50.0},
+              {"player_key": "nousage", "value": 30.0}]
+    trade_market.book(ranked, {"only": 1.0})
+    assert all(r["premium"] is None and r["book"] is None for r in ranked)
 
 
 def test_a_market_with_no_usage_still_draws():
@@ -586,3 +624,44 @@ def test_a_market_with_no_usage_still_draws():
     assert out["board"], out
     assert out["priored"] == 0
     assert all(r["premium"] is None for r in out["board"])
+
+
+def test_kickers_and_defences_are_priced_but_not_shown():
+    """The first run against real trades put six kickers and four defences
+    in the ten dearest players in America, with the actual stars nowhere.
+
+    It is not a quirk of the fit. Those positions are STREAMED — picked up
+    and dumped every week — so they are the only players who ever clear
+    MIN_TRADES, while a genuine star is traded twice a season. Trading
+    often is not being worth something.
+
+    They stay in the fit, because a trade with a kicker in it still says
+    something about whoever was opposite him. They just don't go on the
+    board.
+    """
+    from web import trade_market
+    lg = _league("stream")
+    demo_db.upsert_nfl_players([
+        {"player_key": "kick", "name": "Streamed Kicker", "position": "K", "nfl_team": "IND"},
+        {"player_key": "dst", "name": "Streamed D/ST", "position": "DEF", "nfl_team": "DEN"},
+        {"player_key": "wr", "name": "Real Receiver", "position": "WR", "nfl_team": "CIN"}])
+    # The kicker and the defence swap constantly; the receiver goes for the
+    # kicker often enough to be priced at all.
+    pairs = [("kick", "dst")] * 14 + [("wr", "kick")] * 9
+    demo_db.upsert_trades(
+        [{"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": f"s{i}",
+          "provider": "sleeper", "teams": ["A", "B"], "picks": [], "faab": []}
+         for i in range(len(pairs))],
+        [r for i, (a, b) in enumerate(pairs) for r in (
+            {"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": f"s{i}",
+             "player_key": a, "name": a, "from_team": "A", "to_team": "B"},
+            {"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": f"s{i}",
+             "player_key": b, "name": b, "from_team": "B", "to_team": "A"})])
+
+    out = trade_market.build(demo_db, SEASON, [1], limit=10)
+    shown = {r["player_key"] for r in out["board"]}
+    assert "wr" in shown, out["board"]
+    assert "kick" not in shown and "dst" not in shown, out["board"]
+    assert out["streamers"] == 2
+    # ...and their trades still counted toward the fit.
+    assert out["used"] == len(pairs)

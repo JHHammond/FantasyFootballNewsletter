@@ -1246,7 +1246,14 @@ def _resolved(key: str) -> bool:
 
 def trade_exchanges(season: int, from_week: int = 1,
                     to_week: int = 18) -> list[dict[str, Any]]:
-    """The SQL function's twin (migration 046): player-only, two-sided."""
+    """The SQL function's twin (migrations 046 and 047): player-only,
+    two-sided, each with the DAY it happened.
+
+    The day is not decoration. It went missing here when 047 added it to
+    the SQL and this twin was not followed through, and the symptom was
+    subtle: every trade fell back to the middle of its own week, so the
+    daily line became a staircase that changed once every seven days and
+    looked like a quiet market rather than a broken one."""
     season = int(season)
     pure = {(r["league_id"], r["trade_key"]): r for r in _TRADES.values()
             if int(r["season"]) == season
@@ -1263,7 +1270,9 @@ def trade_exchanges(season: int, from_week: int = 1,
         if len(by_team) != 2:
             continue
         a, b = (sorted(by_team[t]) for t in sorted(by_team))
-        out.append({"w": int(pure[key]["week"]), "a": a, "b": b})
+        when = pure[key].get("traded_at")
+        out.append({"w": int(pure[key]["week"]), "a": a, "b": b,
+                    "d": str(when)[:10] if when else None})
     return out
 
 

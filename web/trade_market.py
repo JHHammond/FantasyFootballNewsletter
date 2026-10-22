@@ -111,11 +111,6 @@ MEDIAN_AT = 50.0
 #: How much a value may move toward its new estimate each round. Under 1
 #: this damps the oscillation two-player trades can set up.
 RELAX = 0.7
-#: A prior below this (in prior units, where 1 is an average traded player)
-#: is too near the floor to divide by: a player at his position's
-#: replacement level books at about nothing, and "x times nothing" is not a
-#: premium. Those rows print a price and no comparison.
-BOOK_AT = 0.25
 
 
 def _median(xs: list[float]) -> float:
@@ -127,7 +122,8 @@ def _median(xs: list[float]) -> float:
 
 
 def solve(exchanges: Iterable[dict], *, min_trades: int = MIN_TRADES,
-          prior: Optional[dict] = None, ridge: float = RIDGE) -> dict[str, Any]:
+          prior: Optional[dict] = None, ridge: float = RIDGE,
+          scale: Optional[float] = None) -> dict[str, Any]:
     """Values from exchanges.
 
     Each exchange is {"a": [player_key, ...], "b": [player_key, ...]}: what
@@ -239,7 +235,8 @@ def solve(exchanges: Iterable[dict], *, min_trades: int = MIN_TRADES,
     # The ridge pins the level near 1, but only near it, so the published
     # scale is set here: the median player in the fit sits at MEDIAN_AT.
     published = {k: val for k, val in v.items() if seen[k] >= min_trades}
-    scale = MEDIAN_AT / (_median([val for val in v.values() if val > 0]) or 1.0)
+    if scale is None:
+        scale = MEDIAN_AT / (_median([val for val in v.values() if val > 0]) or 1.0)
     return {
         "values": {k: round(val * scale, 1) for k, val in published.items()},
         "trades": {k: seen[k] for k in published},
@@ -257,7 +254,8 @@ def solve(exchanges: Iterable[dict], *, min_trades: int = MIN_TRADES,
 
 def series(exchanges: Iterable[dict], days: Iterable, *,
            window: int = WINDOW_DAYS, min_trades: int = MIN_TRADES,
-           prior: Optional[dict] = None) -> dict[str, Any]:
+           prior: Optional[dict] = None,
+           scale: Optional[float] = None) -> dict[str, Any]:
     """A value per player per day: the chart.
 
     Each day is solved on the trades of the `window` days ending that day.
@@ -266,9 +264,18 @@ def series(exchanges: Iterable[dict], days: Iterable, *,
     data, and stepping it daily is what makes it a line at all.
 
     Every day is solved from scratch — see the note in `solve` on why it is
-    not warm-started from the day before — and the scale is re-fixed each
-    day (median player = 50), so a line rising means rising against the
-    field rather than the field going quiet.
+    not warm-started from the day before.
+
+    ONE SCALE FOR THE WHOLE LINE. Each day's fit is published against the
+    same `scale`, taken once from the season as a whole, rather than
+    re-fixing the median at 50 every day. Re-fixing it daily sounds
+    tidier and is wrong: the set of players who clear the trade threshold
+    changes from day to day, so the median moves for reasons that have
+    nothing to do with any player, and every line on the chart then steps
+    up or down together. It made the demo look like a market where
+    everybody moved in lockstep twice a week. With a fixed scale a line
+    moves when that player's price moves, which is the only thing a price
+    chart is allowed to mean.
     """
     ex = [e for e in exchanges if e.get("day") is not None]
     byday: dict[int, list] = {}
@@ -280,7 +287,7 @@ def series(exchanges: Iterable[dict], days: Iterable, *,
         chunk = [e for d, lot in byday.items() if day - window < d <= day for e in lot]
         if not chunk:
             continue
-        got = solve(chunk, min_trades=min_trades, prior=prior)
+        got = solve(chunk, min_trades=min_trades, prior=prior, scale=scale)
         for key, val in got["values"].items():
             out.setdefault(key, []).append({"day": day, "value": val,
                                             "trades": got["trades"][key]})
@@ -288,6 +295,49 @@ def series(exchanges: Iterable[dict], days: Iterable, *,
                      "players": len(got["values"]), "rounds": got["rounds"],
                      "settled": got["settled"]})
     return {"series": out, "days": meta, "window": window}
+
+
+def book(ranked: list[dict], prior: dict[str, float]) -> None:
+    """Add `book`, `premium` and the two ranks to each board row, in place.
+
+    WHY THIS IS NOT A PLAIN RATIO. The obvious thing — price divided by the
+    prior — is wrong, and wrong in a way that looked almost plausible on
+    the first run: every single star came out 60-77% "under book". That is
+    not a finding, it is a units mismatch. The prior is multiplicative
+    (points above replacement TIMES starts), so its spread is roughly the
+    square of the market's, which is additive in trades. Dividing one by
+    the other mostly measures that, and the top of any board would always
+    look cheap while the bottom always looked dear.
+    What the page actually wants to say is about STANDING: does the field
+    pay this player more or less than it pays the typical player of his
+    usage? So the prior is mapped onto the price distribution first —
+    rank for rank, which keeps its order exactly and puts it on the
+    market's own scale — and `book` is then "what the field pays a player
+    of his usage standing". A premium of 1.22 means the field pays him 22%
+    more than that. The two ranks are carried alongside, because "priced
+    11th, usage says 4th" is the same fact in the form most people read
+    fastest.
+    """
+    priced = [r for r in ranked if prior.get(r["player_key"])]
+    if len(priced) < 2:
+        for r in ranked:
+            r["book"] = r["premium"] = r["book_rank"] = None
+        return
+
+    prices = sorted((r["value"] for r in priced), reverse=True)
+    by_prior = sorted(priced, key=lambda r: (-prior[r["player_key"]], r["player_key"]))
+    by_price = sorted(priced, key=lambda r: (-r["value"], r["player_key"]))
+    place = {r["player_key"]: i + 1 for i, r in enumerate(by_price)}
+
+    for i, r in enumerate(by_prior):
+        matched = prices[i]
+        r["book"] = round(matched, 1)
+        r["book_rank"] = i + 1
+        r["price_rank"] = place[r["player_key"]]
+        r["premium"] = round(r["value"] / matched, 2) if matched > 0 else None
+    for r in ranked:
+        if "book" not in r:
+            r["book"] = r["premium"] = r["book_rank"] = r["price_rank"] = None
 
 
 def board(values: dict[str, float], trades: dict[str, int],
@@ -466,30 +516,53 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     if not whole["values"]:
         return {"used": whole["used"], "players": whole["players"], "thin": True}
 
-    ranked = board(whole["values"], whole["trades"], names, limit)
     span = sorted({e["day"] for e in ex})
     # Start the line once the window has something behind it, or the first
     # points are a fortnight of nothing pretending to be a price.
     first = span[0] + WINDOW_DAYS // 2
-    ser = series(ex, [d for d in range(first, span[-1] + 1)], prior=prior or None)
+    ser = series(ex, [d for d in range(first, span[-1] + 1)], prior=prior or None,
+                 scale=whole["scale"])
+
+    # THE BOARD IS TODAY'S PRICE, not the season's. It used to rank on the
+    # whole-season solve while the chart and its chips showed the latest
+    # window, and the two disagreed by 30% on the same player in the same
+    # eyeful — Robinson at 135.3 on the chip and 104.9 on the row beneath
+    # it. Both were right about different questions, which is the worst
+    # kind of wrong on one screen. "The dearest" means dearest now, so the
+    # board is built from the last day of the line, and the whole-season
+    # solve is kept only for the counts and for players the last window is
+    # too thin to price.
+    today = ({k: pts[-1]["value"] for k, pts in ser["series"].items() if pts}
+             if ser["series"] else {})
+    counts = ({k: pts[-1]["trades"] for k, pts in ser["series"].items() if pts}
+              if ser["series"] else {})
+    values = today or whole["values"]
+    counts = counts if today else whole["trades"]
+
+    # KICKERS AND DEFENCES ARE NOT A MARKET, and left alone they take the
+    # whole board. On the first run against real trades the ten dearest
+    # players in America were six kickers and four defences, with
+    # Ja'Marr Chase nowhere. It is not a fluke of the fit: those positions
+    # are STREAMED — picked up and dumped every week, "Burden + McLaughlin
+    # + Jaguars D/ST for Shrader + Rams D/ST + Vikings D/ST" — so they are
+    # the only players who clear MIN_TRADES at all, while a genuine star
+    # gets traded twice a season and never qualifies. Trading often is not
+    # the same as being worth something, and a board that confuses the two
+    # is measuring churn.
+    #
+    # They stay in the FIT, because a trade with a kicker in it is still an
+    # equation that says something about the players opposite him. They
+    # just don't go on the board or the chart. That is the difference
+    # between data and merchandise.
+    skip = {k for k in values
+            if ((names.get(k) or {}).get("position") or "") in trade_prior.THIN}
+    shown = {k: v for k, v in values.items() if k not in skip}
+    ranked = board(shown or values, counts, names, limit)
     top = [r["player_key"] for r in ranked]
 
-    # Price against the prior: the number that says something no ranking
-    # site can. 1.0 is "the field pays exactly what usage says he's worth".
-    # The prior is in the fit's own units and the board is in published
-    # ones, so it has to be carried across by the fit's own scale — not by
-    # re-deriving one from the published values, which are already scaled.
-    scale = whole["scale"]
-    for row in ranked:
-        p = prior.get(row["player_key"])
-        row["prior"] = round(p * scale, 1) if p else None
-        # A player sitting at his position's replacement level books at
-        # about nothing, and a ratio against about nothing is not a ratio —
-        # it came out at 11.8x in testing, which would have printed as
-        # "1081% over book". Below BOOK_AT there is no book to be over, so
-        # the row says nothing rather than something silly.
-        row["premium"] = (round(row["value"] / (p * scale), 2)
-                          if p and p >= BOOK_AT and p * scale > 0 else None)
+    # Price against standing: the number that says something no ranking
+    # site can. See `book` for why it is not a plain ratio.
+    book(ranked, prior)
 
     return {
         "board": ranked,
@@ -499,11 +572,14 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
         # without going back to the database.
         "all_series": {k: {str(p["day"]): p["value"] for p in pts}
                        for k, pts in ser["series"].items()},
-        "movers": movers(ser["series"], names),
+        "movers": movers({k: v for k, v in ser["series"].items() if k not in skip},
+                         names),
+        #: Priced and deliberately not shown: see the note on streaming above.
+        "streamers": len(skip),
         "days": ser["days"],
         "window": ser["window"],
         "used": whole["used"],
-        "players": len(whole["values"]),
+        "players": len(ranked) if ranked else len(whole["values"]),
         "seen": whole["players"],
         "min_trades": MIN_TRADES,
         "median_at": MEDIAN_AT,

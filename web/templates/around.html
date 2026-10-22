@@ -618,7 +618,7 @@
                     {{ face(r) }}<span class="ar-name">{{ player(r) }}<small>
                     {{ '{:,}'.format(r.trades) }} trades{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}{% if r.premium %}
                     &middot; <span class="{{ 'at-over' if r.premium >= 1.08 else ('at-under' if r.premium <= 0.92 else 'at-level') }}"
-                          title="What the field pays against what these leagues&rsquo; own usage says he is worth ({{ r.prior }})">{% if r.premium >= 1.08 %}{{ '%d'|format((r.premium - 1) * 100) }}% over book{% elif r.premium <= 0.92 %}{{ '%d'|format((1 - r.premium) * 100) }}% under book{% else %}at book{% endif %}</span>{% endif %}</small></span>
+                          title="Priced #{{ r.price_rank }}, usage ranks him #{{ r.book_rank }}. Book ({{ r.book }}) is what the field pays a player of his usage standing.">{% if r.premium >= 1.08 %}{{ '%d'|format((r.premium - 1) * 100) }}% over book{% elif r.premium <= 0.92 %}{{ '%d'|format((1 - r.premium) * 100) }}% under book{% else %}at book{% endif %}</span>{% endif %}</small></span>
                     <span class="ar-val">{% if r.floored %}<b class="at-floored" title="Cheaper than the trades can separate">&lt;1</b>{% else %}<b>{{ r.value }}</b>{% endif %}</span>
                 </button></li>
                 {% endfor %}
@@ -645,13 +645,16 @@
         </article>
     </div>
     <p class="card-sub at-market-note">
-        <b>Book</b> is what these leagues&rsquo; own usage says a player is worth: how
-        many of the week&rsquo;s {{ '{:,}'.format(a.teams) if a and a.teams else 'thousands of' }}
-        teams start him, and what he gives them when they do, measured against the
-        last man anybody deliberately starts at his position. The <b>price</b> is what
-        the field actually paid for him in trades. Book is a record and the price is a
-        forecast, so a player well over or under book is the interesting case &mdash;
-        that gap is the country changing its mind.
+        <b>Usage</b> ranks a player by how many of the week&rsquo;s
+        {{ '{:,}'.format(a.teams) if a and a.teams else 'thousands of' }} teams start him
+        and what he gives them when they do, measured against the last man anybody
+        deliberately starts at his position. <b>Book</b> is then what the field pays a
+        player of that standing, and the <b>price</b> is what it actually paid for
+        him. So &ldquo;22% over book&rdquo; means the field pays him 22% more than it
+        pays the typical player his usage looks like. Usage is a record and the price
+        is a forecast, which is why the gap is the interesting part: it is the country
+        changing its mind. A kicker is the clearest case &mdash; started by everybody,
+        traded for by nobody, so he prices far under book.
         <br>Trades carrying draft picks or FAAB are left out: nobody knows what the pick
         is worth, and guessing would corrupt the players beside it. Three-way deals
         are out too. Valuing picks is the next piece of work, and in a dynasty-heavy
