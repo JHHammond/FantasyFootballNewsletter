@@ -1786,6 +1786,19 @@ def trade_volume(season: int) -> dict[str, Any]:
     return _rpc_json("trade_volume", {"p_season": int(season)}) or {}
 
 
+def trade_exchanges(season: int, from_week: int = 1,
+                    to_week: int = 18) -> list[dict[str, Any]]:
+    """See migration 046: each two-sided, player-only trade as the two
+    bundles that changed hands."""
+    return _rpc_json("trade_exchanges", {"p_season": int(season),
+                                         "p_from_week": int(from_week),
+                                         "p_to_week": int(to_week)}) or []
+
+
+def trade_player_names(season: int) -> dict[str, Any]:
+    return _rpc_json("trade_player_names", {"p_season": int(season)}) or {}
+
+
 def team_weeks_for_leagues(season: int, week: int,
                            league_ids: list[str]) -> list[dict[str, Any]]:
     """One week's teams for a handful of leagues — the "use my team" picker

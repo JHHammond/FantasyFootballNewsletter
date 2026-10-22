@@ -1230,6 +1230,7 @@ def _around_page(request: Request, week: int, season: int, *, public: bool,
                    describe=around.describe, pct=around.pct, photo=around.photo,
                    mine=around.my_teams(db, user, season, week),
                    trade_volume=_trade_volume(season) if staff else None,
+                   market=_trade_market(season, latest) if staff else None,
                    shared=shared, card_base=f"{public_base_url()}/around/card.png",
                    job=league_stats.job_status() if staff else {})
 
@@ -1241,6 +1242,20 @@ def _trade_volume(season: int) -> Optional[dict]:
         return db.trade_volume(season) or None
     except Exception as exc:  # noqa: BLE001
         print(f"[around] no trade volume: {type(exc).__name__}: {exc}", flush=True)
+        return None
+
+
+def _trade_market(season: int, latest: int) -> Optional[dict]:
+    """The trade market, for the staff panel. Cached hard: the solve is a
+    second or two, and it only moves when a week is collected."""
+    from . import around, trade_market
+    try:
+        return around.swr(
+            around._cache, ("market", season, latest),
+            lambda: trade_market.build(db, season, list(range(1, max(latest, 1) + 1))),
+            ttl=900)
+    except Exception as exc:  # noqa: BLE001 — a staff panel, never a 500
+        print(f"[market] {type(exc).__name__}: {exc}", flush=True)
         return None
 
 

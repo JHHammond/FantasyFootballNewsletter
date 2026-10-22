@@ -1244,6 +1244,43 @@ def _resolved(key: str) -> bool:
     return k.isdigit() or (2 <= len(k) <= 3 and k.isalpha() and k.isupper())
 
 
+def trade_exchanges(season: int, from_week: int = 1,
+                    to_week: int = 18) -> list[dict[str, Any]]:
+    """The SQL function's twin (migration 046): player-only, two-sided."""
+    season = int(season)
+    pure = {(r["league_id"], r["trade_key"]): r for r in _TRADES.values()
+            if int(r["season"]) == season
+            and int(from_week) <= int(r["week"]) <= int(to_week)
+            and not r.get("picks") and not r.get("faab")}
+    sides: dict = {}
+    for r in _TRADE_PLAYERS.values():
+        key = (r["league_id"], r["trade_key"])
+        if int(r["season"]) != season or key not in pure or not r.get("to_team"):
+            continue
+        sides.setdefault(key, {}).setdefault(str(r["to_team"]), []).append(r["player_key"])
+    out = []
+    for key, by_team in sides.items():
+        if len(by_team) != 2:
+            continue
+        a, b = (sorted(by_team[t]) for t in sorted(by_team))
+        out.append({"w": int(pure[key]["week"]), "a": a, "b": b})
+    return out
+
+
+def trade_player_names(season: int) -> dict[str, Any]:
+    season = int(season)
+    out: dict[str, dict] = {}
+    for r in _TRADE_PLAYERS.values():
+        if int(r["season"]) != season:
+            continue
+        known = _NFL_PLAYERS.get(r["player_key"]) or {}
+        out[r["player_key"]] = {
+            "name": known.get("name") or r.get("name") or r["player_key"],
+            "position": known.get("position") or r.get("position"),
+            "nfl_team": known.get("nfl_team") or r.get("nfl_team")}
+    return out
+
+
 def team_weeks_for_leagues(season: int, week: int,
                            league_ids: list[str]) -> list[dict[str, Any]]:
     keep = {str(i) for i in (league_ids or []) if i}

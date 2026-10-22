@@ -534,6 +534,96 @@
     {% endif %}
     {% endif %}
 </section>
+
+{# ------------------------------------------------------------- the market #}
+{% set M = market %}
+{% if M and M.board %}
+<section class="card ar-collect at-market">
+    <h2 class="card-title">The trade market &middot; staff only</h2>
+    <p class="card-sub">
+        What the field pays, solved from {{ '{:,}'.format(M.used) }} two-sided,
+        player-only trades &mdash; every trade is an equation saying one bundle is
+        worth another. <strong>Not a ranking of who is good:</strong> it is the going
+        rate, and a great player nobody will part with can sit cheap. The typical
+        traded player is {{ M.median_at|int }}, so 100 is twice him. A player needs
+        {{ M.min_trades }} trades before he gets a number; {{ '{:,}'.format(M.players) }}
+        of {{ '{:,}'.format(M.seen) }} cleared that.
+        <br><strong>Check the names below before this goes anywhere near the public page.</strong>
+    </p>
+
+    {% set C = M.chart %}
+    {% if C and C.lines %}
+    <figure class="ar-chart at-market-chart">
+        <figcaption class="ar-chart-cap">The {{ C.lines|length }} dearest players, week by week
+            ({{ M.window }}-week window)</figcaption>
+        <div class="ar-chart-box">
+        <svg viewBox="0 0 {{ C.width }} {{ C.height }}" class="ar-line" role="img"
+             aria-label="Trade value by week for the dearest players">
+            {% for g in C.grid %}
+            <line x1="{{ C.left }}" x2="{{ C.right }}" y1="{{ g.y }}" y2="{{ g.y }}" class="ar-grid" />
+            <text x="{{ C.left - 8 }}" y="{{ g.y + 4 }}" class="ar-tick" text-anchor="end">{{ g.v }}</text>
+            {% endfor %}
+            {% for w in C.weeks %}
+            <text x="{{ w.x }}" y="{{ C.base + 20 }}" class="ar-tick" text-anchor="middle">Wk {{ w.w }}</text>
+            {% endfor %}
+            {% for L in C.lines %}
+            <g class="at-mk at-mk-{{ L.n }}">
+                <path d="{{ L.path }}" class="at-mk-path" />
+                {% for d in L.dots %}<circle cx="{{ d.x }}" cy="{{ d.y }}" r="3.5" class="at-mk-dot" />{% endfor %}
+                {% if L.last %}<text x="{{ L.last.x + 8 }}" y="{{ L.last.y + 4 }}" class="at-mk-label">{{ L.name }} {{ L.last.v }}</text>{% endif %}
+            </g>
+            {% endfor %}
+        </svg>
+        </div>
+    </figure>
+    {% endif %}
+
+    <div class="ar-boards ar-boards-2 at-market-boards">
+        <article class="ar-board">
+            <h3 class="ar-board-head">The dearest</h3>
+            <p class="ar-board-sub">Trade value, with how many trades it rests on.</p>
+            <ol class="ar-list at-rows">
+                {% for r in M.board[:15] %}
+                <li>{{ face(r) }}<span class="ar-name">{{ player(r) }}<small>
+                    {{ '{:,}'.format(r.trades) }} trades{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}</small></span>
+                    <span class="ar-val">{% if r.floored %}<b class="at-floored" title="Cheaper than the trades can separate">&lt;1</b>{% else %}<b>{{ r.value }}</b>{% endif %}</span></li>
+                {% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            <h3 class="ar-board-head">Risers and fallers</h3>
+            <p class="ar-board-sub">Since each player&rsquo;s first published week.</p>
+            {% for label, rows in [('Up', M.movers.up[:6]), ('Down', M.movers.down[:6])] %}
+            {% if rows %}
+            <p class="at-mover-head">{{ label }}</p>
+            <ol class="ar-list at-rows at-movers">
+                {% for r in rows %}
+                <li><span class="ar-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}<small>
+                    {{ r.from }} &rarr; {{ r.to }} &middot; weeks {{ r.weeks }}</small></span>
+                    <span class="ar-val"><b class="{{ 'at-up' if r.change > 0 else 'at-down' }}">{{ '%+.1f'|format(r.change) }}</b></span></li>
+                {% endfor %}
+            </ol>
+            {% endif %}
+            {% endfor %}
+        </article>
+    </div>
+    <p class="card-sub at-market-note">
+        Trades carrying draft picks or FAAB are left out: nobody knows what the pick
+        is worth, and guessing would corrupt the players beside it. Three-way deals
+        are out too. Valuing picks is the next piece of work, and in a dynasty-heavy
+        population it is the big one.
+        <br>A player shown as &lt;1 is at the floor: trades fix the gaps BETWEEN
+        players, never the bottom of the scale, so the cheapest come out pinned
+        together rather than separated.
+    </p>
+</section>
+{% elif M and M.thin %}
+<section class="card ar-collect at-market">
+    <h2 class="card-title">The trade market &middot; staff only</h2>
+    <p class="card-sub">{{ '{:,}'.format(M.used) }} usable trades so far, and nobody has
+        reached {{ M.min_trades if M.min_trades else 8 }} of them yet. Collect more weeks.</p>
+</section>
+{% endif %}
 {% endif %}
 {% endif %}{# ready #}
 

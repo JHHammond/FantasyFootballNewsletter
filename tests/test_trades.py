@@ -203,3 +203,99 @@ def test_a_broken_trades_feed_never_costs_the_week(monkeypatch):
     report = league_stats.collect_week(demo_db, WEEK, season=SEASON,
                                        sleep=lambda s: None, log=lambda s: None)
     assert report["errors"] == 0 and report["trades"] == 0
+
+
+# --- the market -------------------------------------------------------------
+
+def test_the_market_reads_an_order_off_the_trades():
+    """Three tiers, traded consistently: a star goes for two middles, a
+    middle for two scrubs. The solver has to come back with that order."""
+    from web import trade_market
+    ex = []
+    for i in range(40):
+        ex.append({"w": 1 + i % 3, "a": ["star"], "b": [f"mid{i % 4}", f"mid{(i + 1) % 4}"]})
+        ex.append({"w": 1 + i % 3, "a": [f"mid{i % 4}"], "b": [f"sc{i % 5}", f"sc{(i + 2) % 5}"]})
+    got = trade_market.solve(ex, min_trades=3)
+    v = got["values"]
+    assert v["star"] > v["mid0"] > v["sc0"] > 0 or v["sc0"] == 0
+    assert v["star"] > v["mid0"] * 1.5          # a star really is dearer
+    assert trade_market._median(list(v.values())) == trade_market.MEDIAN_AT
+
+
+def test_a_player_nobody_trades_gets_no_number():
+    from web import trade_market
+    ex = [{"w": 1, "a": ["a"], "b": ["b"]} for _ in range(20)]
+    ex.append({"w": 1, "a": ["a"], "b": ["rare"]})
+    got = trade_market.solve(ex, min_trades=5)
+    assert "rare" not in got["values"]          # one trade is one opinion
+    assert got["trades"]["a"] == 21
+
+
+def test_a_trade_for_himself_is_not_an_equation():
+    from web import trade_market
+    ex = [{"w": 1, "a": ["a"], "b": ["a"]}] * 5
+    assert trade_market.solve(ex)["used"] == 0
+
+
+def test_a_player_who_adds_nothing_lands_on_the_floor():
+    """The league trades "star" for "solid" alone, and also for "solid plus
+    a throw-in". The throw-in adds nothing to the price, so the fit wants
+    to pay him nothing — and a value can never go below zero."""
+    from web import trade_market
+    ex = ([{"w": 1, "a": ["star"], "b": ["solid"]} for _ in range(20)]
+          + [{"w": 1, "a": ["star"], "b": ["solid", "throwin"]} for _ in range(20)])
+    got = trade_market.solve(ex, min_trades=3)
+    rows = trade_market.board(got["values"], got["trades"], {}, 10)
+    throwin = next(r for r in rows if r["player_key"] == "throwin")
+    assert throwin["floored"] and throwin["value"] < trade_market.FLOOR_AT
+    assert all(r["value"] >= 0 for r in rows)
+    # And the star is still worth what the solid one is, which is the
+    # answer those trades actually give.
+    star = next(r for r in rows if r["player_key"] == "star")
+    solid = next(r for r in rows if r["player_key"] == "solid")
+    assert abs(star["value"] - solid["value"]) < 1.0
+
+
+def test_the_series_is_one_value_a_week():
+    from web import trade_market
+    ex = [{"w": w, "a": ["a"], "b": ["b", "c"]} for w in (1, 2, 3) for _ in range(12)]
+    got = trade_market.series(ex, [1, 2, 3], window=2, min_trades=3)
+    assert sorted(p["week"] for p in got["series"]["a"]) == [1, 2, 3]
+    assert [m["week"] for m in got["weeks"]] == [1, 2, 3]
+
+
+def test_the_market_panel_builds_from_the_database(monkeypatch):
+    from web import trade_market
+    lg = _league()
+    heads, players = [], []
+    for i in range(30):
+        key = f"t{i:012d}"
+        heads.append({"league_id": lg["id"], "season": SEASON, "week": 1 + i % 3,
+                      "trade_key": key, "provider": "sleeper", "teams": ["A", "B"],
+                      "picks": [], "faab": []})
+        for pk, team in (("star", "A"), ("mid", "B"), ("scrub", "B")):
+            players.append({"league_id": lg["id"], "season": SEASON, "week": 1 + i % 3,
+                            "trade_key": key, "player_key": pk, "name": pk.title(),
+                            "position": "RB", "nfl_team": "ATL",
+                            "from_team": "B" if team == "A" else "A", "to_team": team})
+    demo_db.upsert_trades(heads, players)
+    monkeypatch.setattr(trade_market, "MIN_TRADES", 5)
+    out = trade_market.build(demo_db, SEASON, [1, 2, 3])
+    assert out["used"] == 30 and out["board"]
+    assert out["board"][0]["name"] == "Star"       # one for two, so dearer
+    assert out["chart"]["lines"]
+
+
+def test_a_trade_with_picks_is_not_an_equation():
+    """A dynasty trade is mostly picks, and we don't know what a pick is
+    worth. Including it would corrupt the players standing beside it."""
+    lg = _league()
+    demo_db.upsert_trades(
+        [{"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": "tp",
+          "provider": "sleeper", "teams": ["A", "B"],
+          "picks": [["A", "2027 1st"]], "faab": []}],
+        [{"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": "tp",
+          "player_key": "x", "name": "X", "from_team": "B", "to_team": "A"},
+         {"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": "tp",
+          "player_key": "y", "name": "Y", "from_team": "A", "to_team": "B"}])
+    assert demo_db.trade_exchanges(SEASON, 1, 18) == []

@@ -3721,3 +3721,38 @@ html.nb-lock { overflow: hidden; }
 .at-trade-weeks { margin-top: 6px; }
 .at-trade-weeks li { padding: 7px 0; }
 .at-trades-busy { margin-top: 12px; }
+/* The trade market, staff only until the names have been looked at. */
+.at-market { margin-top: 26px; }
+.at-market-chart { margin: 18px 0 8px; }
+.at-market-boards { margin-top: 18px; }
+.at-market-note { margin-top: 14px; font-size: 14px; }
+.at-mk-path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.at-mk-dot { stroke: var(--paper); stroke-width: 1.5; }
+.at-mk-label { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: .6px; }
+.at-mk-0 .at-mk-path, .at-mk-0 .at-mk-dot { stroke: var(--accent); fill: var(--accent); }
+.at-mk-0 .at-mk-path { fill: none; } .at-mk-0 .at-mk-label { fill: var(--accent); }
+.at-mk-1 .at-mk-path { stroke: var(--ink); } .at-mk-1 .at-mk-dot { fill: var(--ink); stroke: var(--paper); }
+.at-mk-1 .at-mk-label { fill: var(--ink); }
+.at-mk-2 .at-mk-path { stroke: #2d6a1f; } .at-mk-2 .at-mk-dot { fill: #2d6a1f; stroke: var(--paper); }
+.at-mk-2 .at-mk-label { fill: #2d6a1f; }
+.at-mk-3 .at-mk-path { stroke: #8a6d1f; } .at-mk-3 .at-mk-dot { fill: #8a6d1f; stroke: var(--paper); }
+.at-mk-3 .at-mk-label { fill: #8a6d1f; }
+.at-mk-4 .at-mk-path { stroke: #4a5b8c; } .at-mk-4 .at-mk-dot { fill: #4a5b8c; stroke: var(--paper); }
+.at-mk-4 .at-mk-label { fill: #4a5b8c; }
+.at-mk-5 .at-mk-path { stroke: #7a4a6a; } .at-mk-5 .at-mk-dot { fill: #7a4a6a; stroke: var(--paper); }
+.at-mk-5 .at-mk-label { fill: #7a4a6a; }
+.at-up { color: #2d6a1f; } .at-down { color: var(--accent); }
+.at-mover-head {
+    font-family: "Barlow Condensed", sans-serif; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.6px; color: var(--muted);
+    margin: 12px 0 2px; padding-top: 8px; border-top: 1px solid var(--line);
+}
+.at-movers li::before { content: none; }
+.at-floored { color: var(--muted); font-size: 16px !important; }
+.at-mover-head {
+    font-family: "Barlow Condensed", sans-serif; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.6px; color: var(--muted);
+    margin: 12px 0 2px; padding-top: 8px; border-top: 1px solid var(--line);
+}
+.at-movers li::before { content: none; }
+.at-floored { color: var(--muted); font-size: 16px !important; }
