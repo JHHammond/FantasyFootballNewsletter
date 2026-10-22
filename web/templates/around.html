@@ -599,7 +599,7 @@
 
     <div class="ar-boards ar-boards-2 at-market-boards">
         <article class="ar-board">
-            <h3 class="ar-board-head">The dearest</h3>
+            <h3 class="ar-board-head">Most expensive</h3>
             <p class="ar-board-sub">Where the country drafted him, and where it pays now.</p>
             <ol class="ar-list at-rows at-mkt-board">
                 {% for r in R.rows[:15] %}
@@ -1072,8 +1072,29 @@
                 if ((d.recent || []).length) {
                     html += '<p class="at-mover-head">Latest deals</p><ul class="at-mkt-deals">';
                     d.recent.forEach(function (r) {
-                        html += "<li><b>" + bundle(r.got) + "</b> for " + bundle(r.gave)
-                            + "<small>" + (r.day ? esc(r.day) : "week " + r.week) + "</small></li>";
+                        // A side can be empty because what came back was a
+                        // draft pick or FAAB, not a player. Printing "for —"
+                        // read as a bug; it was the truth with the picks
+                        // left out. We still can't price one, which is
+                        // exactly why these deals are missing from the
+                        // numbers, and saying so is better than a dash.
+                        var extra = (r.picks || []).map(function (p) { return esc(p); });
+                        (r.faab || []).forEach(function (f) {
+                            extra.push("$" + f + " FAAB");
+                        });
+                        var got = bundle(r.got), gave = bundle(r.gave);
+                        if (!r.gave || !r.gave.length) {
+                            gave = extra.length ? extra.join(" + ")
+                                 : "something we didn't store";
+                        } else if (extra.length) {
+                            gave += " + " + extra.join(" + ");
+                        }
+                        var note = extra.length
+                            ? '<small class="at-nopric">not priced \u2014 picks and FAAB '
+                              + 'are left out of the market</small>' : "";
+                        html += "<li><b>" + got + "</b> for " + gave
+                            + "<small>" + (r.day ? esc(r.day) : "week " + r.week)
+                            + "</small>" + note + "</li>";
                     });
                     html += "</ul>";
                 }

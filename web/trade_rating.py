@@ -538,12 +538,30 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     movers = sorted((r for r in (market.row(k, names) for k in rated)
                      if r["moved"] is not None and r["trades"] > 0),
                     key=lambda r: -r["moved"])
+
+    # WHICH PLAYERS GET A LINE, and why not simply the dearest six.
+    #
+    # Picking the top six by today's price guarantees they meet on the
+    # right-hand edge: they are the six highest of a few hundred, so at the
+    # moment they are chosen they are adjacent by construction, within a
+    # percent or two of each other. Their histories are free to be
+    # anywhere, so every such chart shows lines fanning in to a point, and
+    # it looks like a finding. It is the selection.
+    #
+    # The ones worth drawing are the ones that MOVED. They were chosen for
+    # travelling, not for where they finished, so there is no edge they are
+    # obliged to meet at.
+    travelled = sorted((r for r in movers if r["trades"] >= 6),
+                       key=lambda r: -abs(r["moved"]))
+    drawn = [r["player_key"] for r in travelled[:lines]]
+    if len(drawn) < 2:
+        drawn = rated[:lines]
     return {
         "rows": rows,
         "up": movers[:6],
         "down": list(reversed(movers[-6:])),
-        "series": {k: got["series"][k] for k in rated[:lines] if k in got["series"]},
-        "lines": rated[:lines],
+        "series": {k: got["series"][k] for k in drawn if k in got["series"]},
+        "lines": drawn,
         "days": got["days"],
         "used": got["used"],
         "rated": len(rated),

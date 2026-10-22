@@ -1293,8 +1293,13 @@ def trade_partners(season: int, player_key: str, limit: int = 8) -> dict[str, An
             "position": r.get("position"), "nfl_team": r.get("nfl_team"), "n": 0})
         e["n"] += 1
 
-    def rank(d, n):
-        return sorted(d.values(), key=lambda e: (-e["n"], e["player_key"]))[:n]
+    def rank(d, n, nfl=True):
+        rows = sorted(d.values(), key=lambda e: (-e["n"], e["player_key"]))[:n]
+        # `alongside` carries no nfl_team in the SQL, and the twin must
+        # match it field for field or scripts/check_trade_sql.py is only
+        # checking the fields it happens to share.
+        return rows if nfl else [{k: v for k, v in r.items() if k != "nfl_team"}
+                                 for r in rows]
 
     recent = []
     heads = [(h, mine[(h["league_id"], h["trade_key"])])
@@ -1310,11 +1315,19 @@ def trade_partners(season: int, player_key: str, limit: int = 8) -> dict[str, An
             row = {"name": r.get("name") or r["player_key"], "position": r.get("position")}
             (got if r.get("to_team") == me.get("to_team") else gave).append(row)
         key_of = lambda x: x["name"]  # noqa: E731
+        # Labels and amounts only — the team that sent the pick stays in
+        # its league. See migration 051.
+        picks = [p[1] for p in (head.get("picks") or [])
+                 if isinstance(p, (list, tuple)) and len(p) > 1 and p[1] is not None]
+        faab = [f[2] for f in (head.get("faab") or [])
+                if isinstance(f, (list, tuple)) and len(f) > 2 and f[2] is not None]
         recent.append({"week": int(head["week"]),
                        "day": (str(head.get("traded_at") or "")[:10]) or None,
-                       "got": sorted(got, key=key_of), "gave": sorted(gave, key=key_of)})
+                       "got": sorted(got, key=key_of), "gave": sorted(gave, key=key_of),
+                       "picks": picks, "faab": faab})
     return {"player": key, "trades": len(mine),
-            "counterparts": rank(against, limit), "alongside": rank(with_him, 4),
+            "counterparts": rank(against, limit),
+            "alongside": rank(with_him, 4, nfl=False),
             "recent": recent}
 
 

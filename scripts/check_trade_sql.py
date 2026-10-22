@@ -44,7 +44,7 @@ sys.path.insert(0, str(ROOT))
 SEASON = 2026
 #: Which functions are checked, and how to call each one in SQL.
 CHECKS = ("trade_exchanges", "trade_player_names", "trade_prior",
-          "trade_backfill", "adp")
+          "trade_backfill", "adp", "trade_partners")
 
 
 def _sql(dsn: str, statement: str) -> str:
@@ -174,7 +174,15 @@ def _fill_sql(dsn: str, data) -> None:
                  " player_key, name, position, nfl_team, from_team, to_team) values"
                  f" ('{lid}', {SEASON}, {week}, '{key}', '{pkey}', '{pkey.upper()}',"
                  f" '{pos}', 'CIN', '{frm}', '{to}')"
-                 " on conflict do nothing;")
+                 # LAST wins, which is what db.upsert_trades does in
+                 # production and what web/trades.py documents: a player
+                 # can appear on both sides of a three-way and the last
+                 # word wins. "on conflict do nothing" keeps the FIRST,
+                 # and the mismatch made the two implementations disagree
+                 # about which side of a three-way a player finished on.
+                 " on conflict (league_id, season, trade_key, player_key)"
+                 " do update set from_team = excluded.from_team,"
+                 " to_team = excluded.to_team;")
     for lid, week, n in scans:
         q.append("insert into public.trade_scans (league_id, season, week, trades)"
                  f" values ('{lid}', {SEASON}, {week}, {n});")
@@ -238,6 +246,14 @@ def _norm(x):
         return str(x)
 
 
+_WHO = {"key": None}
+
+
+def _someone() -> str:
+    """A player who actually appears in the invented trades."""
+    return _WHO["key"] or "p0"
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
@@ -247,6 +263,8 @@ def main() -> int:
     _sql(dsn, "drop schema public cascade; create schema public;")
     _sql(dsn, _ddl())
     data = _season(rng)
+    # Somebody who is in a trade carrying a pick, so 051 is exercised.
+    _WHO["key"] = data[3][0][3] if data[3] else "p0"
     _fill_sql(dsn, data)
     _fill_demo(data)
 
@@ -261,6 +279,9 @@ def main() -> int:
         "trade_backfill": (f"select trade_backfill({SEASON})",
                            lambda: demo_db.trade_backfill(SEASON)),
         "adp": (f"select adp({SEASON}, 2)", lambda: demo_db.adp(SEASON, 2)),
+        # One real player, picked from the data so the call is never empty.
+        "trade_partners": (f"select trade_partners({SEASON}, '{_someone()}')",
+                           lambda: demo_db.trade_partners(SEASON, _someone())),
     }
 
     bad = 0

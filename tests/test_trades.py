@@ -838,3 +838,48 @@ def test_the_panel_counts_qualifiers_not_rows():
     out = trade_market.build(demo_db, SEASON, [1], limit=5)
     assert len(out["board"]) == 5, "the board is still capped"
     assert out["players"] == 12, out["players"]
+
+
+def test_a_trade_for_a_pick_says_so():
+    """John, 22 Oct: "Drew Lock for —". The other side WAS something — a
+    draft pick — and trade_partners never looked, because it reads
+    trade_players and a pick is not a player.
+
+    We still cannot value one, which is exactly why those deals are left
+    out of the fit, but refusing to price a thing is no reason to pretend
+    it was not in the trade."""
+    lg = _league("pickdeal")
+    demo_db.upsert_trades(
+        [{"league_id": lg["id"], "season": SEASON, "week": 3, "trade_key": "pk1",
+          "provider": "sleeper", "teams": ["A", "B"],
+          "picks": [["A", "2027 2nd"]], "faab": [["B", "A", 15]],
+          "traded_at": "2026-10-19T12:00:00+00:00"}],
+        [{"league_id": lg["id"], "season": SEASON, "week": 3, "trade_key": "pk1",
+          "player_key": "lock", "name": "Drew Lock", "position": "QB",
+          "from_team": "A", "to_team": "B"}])
+
+    got = demo_db.trade_partners(SEASON, "lock")
+    deal = got["recent"][0]
+    # One side has the player and the other has nothing a player table
+    # could hold — which is the whole point.
+    assert deal["picks"] == ["2027 2nd"]
+    assert deal["faab"] == [15]
+    assert not (deal["got"] and deal["gave"])
+
+
+def test_a_pick_never_names_the_team_that_sent_it():
+    """picks is stored as (team, label) pairs and faab as (from, to,
+    amount); those team names are a league's own content. A 2027 2nd is
+    everybody's business, who gave it up is not."""
+    lg = _league("pickpriv")
+    demo_db.upsert_trades(
+        [{"league_id": lg["id"], "season": SEASON, "week": 3, "trade_key": "pk2",
+          "provider": "sleeper", "teams": ["Secret Team", "Other Team"],
+          "picks": [["Secret Team", "2027 1st"]],
+          "faab": [["Secret Team", "Other Team", 22]], "traded_at": None}],
+        [{"league_id": lg["id"], "season": SEASON, "week": 3, "trade_key": "pk2",
+          "player_key": "guy", "name": "A Guy", "from_team": "Secret Team",
+          "to_team": "Other Team"}])
+    blob = str(demo_db.trade_partners(SEASON, "guy"))
+    assert "2027 1st" in blob and "22" in blob
+    assert "Secret Team" not in blob and "Other Team" not in blob
