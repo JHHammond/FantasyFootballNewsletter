@@ -756,13 +756,23 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
         },
         "unlucky": [card(r) for r in top([r for r in sd if r["result"] == "L"],
                                          lambda r: (-r["std_pts"], tkey(r)), 5)],
-        "lucky": [card(r) for r in top([r for r in sd if r["result"] == "W"],
-                                       lambda r: (r["std_pts"], tkey(r)), 5)],
+        # A WALKOVER IS NOT A LUCKY WIN (052). "Worst score that won" is
+        # meant to be a team that put up 71 and somehow survived; without
+        # this it was finding teams that put up 71 against somebody who
+        # put up NOTHING — an abandoned roster, a league that stopped
+        # playing in September. Beating a corpse is not luck.
+        "lucky": [card(r) for r in top(
+            [r for r in sd if r["result"] == "W"
+             and (r.get("opponent_points") or 0) > 0],
+            lambda r: (r["std_pts"], tkey(r)), 5)],
         "halls": {
             "highest": [card(r) for r in top(sd, lambda r: (-r["std_pts"], tkey(r)), 5)],
             "lowest": [card(r) for r in top(sd, lambda r: (r["std_pts"], tkey(r)), 5)],
+            # Same artifact: a 140-to-nothing is a forfeit with a
+            # scoreline, and it crowds out the real maulings.
             "blowouts": [card(r) for r in top(
-                [r for r in norm if r["result"] == "W" and r["margin"] is not None],
+                [r for r in norm if r["result"] == "W" and r["margin"] is not None
+                 and (r.get("opponent_points") or 0) > 0],
                 lambda r: (-r["margin"], tkey(r)), 5)],
             "bench": [card(r) for r in top(
                 [r for r in norm if r["bench_left"] is not None],

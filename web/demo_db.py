@@ -574,6 +574,15 @@ def lineups_ready() -> bool:
     return True
 
 
+def lineup_for_team(league_id: str, season: int, week: int,
+                    team_id: str) -> list[dict[str, Any]]:
+    cols = ("player_key", "slot", "started", "points", "ppr_points")
+    return [{k: r.get(k) for k in cols} for r in _LINEUPS.values()
+            if str(r["league_id"]) == str(league_id)
+            and int(r["season"]) == int(season) and int(r["week"]) == int(week)
+            and str(r["team_id"]) == str(team_id)][:60]
+
+
 def lineup_league_ids(season: int, week: int) -> set[str]:
     return {r["league_id"] for r in _LINEUPS.values()
             if r["season"] == int(season) and r["week"] == int(week)}

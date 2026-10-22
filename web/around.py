@@ -237,6 +237,9 @@ def my_teams(db, user: Optional[dict], season: int, week: int) -> list[dict[str,
         if lg is None or (r.get("points") or 0) <= 0:
             continue
         e = out.setdefault(str(lg["id"]), {
+            #: The id rides along so the "your lineup" panel can ask for
+            #: one team's roster; ownership is re-checked server-side.
+            "id": str(lg["id"]),
             "league": lg.get("paper_name") or lg.get("league_name") or "Your league",
             "scoring": (r.get("scoring_type") or ""), "teams": []})
         e["teams"].append({
@@ -535,3 +538,102 @@ def build(db, season: int, week: int, *, public: bool = False) -> dict[str, Any]
     faceoff_deltas(out["faceoffs"], s.get("avg_ppr"))
     out["front"] = front(out)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Your own lineup, against the country
+# ---------------------------------------------------------------------------
+
+#: A player this many teams started is one "everybody" had. Below it he was
+#: a choice somebody made rather than the obvious play.
+COMMON_SHARE = 0.40
+#: ...and this few makes him genuinely yours.
+RARE_SHARE = 0.05
+
+
+def my_lineup(db, user: Optional[dict], season: int, week: int,
+              league_id: str, team_id: str) -> dict[str, Any]:
+    """One of the viewer's own teams, set against what the country did.
+
+    The national page is about 14,000 strangers, which is interesting once
+    and then abstract. This is the same week read back through the only
+    lineup the reader actually cares about: who else started these men,
+    what they scored, and which of them nobody else had.
+
+    OWNERSHIP IS CHECKED HERE and nowhere else. The league must be one of
+    this user's or the answer is empty — a team id is guessable and a
+    lineup is somebody's private roster. Never raises: a broken panel must
+    not cost the page.
+    """
+    if not user or not league_id or not team_id:
+        return {}
+    try:
+        mine = {str(l["id"]): l for l in db.leagues_for_user(user["id"])
+                if int(l.get("season") or 0) == int(season)}
+        league = mine.get(str(league_id))
+        if league is None:
+            return {}
+        rows = db.lineup_for_team(league_id, season, week, team_id) or []
+    except Exception as exc:  # noqa: BLE001
+        print(f"[around] no lineup for the viewer: {exc}", flush=True)
+        return {}
+    if not rows:
+        return {}
+
+    try:
+        wk = _cached(("w", season, week, MIN_STARTS),
+                     lambda: db.around_week(season, week, MIN_STARTS)) or {}
+    except Exception:  # noqa: BLE001
+        wk = {}
+    players = wk.get("players") or {}
+    national = {p["player_key"]: p for p in players.get("all") or []}
+    # How many lineups there were to be one of. summary.lineup_teams, not
+    # summary.teams: a team with no stored lineup never started anybody.
+    lineups = int((wk.get("summary") or {}).get("lineup_teams") or 0)
+
+    started, benched = [], []
+    for r in rows:
+        key = str(r.get("player_key") or "")
+        card = national.get(key) or {}
+        ppr = r.get("ppr_points")
+        ppr = float(ppr) if ppr is not None else None
+        n = int(card.get("started") or 0)
+        share_started = (n / lineups) if lineups else None
+        row = {
+            "player_key": key,
+            "name": card.get("name") or key,
+            "position": card.get("position") or (r.get("slot") or None),
+            "nfl_team": card.get("nfl_team"),
+            "slot": r.get("slot"),
+            "points": round(float(r.get("points") or 0), 2),
+            "ppr": round(ppr, 2) if ppr is not None else None,
+            #: How much of the country started him, which is the whole
+            #: point of reading your own lineup against a national page.
+            "started_by": n or None,
+            "share": round(share_started, 4) if share_started else None,
+            "common": bool(share_started and share_started >= COMMON_SHARE),
+            "rare": bool(share_started is not None and 0 < share_started <= RARE_SHARE),
+            "known": bool(card),
+        }
+        (started if r.get("started") else benched).append(row)
+
+    started.sort(key=lambda p: -(p["ppr"] if p["ppr"] is not None else p["points"]))
+    benched.sort(key=lambda p: -(p["ppr"] if p["ppr"] is not None else p["points"]))
+
+    scored = [p for p in started if p["ppr"] is not None]
+    best_bench = next((p for p in benched if p["ppr"] is not None), None)
+    worst = scored[-1] if scored else None
+    return {
+        "league": league.get("paper_name") or league.get("league_name") or "Your league",
+        "started": started,
+        "bench": benched[:6],
+        "lineups": lineups,
+        #: The one line worth leading with: a player almost nobody else had.
+        "differential": next((p for p in scored if p["rare"]), None),
+        "best": scored[0] if scored else None,
+        "worst": worst,
+        #: Did somebody on the bench outscore your worst starter? The page
+        #: already says this nationally; here it has a name attached.
+        "regret": (best_bench if best_bench and worst
+                   and best_bench["ppr"] > (worst["ppr"] or 0) else None),
+    }

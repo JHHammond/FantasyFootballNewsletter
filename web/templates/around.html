@@ -138,6 +138,7 @@
                     <optgroup label="{{ lg.league }}">
                         {% for t in lg.teams %}
                         <option value="{{ t.id }}"
+                                data-league="{{ lg.id }}"
                                 data-points="{{ t.points }}"
                                 {% if t.ppr is not none %}data-ppr="{{ t.ppr }}"{% endif %}
                                 data-scoring="{{ lg.scoring }}"
@@ -175,6 +176,18 @@
         </div>
     </div>
     <p class="ar-pool-note" id="ar-pool-note" hidden></p>
+
+    {% if mine %}
+    {# Your own lineup, against the country. The page above is 14,000
+       strangers, which is interesting once; this is the same week read
+       back through the only lineup the reader actually cares about. It
+       arrives from /around/my-lineup.json because the page is cached and
+       shared and this is one person's roster. #}
+    <div class="at-mylineup" id="at-mine" hidden>
+        <h3 class="ar-board-head">Your lineup, against the country</h3>
+        <div id="at-mine-out"></div>
+    </div>
+    {% endif %}
 
     {% set h = a.hist %}
     {% if h %}
@@ -623,7 +636,87 @@
         score.value = (opt && want === "all" && ppr) ? ppr : o.dataset.points;
         teamName = o.dataset.name || "";
         update();
+        showMyLineup(o.dataset.league, o.value, o.dataset.name || "");
     });
+
+    // ---- your lineup, against the country -------------------------------
+    // Player names are platform data, so everything below is written with
+    // textContent rather than pasted in as markup.
+    function esc(t) {
+        var d = document.createElement("div");
+        d.textContent = t == null ? "" : t;
+        return d.innerHTML;
+    }
+    var mineBox = document.getElementById("at-mine"),
+        mineOut = document.getElementById("at-mine-out");
+    var mineSeen = {};
+    function pc(x) { return Math.round((x || 0) * 100); }
+    function showMyLineup(league, team, name) {
+        if (!mineBox || !mineOut || !league || !team) {
+            if (mineBox) mineBox.hidden = true;
+            return;
+        }
+        mineBox.hidden = false;
+        mineOut.innerHTML = '<p class="ar-board-sub">Reading your lineup\u2026</p>';
+        var at = "/around/my-lineup.json?league=" + encodeURIComponent(league)
+               + "&team=" + encodeURIComponent(team) + "&week=" + encodeURIComponent(WEEK);
+        var draw = function (d) {
+            if (!d || !(d.started || []).length) {
+                mineOut.innerHTML = '<p class="ar-board-sub">No stored lineup for that '
+                    + "team this week.</p>";
+                return;
+            }
+            var html = "";
+            // The headline is whichever of these the week actually gave
+            // them, in order of how much it is worth saying out loud.
+            if (d.differential) {
+                html += '<p class="ar-board-sub"><b>' + esc(d.differential.name) + "</b> was yours: "
+                     + "only " + (d.differential.started_by || 0).toLocaleString()
+                     + " of " + (d.lineups || 0).toLocaleString()
+                     + " lineups started him, and he scored "
+                     + (d.differential.ppr != null ? d.differential.ppr.toFixed(1) : "\u2014")
+                     + ".</p>";
+            } else if (d.regret) {
+                html += '<p class="ar-board-sub"><b>' + esc(d.regret.name) + "</b> scored "
+                     + d.regret.ppr.toFixed(1) + " on your bench, and "
+                     + esc(d.worst.name) + " scored "
+                     + (d.worst.ppr != null ? d.worst.ppr.toFixed(1) : "\u2014")
+                     + " in your lineup.</p>";
+            } else {
+                html += '<p class="ar-board-sub">' + esc(name || "Your team")
+                     + ", week " + WEEK + ".</p>";
+            }
+            html += '<ol class="ar-list at-rows at-mine-list">';
+            d.started.forEach(function (p) {
+                var note = "";
+                if (p.share != null && p.started_by) {
+                    note = (p.started_by).toLocaleString() + " lineups ("
+                         + pc(p.share) + "%)";
+                    if (p.rare) note += " \u00b7 almost nobody else";
+                    else if (p.common) note += " \u00b7 everybody had him";
+                } else {
+                    note = "not in the national pool";
+                }
+                html += '<li><span class="ar-name">' + esc(p.name)
+                     + (p.position ? '<span class="ar-pos">' + esc(p.position) + "</span>" : "")
+                     + "<small>" + note + "</small></span>"
+                     + '<span class="ar-val"><b>'
+                     + (p.ppr != null ? p.ppr.toFixed(1) : p.points.toFixed(1))
+                     + "</b></span></li>";
+            });
+            html += "</ol>";
+            mineOut.innerHTML = html;
+        };
+        if (mineSeen[at]) { draw(mineSeen[at]); return; }
+        fetch(at, {credentials: "same-origin"}).then(function (r) {
+            return r.ok ? r.json() : null;
+        }).then(function (d) {
+            mineSeen[at] = d;
+            draw(d);
+        }).catch(function () {
+            mineOut.innerHTML = '<p class="ar-board-sub">Couldn\u2019t read that one.</p>';
+        });
+    }
 
     // Sharing: the card as a picture. Web Share takes the file itself where
     // it can; everywhere else the picture opens in a tab to save or drag.

@@ -555,3 +555,84 @@ def test_around_carries_no_trade_market_any_more(web, monkeypatch):
         assert text.count("trade market") <= (1 if path == "/staff/around" else 0), path
     # ...but staff can still get there.
     assert "/staff/market" in web.get("/staff/around").text
+
+
+def _mine(web, user_email="s@example.com", lid="demo-mine"):
+    """Give the signed-in viewer a league with a stored lineup."""
+    import nfl_week
+    u = demo_db.user_by_email(user_email)
+    demo_db._LEAGUES[lid] = {"id": lid, "user_id": u["id"], "season": SEASON,
+                             "provider": "sleeper", "platform_league_id": "x",
+                             "league_name": "Mine", "paper_name": "My Times",
+                             "my_team_id": "t0"}
+    week = 3
+    # National rows too, or there is no country to be read against: the
+    # player cards come from around_week, which starts at team_weeks.
+    demo_db.upsert_team_weeks([
+        {"league_id": lid, "provider": "sleeper", "platform_league_id": "x",
+         "season": SEASON, "week": week, "team_id": team, "team_name": team,
+         "manager": "", "points": 42.0, "opponent_name": "o",
+         "opponent_points": 40.0, "margin": 2.0, "result": "W",
+         "optimal_points": 50.0, "bench_left": 8.0, "empty_slots": 0,
+         "top_player": "star", "best_bench_player": "bench", "team_count": 12,
+         "scoring_type": "ppr", "ppr_points": 42.0, "ppr_coverage": 1.0}
+        for team in ("t0", "t1")])
+    rows = []
+    for team in ("t0", "t1"):
+        for n, (key, pts, started) in enumerate((
+                ("star", 30.0, True), ("mid", 12.0, True), ("bench", 25.0, False))):
+            rows.append({"league_id": lid, "season": SEASON, "week": week,
+                         "team_id": team, "player_key": key,
+                         "slot": "WR" if started else "BN",
+                         "started": started, "points": pts, "ppr_points": pts})
+    demo_db.upsert_lineups(rows)
+    demo_db.upsert_nfl_players([
+        {"player_key": k, "name": k.title(), "position": "WR", "nfl_team": "CIN"}
+        for k in ("star", "mid", "bench")])
+    return u, lid, week
+
+
+def test_your_own_lineup_is_read_against_the_country(web, monkeypatch):
+    """John, 22 Oct: let a connected viewer see their own players. The page
+    above is 14,000 strangers, which is interesting once; this is the same
+    week read back through the lineup the reader actually cares about."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    _staff(web)
+    u, lid, week = _mine(web)
+    got = around.my_lineup(demo_db, u, SEASON, week, lid, "t0")
+    assert got["league"] == "My Times"
+    names = [p["name"] for p in got["started"]]
+    assert names == ["Star", "Mid"], got["started"]      # best first
+    # Somebody on the bench beat the worst starter, and he has a name.
+    assert got["regret"] and got["regret"]["name"] == "Bench"
+    assert got["worst"]["name"] == "Mid"
+
+
+def test_a_lineup_is_only_yours_to_see(web, monkeypatch):
+    """The decisive test. A team id is guessable and a lineup is somebody's
+    private roster, so the league has to belong to the asker. Ownership is
+    checked in my_lineup and nowhere else, which is why it is checked
+    here."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    _staff(web)
+    u, lid, week = _mine(web)
+    assert around.my_lineup(demo_db, u, SEASON, week, lid, "t0")["started"]
+
+    # A second person, who does not own that league, gets nothing — even
+    # with the right league id and the right team id.
+    web.post("/signup", data={"email": "nosy@example.com",
+                              "password": "correct horse battery 9",
+                              "confirm": "correct horse battery 9"})
+    other = demo_db.user_by_email("nosy@example.com")
+    assert around.my_lineup(demo_db, other, SEASON, week, lid, "t0") == {}
+    assert around.my_lineup(demo_db, None, SEASON, week, lid, "t0") == {}
+
+
+def test_the_lineup_endpoint_needs_a_session(web, monkeypatch):
+    """It is one person's roster, so it is not a public URL."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    r = web.get("/around/my-lineup.json?league=demo-mine&team=t0&week=3")
+    assert r.status_code in (401, 404)

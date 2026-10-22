@@ -1383,6 +1383,34 @@ def staff_around_player(request: Request, player_key: str):
     return JSONResponse(out, headers={"Cache-Control": "private, max-age=300"})
 
 
+@app.get("/around/my-lineup.json")
+def around_my_lineup(request: Request, league: str = "", team: str = "",
+                     week: int = 0):
+    """The signed-in viewer's own lineup, read against the country.
+
+    A JSON side-door rather than part of the page, for two reasons: the
+    page itself is cached and shared by everybody, and this is one
+    person's roster. Ownership is checked inside around.my_lineup — the
+    league must be theirs — so a guessed team id gets nothing.
+    """
+    import nfl_week
+
+    from . import around
+    user = current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    if not around_public() and (user.get("plan") != plans.STAFF):
+        raise HTTPException(status_code=404)
+    season = nfl_week.current_season()
+    wk = int(week) if 1 <= int(week or 0) <= 18 else max(nfl_week.completed_week(), 1)
+    out = around.my_lineup(db, user, season, wk,
+                           clean_text(league, max_length=64).strip(),
+                           clean_text(team, max_length=64).strip())
+    if not out:
+        raise HTTPException(status_code=404)
+    return JSONResponse(out, headers={"Cache-Control": "private, max-age=120"})
+
+
 @app.get("/staff/market", response_class=HTMLResponse)
 def staff_market(request: Request):
     """The trade market, on its own page.

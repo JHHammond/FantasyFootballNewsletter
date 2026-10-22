@@ -955,6 +955,23 @@ def lineups_ready() -> bool:
     return True
 
 
+def lineup_for_team(league_id: str, season: int, week: int,
+                    team_id: str) -> list[dict[str, Any]]:
+    """One team's roster for one week, starters and bench.
+
+    The viewer's own team, for the "how did my lineup do against the
+    country" panel. Scoped to a single team in a single league, so it is
+    a few dozen rows and the caller has already checked the league is
+    theirs — this function trusts nobody and checks nothing.
+    """
+    res = (client().table("lineup_players")
+           .select("player_key,slot,started,points,ppr_points")
+           .eq("league_id", str(league_id)).eq("season", int(season))
+           .eq("week", int(week)).eq("team_id", str(team_id))
+           .limit(60).execute())
+    return list(res.data or [])
+
+
 def lineup_league_ids(season: int, week: int) -> set[str]:
     data = _rpc_json("lineup_league_ids", {"p_season": int(season), "p_week": int(week)})
     return {str(x) for x in (data or [])}

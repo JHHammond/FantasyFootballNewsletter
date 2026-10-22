@@ -359,3 +359,45 @@ def test_a_week_stored_without_ppr_is_collected_again_once_ppr_is_back(fake_load
     league_stats.collect_week(demo_db, 3, season=SEASON, sleep=lambda s: None,
                               log=lambda s: None)
     assert fake_load == []
+
+
+def test_a_walkover_is_not_a_lucky_win():
+    """John, 22 Oct: "for worst team that won, i think we need to add
+    something where their opponent has to have scored points."
+
+    "Worst score that won" is meant to be a team that put up 71 and
+    somehow survived. Without this it finds teams that put up 71 against
+    somebody who put up NOTHING — an abandoned roster, a league that
+    stopped playing in September. Beating a corpse is not luck, and it
+    crowds out the real story every time, because nothing beats nothing.
+    """
+    lg = _league("Walkovers", pid="wk")
+    rows = [
+        # The genuine article: a bad score that survived a worse one.
+        _row(lg, "squeaker", 71.0, "W", opp=70.0),
+        _row(lg, "loser", 70.0, "L", opp=71.0),
+        # A walkover. Lower score, so it would take the top spot.
+        _row(lg, "walkover", 55.0, "W", opp=0.0),
+        _row(lg, "ghost", 0.0, "L", opp=55.0),
+    ] + [_row(lg, f"f{i}", 95.0 + i, "W", opp=90.0) for i in range(6)]
+    got = league_stats.compute_week(rows, [], {}, SEASON, 3)
+    lucky = [c["team_name"] for c in got["lucky"]]
+    assert "walkover" not in lucky, lucky
+    assert lucky[0] == "squeaker", lucky
+
+
+def test_a_forfeit_is_not_a_blowout():
+    """The same artifact wearing a different hat. "The biggest beating in
+    America" against a team that never set a lineup is a forfeit with a
+    scoreline."""
+    lg = _league("Forfeits", pid="ff")
+    rows = [
+        _row(lg, "forfeit", 150.0, "W", opp=0.0),
+        _row(lg, "absent", 0.0, "L", opp=150.0),
+        _row(lg, "mauler", 180.0, "W", opp=60.0),
+        _row(lg, "mauled", 60.0, "L", opp=180.0),
+    ] + [_row(lg, f"f{i}", 95.0 + i, "W", opp=90.0) for i in range(6)]
+    got = league_stats.compute_week(rows, [], {}, SEASON, 3)
+    blowouts = [c["team_name"] for c in got["halls"]["blowouts"]]
+    assert "forfeit" not in blowouts, blowouts
+    assert blowouts[0] == "mauler", blowouts
