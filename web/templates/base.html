@@ -37,6 +37,13 @@
                 width="58" height="34" alt="" /><span class="masthead-word">The Commissioner&rsquo;s Desk</span></a>
         <nav class="masthead-nav">
             {% block nav %}{% endblock %}
+            {# The one public page that is not somebody's own paper, so it
+               is the only thing in here worth showing a stranger. Hidden
+               until AROUND_PUBLIC=1, the same switch the page itself
+               reads, so the link can never arrive before the page does. #}
+            {% if around_open() %}
+            <a href="/around"{{ ' class="nav-here"'|safe if request and request.url.path == '/around' else '' }}>Around the Leagues</a>
+            {% endif %}
             {% if user %}
             <a href="/account">Your papers</a>
             {% if viewer_paid %}

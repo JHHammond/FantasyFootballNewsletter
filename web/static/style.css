@@ -3770,6 +3770,7 @@ html.nb-lock { overflow: hidden; }
     font-family: "Barlow Condensed", sans-serif; font-weight: 700;
     letter-spacing: 0.4px; border-bottom: 1px dotted currentColor;
 }
+.masthead-nav .nav-here { border-bottom: 2px solid var(--accent); }
 .at-all-gate {
     /* Reads as the invitation it is, not as a locked door. */
     text-decoration: none; border-bottom: 2px solid var(--accent);

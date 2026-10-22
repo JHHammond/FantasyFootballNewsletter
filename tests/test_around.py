@@ -732,3 +732,13 @@ def _seed_players(n_teams: int = 14, n_players: int = 20) -> None:
         {"player_key": f"p{j}", "name": f"Player {j}", "position": "WR",
          "nfl_team": "CIN"} for j in range(n_players)])
     around.clear_cache()
+
+
+def test_the_nav_link_waits_for_the_page(web, monkeypatch):
+    """The masthead link and the page itself read the same switch, so the
+    link can never arrive before the thing it points at — a nav item
+    leading to a 404 is worse than no nav item."""
+    monkeypatch.delenv("AROUND_PUBLIC", raising=False)
+    assert ">Around the Leagues<" not in web.get("/").text
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    assert ">Around the Leagues<" in web.get("/").text
