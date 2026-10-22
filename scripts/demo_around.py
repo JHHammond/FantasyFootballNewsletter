@@ -192,8 +192,16 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
                 taken = set()
             name = f"{rng.choice(ADJ)} {rng.choice(NOUN)}"
             ghost = rng.random() < 0.04
+            # ABANDONED, which is different from bad. Somebody stopped
+            # opening the app in September: the lineup is still whatever
+            # it was, and almost none of it is playing. These are what the
+            # Halls of lowest scores and luckiest wins fill up with if
+            # nothing keeps them out, and the demo never had any — so it
+            # cheerfully showed a healthy page while production's five
+            # lowest scores in America were 2.7, 4.4, 4.8, 5.0 and 6.9.
+            dead = not ghost and rng.random() < 0.03
             teams.append({"id": f"t{t}", "name": name, "roster": roster, "ghost": ghost,
-                          "mgr": f"manager{li}_{t}"})
+                          "dead": dead, "mgr": f"manager{li}_{t}"})
         rosters[lid] = teams
         draft_rows += _draft(lid, teams, size, season, rng)
 
@@ -227,7 +235,21 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
                 started = {p[0] for _, p in guess if p}
                 total = round(sum(pts[p[0]] for _, p in guess if p), 2)
                 optimal = round(sum(pts[p[0]] for _, p in opt if p), 2)
-                ppr_total = round(sum(sc[_key(p[0])] for _, p in guess if p), 2)
+                # An abandoned roster is not a team that scored badly, it
+                # is a team whose players were not playing: byes,
+                # injuries, and men dropped in September and never
+                # replaced. So it is the STAT LINES that go to zero, not
+                # the league's own arithmetic — which is why the first
+                # attempt at this changed nothing, and why production
+                # could show five scores under 7 while the demo looked
+                # healthy.
+                def line(p):
+                    if not t.get("dead") or w <= 2:
+                        return sc[_key(p[0])]
+                    return sc[_key(p[0])] if p[0] == alive else 0.0
+                alive = (max((p for _, p in guess if p), key=lambda p: pts[p[0]])[0]
+                         if t.get("dead") else None)
+                ppr_total = round(sum(line(p) for _, p in guess if p), 2)
                 bench = [p for p in ros if p[0] not in started]
                 top = max((p for _, p in guess if p), key=lambda p: pts[p[0]])
                 bb = max(bench, key=lambda p: pts[p[0]]) if bench else None
@@ -239,7 +261,7 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
                                     "team_id": t["id"], "player_key": _key(p[0]),
                                     "slot": p[1] if p[0] in started else "BN",
                                     "started": p[0] in started, "points": pts[p[0]],
-                                    "ppr_points": sc[_key(p[0])]})
+                                    "ppr_points": line(p)})
             for i in range(0, len(order) - 1, 2):
                 a, b = order[i], order[i + 1]
                 for me, op in ((a, b), (b, a)):

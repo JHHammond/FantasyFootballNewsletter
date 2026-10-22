@@ -556,7 +556,11 @@ def _avg(vals):
 _CARD = ("league_id", "team_id", "team_name", "manager", "provider", "team_count",
          "scoring_type", "week", "result", "points", "ppr_points",
          "opponent_points", "margin", "optimal_points", "bench_left", "empty_slots",
-         "top_player", "best_bench_player")
+         "top_player", "best_bench_player",
+         # How many of this team's starters actually scored. A 2.7 is not
+         # a bad week, it is an abandoned roster, and this is the only
+         # thing in the row that can tell you which you are looking at.
+         "starters", "played")
 
 
 def _size(n):
@@ -646,6 +650,31 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
             continue
         lut.append(dict(l, points=f(l["points"]), ppr_points=f(l.get("ppr_points")),
                         result=t["result"]))
+
+    # Did this team field a lineup? See migration 053: the five lowest
+    # scores in America were 2.7 to 6.9, which is five abandoned rosters
+    # rather than five bad weeks, and they win that hall every week
+    # forever because nobody can out-lose a team that is not there.
+    fielded: dict = {}
+    for l in lut:
+        if not l["started"]:
+            continue
+        e = fielded.setdefault((l["league_id"], l["team_id"]),
+                               {"starters": 0, "played": 0})
+        e["starters"] += 1
+        if (l["ppr_points"] if l["ppr_points"] is not None else l["points"]) > 0:
+            e["played"] += 1
+    for r in tw:
+        f = fielded.get((r["league_id"], r["team_id"]))
+        r["starters"] = f["starters"] if f else None
+        r["played"] = f["played"] if f else None
+
+    def turned_up(r) -> bool:
+        """Half the starters have to have scored. A team with no stored
+        lineup is kept rather than guessed at: we cannot tell, and
+        dropping what we cannot tell would empty the hall for any week
+        collected before 029."""
+        return r.get("played") is None or r["played"] * 2 >= (r.get("starters") or 0)
 
     top1: dict = {}
     for l in lut:
@@ -763,11 +792,12 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
         # playing in September. Beating a corpse is not luck.
         "lucky": [card(r) for r in top(
             [r for r in sd if r["result"] == "W"
-             and (r.get("opponent_points") or 0) > 0],
+             and (r.get("opponent_points") or 0) > 0 and turned_up(r)],
             lambda r: (r["std_pts"], tkey(r)), 5)],
         "halls": {
             "highest": [card(r) for r in top(sd, lambda r: (-r["std_pts"], tkey(r)), 5)],
-            "lowest": [card(r) for r in top(sd, lambda r: (r["std_pts"], tkey(r)), 5)],
+            "lowest": [card(r) for r in top([r for r in sd if turned_up(r)],
+                                            lambda r: (r["std_pts"], tkey(r)), 5)],
             # Same artifact: a 140-to-nothing is a forfeit with a
             # scoreline, and it crowds out the real maulings.
             "blowouts": [card(r) for r in top(

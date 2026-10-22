@@ -3770,6 +3770,7 @@ html.nb-lock { overflow: hidden; }
     font-family: "Barlow Condensed", sans-serif; font-weight: 700;
     letter-spacing: 0.4px; border-bottom: 1px dotted currentColor;
 }
+.at-thin { color: var(--accent); }
 .masthead-nav .nav-here { border-bottom: 2px solid var(--accent); }
 
 /* ---------------------------------------------------------------- the menu

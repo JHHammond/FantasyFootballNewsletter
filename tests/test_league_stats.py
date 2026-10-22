@@ -401,3 +401,78 @@ def test_a_forfeit_is_not_a_blowout():
     blowouts = [c["team_name"] for c in got["halls"]["blowouts"]]
     assert "forfeit" not in blowouts, blowouts
     assert blowouts[0] == "mauler", blowouts
+
+
+def _lineup(lg, team, scored, blank, week=3):
+    """Starters, some of whom were playing and some of whom were not."""
+    out = []
+    for i in range(scored):
+        out.append({"league_id": lg["id"], "season": SEASON, "week": week,
+                    "team_id": team, "player_key": f"ok{i}", "slot": "WR",
+                    "started": True, "points": 8.0, "ppr_points": 8.0})
+    for i in range(blank):
+        out.append({"league_id": lg["id"], "season": SEASON, "week": week,
+                    "team_id": team, "player_key": f"out{i}", "slot": "WR",
+                    "started": True, "points": 0.0, "ppr_points": 0.0})
+    return out
+
+
+def test_an_abandoned_roster_is_not_a_low_score():
+    """John, 22 Oct: "these numbers are bad. It doesnt provide any info to
+    know that someone basically threw a game."
+
+    The five lowest scores in America were 2.7, 4.4, 4.8, 5.0 and 6.9.
+    None of those is a bad week — a fantasy team that turns up scores
+    sixty. They are abandoned rosters, and they win this hall every week
+    forever, because nobody can out-lose a team that is not there.
+    """
+    lg = _league("Corpses", pid="cp")
+    rows, lu = [], []
+    # A genuinely dreadful week, played out by a full lineup.
+    rows.append(_row(lg, "tried", 41.0, "L", opp=90.0))
+    lu += _lineup(lg, "tried", scored=8, blank=1)
+    # An abandoned one: one man playing, eight not.
+    rows.append(_row(lg, "gone", 8.0, "L", opp=90.0))
+    lu += _lineup(lg, "gone", scored=1, blank=8)
+    for i in range(8):
+        rows.append(_row(lg, f"f{i}", 95.0 + i, "W", opp=90.0))
+        lu += _lineup(lg, f"f{i}", scored=9, blank=0)
+
+    got = league_stats.compute_week(rows, lu, {}, SEASON, 3)
+    lowest = [c["team_name"] for c in got["halls"]["lowest"]]
+    assert "gone" not in lowest, lowest
+    assert lowest[0] == "tried", lowest
+    # ...and the row carries the thing that was missing: proof it was a
+    # real lineup.
+    card = got["halls"]["lowest"][0]
+    assert (card["played"], card["starters"]) == (8, 9)
+
+
+def test_an_abandoned_roster_cannot_be_the_luckiest_win_either():
+    """Same guard on Worst that won. A corpse that beat another corpse is
+    not the luckiest team in America."""
+    lg = _league("Corpses2", pid="cp2")
+    rows, lu = [], []
+    rows.append(_row(lg, "zombie", 9.0, "W", opp=6.0))
+    lu += _lineup(lg, "zombie", scored=1, blank=8)
+    rows.append(_row(lg, "squeaker", 68.0, "W", opp=67.0))
+    lu += _lineup(lg, "squeaker", scored=9, blank=0)
+    for i in range(8):
+        rows.append(_row(lg, f"g{i}", 95.0 + i, "W", opp=90.0))
+        lu += _lineup(lg, f"g{i}", scored=9, blank=0)
+
+    got = league_stats.compute_week(rows, lu, {}, SEASON, 3)
+    lucky = [c["team_name"] for c in got["lucky"]]
+    assert "zombie" not in lucky, lucky
+    assert lucky[0] == "squeaker", lucky
+
+
+def test_a_team_with_no_stored_lineup_is_not_assumed_dead():
+    """We cannot tell, and dropping what we cannot tell would empty the
+    hall for any week collected before lineups were stored."""
+    lg = _league("NoLineups", pid="nl")
+    rows = [_row(lg, "quiet", 44.0, "L", opp=90.0)]
+    rows += [_row(lg, f"h{i}", 95.0 + i, "W", opp=90.0) for i in range(8)]
+    got = league_stats.compute_week(rows, [], {}, SEASON, 3)
+    assert got["halls"]["lowest"][0]["team_name"] == "quiet"
+    assert got["halls"]["lowest"][0]["played"] is None
