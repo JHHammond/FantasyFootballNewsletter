@@ -513,3 +513,45 @@ def test_a_league_with_custom_scoring_stays_out_of_raw_stats():
     wk = league_stats.compute_week(rows, [], {}, SEASON, 3)
     assert wk["summary"]["compared"] == 8 and wk["summary"]["custom_leagues"] == 1
     assert wk["pct"]["n_ppr"] == 4 and wk["halls"]["blowouts"][0]["league_id"] == "normal"
+
+
+def test_the_market_has_its_own_page(web, monkeypatch):
+    """John, 22 Oct: split them, so Around the Leagues can go public while
+    the trade market is still being refined. One page meant neither half
+    could ship until both were ready."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    _staff(web)
+    r = web.get("/staff/market")
+    assert r.status_code == 200
+    assert "trade market" in r.text.lower()
+    # And a way back, so the two pages are not strangers.
+    assert "/staff/around" in r.text
+
+
+def test_the_market_is_staff_only_on_its_own_page(web, monkeypatch):
+    """It moved; it did not become public. A reader who is not staff must
+    not find it, and must not find it by guessing either."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    # 401 signed out, 404 signed in without the plan: either way, gone.
+    assert web.get("/staff/market").status_code in (401, 302, 303, 404)
+
+
+def test_around_carries_no_trade_market_any_more(web, monkeypatch):
+    """The point of the split. Nothing about trades, prices or drafts may
+    be left on the page that is about to go public — including on the
+    staff view of it, or the next person to look will wonder which page
+    is the real one."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    _staff(web)
+    for path in ("/around", "/staff/around"):
+        text = web.get(path).text
+        for fragment in ("at-draftmkt", "at-trades", "at-mkt-board",
+                         "What a player costs"):
+            assert fragment not in text, (path, fragment)
+        # The one mention allowed is the link across to the other page.
+        assert text.count("trade market") <= (1 if path == "/staff/around" else 0), path
+    # ...but staff can still get there.
+    assert "/staff/market" in web.get("/staff/around").text

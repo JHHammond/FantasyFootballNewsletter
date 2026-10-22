@@ -1229,10 +1229,6 @@ def _around_page(request: Request, week: int, season: int, *, public: bool,
                    weeks=list(range(1, max(latest, 1) + 1)),
                    describe=around.describe, pct=around.pct, photo=around.photo,
                    mine=around.my_teams(db, user, season, week),
-                   trade_volume=_trade_volume(season) if staff else None,
-                   backfill=_trade_backfill(season) if staff else None,
-                   market=_trade_market(season, latest) if staff else None,
-                   rating=_trade_rating(season, latest) if staff else None,
                    shared=shared, card_base=f"{public_base_url()}/around/card.png",
                    job=league_stats.job_status() if staff else {})
 
@@ -1385,6 +1381,34 @@ def staff_around_player(request: Request, player_key: str):
     if not out:
         raise HTTPException(status_code=404)
     return JSONResponse(out, headers={"Cache-Control": "private, max-age=300"})
+
+
+@app.get("/staff/market", response_class=HTMLResponse)
+def staff_market(request: Request):
+    """The trade market, on its own page.
+
+    It used to live under Around the Leagues, which meant neither half
+    could go public until both were ready. Around the Leagues is finished
+    and the market is not, so they are separate: /around can open to the
+    world while this one stays staff-only and gets refined.
+
+    Collection still happens on the Around page, because the same run
+    fills the scores, the trades and the drafts.
+    """
+    _require_staff(request)
+    import nfl_week
+
+    from . import around, league_stats
+    season = nfl_week.current_season()
+    latest = max(nfl_week.completed_week(), 1)
+    week = latest
+    return _render(request, "market.html", season=season, week=week, latest=latest,
+                   staff=True, photo=around.photo,
+                   trade_volume=_trade_volume(season),
+                   backfill=_trade_backfill(season),
+                   market=_trade_market(season, latest),
+                   rating=_trade_rating(season, latest),
+                   job=league_stats.job_status())
 
 
 @app.post("/staff/around/collect")
