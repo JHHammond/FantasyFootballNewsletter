@@ -739,3 +739,75 @@ def test_a_market_too_thin_to_draw_says_so():
     if not out.get("chart"):
         assert out["no_chart"], out
         assert out["board"], "the board should still stand without a chart"
+
+
+# ------------------------------------------------------- the backfill report
+
+
+def test_the_backfill_report_separates_a_quiet_week_from_a_dead_feed():
+    """The reason this exists. A league scanned for a week is recorded
+    whether it gave back ten trades or none, so "ESPN has pruned its
+    transaction feed" and "nobody traded that week" are written down
+    identically and neither is ever retried.
+
+    Here Sleeper answers for both weeks and ESPN answers for neither. The
+    report has to make that visible — same leagues asked, no trades — or
+    a backfill can only be assumed to have worked.
+    """
+    sl = demo_db.create_league(provider="sleeper", platform_league_id="s1",
+                               league_name="S", paper_name="S", commissioner_name="",
+                               season=SEASON, public_slug="bf-s", admin_token="t" * 20)
+    es = demo_db.create_league(provider="espn", platform_league_id="e1",
+                               league_name="E", paper_name="E", commissioner_name="",
+                               season=SEASON, public_slug="bf-e", admin_token="u" * 20)
+    for lg in (sl, es):
+        for week in (1, 2):
+            demo_db.upsert_trade_scan({"league_id": lg["id"], "season": SEASON,
+                                       "week": week, "trades": 0,
+                                       "scanned_at": "2026-10-22T00:00:00+00:00"})
+    # Only Sleeper actually yielded anything.
+    demo_db.upsert_trades(
+        [{"league_id": sl["id"], "season": SEASON, "week": w, "trade_key": f"b{w}",
+          "provider": "sleeper", "teams": ["A", "B"], "picks": [], "faab": [],
+          "traded_at": f"2026-09-{10 + w:02d}T12:00:00+00:00"} for w in (1, 2)],
+        [{"league_id": sl["id"], "season": SEASON, "week": w, "trade_key": f"b{w}",
+          "player_key": "p", "name": "P", "from_team": "A", "to_team": "B"}
+         for w in (1, 2)])
+
+    got = demo_db.trade_backfill(SEASON)
+    by = {p["provider"]: p for p in got["providers"]}
+    assert by["sleeper"]["trades"] == 2 and by["sleeper"]["empty_weeks"] == 0
+    # ESPN was asked about both weeks and gave back nothing, twice.
+    assert by["espn"]["leagues"] == 2 and by["espn"]["trades"] == 0
+    assert by["espn"]["empty_weeks"] == 2, by["espn"]
+    # And the span the chart can draw comes back with it.
+    assert got["first_day"] == "2026-09-11" and got["last_day"] == "2026-09-12"
+    assert got["undated"] == 0
+
+
+def test_the_report_counts_what_the_market_can_actually_use():
+    """Trades carrying picks or FAAB are collected and then set aside by
+    the market, so "trades" and "usable" are different numbers and the
+    report shows both. A backfill that returns nothing but dynasty deals
+    has not helped the chart."""
+    lg = demo_db.create_league(provider="sleeper", platform_league_id="s2",
+                               league_name="S", paper_name="S", commissioner_name="",
+                               season=SEASON, public_slug="bf-u", admin_token="v" * 20)
+    demo_db.upsert_trade_scan({"league_id": lg["id"], "season": SEASON, "week": 1,
+                               "trades": 2, "scanned_at": "2026-10-22T00:00:00+00:00"})
+    demo_db.upsert_trades(
+        [{"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": "clean",
+          "provider": "sleeper", "teams": ["A", "B"], "picks": [], "faab": [],
+          "traded_at": "2026-09-14T12:00:00+00:00"},
+         {"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": "picky",
+          "provider": "sleeper", "teams": ["A", "B"],
+          "picks": [["A", "2027 1st"]], "faab": [], "traded_at": None}],
+        [{"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": k,
+          "player_key": "p", "name": "P", "from_team": "A", "to_team": "B"}
+         for k in ("clean", "picky")])
+
+    got = demo_db.trade_backfill(SEASON)
+    p = next(x for x in got["providers"] if x["provider"] == "sleeper")
+    assert p["trades"] == 2 and p["usable"] == 1
+    # One of them carried no timestamp, which the chart has to guess at.
+    assert p["dated"] == 1 and got["undated"] == 1

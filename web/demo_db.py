@@ -1318,6 +1318,85 @@ def trade_partners(season: int, player_key: str, limit: int = 8) -> dict[str, An
             "recent": recent}
 
 
+def _Dec(x):
+    from decimal import Decimal
+    return Decimal(x)
+
+
+def _round2(x) -> float:
+    """Round like Postgres numeric does, not like Python does.
+
+    Two separate differences, both found by scripts/check_trade_sql.py and
+    neither visible on a page:
+
+      * Postgres rounds a half AWAY FROM ZERO; Python rounds it to the
+        nearest even digit. 128.94 / 12 is 10.745, which is 10.75 there and
+        10.74 here.
+      * Postgres sums `numeric` EXACTLY; a column of floats drifts, so the
+        total was 193.82999999999998 before the division had a chance.
+
+    So the twin accumulates in Decimal and rounds half-up, and the two
+    copies agree to the digit — which is the only way a drift checker can
+    say anything useful.
+    """
+    from decimal import ROUND_HALF_UP, Decimal
+    d = x if isinstance(x, Decimal) else Decimal(repr(float(x)))
+    return float(d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def trade_backfill(season: int) -> dict[str, Any]:
+    """The twin of migration 049."""
+    season = int(season)
+    grid: dict[tuple, dict] = {}
+
+    def cell(provider, week):
+        return grid.setdefault((str(provider), int(week)),
+                               {"provider": str(provider), "week": int(week),
+                                "leagues": 0, "trades": 0, "usable": 0, "dated": 0})
+
+    for s in _TRADE_SCANS.values():
+        if int(s["season"]) != season:
+            continue
+        # An inner join in the SQL, so a scan whose league has gone is
+        # dropped rather than filed under an unknown platform.
+        lg = _LEAGUES.get(s["league_id"])
+        if not lg or not lg.get("provider"):
+            continue
+        cell(lg["provider"], s["week"])["leagues"] += 1
+    for t in _TRADES.values():
+        if int(t["season"]) != season:
+            continue
+        c = cell(t.get("provider") or "?", t["week"])
+        c["trades"] += 1
+        if not t.get("picks") and not t.get("faab"):
+            c["usable"] += 1
+        if t.get("traded_at"):
+            c["dated"] += 1
+
+    rows = sorted(grid.values(), key=lambda r: (r["provider"], r["week"]))
+    providers: dict[str, dict] = {}
+    for r in rows:
+        p = providers.setdefault(r["provider"], {
+            "provider": r["provider"], "weeks": 0, "leagues": 0, "trades": 0,
+            "usable": 0, "dated": 0, "empty_weeks": 0})
+        p["weeks"] += 1
+        for k in ("leagues", "trades", "usable", "dated"):
+            p[k] += r[k]
+        if r["trades"] == 0 and r["leagues"] > 0:
+            p["empty_weeks"] += 1
+
+    days = sorted(str(t["traded_at"])[:10] for t in _TRADES.values()
+                  if int(t["season"]) == season and t.get("traded_at"))
+    return {
+        "season": season, "rows": rows,
+        "providers": sorted(providers.values(), key=lambda p: p["provider"]),
+        "first_day": days[0] if days else None,
+        "last_day": days[-1] if days else None,
+        "undated": sum(1 for t in _TRADES.values()
+                       if int(t["season"]) == season and not t.get("traded_at")),
+    }
+
+
 def trade_prior(season: int, from_week: int = 1, to_week: int = 18) -> dict[str, Any]:
     """The twin of migration 048: usage per player, out of the demo's own
     lineups. Aggregates only — the arithmetic is in web/trade_prior.py, so
@@ -1328,13 +1407,17 @@ def trade_prior(season: int, from_week: int = 1, to_week: int = 18) -> dict[str,
         if int(r["season"]) != season or not (lo <= int(r["week"]) <= hi):
             continue
         t = tally.setdefault(r["player_key"],
-                             {"rostered": 0, "started": 0, "delivered": 0.0, "scored": 0})
+                             {"rostered": 0, "started": 0,
+                              "delivered": _Dec("0"), "scored": 0})
         t["rostered"] += 1
         if r.get("started"):
             t["started"] += 1
             ppr = r.get("ppr_points")
             if ppr is not None:
-                t["delivered"] += float(ppr)
+                # Decimal, not float: Postgres sums `numeric` exactly, and a
+                # column of floats drifts far enough to change the second
+                # decimal place after division. See _round2.
+                t["delivered"] += _Dec(str(ppr))
                 t["scored"] += 1
     out = {}
     for key, t in tally.items():
@@ -1343,8 +1426,8 @@ def trade_prior(season: int, from_week: int = 1, to_week: int = 18) -> dict[str,
             "position": known.get("position"),
             "rostered": int(t["rostered"]),
             "started": int(t["started"]),
-            "delivered": round(t["delivered"], 2),
-            "per_start": (round(t["delivered"] / t["scored"], 2)
+            "delivered": _round2(t["delivered"]),
+            "per_start": (_round2(t["delivered"] / t["scored"])
                           if t["scored"] else None)}
     return out
 

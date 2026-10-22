@@ -533,6 +533,53 @@
         {% for p in TV.busiest %}{{ p.name or p.player_key }} ({{ p.moves }}){{ ', ' if not loop.last }}{% endfor %}</p>
     {% endif %}
     {% endif %}
+
+    {# --- did the backfill actually get anything? (049) --- #}
+    {% set BF = backfill %}
+    {% if BF and BF.providers %}
+    <h3 class="ar-board-head at-bf-head">What each platform gave back</h3>
+    <p class="card-sub">A league scanned for a week is recorded whether it yielded ten
+        trades or none, so &ldquo;the feed doesn&rsquo;t go back that far&rdquo; and
+        &ldquo;nobody traded&rdquo; look identical and neither is retried. A platform
+        with empty weeks while its neighbours fill up is the first one.
+        {% if BF.first_day %}Trades on hand span <b>{{ BF.first_day }}</b> to
+        <b>{{ BF.last_day }}</b>{% if BF.undated %}, with {{ '{:,}'.format(BF.undated) }}
+        carrying no timestamp (those land in the middle of their week){% endif %}.{% endif %}</p>
+    <table class="at-bf">
+        <thead><tr><th>Platform</th><th>Weeks</th><th>Leagues asked</th>
+            <th>Trades</th><th>Usable</th><th>Dated</th><th>Empty weeks</th></tr></thead>
+        <tbody>
+        {% for p in BF.providers %}
+        <tr{{ ' class="at-bf-empty"'|safe if p.trades == 0 and p.leagues else '' }}>
+            <td>{{ p.provider }}</td>
+            <td>{{ p.weeks }}</td>
+            <td>{{ '{:,}'.format(p.leagues or 0) }}</td>
+            <td><b>{{ '{:,}'.format(p.trades or 0) }}</b></td>
+            <td>{{ '{:,}'.format(p.usable or 0) }}</td>
+            <td>{{ '{:,}'.format(p.dated or 0) }}</td>
+            <td>{% if p.empty_weeks %}<b class="at-bf-warn">{{ p.empty_weeks }}</b>{% else %}0{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <details class="at-bf-detail"><summary>Week by week</summary>
+        <table class="at-bf">
+            <thead><tr><th>Platform</th><th>Week</th><th>Leagues</th>
+                <th>Trades</th><th>Usable</th><th>Dated</th></tr></thead>
+            <tbody>
+            {% for r in BF.rows %}
+            <tr{{ ' class="at-bf-empty"'|safe if r.trades == 0 and r.leagues else '' }}>
+                <td>{{ r.provider }}</td><td>{{ r.week }}</td>
+                <td>{{ '{:,}'.format(r.leagues or 0) }}</td>
+                <td><b>{{ '{:,}'.format(r.trades or 0) }}</b></td>
+                <td>{{ '{:,}'.format(r.usable or 0) }}</td>
+                <td>{{ '{:,}'.format(r.dated or 0) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </details>
+    {% endif %}
 </section>
 
 {# ------------------------------------------------------------- the market #}

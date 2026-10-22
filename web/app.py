@@ -1230,9 +1230,20 @@ def _around_page(request: Request, week: int, season: int, *, public: bool,
                    describe=around.describe, pct=around.pct, photo=around.photo,
                    mine=around.my_teams(db, user, season, week),
                    trade_volume=_trade_volume(season) if staff else None,
+                   backfill=_trade_backfill(season) if staff else None,
                    market=_trade_market(season, latest) if staff else None,
                    shared=shared, card_base=f"{public_base_url()}/around/card.png",
                    job=league_stats.job_status() if staff else {})
+
+
+def _trade_backfill(season: int) -> Optional[dict]:
+    """Per-platform, per-week haul, so a backfill can be checked rather
+    than assumed. None until migration 049 is run, and never an error."""
+    try:
+        return db.trade_backfill(season) or None
+    except Exception as exc:  # noqa: BLE001
+        print(f"[around] no backfill report: {type(exc).__name__}: {exc}", flush=True)
+        return None
 
 
 def _trade_volume(season: int) -> Optional[dict]:

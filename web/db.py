@@ -1807,6 +1807,12 @@ def trade_player_names(season: int) -> dict[str, Any]:
     return _rpc_json("trade_player_names", {"p_season": int(season)}) or {}
 
 
+def trade_backfill(season: int) -> dict[str, Any]:
+    """Scanned leagues and stored trades per platform per week (049), so a
+    backfill can be checked rather than assumed."""
+    return _rpc_json("trade_backfill", {"p_season": int(season)}) or {}
+
+
 def trade_prior(season: int, from_week: int = 1, to_week: int = 18) -> dict[str, Any]:
     """Per-player usage behind the market's prior (migration 048): how often
     the country started him and what he averaged when it did."""
