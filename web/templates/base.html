@@ -35,29 +35,45 @@
         <a class="masthead-logo" href="/"><img class="masthead-mark" src="{{ static_url('brand/logo-mark.png') }}"
                 srcset="{{ static_url('brand/logo-mark.png') }} 1x, {{ static_url('brand/logo-mark@2x.png') }} 2x"
                 width="58" height="34" alt="" /><span class="masthead-word">The Commissioner&rsquo;s Desk</span></a>
+        {# The nav collapses to a menu on a phone. A CHECKBOX and not a
+           script, because a masthead that needs JavaScript to open is a
+           masthead that strands anybody whose JS failed to load — and the
+           only thing up here is the way out of the page. The script below
+           is an enhancement: it keeps aria-expanded honest and closes the
+           menu on Escape or a tap outside. Without it the menu still
+           opens, closes and is reachable by keyboard. #}
         <nav class="masthead-nav">
-            {% block nav %}{% endblock %}
-            {# The one public page that is not somebody's own paper, so it
-               is the only thing in here worth showing a stranger. Hidden
-               until AROUND_PUBLIC=1, the same switch the page itself
-               reads, so the link can never arrive before the page does. #}
-            {% if around_open() %}
-            <a href="/around"{{ ' class="nav-here"'|safe if request and request.url.path == '/around' else '' }}>Around the Leagues</a>
-            {% endif %}
-            {% if user %}
-            <a href="/account">Your papers</a>
-            {% if viewer_paid %}
-            <a href="/account#plan">Your plan</a>
-            {% else %}
-            <a class="nav-upgrade" href="/account#plan">Upgrade</a>
-            {% endif %}
-            <form method="post" action="/logout" class="nav-form">
-                <button type="submit" class="nav-link">Sign out</button>
-            </form>
-            {% else %}
-            <a href="/login">Sign in</a>
-            <a class="btn btn-sm btn-primary" href="/signup">Create account</a>
-            {% endif %}
+            <input type="checkbox" id="nav-open" class="nav-open" />
+            <label for="nav-open" class="nav-burger" id="nav-burger"
+                   role="button" tabindex="0" aria-expanded="false" aria-controls="nav-items">
+                <span class="nav-burger-bars" aria-hidden="true"></span>
+                <span class="visually-hidden">Menu</span>
+            </label>
+            <div class="nav-items" id="nav-items">
+                {% block nav %}{% endblock %}
+                {# The one public page that is not somebody's own paper, so
+                   it is the only thing in here worth showing a stranger.
+                   Hidden until AROUND_PUBLIC=1, the same switch the page
+                   itself reads, so the link can never arrive before the
+                   page does. #}
+                {% if around_open() %}
+                <a href="/around"{{ ' class="nav-here"'|safe if request and request.url.path == '/around' else '' }}>Around the Leagues</a>
+                {% endif %}
+                {% if user %}
+                <a href="/account">Your papers</a>
+                {% if viewer_paid %}
+                <a href="/account#plan">Your plan</a>
+                {% else %}
+                <a class="nav-upgrade" href="/account#plan">Upgrade</a>
+                {% endif %}
+                <form method="post" action="/logout" class="nav-form">
+                    <button type="submit" class="nav-link">Sign out</button>
+                </form>
+                {% else %}
+                <a href="/login">Sign in</a>
+                <a class="btn btn-sm btn-primary" href="/signup">Create account</a>
+                {% endif %}
+            </div>
         </nav>
     </header>
     {% block under_masthead %}{% endblock %}
@@ -75,5 +91,43 @@
         </nav>
     </footer>
     {% if offer_upgrade %}{% include "_upgrade_offer.html" %}{% endif %}
+    <script>
+    // Enhancement only. The menu is a checkbox and works without this;
+    // all this does is tell a screen reader whether it is open, and shut
+    // it on Escape or a tap outside, which a checkbox cannot do alone.
+    (function () {
+        var box = document.getElementById("nav-open"),
+            burger = document.getElementById("nav-burger"),
+            nav = document.querySelector(".masthead-nav");
+        if (!box || !burger || !nav) return;
+        function sync() {
+            burger.setAttribute("aria-expanded", box.checked ? "true" : "false");
+        }
+        box.addEventListener("change", sync);
+        sync();
+        // A label is not a button, so it does not take Enter or Space by
+        // itself. Keyboard users get them back here.
+        burger.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+                e.preventDefault();
+                box.checked = !box.checked;
+                sync();
+            }
+        });
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && box.checked) {
+                box.checked = false;
+                sync();
+                burger.focus();
+            }
+        });
+        document.addEventListener("click", function (e) {
+            if (box.checked && !nav.contains(e.target)) {
+                box.checked = false;
+                sync();
+            }
+        });
+    })();
+    </script>
 </body>
 </html>

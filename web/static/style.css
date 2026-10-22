@@ -3771,6 +3771,99 @@ html.nb-lock { overflow: hidden; }
     letter-spacing: 0.4px; border-bottom: 1px dotted currentColor;
 }
 .masthead-nav .nav-here { border-bottom: 2px solid var(--accent); }
+
+/* ---------------------------------------------------------------- the menu
+   Four links and a button stopped fitting a phone the moment Around the
+   Leagues joined: the masthead ran past the right edge and took the whole
+   page's horizontal scroll with it. Below 760px the links fold into a
+   menu behind a burger.
+
+   Driven by a checkbox, not a script. The masthead is the way out of
+   every page, so it must not depend on JavaScript having loaded. */
+.nav-open { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.nav-burger { display: none; }
+
+.nav-items {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+@media (max-width: 760px) {
+    .masthead { position: relative; }
+    .nav-burger {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px; height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        cursor: pointer;
+        background: var(--paper);
+    }
+    /* Focus has to be visible on the LABEL, because the thing actually
+       focused is a checkbox parked off-screen behind it. */
+    .nav-open:focus-visible + .nav-burger { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .nav-burger-bars,
+    .nav-burger-bars::before,
+    .nav-burger-bars::after {
+        content: ""; display: block;
+        width: 18px; height: 2px;
+        background: var(--ink);
+        position: relative;
+    }
+    .nav-burger-bars::before { position: absolute; top: -6px; }
+    .nav-burger-bars::after { position: absolute; top: 6px; }
+
+    .nav-items {
+        display: none;
+        position: absolute;
+        top: 100%; right: 10px;
+        z-index: 40;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        min-width: 208px;
+        padding: 6px 0;
+        background: var(--paper);
+        border: 1px solid var(--ink);
+        border-top: none;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+    }
+    .nav-open:checked ~ .nav-items { display: flex; }
+
+    /* A dropped menu is a list of rows, so everything in it is a row —
+       including the button and the sign-out form, which are inline by
+       default and would otherwise sit at odd widths. */
+    .nav-items > a,
+    .nav-items > form,
+    .nav-items > .nav-form button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border-bottom: 0;
+    }
+    /* Padded once. The form and the button inside it were both taking the
+       row padding, which pushed "Sign out" in past everything else. */
+    .nav-items > a,
+    .nav-items > .nav-form button { padding: 11px 16px; }
+    .nav-items > form { padding: 0; }
+    /* Beats `.masthead-nav a.nav-upgrade`, which carries a gold underline.
+       It reads as an underline in a row of links and as a divider in a
+       dropped menu, which is not what it is. */
+    .masthead-nav .nav-items > a.nav-upgrade { border-bottom: 0; }
+    .nav-items > a:not(.btn):hover { background: var(--wash, rgba(0, 0, 0, 0.04)); }
+    .nav-items .btn { border-radius: 0; }
+    .nav-items .nav-here { border-bottom: 0; border-left: 3px solid var(--accent); }
+    .nav-items > .nav-form button {
+        padding: 11px 16px;
+        font: inherit;
+        color: var(--ink-2);
+        background: none;
+        border: 0;
+        cursor: pointer;
+    }
+}
 .at-all-gate {
     /* Reads as the invitation it is, not as a locked door. */
     text-decoration: none; border-bottom: 2px solid var(--accent);

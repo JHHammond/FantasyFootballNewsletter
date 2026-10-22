@@ -742,3 +742,22 @@ def test_the_nav_link_waits_for_the_page(web, monkeypatch):
     assert ">Around the Leagues<" not in web.get("/").text
     monkeypatch.setenv("AROUND_PUBLIC", "1")
     assert ">Around the Leagues<" in web.get("/").text
+
+
+def test_the_masthead_menu_works_without_javascript(web, monkeypatch):
+    """The masthead is the way out of every page, so it must not need a
+    script to open. It is a checkbox and a label: the markup alone opens
+    and closes it, and the script that ships beside it only keeps
+    aria-expanded honest and adds Escape.
+
+    This is the test that fails if somebody "tidies" it into a click
+    handler.
+    """
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    page = web.get("/").text
+    assert 'id="nav-open"' in page and 'type="checkbox"' in page
+    assert 'for="nav-open"' in page
+    # The links are in the document whether the menu is open or shut —
+    # CSS decides, so a reader with no CSS still has a nav.
+    assert ">Around the Leagues<" in page
+    assert "Create account" in page
