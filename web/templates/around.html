@@ -605,6 +605,9 @@
             </div>
         </figure>
     </div>
+    {% elif M.no_chart %}
+    <p class="card-sub at-market-nochart">No price line yet &mdash; {{ M.no_chart }}.
+        The board below is still the going rate; it just can&rsquo;t be drawn moving.</p>
     {% endif %}
 
     <div class="ar-boards ar-boards-2 at-market-boards">

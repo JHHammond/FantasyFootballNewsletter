@@ -68,6 +68,16 @@ WINDOW_DAYS = 14
 #: How many trades a player must appear in before a value is published.
 #: Below this the number is one league's opinion wearing a decimal point.
 MIN_TRADES = 8
+#: The same bar for ONE DAY'S WINDOW, which is a fortnight and not a
+#: season. Holding the season's bar here was a quiet disaster: a player
+#: with twelve trades across the autumn has three or four inside any given
+#: window, so almost nobody qualified, and the chart drew the one player
+#: who did — a kicker, because kickers get churned. One line, no
+#: explanation. It is lower rather than merely different because a thin
+#: player in a window is no longer unanchored: the ridge pulls him toward
+#: what usage says, so three trades move him off his prior a little
+#: instead of inventing a price from nothing.
+WINDOW_MIN_TRADES = 3
 #: Pseudo-trades, each saying "this player is worth his prior", added to
 #: every player's fit. The whole reason there is a unique answer: see the
 #: update below. Three real trades' worth, measured at convergence against
@@ -253,7 +263,7 @@ def solve(exchanges: Iterable[dict], *, min_trades: int = MIN_TRADES,
 
 
 def series(exchanges: Iterable[dict], days: Iterable, *,
-           window: int = WINDOW_DAYS, min_trades: int = MIN_TRADES,
+           window: int = WINDOW_DAYS, min_trades: int = WINDOW_MIN_TRADES,
            prior: Optional[dict] = None,
            scale: Optional[float] = None) -> dict[str, Any]:
     """A value per player per day: the chart.
@@ -556,18 +566,45 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     # between data and merchandise.
     skip = {k for k in values
             if ((names.get(k) or {}).get("position") or "") in trade_prior.THIN}
-    shown = {k: v for k, v in values.items() if k not in skip}
-    ranked = board(shown or values, counts, names, limit)
-    top = [r["player_key"] for r in ranked]
+    # Two different bars, on purpose. A player reaches the BOARD on his
+    # season's evidence (MIN_TRADES), because a price published off three
+    # deals is mostly his prior wearing a decimal point. He gets a LINE on
+    # the lighter window bar, because a fortnight is not a season and
+    # holding the season's bar there left the chart with one player on it.
+    # So the board is well-evidenced players, priced as of today.
+    shown = {k: v for k, v in values.items()
+             if k not in skip and whole["trades"].get(k, 0) >= MIN_TRADES}
+    # Season trade counts on the row even though the price is today's: the
+    # count answers "how much does the market know about this man", which
+    # is a season-long question, while the number beside it answers "what
+    # does he cost now".
+    ranked = board(shown or values, whole["trades"], names, limit)
+    # Lines are chosen from players who HAVE a line. `chart()` silently
+    # drops a key whose series is too short, so picking the dearest six
+    # blind and handing them over produced a chart with one player on it
+    # and nothing on screen to say why the other five were missing.
+    top = [r["player_key"] for r in ranked
+           if len(ser["series"].get(r["player_key"]) or []) > 1]
 
     # Price against standing: the number that says something no ranking
     # site can. See `book` for why it is not a plain ratio.
     book(ranked, prior)
 
+    # A chart with one line on it is not a market, it is an accident, and
+    # the one time it happened the page gave no hint that five players had
+    # been dropped for want of a line. Below two lines there is nothing
+    # worth drawing, and the panel says so in words instead.
+    drawn = chart(ser["series"], top[:lines], names) if len(top) >= 2 else {}
+
     return {
         "board": ranked,
         "priored": len(prior),
-        "chart": chart(ser["series"], top[:lines], names),
+        "chart": drawn,
+        #: Why there is no chart, for the panel to explain itself.
+        "no_chart": None if drawn else (
+            "nobody has been traded often enough in a single "
+            f"{ser['window']}-day stretch yet" if len(ser["days"]) > 1
+            else "there are only a few days of trades so far"),
         # Every published player's line, so the page can swap one in
         # without going back to the database.
         "all_series": {k: {str(p["day"]): p["value"] for p in pts}

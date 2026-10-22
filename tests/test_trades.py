@@ -665,3 +665,77 @@ def test_kickers_and_defences_are_priced_but_not_shown():
     assert out["streamers"] == 2
     # ...and their trades still counted toward the fit.
     assert out["used"] == len(pairs)
+
+
+def _streamy(lid, pairs, day0=739900):
+    """A league whose trades are spread over real days."""
+    lg = _league(lid)
+    demo_db.upsert_trades(
+        [{"league_id": lg["id"], "season": SEASON, "week": 1 + i // 8,
+          "trade_key": f"{lid}{i}", "provider": "sleeper", "teams": ["A", "B"],
+          "picks": [], "faab": [],
+          "traded_at": f"2026-10-{1 + (i % 20):02d}T12:00:00+00:00"}
+         for i in range(len(pairs))],
+        [r for i, (a, b) in enumerate(pairs) for r in (
+            {"league_id": lg["id"], "season": SEASON, "week": 1 + i // 8,
+             "trade_key": f"{lid}{i}", "player_key": a, "name": a,
+             "from_team": "A", "to_team": "B"},
+            {"league_id": lg["id"], "season": SEASON, "week": 1 + i // 8,
+             "trade_key": f"{lid}{i}", "player_key": b, "name": b,
+             "from_team": "B", "to_team": "A"})])
+    return lg
+
+
+def test_a_window_is_not_a_season():
+    """John, 22 Oct: "why was the chart only one player across two days?"
+
+    Because MIN_TRADES was being applied to each 14-day WINDOW as well as
+    to the season. A player with a dozen trades across the autumn has
+    three or four inside any one window, so almost nobody qualified for a
+    line, and the chart drew the only man who did — a kicker, because
+    kickers get churned. The window carries a lighter bar now.
+    """
+    from web import trade_market
+    assert trade_market.WINDOW_MIN_TRADES < trade_market.MIN_TRADES
+    # Four players, each traded a handful of times across three weeks.
+    names = ["w", "x", "y", "z"]
+    pairs = [(names[i % 4], names[(i + 1) % 4]) for i in range(40)]
+    _streamy("win", pairs)
+    demo_db.upsert_nfl_players([{"player_key": n, "name": n.upper(),
+                                 "position": "WR", "nfl_team": "CIN"} for n in names])
+    out = trade_market.build(demo_db, SEASON, [1, 2, 3], limit=10)
+    assert out["chart"], "no chart drawn at all"
+    assert len(out["chart"]["lines"]) >= 2, out["chart"]["lines"]
+
+
+def test_the_chart_only_offers_players_who_have_a_line():
+    """chart() silently drops a key whose series is too short. Handing it
+    the dearest six blind produced a chart with ONE player on it and
+    nothing on screen to say where the other five went."""
+    from web import trade_market
+    # Two players trade constantly; a third appears once, late.
+    pairs = [("a", "b")] * 30 + [("a", "rare")]
+    _streamy("rare", pairs)
+    demo_db.upsert_nfl_players([
+        {"player_key": k, "name": k, "position": "WR", "nfl_team": "CIN"}
+        for k in ("a", "b", "rare")])
+    out = trade_market.build(demo_db, SEASON, [1, 2, 3], limit=10)
+    drawn = {l["key"] for l in (out["chart"] or {}).get("lines", [])}
+    assert "rare" not in drawn, drawn
+    # And whatever is offered genuinely has points behind it.
+    for line in (out["chart"] or {}).get("lines", []):
+        assert len(line["dots"]) > 1, line["key"]
+
+
+def test_a_market_too_thin_to_draw_says_so():
+    """One line is not a market, it is an accident. Better to say there is
+    no line yet than to draw a lonely one and explain nothing."""
+    from web import trade_market
+    _streamy("thin2", [("solo", "mate")] * 12)
+    demo_db.upsert_nfl_players([
+        {"player_key": k, "name": k, "position": "WR", "nfl_team": "CIN"}
+        for k in ("solo", "mate")])
+    out = trade_market.build(demo_db, SEASON, [1, 2, 3], limit=10)
+    if not out.get("chart"):
+        assert out["no_chart"], out
+        assert out["board"], "the board should still stand without a chart"
