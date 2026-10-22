@@ -3770,6 +3770,15 @@ html.nb-lock { overflow: hidden; }
     font-family: "Barlow Condensed", sans-serif; font-weight: 700;
     letter-spacing: 0.4px; border-bottom: 1px dotted currentColor;
 }
+.at-firm {
+    font-family: "Barlow Condensed", sans-serif; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px; font-size: 11px;
+}
+.at-firm-settled { color: #2d6a1f; }
+.at-firm-firming { color: #8a5a12; }
+.at-firm-thin    { color: var(--muted); }
+/* A price is a draft pick, so it wants the tabular feel of one. */
+.at-draftmkt .ar-val b { font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
 .at-over  { color: #8a5a12; }
 .at-under { color: #2d6a1f; }
 .at-level { color: var(--muted); }

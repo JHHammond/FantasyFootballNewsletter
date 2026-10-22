@@ -170,7 +170,7 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
     sizes = [8, 10, 10, 12, 12, 12, 12, 14, 16]
     fmt_mult = {"ppr": 1.0, "half_ppr": 0.9, "std": 0.8}
 
-    tw_rows, lu_rows = [], []
+    tw_rows, lu_rows, draft_rows = [], [], []
     rosters: dict[str, list] = {}
     for li in range(n_leagues):
         lid = f"demo-{li}"
@@ -195,6 +195,7 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
             teams.append({"id": f"t{t}", "name": name, "roster": roster, "ghost": ghost,
                           "mgr": f"manager{li}_{t}"})
         rosters[lid] = teams
+        draft_rows += _draft(lid, teams, size, season, rng)
 
         for w in range(1, weeks + 1):
             sc = scores[w]
@@ -259,7 +260,49 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
                     })
     demo_db.upsert_team_weeks(tw_rows)
     demo_db.upsert_lineups(lu_rows)
+    if draft_rows:
+        demo_db.upsert_draft_picks(draft_rows)
+        for lid in rosters:
+            demo_db.upsert_draft_scan({"league_id": lid, "season": season,
+                                       "picks": sum(1 for r in draft_rows
+                                                    if r["league_id"] == lid)})
+        print(f"[demo] {len(draft_rows):,} draft picks across {len(rosters)} leagues")
     _trade(demo_db, rosters, season, weeks, rng)
+
+
+def _draft(lid: str, teams: list, size: int, season: int,
+           rng: random.Random) -> list[dict]:
+    """The draft that produced these rosters, as ADP samples.
+
+    Every league drafts the same player pool in roughly the same order —
+    best first — and disagrees at the margins. That disagreement is the
+    point: a player every room takes within four picks of each other is a
+    settled opinion, and one who goes 20th in some and 60th in others is
+    contested, which is exactly the uncertainty the rating model wants.
+
+    So picks are ordered by the player's real weekly mean plus a per-league
+    error that GROWS down the board, because the first round is the part
+    everybody agrees about and the tenth is where rooms differ.
+    """
+    drafted = [(t, p) for t in teams for p in t["roster"]]
+
+    def opinion(pair):
+        _, p = pair
+        # Noise proportional to how far down the board he is: the gap
+        # between the 1st and 2nd pick is argued over far less than the
+        # gap between the 90th and the 110th.
+        rough = max(1.0, 22.0 - p[3]) / 5.0
+        return -(p[3] + rng.gauss(0, rough))
+
+    drafted.sort(key=opinion)
+    out = []
+    for n, (team, p) in enumerate(drafted, 1):
+        out.append({"league_id": lid, "season": season,
+                    "player_key": _key(p[0]), "overall": n,
+                    "round": (n - 1) // max(size, 1) + 1,
+                    "team_id": team["id"], "team_count": size,
+                    "name": p[0], "position": p[1], "nfl_team": p[2]})
+    return out
 
 
 def _trade(demo_db, rosters: dict, season: int, weeks: int,
@@ -320,9 +363,27 @@ def _trade(demo_db, rosters: dict, season: int, weeks: int,
             na, nb = rng.choice([1, 1, 1, 2, 2, 3]), rng.choice([1, 1, 2, 2, 3])
             if len(a["roster"]) < na or len(b["roster"]) < nb:
                 continue
+            # Bundles of COMPARABLE value, not random ones. People propose
+            # roughly fair deals: nobody offers two bench players for the
+            # first pick and expects an answer. Picking both sides at
+            # random instead made a star routinely trade for two nobodies,
+            # the model correctly concluded the star was worth two
+            # nobodies, and the panel came out with every top player down
+            # twenty picks since the draft and every riser a tight end.
+            # The generator was wrong, not the market.
             give = rng.sample(a["roster"], na)          # a sends these
-            get = rng.sample(b["roster"], nb)           # a receives these
-            if {p[0] for p in give} & {p[0] for p in get}:
+            want = sum(p[3] for p in give)
+            pool_b = [p for p in b["roster"] if p[0] not in {g[0] for g in give}]
+            if len(pool_b) < nb:
+                continue
+            best, gap = None, None
+            for _ in range(14):
+                pick = rng.sample(pool_b, nb)
+                off = abs(sum(p[3] for p in pick) - want)
+                if gap is None or off < gap:
+                    best, gap = pick, off
+            get = best                                   # a receives these
+            if gap is None or gap > 0.45 * max(1.0, want):
                 continue
             a_gain = (sum(view(a["mgr"], p) for p in get)
                       - sum(view(a["mgr"], p) for p in give))

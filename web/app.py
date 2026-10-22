@@ -1232,8 +1232,24 @@ def _around_page(request: Request, week: int, season: int, *, public: bool,
                    trade_volume=_trade_volume(season) if staff else None,
                    backfill=_trade_backfill(season) if staff else None,
                    market=_trade_market(season, latest) if staff else None,
+                   rating=_trade_rating(season, latest) if staff else None,
                    shared=shared, card_base=f"{public_base_url()}/around/card.png",
                    job=league_stats.job_status() if staff else {})
+
+
+def _trade_rating(season: int, latest: int) -> Optional[dict]:
+    """The draft-anchored market: a price per player expressed as the pick
+    it is worth. None until the drafts are collected (migration 050), in
+    which case the page falls back to the older batch market."""
+    from . import around, trade_rating
+    try:
+        return around.swr(
+            around._cache, ("rating", season, latest),
+            lambda: trade_rating.build(db, season, list(range(1, max(latest, 1) + 1))),
+            ttl=900) or None
+    except Exception as exc:  # noqa: BLE001
+        print(f"[around] no draft market: {type(exc).__name__}: {exc}", flush=True)
+        return None
 
 
 def _trade_backfill(season: int) -> Optional[dict]:

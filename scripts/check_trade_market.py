@@ -31,6 +31,7 @@ against the one that was planted.
 
 from __future__ import annotations
 
+import math
 import random
 import sys
 from pathlib import Path
@@ -66,7 +67,8 @@ def spearman(a: list[float], b: list[float]) -> float:
 
 def simulate(n_trades: int, n_players: int, rng: random.Random, *,
              spot: float = 6.0, disagreement: float = 0.18,
-             selected: bool = True) -> tuple[list[dict], dict[str, float]]:
+             selected: bool = True,
+             popularity: str = "value") -> tuple[list[dict], dict[str, float]]:
     """Trades between managers who each misjudge value, and only agree
     when both of them think they have won."""
     # A real player pool: a few stars, a long tail.
@@ -75,8 +77,25 @@ def simulate(n_trades: int, n_players: int, rng: random.Random, *,
         rank = (i + 1) / n_players
         truth[f"p{i}"] = round(100 * (1 - rank) ** 2.2 + 2, 2)
     keys = list(truth)
-    # Who gets traded: popularity follows value, loosely.
-    weights = [truth[k] + 6 for k in keys]
+    # Who gets traded.
+    #
+    # "value" is the old behaviour and is wrong about the top of the board:
+    # it makes the best players the most traded, when in life they are the
+    # least — nobody parts with the first pick. That flattery is why a
+    # solver can look healthy here and fill up with kickers in production.
+    #
+    # "hump" is what a season actually looks like: the elite are hoarded,
+    # the middle churns constantly, and the worthless are not worth the
+    # message. It is the realistic case and it is much harder.
+    if popularity == "hump":
+        hi = max(truth.values()) or 1.0
+        weights = []
+        for k in keys:
+            share = truth[k] / hi                       # 1.0 is the best player
+            # Peaks around a third of the way down the board.
+            weights.append(0.25 + 8.0 * math.exp(-((share - 0.35) ** 2) / 0.035))
+    else:
+        weights = [truth[k] + 6 for k in keys]
 
     def pick(n):
         got = set()

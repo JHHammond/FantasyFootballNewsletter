@@ -616,7 +616,11 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
         "days": ser["days"],
         "window": ser["window"],
         "used": whole["used"],
-        "players": len(ranked) if ranked else len(whole["values"]),
+        #: How many players actually cleared the bar — NOT how many rows the
+        #: board happens to print. These were briefly the same expression,
+        #: and the panel told John "40 of 468 cleared that" when 40 was the
+        #: display limit and the real figure was several times it.
+        "players": len(shown) if shown else len(whole["values"]),
         "seen": whole["players"],
         "min_trades": MIN_TRADES,
         "median_at": MEDIAN_AT,

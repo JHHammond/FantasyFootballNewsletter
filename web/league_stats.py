@@ -240,7 +240,7 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     season = int(season or nfl_week.current_season())
     report = {"week": week, "season": season, "leagues": 0, "collected": 0,
               "skipped_done": 0, "no_data": 0, "errors": 0, "rows": 0,
-              "scanned": 0, "trades": 0}
+              "scanned": 0, "trades": 0, "drafted": 0, "picks": 0}
 
     if not week_is_final(season, week):
         log(f"Week {week} isn't final yet; nothing collected.")
@@ -277,6 +277,16 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     # league that made none is still a league we have looked at.
     trading = db.trades_ready()
     scanned = db.trade_scan_league_ids(season, week) if trading else set()
+    # The draft is a once-a-season thing, not a once-a-week one, so a
+    # league is asked exactly once however many weeks get collected. It
+    # rides along here rather than in a job of its own because the pacing,
+    # the worker pools and the skip logic already exist and a draft is one
+    # more cheap call per league.
+    try:
+        drafting = db.drafts_ready()
+        drafted = db.draft_scan_league_ids(season) if drafting else set()
+    except Exception:  # noqa: BLE001 — before migration 050
+        drafting, drafted = False, set()
 
     # Each platform runs on its own, with a few workers each (1 Oct: three
     # weeks of 1,400 leagues one at a time took hours). Every worker keeps
@@ -288,7 +298,9 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
 
     lock = threading.Lock()
     todo = [l for l in pool
-            if l["id"] not in done or (trading and l["id"] not in scanned)]
+            if l["id"] not in done
+            or (trading and l["id"] not in scanned)
+            or (drafting and l["id"] not in drafted)]
     report["skipped_done"] = len(pool) - len(todo)
     started = time.time()
     counter = {"n": 0}
@@ -323,6 +335,20 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
                 report["errors"] += 1
             log(f"  ERROR {league.get('league_name')} ({league['provider']}): "
                 f"{type(exc).__name__}: {exc}")
+        if drafting and league["id"] not in drafted and not should_stop():
+            try:
+                from web import drafts as drafts_mod
+                got = drafts_mod.collect_league(db, league, season, ctx)
+                with lock:
+                    report["drafted"] += 1
+                    report["picks"] += got
+            except Exception as exc:  # noqa: BLE001 — never the week's scores
+                with lock:
+                    quiet = report["errors"] > 20
+                if not quiet:
+                    log(f"  no draft: {league.get('league_name')} "
+                        f"({league['provider']}): {type(exc).__name__}: {exc}")
+            sleep(PACE.get(league["provider"], 1.0))
         if trading and league["id"] not in scanned and not should_stop():
             try:
                 from web import trades as trades_mod
@@ -365,6 +391,9 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     log(f"Week {week}: {report['collected']} leagues collected "
         f"({report['rows']} team rows), {report['skipped_done']} already done, "
         f"{report['no_data']} with no data, {report['errors']} errors.")
+    if drafting and report["drafted"]:
+        log(f"  drafts: {report['picks']:,} picks from "
+            f"{report['drafted']} leagues.")
     if trading:
         log(f"Week {week}: {report['trades']} trades found in "
             f"{report['scanned']} leagues scanned.")

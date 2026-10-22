@@ -1807,6 +1807,41 @@ def trade_player_names(season: int) -> dict[str, Any]:
     return _rpc_json("trade_player_names", {"p_season": int(season)}) or {}
 
 
+def upsert_draft_picks(rows: list[dict[str, Any]]) -> None:
+    """One league's draft (050). Idempotent on (league, season, player)."""
+    if not rows:
+        return
+    client().table("draft_picks").upsert(
+        rows, on_conflict="league_id,season,player_key").execute()
+
+
+def upsert_draft_scan(row: dict[str, Any]) -> None:
+    client().table("draft_scans").upsert(
+        row, on_conflict="league_id,season").execute()
+
+
+def drafts_ready() -> bool:
+    """False until migration 050 is run."""
+    try:
+        client().table("draft_scans").select("league_id").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def draft_scan_league_ids(season: int) -> set:
+    """Leagues already asked about their draft this season."""
+    res = (client().table("draft_scans").select("league_id")
+           .eq("season", int(season)).execute())
+    return {r["league_id"] for r in (res.data or [])}
+
+
+def adp(season: int, min_drafts: int = 20) -> dict[str, Any]:
+    """Average draft position across every connected league (050)."""
+    return _rpc_json("adp", {"p_season": int(season),
+                             "p_min_drafts": int(min_drafts)}) or {}
+
+
 def trade_backfill(season: int) -> dict[str, Any]:
     """Scanned leagues and stored trades per platform per week (049), so a
     backfill can be checked rather than assumed."""

@@ -43,7 +43,8 @@ sys.path.insert(0, str(ROOT))
 
 SEASON = 2026
 #: Which functions are checked, and how to call each one in SQL.
-CHECKS = ("trade_exchanges", "trade_player_names", "trade_prior", "trade_backfill")
+CHECKS = ("trade_exchanges", "trade_player_names", "trade_prior",
+          "trade_backfill", "adp")
 
 
 def _sql(dsn: str, statement: str) -> str:
@@ -78,6 +79,13 @@ def _ddl() -> str:
              " started boolean not null, points numeric(6,2) not null default 0,"
              " ppr_points numeric(6,2),"
              " primary key (league_id, season, week, team_id, player_key));"]
+    for name, path in (("draft_picks", "050_drafts.sql"),
+                       ("draft_scans", "050_drafts.sql")):
+        src = (ROOT / "migrations" / path).read_text()
+        m = re.search(r"create table if not exists public\.%s \(.*?\n\);" % name, src, re.S)
+        if not m:
+            raise SystemExit(f"no CREATE TABLE for {name} in {path}")
+        parts.append(m.group(0) + ";")
     src = (ROOT / "migrations" / "045_trades.sql").read_text()
     for name in ("trades", "trade_players", "trade_scans"):
         m = re.search(r"create table if not exists public\.%s \(.*?\n\);" % name, src, re.S)
@@ -128,11 +136,21 @@ def _season(rng: random.Random):
             if i % 9 == 0:                      # a three-way: three sides
                 c = rng.choice(players)
                 moves.append((lid, week, key, c[0], c[1], "t3", "t1"))
-    return leagues, lineups, heads, moves, scans, players
+    # A draft per league, with varying team counts so the twelve-team
+    # normalisation is actually exercised rather than assumed.
+    drafts = []
+    for n, (lid, provider) in enumerate(leagues):
+        size = (10, 12, 14)[n % 3]
+        order = players[:]
+        rng.shuffle(order)
+        for overall, (key, pos) in enumerate(order, 1):
+            drafts.append((lid, key, overall, (overall - 1) // size + 1,
+                           f"t{overall % size}", size, pos))
+    return leagues, lineups, heads, moves, scans, players, drafts
 
 
 def _fill_sql(dsn: str, data) -> None:
-    leagues, lineups, heads, moves, scans, players = data
+    leagues, lineups, heads, moves, scans, players, drafts = data
     q = []
     for lid, provider in leagues:
         q.append(f"insert into public.leagues values ('{lid}', '{provider}');")
@@ -160,12 +178,21 @@ def _fill_sql(dsn: str, data) -> None:
     for lid, week, n in scans:
         q.append("insert into public.trade_scans (league_id, season, week, trades)"
                  f" values ('{lid}', {SEASON}, {week}, {n});")
+    for lid, key, overall, rnd, team, size, pos in drafts:
+        q.append("insert into public.draft_picks (league_id, season, player_key,"
+                 " overall, round, team_id, team_count, name, position, nfl_team)"
+                 f" values ('{lid}', {SEASON}, '{key}', {overall}, {rnd}, '{team}',"
+                 f" {size}, '{key.upper()}', '{pos}', 'CIN');")
+    for lid, _ in leagues:
+        n = sum(1 for d in drafts if d[0] == lid)
+        q.append("insert into public.draft_scans (league_id, season, picks)"
+                 f" values ('{lid}', {SEASON}, {n});")
     _sql(dsn, "\n".join(q))
 
 
 def _fill_demo(data) -> None:
     from web import demo_db
-    leagues, lineups, heads, moves, scans, players = data
+    leagues, lineups, heads, moves, scans, players, drafts = data
     for lid, provider in leagues:
         demo_db._LEAGUES[lid] = {"id": lid, "provider": provider}
     demo_db.upsert_nfl_players([{"player_key": k, "name": k.upper(),
@@ -185,6 +212,14 @@ def _fill_demo(data) -> None:
     for lid, w, n in scans:
         demo_db.upsert_trade_scan({"league_id": lid, "season": SEASON, "week": w,
                                    "trades": n, "scanned_at": "2026-10-22T00:00:00+00:00"})
+    demo_db.upsert_draft_picks([
+        {"league_id": lid, "season": SEASON, "player_key": key, "overall": overall,
+         "round": rnd, "team_id": team, "team_count": size,
+         "name": key.upper(), "position": pos, "nfl_team": "CIN"}
+        for lid, key, overall, rnd, team, size, pos in drafts])
+    for lid, _ in leagues:
+        demo_db.upsert_draft_scan({"league_id": lid, "season": SEASON,
+                                   "picks": sum(1 for d in drafts if d[0] == lid)})
 
 
 def _norm(x):
@@ -225,6 +260,7 @@ def main() -> int:
                         lambda: demo_db.trade_prior(SEASON, 1, 18)),
         "trade_backfill": (f"select trade_backfill({SEASON})",
                            lambda: demo_db.trade_backfill(SEASON)),
+        "adp": (f"select adp({SEASON}, 2)", lambda: demo_db.adp(SEASON, 2)),
     }
 
     bad = 0

@@ -811,3 +811,30 @@ def test_the_report_counts_what_the_market_can_actually_use():
     assert p["trades"] == 2 and p["usable"] == 1
     # One of them carried no timestamp, which the chart has to guess at.
     assert p["dated"] == 1 and got["undated"] == 1
+
+
+def test_the_panel_counts_qualifiers_not_rows():
+    """"40 of 468 cleared that" — where 40 was the board's display limit,
+    not the number of players who reached eight trades. The two were
+    briefly the same expression and the page quietly reported the cap as
+    if it were a finding."""
+    from web import trade_market
+    lg = _league("count")
+    names = [f"q{i}" for i in range(12)]
+    demo_db.upsert_nfl_players([{"player_key": n, "name": n, "position": "WR",
+                                 "nfl_team": "CIN"} for n in names])
+    pairs = [(names[i % 12], names[(i + 1) % 12]) for i in range(120)]
+    demo_db.upsert_trades(
+        [{"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": f"c{i}",
+          "provider": "sleeper", "teams": ["A", "B"], "picks": [], "faab": [],
+          "traded_at": f"2026-10-{1 + (i % 20):02d}T12:00:00+00:00"}
+         for i in range(len(pairs))],
+        [r for i, (a, b) in enumerate(pairs) for r in (
+            {"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": f"c{i}",
+             "player_key": a, "name": a, "from_team": "A", "to_team": "B"},
+            {"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": f"c{i}",
+             "player_key": b, "name": b, "from_team": "B", "to_team": "A"})])
+
+    out = trade_market.build(demo_db, SEASON, [1], limit=5)
+    assert len(out["board"]) == 5, "the board is still capped"
+    assert out["players"] == 12, out["players"]

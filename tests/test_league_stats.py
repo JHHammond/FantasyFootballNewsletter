@@ -156,13 +156,15 @@ def test_an_unfinished_week_is_refused(monkeypatch):
 
 
 def test_it_paces_itself(fake_load):
-    """Two calls to a platform for one league — the week and its trades —
-    so two waits. The pace is per request, not per league."""
+    """Three calls to a platform for one league — the week, its draft and
+    its trades — so three waits. The pace is per REQUEST, not per league,
+    which is the whole point: adding the draft collection to this job added
+    a wait rather than quietly raising the request rate at Yahoo."""
     _league("A", pid="a")
     slept = []
     league_stats.collect_week(demo_db, 3, season=SEASON, sleep=slept.append,
                               log=lambda s: None)
-    assert slept == [league_stats.PACE["yahoo"]] * 2
+    assert slept == [league_stats.PACE["yahoo"]] * 3
 
 
 # --- leaderboards -----------------------------------------------------------

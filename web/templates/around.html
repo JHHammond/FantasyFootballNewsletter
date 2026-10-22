@@ -582,6 +582,74 @@
     {% endif %}
 </section>
 
+{# --------------------------------------------- the draft-anchored market #}
+{% set R = rating %}
+{% if R and R.rows %}
+<section class="card ar-collect at-market at-draftmkt">
+    <h2 class="card-title">What a player costs &middot; staff only</h2>
+    <p class="card-sub">Every player starts where the country drafted him &mdash;
+        {{ '{:,}'.format(R.picks) }} picks across {{ '{:,}'.format(R.drafts) }} leagues &mdash;
+        and {{ '{:,}'.format(R.used) }} trades move him from there. A price is the
+        <b>draft pick he is now worth</b>: &ldquo;costs the 2.03&rdquo; means the field
+        pays about what the third pick of the second round went for.
+        {{ R.rated }} players priced{% if R.streamers %}, {{ R.streamers }} kickers and
+        defences left off{% endif %}.
+        <br><b>This is not a ranking of who is good.</b> It is the going rate, and a
+        player nobody will part with can sit cheap.</p>
+
+    <div class="ar-boards ar-boards-2 at-market-boards">
+        <article class="ar-board">
+            <h3 class="ar-board-head">The dearest</h3>
+            <p class="ar-board-sub">Where the country drafted him, and where it pays now.</p>
+            <ol class="ar-list at-rows at-mkt-board">
+                {% for r in R.rows[:15] %}
+                <li>
+                    {{ face(r) }}<span class="ar-name">{{ player(r) }}<small>
+                        {% if r.drafted_at %}drafted {{ r.drafted_at }} &middot; {% endif %}
+                        {{ r.trades }} trade{{ '' if r.trades == 1 else 's' }}
+                        &middot; <span class="at-firm at-firm-{{ r.firmness }}">{{ r.firmness }}</span>
+                        {%- if r.moved %} &middot; <span class="{{ 'at-over' if r.moved > 0 else 'at-under' }}">{{
+                            '%+.0f'|format(r.moved) }} picks</span>{% endif %}</small></span>
+                    <span class="ar-val"><b>{{ r.costs }}</b></span>
+                </li>
+                {% endfor %}
+            </ol>
+        </article>
+        <article class="ar-board">
+            <h3 class="ar-board-head">Since the draft</h3>
+            {% for label, rows in [('Up', R.up), ('Down', R.down)] %}
+            {% if rows %}
+            <p class="at-mover-head">{{ label }}</p>
+            <ol class="ar-list at-rows at-movers">
+                {% for r in rows %}
+                <li><span class="ar-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}<small>
+                    {{ r.drafted_at }} &rarr; {{ r.costs }} &middot; {{ r.trades }} trades</small></span>
+                    <span class="ar-val"><b class="{{ 'at-up' if r.moved > 0 else 'at-down' }}">{{
+                        '%+.0f'|format(r.moved) }}</b></span></li>
+                {% endfor %}
+            </ol>
+            {% endif %}
+            {% endfor %}
+        </article>
+    </div>
+    <p class="card-sub at-market-note">
+        How it works: a trade is read as a statement that two bundles are worth about
+        the same, and each player moves by his own uncertainty divided by everyone&rsquo;s
+        &mdash; a player we barely know swings, one with forty trades behind him barely
+        budges. Certainty grows with trades and decays without them, so a player nobody
+        has touched since August becomes movable again rather than frozen at a preseason
+        price. <b>Firmness</b> is how much of the draft&rsquo;s original doubt the trades
+        have removed.
+        <br>The curve from pick to value is fitted to the trades themselves
+        (decay {{ R.decay }}, shift {{ R.shift }}), so the drafts supply the order and
+        the trades supply the steepness. A roster spot is priced at {{ R.spot }},
+        because the side taking back fewer bodies is buying one.
+        <br>Trades carrying picks or FAAB are left out, and so are three-way deals.
+        Dynasty leagues are not drafted against: a startup prices a career, not a season.
+    </p>
+</section>
+{% endif %}
+
 {# ------------------------------------------------------------- the market #}
 {% set M = market %}
 {% if M and M.board %}

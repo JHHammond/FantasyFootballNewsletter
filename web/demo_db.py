@@ -1344,6 +1344,99 @@ def _round2(x) -> float:
     return float(d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+_DRAFT_PICKS: dict[tuple, dict[str, Any]] = {}
+_DRAFT_SCANS: dict[tuple, dict[str, Any]] = {}
+
+
+def upsert_draft_picks(rows: list[dict[str, Any]]) -> None:
+    with _lock:
+        for r in rows:
+            _DRAFT_PICKS[(r["league_id"], int(r["season"]), r["player_key"])] = dict(r)
+
+
+def upsert_draft_scan(row: dict[str, Any]) -> None:
+    with _lock:
+        _DRAFT_SCANS[(row["league_id"], int(row["season"]))] = dict(row)
+
+
+def drafts_ready() -> bool:
+    return True
+
+
+def draft_scan_league_ids(season: int) -> set:
+    return {r["league_id"] for r in _DRAFT_SCANS.values()
+            if int(r["season"]) == int(season)}
+
+
+def adp(season: int, min_drafts: int = 20) -> dict[str, Any]:
+    """The twin of migration 050.
+
+    Slots are normalised to a twelve-team league before anything else:
+    pick 11 of ten teams is the last of round one, pick 11 of fourteen is
+    the middle of it, and averaging them raw would blur the two.
+    """
+    import statistics
+    season, floor_n = int(season), int(min_drafts)
+    slots: dict[str, list] = {}
+    meta: dict[str, dict] = {}
+    for r in _DRAFT_PICKS.values():
+        if int(r["season"]) != season or int(r.get("overall") or 0) <= 0:
+            continue
+        size = int(r.get("team_count") or 12) or 12
+        slots.setdefault(r["player_key"], []).append(
+            (int(r["overall"]) - 1) * 12.0 / size + 1)
+        m = meta.setdefault(r["player_key"], {})
+        for k in ("name", "position", "nfl_team"):
+            if r.get(k) and not m.get(k):
+                m[k] = r[k]
+
+    def pct(xs, q):
+        """percentile_cont, which interpolates — not the nearest sample."""
+        s = sorted(xs)
+        if len(s) == 1:
+            return s[0]
+        i = q * (len(s) - 1)
+        lo = int(i)
+        hi = min(lo + 1, len(s) - 1)
+        return s[lo] + (s[hi] - s[lo]) * (i - lo)
+
+    rows = []
+    for key, xs in slots.items():
+        if len(xs) < floor_n:
+            continue
+        known = _NFL_PLAYERS.get(key) or {}
+        m = meta.get(key) or {}
+        rows.append({
+            "player_key": key,
+            "name": known.get("name") or m.get("name") or key,
+            "position": known.get("position") or m.get("position"),
+            "nfl_team": known.get("nfl_team") or m.get("nfl_team"),
+            "drafts": len(xs),
+            "adp": _round2(sum(xs) / len(xs)),
+            "median": _round2(pct(xs, 0.5)),
+            "early": _round2(pct(xs, 0.10)),
+            "late": _round2(pct(xs, 0.90)),
+            "spread": _round2(statistics.stdev(xs) if len(xs) > 1 else 0.0)})
+    rows.sort(key=lambda r: (r["adp"], r["player_key"]))
+    for i, r in enumerate(rows, 1):
+        r["rank"] = i
+
+    allpicks = [r for r in _DRAFT_PICKS.values() if int(r["season"]) == season]
+    import re as _re
+    resolved = sum(1 for r in allpicks
+                   if _re.fullmatch(r"[0-9]+", r["player_key"])
+                   or _re.fullmatch(r"[A-Z]{2,3}", r["player_key"]))
+    return {
+        "season": season, "min_drafts": floor_n,
+        "drafts": sum(1 for s in _DRAFT_SCANS.values()
+                      if int(s["season"]) == season and int(s.get("picks") or 0) > 0),
+        "scanned": sum(1 for s in _DRAFT_SCANS.values() if int(s["season"]) == season),
+        "picks": len(allpicks),
+        "resolved": resolved,
+        "players": rows,
+    }
+
+
 def trade_backfill(season: int) -> dict[str, Any]:
     """The twin of migration 049."""
     season = int(season)
