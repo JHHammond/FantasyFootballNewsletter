@@ -1795,8 +1795,24 @@ def trade_exchanges(season: int, from_week: int = 1,
                                          "p_to_week": int(to_week)}) or []
 
 
+def trade_partners(season: int, player_key: str, limit: int = 8) -> dict[str, Any]:
+    """See migration 047: who this player gets swapped for, and his latest
+    deals. Players only — a trade's team names are its league's own."""
+    return _rpc_json("trade_partners", {"p_season": int(season),
+                                        "p_player": str(player_key),
+                                        "p_limit": int(limit)}) or {}
+
+
 def trade_player_names(season: int) -> dict[str, Any]:
     return _rpc_json("trade_player_names", {"p_season": int(season)}) or {}
+
+
+def trade_prior(season: int, from_week: int = 1, to_week: int = 18) -> dict[str, Any]:
+    """Per-player usage behind the market's prior (migration 048): how often
+    the country started him and what he averaged when it did."""
+    return _rpc_json("trade_prior", {"p_season": int(season),
+                                     "p_from_week": int(from_week),
+                                     "p_to_week": int(to_week)}) or {}
 
 
 def team_weeks_for_leagues(season: int, week: int,

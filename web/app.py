@@ -1341,6 +1341,25 @@ def staff_around(request: Request, week: int = 0, season: int = 0,
                         user=current_user(request))
 
 
+@app.get("/staff/around/player/{player_key}.json")
+def staff_around_player(request: Request, player_key: str):
+    """Who one player gets traded for. Staff only, like the market itself,
+    and players only — a trade's team names are its league's content."""
+    _require_staff(request)
+    import nfl_week
+    key = clean_text(player_key, max_length=40).strip()
+    if not key:
+        raise HTTPException(status_code=404)
+    try:
+        out = db.trade_partners(nfl_week.current_season(), key)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[market] no partners for {key}: {type(exc).__name__}: {exc}", flush=True)
+        raise HTTPException(status_code=503) from None
+    if not out:
+        raise HTTPException(status_code=404)
+    return JSONResponse(out, headers={"Cache-Control": "private, max-age=300"})
+
+
 @app.post("/staff/around/collect")
 def staff_around_collect(request: Request, weeks: str = Form("")):
     """Start a collection in the background. `weeks` is "3" or "1-3"."""

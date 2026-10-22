@@ -3742,6 +3742,16 @@ html.nb-lock { overflow: hidden; }
 .at-mk-5 .at-mk-path { stroke: #7a4a6a; } .at-mk-5 .at-mk-dot { fill: #7a4a6a; stroke: var(--paper); }
 .at-mk-5 .at-mk-label { fill: #7a4a6a; }
 .at-up { color: #2d6a1f; } .at-down { color: var(--accent); }
+/* Price against book: what the field pays, against what these leagues' own
+   usage says a player is worth. Over is the market's enthusiasm, not a
+   compliment, so neither reads as good or bad — they read as directions. */
+.at-over, .at-under, .at-level {
+    font-family: "Barlow Condensed", sans-serif; font-weight: 700;
+    letter-spacing: 0.4px; border-bottom: 1px dotted currentColor;
+}
+.at-over  { color: #8a5a12; }
+.at-under { color: #2d6a1f; }
+.at-level { color: var(--muted); }
 .at-mover-head {
     font-family: "Barlow Condensed", sans-serif; font-size: 12px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 1.6px; color: var(--muted);
@@ -3756,3 +3766,60 @@ html.nb-lock { overflow: hidden; }
 }
 .at-movers li::before { content: none; }
 .at-floored { color: var(--muted); font-size: 16px !important; }
+/* The market chart: Kalshi's shape — a legend you read the current price
+   off, a line per player with his face at the end, and a rule you drag. */
+.at-mkt-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 6px 0 10px; }
+.at-mkt-chip {
+    display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    background: none; border: 0; padding: 4px 2px; color: var(--ink);
+    font: 600 14px "Barlow", sans-serif;
+}
+.at-mkt-chip:hover .at-mkt-chip-text { text-decoration: underline; }
+.at-mkt-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.at-mkt-face { width: 26px; height: 26px; }
+.at-mkt-face > span { font-size: 12px; }
+.at-mkt-chip-text { display: inline-flex; align-items: baseline; gap: 7px; white-space: nowrap; }
+.at-mkt-chip-text b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 17px; font-variant-numeric: tabular-nums; }
+.at-mkt-box { cursor: crosshair; }
+.at-mkt-rule { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 3 3; opacity: .55; }
+.at-mk-cursor { stroke: var(--paper); stroke-width: 2; }
+.at-mk-ring { fill: var(--paper); stroke-width: 2.5; }
+.at-mk-initial { font: 700 11px "Barlow", sans-serif; }
+.at-mkt-svg image { pointer-events: none; }
+/* Each line's colour, carried through to its chip and its face ring. */
+.at-mk-0 .at-mk-cursor, .at-mk-0 .at-mk-ring { stroke: var(--accent); fill: var(--accent); }
+.at-mk-0 .at-mk-ring { fill: var(--paper); } .at-mk-0 .at-mk-initial { fill: var(--accent); }
+.at-mkt-chip.at-mk-0 .at-mkt-chip-text b { color: var(--accent); }
+.at-mk-1 .at-mk-cursor { fill: var(--ink); stroke: var(--paper); } .at-mk-1 .at-mk-ring { stroke: var(--ink); }
+.at-mk-1 .at-mk-initial { fill: var(--ink); }
+.at-mk-2 .at-mk-cursor { fill: #2d6a1f; stroke: var(--paper); } .at-mk-2 .at-mk-ring { stroke: #2d6a1f; }
+.at-mk-2 .at-mk-initial { fill: #2d6a1f; } .at-mkt-chip.at-mk-2 .at-mkt-chip-text b { color: #2d6a1f; }
+.at-mk-3 .at-mk-cursor { fill: #8a6d1f; stroke: var(--paper); } .at-mk-3 .at-mk-ring { stroke: #8a6d1f; }
+.at-mk-3 .at-mk-initial { fill: #8a6d1f; } .at-mkt-chip.at-mk-3 .at-mkt-chip-text b { color: #8a6d1f; }
+.at-mk-4 .at-mk-cursor { fill: #4a5b8c; stroke: var(--paper); } .at-mk-4 .at-mk-ring { stroke: #4a5b8c; }
+.at-mk-4 .at-mk-initial { fill: #4a5b8c; } .at-mkt-chip.at-mk-4 .at-mkt-chip-text b { color: #4a5b8c; }
+.at-mk-5 .at-mk-cursor { fill: #7a4a6a; stroke: var(--paper); } .at-mk-5 .at-mk-ring { stroke: #7a4a6a; }
+.at-mk-5 .at-mk-initial { fill: #7a4a6a; } .at-mkt-chip.at-mk-5 .at-mkt-chip-text b { color: #7a4a6a; }
+/* A board row is a button now: it opens the player, so it has to look it. */
+.at-mkt-row {
+    display: flex; align-items: center; gap: 12px; width: 100%; cursor: pointer;
+    background: none; border: 0; padding: 0; text-align: left; color: inherit; font: inherit;
+}
+.at-mkt-row:hover .ar-player { color: var(--accent); }
+.at-mkt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.at-mkt-board li { padding: 0; }
+.at-mkt-board li > .at-mkt-row { padding: 9px 0; }
+.at-mkt-deals { list-style: none; margin: 4px 0 0; }
+.at-mkt-deals li {
+    font-family: Georgia, serif; font-size: 14.5px; line-height: 1.45;
+    padding: 8px 0; border-bottom: 1px solid var(--line); color: var(--ink-2);
+}
+.at-mkt-deals li:last-child { border-bottom: 0; }
+.at-mkt-deals b { color: var(--ink); }
+.at-mkt-deals small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.at-mkt-back { margin-top: 12px; }
+@media (max-width: 560px) {
+    .at-mkt-legend { gap: 6px 10px; }
+    .at-mkt-chip { font-size: 13px; }
+    .at-mkt-face { width: 22px; height: 22px; }
+}

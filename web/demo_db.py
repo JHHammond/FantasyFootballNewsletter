@@ -1267,6 +1267,79 @@ def trade_exchanges(season: int, from_week: int = 1,
     return out
 
 
+def trade_partners(season: int, player_key: str, limit: int = 8) -> dict[str, Any]:
+    """The SQL function's twin (migration 047)."""
+    season, key = int(season), str(player_key)
+    mine = {(r["league_id"], r["trade_key"]): r for r in _TRADE_PLAYERS.values()
+            if int(r["season"]) == season and r["player_key"] == key}
+    against: dict = {}
+    with_him: dict = {}
+    for r in _TRADE_PLAYERS.values():
+        tk = (r["league_id"], r["trade_key"])
+        if int(r["season"]) != season or tk not in mine or r["player_key"] == key:
+            continue
+        side = against if r.get("to_team") != mine[tk].get("to_team") else with_him
+        e = side.setdefault(r["player_key"], {
+            "player_key": r["player_key"], "name": r.get("name") or r["player_key"],
+            "position": r.get("position"), "nfl_team": r.get("nfl_team"), "n": 0})
+        e["n"] += 1
+
+    def rank(d, n):
+        return sorted(d.values(), key=lambda e: (-e["n"], e["player_key"]))[:n]
+
+    recent = []
+    heads = [(h, mine[(h["league_id"], h["trade_key"])])
+             for h in _TRADES.values()
+             if int(h["season"]) == season and (h["league_id"], h["trade_key"]) in mine]
+    heads.sort(key=lambda hm: (str(hm[0].get("traded_at") or ""), int(hm[0]["week"]),
+                               hm[0]["trade_key"]), reverse=True)
+    for head, me in heads[:6]:
+        got, gave = [], []
+        for r in _TRADE_PLAYERS.values():
+            if (r["league_id"], r["trade_key"]) != (head["league_id"], head["trade_key"]):
+                continue
+            row = {"name": r.get("name") or r["player_key"], "position": r.get("position")}
+            (got if r.get("to_team") == me.get("to_team") else gave).append(row)
+        key_of = lambda x: x["name"]  # noqa: E731
+        recent.append({"week": int(head["week"]),
+                       "day": (str(head.get("traded_at") or "")[:10]) or None,
+                       "got": sorted(got, key=key_of), "gave": sorted(gave, key=key_of)})
+    return {"player": key, "trades": len(mine),
+            "counterparts": rank(against, limit), "alongside": rank(with_him, 4),
+            "recent": recent}
+
+
+def trade_prior(season: int, from_week: int = 1, to_week: int = 18) -> dict[str, Any]:
+    """The twin of migration 048: usage per player, out of the demo's own
+    lineups. Aggregates only — the arithmetic is in web/trade_prior.py, so
+    there is one copy of that and this cannot drift from it."""
+    season, lo, hi = int(season), int(from_week), int(to_week)
+    tally: dict[str, dict[str, float]] = {}
+    for r in _LINEUPS.values():
+        if int(r["season"]) != season or not (lo <= int(r["week"]) <= hi):
+            continue
+        t = tally.setdefault(r["player_key"],
+                             {"rostered": 0, "started": 0, "delivered": 0.0, "scored": 0})
+        t["rostered"] += 1
+        if r.get("started"):
+            t["started"] += 1
+            ppr = r.get("ppr_points")
+            if ppr is not None:
+                t["delivered"] += float(ppr)
+                t["scored"] += 1
+    out = {}
+    for key, t in tally.items():
+        known = _NFL_PLAYERS.get(key) or {}
+        out[key] = {
+            "position": known.get("position"),
+            "rostered": int(t["rostered"]),
+            "started": int(t["started"]),
+            "delivered": round(t["delivered"], 2),
+            "per_start": (round(t["delivered"] / t["scored"], 2)
+                          if t["scored"] else None)}
+    return out
+
+
 def trade_player_names(season: int) -> dict[str, Any]:
     season = int(season)
     out: dict[str, dict] = {}

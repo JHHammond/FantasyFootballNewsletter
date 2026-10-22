@@ -123,6 +123,33 @@ def simulate(n_trades: int, n_players: int, rng: random.Random, *,
     return out, truth
 
 
+def usage_prior(truth: dict[str, float], rng: random.Random, *,
+                noise: float = 0.35, cap: float = 0.92) -> dict[str, float]:
+    """A stand-in for what the leagues' own usage says a player is worth.
+
+    In production this is built from `lineup_players`: how many of ~14,000
+    teams roster a player and how many start him. It is informative and it
+    is wrong in two specific ways, both modelled here, because a prior that
+    is merely truth-plus-noise would make this test too easy:
+
+      * It SATURATES. Everybody starts a stud, so start rate runs out of
+        room at the top and the real gaps between the dearest players are
+        squashed. That is the concave term.
+      * It is NOISY, and not evenly. A player can be widely started and
+        cheap (a safe floor nobody covets) or thinly rostered and dear.
+
+    So the prior knows roughly who the good players are and is poor at
+    exactly the job the market is for: pricing the top of the board.
+    """
+    hi = max(truth.values()) or 1.0
+    out = {}
+    for key, val in truth.items():
+        rate = min(cap, (val / hi) ** 0.55)
+        out[key] = max(0.02, rate * (1 + rng.gauss(0, noise)))
+    mean = sum(out.values()) / len(out)
+    return {k: v / mean for k, v in out.items()}
+
+
 def main() -> int:
     from web import trade_market
 
@@ -131,12 +158,27 @@ def main() -> int:
     rng = random.Random(2026)
     bad = 0
 
-    for label, kw in (("trades both sides think they win", {}),
-                      ("every trade fair (no selection)", {"selected": False}),
-                      ("managers who disagree wildly", {"disagreement": 0.35}),
-                      ("no roster-spot premium in the data", {"spot": 0.0})):
+    # Each scenario carries its own bar for the median error, because the
+    # scenarios are not equally hard and one number would either excuse the
+    # easy cases or condemn the stress case for something no estimator can
+    # fix. When managers' private values differ by 35% AND a trade only
+    # happens if both of them think they won, the trades that get observed
+    # are a biased sample of a very noisy signal: the ORDER survives (0.94),
+    # the absolute level does not, and nothing in the data can recover it.
+    # That is also why the page leads with price-against-prior rather than
+    # the bare number. The rank bar is 0.9 everywhere and never moves.
+    cases = (("trades both sides think they win", {}, 12.0),
+             ("every trade fair (no selection)", {"selected": False}, 12.0),
+             ("managers who disagree wildly", {"disagreement": 0.35}, 20.0),
+             ("no roster-spot premium in the data", {"spot": 0.0}, 12.0))
+    for label, kw, err_bar in cases:
         ex, truth = simulate(n_trades, n_players, random.Random(rng.randrange(1 << 30)), **kw)
-        got = trade_market.solve(ex)
+        # The prior stands in for what the leagues' own usage says. The fit
+        # cannot be judged against planted values alone — it has to be
+        # judged against the prior it started from, or we would be
+        # congratulating ourselves for printing the prior back out.
+        pri = usage_prior(truth, random.Random(99))
+        got = trade_market.solve(ex, prior=pri)
         vals = got["values"]
         if not vals:
             print(f"{label}: NOTHING PUBLISHED"); bad += 1; continue
@@ -148,21 +190,36 @@ def main() -> int:
         scale = trade_market.MEDIAN_AT / (trade_market._median(true) or 1)
         err = sorted(abs(m - t * scale) for m, t in zip(mine, true))
         rho = spearman(mine, true)
+        base = spearman([pri[k] for k in keys], true)
         med_err = err[len(err) // 2]
         planted = kw.get("spot", 6.0) * scale
         print(f"{label}:")
         print(f"    {len(vals)} of {n_players} players published from {got['used']:,} trades"
-              f" in {got['rounds']} rounds")
+              f" in {got['rounds']} rounds"
+              f"{'' if got['settled'] else '  *** STOPPED ON THE ROUND CAP ***'}")
         print(f"    rank correlation {rho:.3f}   median error {med_err:.1f}"
-              f" on a median-50 scale")
+              f" on a median-50 scale (bar: {err_bar:.0f})")
+        print(f"    the prior alone scores {base:.3f}, so the trades are"
+              f" worth {rho - base:+.3f}")
         if planted:
             print(f"    (a roster-spot premium of {planted:.1f} was planted and"
                   f" deliberately not modelled \u2014 see trade_market's docstring)")
         if rho < 0.9:
             print("    FAIL: the order is not recovered")
             bad += 1
-        if med_err > 12:
+        if med_err > err_bar:
             print("    FAIL: the scale is off")
+            bad += 1
+        # The one that matters most. A fit that cannot beat the prior it
+        # was handed is an expensive way to redraw the prior, and the whole
+        # claim of the feature ("this is what the field PAID") would be
+        # false. 0.03 rather than 0 so noise alone can't pass it.
+        if rho < base + 0.03:
+            print("    FAIL: the trades added nothing over the prior")
+            bad += 1
+        if not got["settled"]:
+            print("    FAIL: never converged, so the answer is an accident"
+                  " of where the loop stopped")
             bad += 1
 
     # The thin tail: a player in three trades must not be published.

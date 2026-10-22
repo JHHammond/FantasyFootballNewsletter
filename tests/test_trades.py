@@ -240,11 +240,20 @@ def test_a_trade_for_himself_is_not_an_equation():
 def test_a_player_who_adds_nothing_lands_on_the_floor():
     """The league trades "star" for "solid" alone, and also for "solid plus
     a throw-in". The throw-in adds nothing to the price, so the fit wants
-    to pay him nothing — and a value can never go below zero."""
+    to pay him nothing — and a value can never go below zero.
+
+    The prior matters here and is passed as production passes it. A player
+    nobody in the country starts arrives with a prior at the floor, and the
+    trades agree, so he floors. Handed no prior at all he would instead be
+    pulled toward an average player by the ridge, which is the ridge doing
+    its job (it is what forbids the degenerate all-zeros fit) and is why
+    the prior is not optional — see trade_market.solve.
+    """
     from web import trade_market
     ex = ([{"w": 1, "a": ["star"], "b": ["solid"]} for _ in range(20)]
           + [{"w": 1, "a": ["star"], "b": ["solid", "throwin"]} for _ in range(20)])
-    got = trade_market.solve(ex, min_trades=3)
+    got = trade_market.solve(ex, min_trades=3,
+                             prior={"star": 1.4, "solid": 1.4, "throwin": 0.08})
     rows = trade_market.board(got["values"], got["trades"], {}, 10)
     throwin = next(r for r in rows if r["player_key"] == "throwin")
     assert throwin["floored"] and throwin["value"] < trade_market.FLOOR_AT
@@ -256,12 +265,106 @@ def test_a_player_who_adds_nothing_lands_on_the_floor():
     assert abs(star["value"] - solid["value"]) < 1.0
 
 
-def test_the_series_is_one_value_a_week():
+def test_the_series_is_one_value_a_day():
+    """Six points a season is a flat line. Trades carry the day they
+    happened, so the line is daily, each point solved on the window
+    behind it."""
     from web import trade_market
-    ex = [{"w": w, "a": ["a"], "b": ["b", "c"]} for w in (1, 2, 3) for _ in range(12)]
-    got = trade_market.series(ex, [1, 2, 3], window=2, min_trades=3)
-    assert sorted(p["week"] for p in got["series"]["a"]) == [1, 2, 3]
-    assert [m["week"] for m in got["weeks"]] == [1, 2, 3]
+    ex = [{"day": d, "a": ["a"], "b": ["b", "c"]} for d in range(100, 110) for _ in range(6)]
+    got = trade_market.series(ex, range(100, 110), window=3, min_trades=3)
+    assert [p["day"] for p in got["series"]["a"]] == list(range(100, 110))
+    assert [m["day"] for m in got["days"]] == list(range(100, 110))
+    # Each point rests on its window, not on the whole season.
+    assert got["days"][-1]["used"] == 18          # three days of six trades
+
+
+def test_the_line_does_not_drift_over_a_season():
+    """Every day is solved cold, and this is the test that forced it.
+
+    The first version warm-started each day from the day before — the
+    windows share nearly all their trades, so it looked like free speed.
+    But the loop stops when nothing moves by TOLERANCE in a round, and the
+    weak direction (scale the whole vector) creeps slower than that while
+    still creeping, so each day stopped short of its own minimum and
+    handed the error to tomorrow. The values climbed all season: the
+    dearest player went from 168 to 1,811 and the ranking fell apart.
+
+    The trades below are drawn the same way every day, so the market is
+    genuinely flat and any trend is the solver talking to itself.
+    """
+    import random
+
+    from web import trade_market
+    rng = random.Random(4)
+    pool = [f"p{i}" for i in range(60)]
+    # Lopsided on purpose: a flat pool converges instantly and would prove
+    # nothing. Dearer players are picked more often and go for two cheaper.
+    ex = []
+    for day in range(1, 60):
+        for _ in range(25):
+            i = min(int(abs(rng.gauss(0, 18))), 59)
+            j, k = rng.randrange(i, 60), rng.randrange(i, 60)
+            if len({i, j, k}) == 3:
+                ex.append({"day": day, "a": [pool[i]], "b": [pool[j], pool[k]]})
+    got = trade_market.series(ex, range(20, 60), window=14, min_trades=3)
+
+    assert all(m["settled"] for m in got["days"]), (
+        "a day stopped on the round cap, so its values are wherever the "
+        "loop happened to be: " + str([m["rounds"] for m in got["days"]]))
+
+    # The dearest player on the board, start of the season against the end.
+    tops = [max(p["value"] for s in got["series"].values() for p in s
+                if p["day"] == m["day"]) for m in got["days"]]
+    assert max(tops) < 3 * min(tops), (
+        f"the top of the board drifted {min(tops):.0f} -> {max(tops):.0f} "
+        f"across a flat season")
+
+    # And no single player's line wanders by an order of magnitude.
+    for key, s in got["series"].items():
+        if len(s) > 10:
+            vs = [p["value"] for p in s]
+            assert max(vs) < 10 * max(min(vs), 1.0), (key, vs)
+
+
+def test_a_trade_with_no_timestamp_lands_in_its_week():
+    """The platform didn't say when, but it did say which week, and the
+    week is real even when the hour isn't."""
+    from web import trade_market
+    import nfl_week
+    opener = nfl_week.season_opener(SEASON)
+    out = trade_market.days_for(
+        [{"w": 3, "d": None, "a": ["x"], "b": ["y"]},
+         {"w": 3, "d": "2026-09-30", "a": ["x"], "b": ["y"]}], SEASON)
+    assert out[0]["day"] == opener.toordinal() + 14 + 3        # mid-week 3
+    assert out[1]["day"] == __import__("datetime").date(2026, 9, 30).toordinal()
+
+
+def test_who_a_player_gets_traded_for():
+    """The question somebody staring at a price actually has."""
+    lg = _league()
+    heads, players = [], []
+    for i in range(5):
+        key = f"tk{i}"
+        heads.append({"league_id": lg["id"], "season": SEASON, "week": 2,
+                      "trade_key": key, "provider": "sleeper", "teams": ["A", "B"],
+                      "picks": [], "faab": [], "traded_at": f"2026-09-1{i} 12:00:00+00"})
+        players += [
+            {"league_id": lg["id"], "season": SEASON, "week": 2, "trade_key": key,
+             "player_key": "chase", "name": "Chase", "position": "WR", "to_team": "A"},
+            {"league_id": lg["id"], "season": SEASON, "week": 2, "trade_key": key,
+             "player_key": "bijan", "name": "Bijan", "position": "RB", "to_team": "B"},
+            {"league_id": lg["id"], "season": SEASON, "week": 2, "trade_key": key,
+             "player_key": "mate", "name": "Mate", "position": "WR", "to_team": "A"}]
+    demo_db.upsert_trades(heads, players)
+    out = demo_db.trade_partners(SEASON, "chase")
+    assert out["trades"] == 5
+    assert [(c["name"], c["n"]) for c in out["counterparts"]] == [("Bijan", 5)]
+    assert [(c["name"], c["n"]) for c in out["alongside"]] == [("Mate", 5)]
+    got = out["recent"][0]
+    assert [p["name"] for p in got["got"]] == ["Chase", "Mate"]
+    assert [p["name"] for p in got["gave"]] == ["Bijan"]
+    # A trade's team names belong to its league; this is seen by everyone.
+    assert "to_team" not in str(out) and "'A'" not in str(out)
 
 
 def test_the_market_panel_builds_from_the_database(monkeypatch):
@@ -282,6 +385,7 @@ def test_the_market_panel_builds_from_the_database(monkeypatch):
     monkeypatch.setattr(trade_market, "MIN_TRADES", 5)
     out = trade_market.build(demo_db, SEASON, [1, 2, 3])
     assert out["used"] == 30 and out["board"]
+    assert out["all_series"]
     assert out["board"][0]["name"] == "Star"       # one for two, so dearer
     assert out["chart"]["lines"]
 
@@ -299,3 +403,186 @@ def test_a_trade_with_picks_is_not_an_equation():
          {"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": "tp",
           "player_key": "y", "name": "Y", "from_team": "A", "to_team": "B"}])
     assert demo_db.trade_exchanges(SEASON, 1, 18) == []
+
+
+# ---------------------------------------------------------------- the prior
+
+
+def _usage(rows):
+    """{key: usage} from (key, position, starts, per_start) tuples."""
+    return {k: {"position": pos, "rostered": n + 5, "started": n,
+                "delivered": round((r or 0) * n, 2), "per_start": r}
+            for k, pos, n, r in rows}
+
+
+def test_a_quarterback_is_not_worth_more_just_for_scoring_more():
+    """The flaw raw points would have. A QB outscores a running back every
+    week and there is one of him in a lineup, so what a manager pays for is
+    points above what the position gives away free. Here the QB and the RB
+    are identically placed AT THEIR POSITIONS — both 6 points clear of
+    their own replacement, both started as often — so they must price the
+    same, even though the QB scores nearly twice as much."""
+    from web import trade_prior
+    rows = [("qb1", "QB", 900, 24.0), ("qb2", "QB", 900, 18.0),
+            ("qb3", "QB", 100, 18.0),
+            ("rb1", "RB", 900, 14.0), ("rb2", "RB", 900, 8.0),
+            ("rb3", "RB", 100, 8.0)]
+    got = trade_prior.build(_usage(rows), min_starts=40)
+    assert abs(got["qb1"] - got["rb1"]) < 0.02, got
+    # And the replacement-level men at each position price near nothing.
+    assert got["qb2"] < got["qb1"] / 4 and got["rb2"] < got["rb1"] / 4
+
+
+def test_being_started_a_lot_is_most_of_being_valuable():
+    """Two players of identical quality, one trusted by ten times as many
+    teams. Demand is half the number."""
+    from web import trade_prior
+    got = trade_prior.build(_usage(
+        [("wide", "WR", 9000, 18.0), ("thin", "WR", 900, 18.0),
+         ("repl", "WR", 9000, 9.0)]), min_starts=40)
+    assert got["wide"] > got["thin"] * 8
+
+
+def test_no_prior_is_ever_zero():
+    """A zero prior hands the solver back the degenerate fit the prior is
+    there to prevent — zeroing a player out has to cost something. A player
+    who turns up in real trades is worth more than nothing by definition."""
+    from web import trade_prior
+    got = trade_prior.build(_usage(
+        [("good", "WR", 9000, 20.0), ("repl", "WR", 9000, 6.0),
+         ("never", "WR", 2, None), ("bench", "WR", 0, None)]), min_starts=40)
+    assert all(v >= trade_prior.FLOOR for v in got.values()), got
+    assert got["never"] == trade_prior.FLOOR
+
+
+def test_the_prior_is_normalised_over_the_players_who_trade():
+    """Normalising over everybody rostered in the country would put the
+    average player at a deep bench piece and make every traded player look
+    dear. `only` is what keeps 1.0 meaning "an average TRADED player"."""
+    from web import trade_prior
+    usage = _usage([("a", "WR", 900, 20.0), ("b", "WR", 900, 15.0),
+                    ("c", "WR", 900, 6.0)]
+                   + [(f"deep{i}", "WR", 3, None) for i in range(200)])
+    everyone = trade_prior.build(usage, min_starts=40)
+    traded = trade_prior.build(usage, only=["a", "b", "c"], min_starts=40)
+    # Not exactly 1.0: "c" sits at replacement, so he is lifted to the
+    # floor afterwards and nudges the average up a little.
+    assert sum(traded.values()) / 3 == pytest.approx(1.0, abs=0.05)
+    assert everyone["a"] > traded["a"] * 10
+
+
+def test_a_half_finished_season_gives_a_flat_prior_not_nonsense():
+    """Before anybody clears replacement there is nothing to say, and
+    saying it flatly is right: the market falls back to the un-anchored fit
+    rather than to numbers built on one week."""
+    from web import trade_prior
+    got = trade_prior.build(_usage([("a", "WR", 5, 9.0), ("b", "WR", 4, 9.0)]),
+                            min_starts=40)
+    assert set(got.values()) == {1.0}
+
+
+def test_the_prior_reaches_the_market_and_moves_it():
+    """End to end: the demo's own lineups become a prior, the prior reaches
+    solve(), and a player usage likes starts out dearer for it."""
+    from web import trade_market, trade_prior
+    usage = demo_db.trade_prior(SEASON, 1, 18)
+    assert isinstance(usage, dict)
+    # Built by hand so the test does not depend on the demo seeder.
+    pri = trade_prior.build(_usage(
+        [("star", "WR", 9000, 22.0), ("solid", "WR", 9000, 8.0)]), min_starts=40)
+    ex = [{"a": ["star"], "b": ["solid"]}] * 12
+    flat = trade_market.solve(ex)["values"]
+    tilted = trade_market.solve(ex, prior=pri)["values"]
+    # Twelve trades all saying "these two are equal" against a prior saying
+    # the star is worth 25 times as much: the trades should mostly win, and
+    # do. What the prior buys is the tilt, not the verdict.
+    assert flat["star"] == pytest.approx(flat["solid"], rel=0.05)
+    assert tilted["star"] > tilted["solid"] * 1.15
+    assert tilted["star"] < tilted["solid"] * 3
+
+
+def test_the_market_prints_a_price_against_book():
+    """End to end on the panel John looks at: trades plus the leagues' own
+    usage become a board where each row says what the field pays AND what
+    usage says it should.
+
+    Usage here says the star is worth far more than the middling man, who
+    is worth more than the replacement man. The trades say all three are
+    nearly level. So the star trades UNDER book and the middling man over
+    it, which is the gap the feature exists to show: the country changing
+    its mind about a player, measured against its own behaviour.
+
+    The replacement man books at about nothing and so gets a price and NO
+    comparison. Dividing by his book gave 11.8x in testing, which would
+    have printed as "1081% over book".
+    """
+    from web import trade_market
+    lg = _league("mkt")
+    demo_db.upsert_nfl_players([
+        {"player_key": "star", "name": "Star Man", "position": "WR", "nfl_team": "ATL"},
+        {"player_key": "mid", "name": "Mid Man", "position": "WR", "nfl_team": "CHI"},
+        {"player_key": "solid", "name": "Solid Man", "position": "WR", "nfl_team": "BUF"}])
+    rows = []
+    for week in (1, 2, 3):
+        for t in range(60):
+            for key, pts in (("star", 22.0), ("mid", 14.0), ("solid", 7.0)):
+                rows.append({"league_id": lg["id"], "season": SEASON, "week": week,
+                             "team_id": f"t{t}", "player_key": key, "slot": "WR",
+                             "started": True, "points": pts, "ppr_points": pts})
+    demo_db.upsert_lineups(rows)
+    pairs = [("star", "solid")] * 12 + [("mid", "solid")] * 10 + [("star", "mid")] * 9
+    demo_db.upsert_trades(
+        [{"league_id": lg["id"], "season": SEASON, "week": 2,
+          "trade_key": f"k{i}", "provider": "sleeper", "teams": ["A", "B"],
+          "picks": [], "faab": []} for i in range(len(pairs))],
+        [r for i, (a, b) in enumerate(pairs) for r in (
+            {"league_id": lg["id"], "season": SEASON, "week": 2, "trade_key": f"k{i}",
+             "player_key": a, "name": a, "from_team": "A", "to_team": "B"},
+            {"league_id": lg["id"], "season": SEASON, "week": 2, "trade_key": f"k{i}",
+             "player_key": b, "name": b, "from_team": "B", "to_team": "A"})])
+
+    out = trade_market.build(demo_db, SEASON, [1, 2, 3], limit=10)
+    assert out and out["board"], out
+    assert out["priored"] == 3, "every traded player should carry a prior"
+    rows_by = {r["player_key"]: r for r in out["board"]}
+    star, mid, solid = rows_by["star"], rows_by["mid"], rows_by["solid"]
+
+    # The board still ranks them in the order the trades imply.
+    assert star["value"] > mid["value"] > solid["value"]
+    # Usage pulls them apart much further than the trades do, so the star
+    # is cheap against his book and the middling man is dear against his.
+    assert star["prior"] > mid["prior"] > solid["prior"]
+    assert star["premium"] < 0.95, star
+    assert mid["premium"] > 1.0, mid
+    # And the man at replacement level has no book to be over.
+    assert solid["premium"] is None, solid
+    assert solid["value"] and solid["prior"] is not None
+
+
+def test_a_market_with_no_usage_still_draws():
+    """Supabase without migration 048, or a season with no lineups stored.
+    The prior is the thing that makes the values good, so its absence is
+    logged loudly — but a staff panel is not worth a 500, and the board
+    still ranks."""
+    from web import trade_market
+    lg = _league("nousage")
+    demo_db.upsert_trades(
+        [{"league_id": lg["id"], "season": SEASON, "week": 1,
+          "trade_key": f"n{i}", "provider": "sleeper", "teams": ["A", "B"],
+          "picks": [], "faab": []} for i in range(10)],
+        [r for i in range(10) for r in (
+            {"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": f"n{i}",
+             "player_key": "one", "name": "One", "from_team": "A", "to_team": "B"},
+            {"league_id": lg["id"], "season": SEASON, "week": 1, "trade_key": f"n{i}",
+             "player_key": "two", "name": "Two", "from_team": "B", "to_team": "A"})])
+
+    class NoPrior:
+        def __getattr__(self, name):
+            if name == "trade_prior":
+                raise AttributeError("no migration 048")
+            return getattr(demo_db, name)
+
+    out = trade_market.build(NoPrior(), SEASON, [1], limit=10)
+    assert out["board"], out
+    assert out["priored"] == 0
+    assert all(r["premium"] is None for r in out["board"])

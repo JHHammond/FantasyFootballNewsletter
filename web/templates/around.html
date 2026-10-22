@@ -553,62 +553,106 @@
 
     {% set C = M.chart %}
     {% if C and C.lines %}
-    <figure class="ar-chart at-market-chart">
-        <figcaption class="ar-chart-cap">The {{ C.lines|length }} dearest players, week by week
-            ({{ M.window }}-week window)</figcaption>
-        <div class="ar-chart-box">
-        <svg viewBox="0 0 {{ C.width }} {{ C.height }}" class="ar-line" role="img"
-             aria-label="Trade value by week for the dearest players">
-            {% for g in C.grid %}
-            <line x1="{{ C.left }}" x2="{{ C.right }}" y1="{{ g.y }}" y2="{{ g.y }}" class="ar-grid" />
-            <text x="{{ C.left - 8 }}" y="{{ g.y + 4 }}" class="ar-tick" text-anchor="end">{{ g.v }}</text>
-            {% endfor %}
-            {% for w in C.weeks %}
-            <text x="{{ w.x }}" y="{{ C.base + 20 }}" class="ar-tick" text-anchor="middle">Wk {{ w.w }}</text>
-            {% endfor %}
+    <div class="at-mkt" id="at-mkt"
+         data-series="{{ M.all_series|tojson|forceescape }}"
+         data-lo="{{ C.lo }}" data-hi="{{ C.hi }}">
+        <div class="at-mkt-legend" id="at-mkt-legend">
             {% for L in C.lines %}
-            <g class="at-mk at-mk-{{ L.n }}">
-                <path d="{{ L.path }}" class="at-mk-path" />
-                {% for d in L.dots %}<circle cx="{{ d.x }}" cy="{{ d.y }}" r="3.5" class="at-mk-dot" />{% endfor %}
-                {% if L.last %}<text x="{{ L.last.x + 8 }}" y="{{ L.last.y + 4 }}" class="at-mk-label">{{ L.name }} {{ L.last.v }}</text>{% endif %}
-            </g>
+            <button type="button" class="at-mkt-chip at-mk-{{ L.n }}" data-key="{{ L.key }}">
+                <span class="at-face at-mkt-face{{ ' at-face-def' if L.position == 'DEF' }}">
+                    {%- if L.photo %}<img src="{{ L.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif -%}
+                    <span>{{ L.name[:1] }}</span></span>
+                <span class="at-mkt-chip-text">{{ L.short }}<b data-value>{{ L.last.v if L.last }}</b></span>
+            </button>
             {% endfor %}
-        </svg>
         </div>
-    </figure>
+        <figure class="ar-chart at-market-chart">
+            <figcaption class="ar-chart-cap" id="at-mkt-cap">Trade value by day, each point
+                from the {{ M.window }} days behind it &mdash; drag across to read any day</figcaption>
+            <div class="ar-chart-box at-mkt-box">
+            <svg viewBox="0 0 {{ C.width }} {{ C.height }}" class="ar-line at-mkt-svg" id="at-mkt-svg"
+                 role="img" aria-label="Trade value by day for the dearest players">
+                <defs>
+                    {% for L in C.lines %}<clipPath id="at-clip-{{ L.n }}"><circle cx="0" cy="0" r="11" /></clipPath>{% endfor %}
+                </defs>
+                {% for g in C.grid %}
+                <line x1="{{ C.left }}" x2="{{ C.right }}" y1="{{ g.y }}" y2="{{ g.y }}" class="ar-grid" />
+                <text x="{{ C.left - 8 }}" y="{{ g.y + 4 }}" class="ar-tick" text-anchor="end">{{ g.v }}</text>
+                {% endfor %}
+                {% for d in C.days if d.tick %}
+                <text x="{{ d.x }}" y="{{ C.base + 20 }}" class="ar-tick" text-anchor="middle">{{ d.label }}</text>
+                {% endfor %}
+                <line id="at-mkt-rule" class="at-mkt-rule" x1="0" x2="0"
+                      y1="{{ C.top }}" y2="{{ C.base }}" style="display:none" />
+                {% for L in C.lines %}
+                <g class="at-mk at-mk-{{ L.n }}" data-key="{{ L.key }}">
+                    <path d="{{ L.path }}" class="at-mk-path" />
+                    <circle class="at-mk-cursor" r="4" style="display:none" />
+                    {% if L.last %}
+                    <g class="at-mk-end" transform="translate({{ L.last.x }},{{ L.last.y }})">
+                        <circle r="12" class="at-mk-ring" />
+                        {% if L.photo %}<image href="{{ L.photo }}" x="-11" y="-11" width="22" height="22"
+                               clip-path="url(#at-clip-{{ L.n }})" preserveAspectRatio="xMidYMin slice" />
+                        {% else %}<text class="at-mk-initial" text-anchor="middle" y="4">{{ L.name[:1] }}</text>{% endif %}
+                    </g>
+                    {% endif %}
+                </g>
+                {% endfor %}
+                <rect id="at-mkt-hit" x="{{ C.left }}" y="{{ C.top }}"
+                      width="{{ C.right - C.left }}" height="{{ C.base - C.top }}"
+                      fill="transparent" style="touch-action:pan-y" />
+            </svg>
+            </div>
+        </figure>
+    </div>
     {% endif %}
 
     <div class="ar-boards ar-boards-2 at-market-boards">
         <article class="ar-board">
             <h3 class="ar-board-head">The dearest</h3>
-            <p class="ar-board-sub">Trade value, with how many trades it rests on.</p>
-            <ol class="ar-list at-rows">
+            <p class="ar-board-sub">Tap a player for his line and what he gets traded for.</p>
+            <ol class="ar-list at-rows at-mkt-board" id="at-mkt-board">
                 {% for r in M.board[:15] %}
-                <li>{{ face(r) }}<span class="ar-name">{{ player(r) }}<small>
-                    {{ '{:,}'.format(r.trades) }} trades{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}</small></span>
-                    <span class="ar-val">{% if r.floored %}<b class="at-floored" title="Cheaper than the trades can separate">&lt;1</b>{% else %}<b>{{ r.value }}</b>{% endif %}</span></li>
+                <li><button type="button" class="at-mkt-row" data-key="{{ r.player_key }}"
+                            data-name="{{ r.name }}">
+                    {{ face(r) }}<span class="ar-name">{{ player(r) }}<small>
+                    {{ '{:,}'.format(r.trades) }} trades{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}{% if r.premium %}
+                    &middot; <span class="{{ 'at-over' if r.premium >= 1.08 else ('at-under' if r.premium <= 0.92 else 'at-level') }}"
+                          title="What the field pays against what these leagues&rsquo; own usage says he is worth ({{ r.prior }})">{% if r.premium >= 1.08 %}{{ '%d'|format((r.premium - 1) * 100) }}% over book{% elif r.premium <= 0.92 %}{{ '%d'|format((1 - r.premium) * 100) }}% under book{% else %}at book{% endif %}</span>{% endif %}</small></span>
+                    <span class="ar-val">{% if r.floored %}<b class="at-floored" title="Cheaper than the trades can separate">&lt;1</b>{% else %}<b>{{ r.value }}</b>{% endif %}</span>
+                </button></li>
                 {% endfor %}
             </ol>
         </article>
-        <article class="ar-board">
-            <h3 class="ar-board-head">Risers and fallers</h3>
-            <p class="ar-board-sub">Since each player&rsquo;s first published week.</p>
-            {% for label, rows in [('Up', M.movers.up[:6]), ('Down', M.movers.down[:6])] %}
-            {% if rows %}
-            <p class="at-mover-head">{{ label }}</p>
-            <ol class="ar-list at-rows at-movers">
-                {% for r in rows %}
-                <li><span class="ar-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}<small>
-                    {{ r.from }} &rarr; {{ r.to }} &middot; weeks {{ r.weeks }}</small></span>
-                    <span class="ar-val"><b class="{{ 'at-up' if r.change > 0 else 'at-down' }}">{{ '%+.1f'|format(r.change) }}</b></span></li>
+        <article class="ar-board at-mkt-detail" id="at-mkt-detail">
+            <h3 class="ar-board-head" id="at-mkt-detail-head">Risers and fallers</h3>
+            <div id="at-mkt-movers">
+                <p class="ar-board-sub">Since each player&rsquo;s first published day.</p>
+                {% for label, rows in [('Up', M.movers.up[:6]), ('Down', M.movers.down[:6])] %}
+                {% if rows %}
+                <p class="at-mover-head">{{ label }}</p>
+                <ol class="ar-list at-rows at-movers">
+                    {% for r in rows %}
+                    <li><span class="ar-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}<small>
+                        {{ r.from }} &rarr; {{ r.to }} &middot; {{ r.span }}</small></span>
+                        <span class="ar-val"><b class="{{ 'at-up' if r.change > 0 else 'at-down' }}">{{ '%+.1f'|format(r.change) }}</b></span></li>
+                    {% endfor %}
+                </ol>
+                {% endif %}
                 {% endfor %}
-            </ol>
-            {% endif %}
-            {% endfor %}
+            </div>
+            <div id="at-mkt-player" hidden></div>
         </article>
     </div>
     <p class="card-sub at-market-note">
-        Trades carrying draft picks or FAAB are left out: nobody knows what the pick
+        <b>Book</b> is what these leagues&rsquo; own usage says a player is worth: how
+        many of the week&rsquo;s {{ '{:,}'.format(a.teams) if a and a.teams else 'thousands of' }}
+        teams start him, and what he gives them when they do, measured against the
+        last man anybody deliberately starts at his position. The <b>price</b> is what
+        the field actually paid for him in trades. Book is a record and the price is a
+        forecast, so a player well over or under book is the interesting case &mdash;
+        that gap is the country changing its mind.
+        <br>Trades carrying draft picks or FAAB are left out: nobody knows what the pick
         is worth, and guessing would corrupt the players beside it. Three-way deals
         are out too. Valuing picks is the next piece of work, and in a dynasty-heavy
         population it is the big one.
@@ -789,6 +833,159 @@
     // Someone opened a shared link: show them that score straight away.
     if (score) { score.value = {{ shared.score|tojson }}; update(); }
     {% endif %}
+
+    // ---- the trade market: scrub, swap, and who-for-whom ----------------
+    (function () {
+        var box = document.getElementById("at-mkt");
+        if (!box) return;
+        var svg = document.getElementById("at-mkt-svg"),
+            hit = document.getElementById("at-mkt-hit"),
+            rule = document.getElementById("at-mkt-rule"),
+            cap = document.getElementById("at-mkt-cap"),
+            legend = document.getElementById("at-mkt-legend"),
+            detail = document.getElementById("at-mkt-detail"),
+            head = document.getElementById("at-mkt-detail-head"),
+            moversBox = document.getElementById("at-mkt-movers"),
+            playerBox = document.getElementById("at-mkt-player");
+        var DAYS = {{ (M.chart.days if M and M.chart else [])|tojson }};
+        var capText = cap ? cap.textContent : "";
+        var groups = Array.prototype.slice.call(svg.querySelectorAll(".at-mk"));
+
+        // Each line's value on each day, read straight off the markup.
+        var at = {};
+        groups.forEach(function (g) {
+            var pts = {};
+            g.querySelectorAll(".at-mk-path").length;
+            at[g.getAttribute("data-key")] = pts;
+        });
+        var SERIES = {};
+        try { SERIES = JSON.parse(box.getAttribute("data-series") || "{}"); } catch (e) { SERIES = {}; }
+
+        function nearest(clientX) {
+            var r = svg.getBoundingClientRect();
+            var vb = svg.viewBox.baseVal;
+            var x = (clientX - r.left) / r.width * vb.width;
+            var best = null, gap = Infinity;
+            DAYS.forEach(function (d) {
+                var g2 = Math.abs(d.x - x);
+                if (g2 < gap) { gap = g2; best = d; }
+            });
+            return best;
+        }
+        function show(day) {
+            if (!day) return;
+            rule.setAttribute("x1", day.x); rule.setAttribute("x2", day.x);
+            rule.style.display = "";
+            groups.forEach(function (g) {
+                var key = g.getAttribute("data-key");
+                var v = (SERIES[key] || {})[String(day.d)];
+                var dot = g.querySelector(".at-mk-cursor");
+                var chip = legend.querySelector('[data-key="' + cssEscape(key) + '"] [data-value]');
+                if (v === undefined) {
+                    if (dot) dot.style.display = "none";
+                    if (chip) chip.textContent = "\u2013";
+                    return;
+                }
+                var y = yFor(v);
+                if (dot) { dot.setAttribute("cx", day.x); dot.setAttribute("cy", y); dot.style.display = ""; }
+                if (chip) chip.textContent = v;
+            });
+            if (cap) cap.textContent = day.label;
+        }
+        function clear() {
+            rule.style.display = "none";
+            groups.forEach(function (g) {
+                var dot = g.querySelector(".at-mk-cursor");
+                if (dot) dot.style.display = "none";
+                var key = g.getAttribute("data-key");
+                var pts = SERIES[key] || {};
+                var last = DAYS.length ? pts[String(DAYS[DAYS.length - 1].d)] : undefined;
+                var chip = legend.querySelector('[data-key="' + cssEscape(key) + '"] [data-value]');
+                if (chip) chip.textContent = last === undefined ? "\u2013" : last;
+            });
+            if (cap) cap.textContent = capText;
+        }
+        function cssEscape(v) { return String(v).replace(/["\\]/g, "\\$&"); }
+        var LO = parseFloat(box.getAttribute("data-lo")), HI = parseFloat(box.getAttribute("data-hi"));
+        var TOP = {{ (M.chart.top if M and M.chart else 0)|tojson }},
+            BASE = {{ (M.chart.base if M and M.chart else 0)|tojson }};
+        function yFor(v) { return TOP + (BASE - TOP) * (1 - (v - LO) / ((HI - LO) || 1)); }
+
+        var dragging = false;
+        function at_move(e) {
+            var t = e.touches ? e.touches[0] : e;
+            show(nearest(t.clientX));
+        }
+        hit.addEventListener("pointerdown", function (e) {
+            dragging = true; hit.setPointerCapture && hit.setPointerCapture(e.pointerId); at_move(e);
+        });
+        hit.addEventListener("pointermove", function (e) { if (dragging || e.pointerType === "mouse") at_move(e); });
+        hit.addEventListener("pointerup", function () { dragging = false; });
+        hit.addEventListener("pointerleave", function () { if (!dragging) clear(); });
+        hit.addEventListener("pointercancel", function () { dragging = false; clear(); });
+
+        // ---- who has he been traded for ----
+        var cache = {};
+        function esc(t) { var d = document.createElement("div"); d.textContent = t == null ? "" : t; return d.innerHTML; }
+        function bundle(list) {
+            return (list || []).map(function (p) { return esc(p.name); }).join(" + ") || "\u2014";
+        }
+        function showPlayer(key, name) {
+            head.textContent = name;
+            moversBox.hidden = true;
+            playerBox.hidden = false;
+            playerBox.innerHTML = '<p class="ar-board-sub">Reading his trades\u2026</p>';
+            var done = function (d) {
+                if (!d) { playerBox.innerHTML = '<p class="ar-board-sub">Nothing to show for him.</p>'; return; }
+                var html = '<p class="ar-board-sub">' + esc(name) + " has been in "
+                    + (d.trades || 0).toLocaleString() + " trades.</p>";
+                if ((d.counterparts || []).length) {
+                    html += '<p class="at-mover-head">Most often traded for</p><ol class="ar-list at-rows at-movers">';
+                    d.counterparts.forEach(function (c) {
+                        html += "<li><span class=\"ar-name\">" + esc(c.name)
+                            + (c.position ? '<span class="ar-pos">' + esc(c.position) + "</span>" : "")
+                            + "</span><span class=\"ar-val\"><b>" + c.n + "</b></span></li>";
+                    });
+                    html += "</ol>";
+                }
+                if ((d.recent || []).length) {
+                    html += '<p class="at-mover-head">Latest deals</p><ul class="at-mkt-deals">';
+                    d.recent.forEach(function (r) {
+                        html += "<li><b>" + bundle(r.got) + "</b> for " + bundle(r.gave)
+                            + "<small>" + (r.day ? esc(r.day) : "week " + r.week) + "</small></li>";
+                    });
+                    html += "</ul>";
+                }
+                html += '<p class="at-mkt-back"><button type="button" class="at-all-toggle" '
+                    + 'data-back>Back to risers and fallers</button></p>';
+                playerBox.innerHTML = html;
+                var back = playerBox.querySelector("[data-back]");
+                if (back) back.addEventListener("click", function () {
+                    playerBox.hidden = true; moversBox.hidden = false;
+                    head.textContent = "Risers and fallers";
+                });
+            };
+            if (cache[key]) { done(cache[key]); return; }
+            fetch("/staff/around/player/" + encodeURIComponent(key) + ".json",
+                  {credentials: "same-origin"})
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) { cache[key] = d; done(d); })
+                .catch(function () { done(null); });
+        }
+
+        var board = document.getElementById("at-mkt-board");
+        if (board) board.addEventListener("click", function (e) {
+            var row = e.target.closest(".at-mkt-row");
+            if (!row) return;
+            showPlayer(row.getAttribute("data-key"), row.getAttribute("data-name"));
+        });
+        legend.addEventListener("click", function (e) {
+            var chip = e.target.closest(".at-mkt-chip");
+            if (!chip) return;
+            var key = chip.getAttribute("data-key");
+            showPlayer(key, chip.querySelector(".at-mkt-chip-text").firstChild.textContent.trim());
+        });
+    })();
 
     // ---- every player, searchable -------------------------------------
     // The boards show ten apiece. This is the same week's players, all of
