@@ -37,6 +37,7 @@
 
 <section class="card">
     <form method="post" action="/signup" class="stack">
+        {% if next %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
         <label class="field">
             <span class="field-label">Email</span>
             <input type="email" name="email" required autocomplete="email"

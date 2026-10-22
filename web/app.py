@@ -1282,6 +1282,16 @@ def _trade_market(season: int, latest: int) -> Optional[dict]:
         return None
 
 
+def _local(path: str) -> str:
+    """A redirect target, if it is a path on this site and not a way off it.
+
+    "//evil.example" is a protocol-relative URL and a browser follows it
+    off the site, so the second test is not redundant.
+    """
+    path = (path or "").strip()
+    return path if path.startswith("/") and not path.startswith("//") else ""
+
+
 def around_public() -> bool:
     return os.getenv("AROUND_PUBLIC", "").strip() == "1"
 
@@ -1381,6 +1391,44 @@ def staff_around_player(request: Request, player_key: str):
     if not out:
         raise HTTPException(status_code=404)
     return JSONResponse(out, headers={"Cache-Control": "private, max-age=300"})
+
+
+@app.get("/around/players.json")
+def around_players(request: Request, week: int = 0):
+    """Every player in the week, for the expandable board and its search.
+
+    BEHIND A SIGN-IN, which is the point: the top ten of each board stays
+    public, and the whole list — four hundred players, searchable by name,
+    position and NFL team — is what an account is for.
+
+    It is a separate request rather than part of the page on purpose. The
+    list used to ship inside the HTML for every visitor, which made it
+    about a third of the page's weight for the many who never opened it,
+    and would have made this gate a decoration: anything in the markup is
+    one View Source away, whatever the button says.
+    """
+    import nfl_week
+
+    from . import around
+    user = current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    # While the page itself is closed, its side doors are closed too.
+    if not around_public() and user.get("plan") != plans.STAFF:
+        raise HTTPException(status_code=404)
+    season = nfl_week.current_season()
+    wk = int(week) if 1 <= int(week or 0) <= 18 else max(nfl_week.completed_week(), 1)
+    try:
+        wkd = around.week_json(db, season, wk)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[around] no player list: {type(exc).__name__}: {exc}", flush=True)
+        raise HTTPException(status_code=503) from None
+    players = (wkd or {}).get("players") or {}
+    rows = players.get("all") or []
+    if not rows:
+        raise HTTPException(status_code=404)
+    return JSONResponse({"all": rows, "min_starts": players.get("min_starts") or 150},
+                        headers={"Cache-Control": "private, max-age=300"})
 
 
 @app.get("/around/my-lineup.json")
@@ -2183,18 +2231,19 @@ def _set_session(response, user_id: str):
 
 
 @app.get("/signup", response_class=HTMLResponse)
-def signup_form(request: Request, error: str = "", email: str = ""):
+def signup_form(request: Request, error: str = "", email: str = "",
+                next: str = ""):
     if current_user(request):
-        return RedirectResponse("/account", status_code=303)
-    return _render(request, "signup.html", error=error, email=email)
+        return RedirectResponse(_local(next) or "/account", status_code=303)
+    return _render(request, "signup.html", error=error, email=email, next=next)
 
 
 @app.post("/signup")
 def signup(request: Request, email: str = Form(...), password: str = Form(...),
-           confirm: str = Form("")):
+           confirm: str = Form(""), next: str = Form("")):
     def fail(message: str):
         return _render(request, "signup.html", error=message,
-                       email=(email or "").strip())
+                       email=(email or "").strip(), next=next)
 
     if _rate_limited(f"signup:{_client_ip(request)}", SIGNUPS_PER_HOUR):
         return fail("That's a few accounts already. Try again in an hour.")
@@ -2226,7 +2275,11 @@ def signup(request: Request, email: str = Form(...), password: str = Form(...),
     # Straight on to the next thing rather than an empty shelf. Signing up is
     # not the goal; having a paper is.
     # ?welcome=1 is what raises the upgrade offer, once, on arrival.
-    response = RedirectResponse("/connect?welcome=1", status_code=303)
+    # Somebody who signed up to search the player boards wants the player
+    # boards back, not the connect wizard. Connecting is still the default,
+    # because for everyone arriving the usual way it is the next step.
+    response = RedirectResponse(_local(next) or "/connect?welcome=1",
+                                status_code=303)
     return _set_session(response, user["id"])
 
 

@@ -305,19 +305,36 @@
             </ol>
         </div>
         {% endfor %}
-        {% if P.all %}
+        {% if a.player_count %}
         <div class="at-all" id="at-all">
             <div class="at-all-bar">
+                {% if not user %}
+                {# The gate. The ten-a-board lists above stay public — they
+                   are what search engines and readers arrive on — and the
+                   whole searchable list is what an account is for. The
+                   data is not in this page at all for a signed-out
+                   reader, so this is a gate and not a curtain. #}
+                <a class="at-all-toggle at-all-gate"
+                   href="/signup?next=/around#players">
+                    Search all <span class="at-all-count">{{ '{:,}'.format(a.player_count) }}</span>
+                    players &mdash; free account
+                </a>
+                <span class="at-all-gate-note">Every player this week, searchable by
+                    name, position and NFL team. <a href="/login?next=/around">Already have
+                    an account?</a></span>
+                {% else %}
                 <button type="button" class="at-all-toggle" id="at-all-toggle"
                         aria-expanded="false" aria-controls="at-all-panel">
-                    Show every player <span class="at-all-count">{{ '{:,}'.format(P.all|length) }}</span>
+                    Show every player <span class="at-all-count">{{ '{:,}'.format(a.player_count) }}</span>
                 </button>
                 <label class="at-all-search" hidden id="at-all-search">
                     <span class="visually-hidden">Search players</span>
                     <input type="search" id="at-all-q" placeholder="Search a player, position or team&hellip;"
                            autocomplete="off" spellcheck="false" />
                 </label>
+                {% endif %}
             </div>
+            {% if user %}
             <div class="at-all-panel" id="at-all-panel" hidden>
                 {# Filled from the week's own players, so a position or a team
                    nobody rostered never gets a control. #}
@@ -331,6 +348,7 @@
                 <p class="at-all-note" id="at-all-note"></p>
                 <ol class="ar-list at-rows at-all-rows" id="at-all-rows"></ol>
             </div>
+            {% endif %}
         </div>
         {% endif %}
     </div>
@@ -761,7 +779,12 @@
     // ---- every player, searchable -------------------------------------
     // The boards show ten apiece. This is the same week's players, all of
     // them, ranked by whichever board is open and filtered as you type.
-    var ALL = {{ ((((a.players or {}).get('all')) or []) if a else [])|tojson }};
+    // Fetched on first open from /around/players.json, which needs a
+    // session. It used to be embedded here for every visitor, which was
+    // most of the page's weight for the many who never opened it — and
+    // would have made the sign-in gate a curtain rather than a gate.
+    var ALL = [];
+    var ALL_LOADED = false;
     var MIN_STARTS = {{ ((a.players or {}).get('min_starts') or 150) if a else 150 }};
     // `keep` is each board's own rule, so the count in the note matches the
     // list: the win-rate boards only mean something past a floor of starts.
@@ -904,7 +927,28 @@
         allSearch.hidden = !on;
         allToggle.setAttribute("aria-expanded", on ? "true" : "false");
         allToggle.firstChild.textContent = on ? "Hide the full list " : "Show every player ";
-        if (on) { buildFilters(); renderAll(); allQ.focus(); }
+        if (!on) return;
+        if (ALL_LOADED) { buildFilters(); renderAll(); allQ.focus(); return; }
+        // First open: go and get the list. The button is already pressed,
+        // so say what is happening rather than showing an empty panel.
+        allNote.textContent = "Fetching every player\u2026";
+        fetch("/around/players.json?week=" + encodeURIComponent(WEEK),
+              {credentials: "same-origin"}).then(function (r) {
+            return r.ok ? r.json() : null;
+        }).then(function (d) {
+            if (!d || !(d.all || []).length) {
+                allNote.textContent = "That list isn\u2019t in yet.";
+                return;
+            }
+            ALL = d.all;
+            MIN_STARTS = d.min_starts || MIN_STARTS;
+            ALL_LOADED = true;
+            buildFilters();
+            renderAll();
+            allQ.focus();
+        }).catch(function () {
+            allNote.textContent = "Couldn\u2019t fetch the list just now.";
+        });
     }
     if (allToggle) {
         allToggle.addEventListener("click", function () { openAll(!allOpen); });

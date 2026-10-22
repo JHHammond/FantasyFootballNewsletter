@@ -636,3 +636,99 @@ def test_the_lineup_endpoint_needs_a_session(web, monkeypatch):
     monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
     r = web.get("/around/my-lineup.json?league=demo-mine&team=t0&week=3")
     assert r.status_code in (401, 404)
+
+
+def test_the_full_player_list_needs_an_account(web, monkeypatch):
+    """John, 22 Oct: searching the boards should cost you a signup.
+
+    The ten-a-board lists stay public — they are what readers and search
+    engines arrive on — and the whole searchable list is what an account
+    is for.
+    """
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    _seed_players()
+    page = web.get("/around").text
+    assert "at-all-gate" in page, "no invitation to sign up"
+    assert 'id="at-all-toggle"' not in page, "the control is there without an account"
+    assert web.get("/around/players.json").status_code == 401
+
+
+def test_the_gate_is_a_gate_and_not_a_curtain(web, monkeypatch):
+    """The one that matters. The list used to ship inside the page for
+    every visitor, so gating the BUTTON would have left the data one View
+    Source away — and would have cost every reader the weight of a list
+    most never open. It is not in the markup at all now."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    _seed_players()
+    page = web.get("/around").text
+    assert "var ALL = [];" in page
+    assert "var ALL = [{" not in page
+
+
+def test_an_account_opens_it(web, monkeypatch):
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    _seed_players()
+    web.post("/signup", data={"email": "reader@example.com",
+                              "password": "correct horse battery 9",
+                              "confirm": "correct horse battery 9"})
+    page = web.get("/around").text
+    assert 'id="at-all-toggle"' in page
+    assert "at-all-gate" not in page
+
+
+def test_signing_up_from_the_gate_brings_you_back(web):
+    """Somebody who signed up to search the player boards wants the player
+    boards back, not the connect wizard."""
+    r = web.post("/signup", data={"email": "back@example.com",
+                                  "password": "correct horse battery 9",
+                                  "confirm": "correct horse battery 9",
+                                  "next": "/around"}, follow_redirects=False)
+    assert r.headers.get("location") == "/around"
+
+
+def test_signup_will_not_bounce_you_off_the_site(web):
+    """`next` is a redirect target from a query string, so it is somebody
+    else's input. "//evil.example" is protocol-relative and a browser
+    follows it straight off the site."""
+    for bad in ("//evil.example", "https://evil.example", "javascript:alert(1)"):
+        r = web.post("/signup", data={"email": f"x{abs(hash(bad))}@example.com",
+                                      "password": "correct horse battery 9",
+                                      "confirm": "correct horse battery 9",
+                                      "next": bad}, follow_redirects=False)
+        assert r.headers.get("location") == "/connect?welcome=1", bad
+
+
+def _seed_players(n_teams: int = 14, n_players: int = 20) -> None:
+    """A week with enough teams and players that the full board exists.
+
+    Without lineups there is no player list at all, so neither the gate
+    nor the control renders and a test asserting on them proves nothing.
+    """
+    tw, lu = [], []
+    for i in range(n_teams):
+        tw.append({"league_id": "gate-lg", "provider": "sleeper",
+                   "platform_league_id": "g", "season": SEASON, "week": 3,
+                   "team_id": f"t{i}", "team_name": f"T{i}", "manager": "",
+                   "points": 100.0 + i, "opponent_name": "o",
+                   "opponent_points": 95.0, "margin": 5.0, "result": "W",
+                   "optimal_points": 110.0, "bench_left": 10.0, "empty_slots": 0,
+                   "top_player": "p0", "best_bench_player": "p1", "team_count": 12,
+                   "scoring_type": "ppr", "ppr_points": 100.0 + i,
+                   "ppr_coverage": 1.0})
+        for j in range(n_players):
+            lu.append({"league_id": "gate-lg", "season": SEASON, "week": 3,
+                       "team_id": f"t{i}", "player_key": f"p{j}",
+                       "slot": "WR" if j < 9 else "BN", "started": j < 9,
+                       "points": 20.0 - j, "ppr_points": 20.0 - j})
+    demo_db.upsert_team_weeks(tw)
+    demo_db.upsert_lineups(lu)
+    demo_db.upsert_nfl_players([
+        {"player_key": f"p{j}", "name": f"Player {j}", "position": "WR",
+         "nfl_team": "CIN"} for j in range(n_players)])
+    around.clear_cache()

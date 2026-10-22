@@ -529,7 +529,13 @@ def build(db, season: int, week: int, *, public: bool = False) -> dict[str, Any]
         "unlucky": wk.get("unlucky") or [],
         "lucky": wk.get("lucky") or [],
         "faceoffs": _groups(wk.get("groups") or []),
-        "players": players,
+        # The ten-a-board lists, but NOT the four hundred behind them: the
+        # full list is fetched from /around/players.json by a signed-in
+        # reader. Shipping it in the page made the gate a decoration and
+        # cost every visitor the weight of a list most never opened.
+        "players": {k: v for k, v in players.items() if k != "all"},
+        #: The size of what is behind the sign-in, which is worth showing.
+        "player_count": len(players.get("all") or []),
         "season_data": ss,
         "season_line": line(weeks),
         "tracker": ss.get("tracker") or {},
@@ -538,6 +544,17 @@ def build(db, season: int, week: int, *, public: bool = False) -> dict[str, Any]
     faceoff_deltas(out["faceoffs"], s.get("avg_ppr"))
     out["front"] = front(out)
     return out
+
+
+def week_json(db, season: int, week: int) -> dict:
+    """The raw week, through the same cache the page uses.
+
+    One door to around_week, so the player endpoint and the page cannot
+    disagree about what this week was, and so a reader opening the full
+    board does not set a second copy of a 0.9-second query running.
+    """
+    return _cached(("w", season, week, MIN_STARTS),
+                   lambda: db.around_week(season, week, MIN_STARTS)) or {}
 
 
 # ---------------------------------------------------------------------------
@@ -581,8 +598,7 @@ def my_lineup(db, user: Optional[dict], season: int, week: int,
         return {}
 
     try:
-        wk = _cached(("w", season, week, MIN_STARTS),
-                     lambda: db.around_week(season, week, MIN_STARTS)) or {}
+        wk = week_json(db, season, week)
     except Exception:  # noqa: BLE001
         wk = {}
     players = wk.get("players") or {}
