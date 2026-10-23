@@ -3958,12 +3958,20 @@ html.nb-lock { overflow: hidden; }
     .at-mkt-face { width: 22px; height: 22px; }
 }
 
+/* ---- the trade market's price chart (23 Oct): one player in focus ---- */
+.at-pc-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; margin: 4px 0 0; }
+.at-pc-head { display: flex; align-items: center; gap: 14px; min-height: 64px; }
+.at-pc-face { width: 56px; height: 56px; }
+.at-pc-face > span { font-size: 22px; }
+.at-pc-head-text { display: flex; flex-direction: column; gap: 2px; }
+.at-pc-name { font: 600 15px "Barlow", sans-serif; color: var(--ink-2); }
+.at-pc-pricerow { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; }
+.at-pc-price { font-family: "Anton", sans-serif; font-size: 44px; line-height: 1; font-variant-numeric: tabular-nums; }
+.at-pc-chg { font: 600 14px "Barlow", sans-serif; white-space: nowrap; }
+.at-pc-up { color: #2d6a1f; }
+.at-pc-down { color: var(--accent); }
+.at-pc-flat { color: var(--muted); }
 
-/* ---- the trade market's price chart, on top (23 Oct) ---- */
-.at-pc-controls { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 20px; margin: 10px 0 4px; }
-.at-pc-legend { margin: 0; flex: 1 1 320px; min-height: 34px; }
-.at-pc-chip .at-pc-x { margin-left: 2px; color: var(--muted); font-size: 16px; line-height: 1; }
-.at-pc-chip:hover .at-pc-x { color: var(--accent); }
 .at-pc-add { position: relative; flex: 0 1 280px; width: 100%; }
 .at-pc-add-label { display: block; font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
 .at-pc-q { width: 100%; box-sizing: border-box; padding: 7px 10px; font: 500 15px "Barlow", sans-serif; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 2px; }
@@ -3975,12 +3983,62 @@ html.nb-lock { overflow: hidden; }
 .at-pc-hit.at-pc-active, .at-pc-hit:hover { background: rgba(0,0,0,.05); }
 .at-pc-hit.at-pc-on .at-pc-hit-name::after { content: " \2713"; color: var(--accent); }
 .at-pc-hit-val { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.at-pc-chart { margin-top: 6px; }
-.at-pc .at-mk-dot { stroke-width: 1.5; }
-@media (max-width: 560px) {
-    .at-pc-add { flex-basis: 100%; }
-}
 
-/* The price chart draws its own phone frame (400 wide), so its ticks stay
-   at their natural size instead of the 24px the scaled-down charts need. */
+/* Chips: a swatch, the name and today's price; the name focuses, the x removes. */
+.at-pc-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 10px; }
+.at-pc-chip { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); }
+.at-pc-chip-on { border-color: var(--ink); background: #f4eee2; }
+.at-pc-chip-main { display: inline-flex; align-items: center; gap: 7px; background: none; border: 0; cursor: pointer; padding: 5px 2px 5px 11px; color: var(--ink); font: 600 13px "Barlow", sans-serif; white-space: nowrap; }
+.at-pc-chip-main b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 15px; font-variant-numeric: tabular-nums; }
+.at-pc-chip-main:focus-visible, .at-pc-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 999px; }
+.at-pc-x { background: none; border: 0; cursor: pointer; padding: 4px 11px 4px 6px; color: var(--muted); font-size: 16px; line-height: 1; }
+.at-pc-x:hover { color: var(--accent); }
+.at-pc-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.at-mk-0 .at-pc-swatch { background: var(--accent); }
+.at-mk-1 .at-pc-swatch { background: var(--ink); }
+.at-mk-2 .at-pc-swatch { background: #2d6a1f; }
+.at-mk-3 .at-pc-swatch { background: #8a6d1f; }
+.at-mk-4 .at-pc-swatch { background: #4a5b8c; }
+.at-mk-5 .at-pc-swatch { background: #7a4a6a; }
+.at-pc-head.at-mk-0 .at-pc-price { color: var(--accent); }
+.at-pc-head.at-mk-2 .at-pc-price { color: #2d6a1f; }
+.at-pc-head.at-mk-3 .at-pc-price { color: #8a6d1f; }
+.at-pc-head.at-mk-4 .at-pc-price { color: #4a5b8c; }
+.at-pc-head.at-mk-5 .at-pc-price { color: #7a4a6a; }
+
+.at-pc-stats { display: flex; flex-wrap: wrap; gap: 4px 22px; font: 500 14px "Barlow", sans-serif; color: var(--muted); padding-top: 8px; border-top: 1px dashed var(--line); }
+.at-pc-stats b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.at-pc-stats b.at-pc-hi { color: #2d6a1f; }
+.at-pc-stats b.at-pc-lo { color: var(--accent); }
+
+/* The plot: dotted paper, dashed rules, the focused line over a soft fill. */
+.at-pc-chart { margin-top: 10px; }
+.at-pc-box { position: relative; cursor: crosshair; background-image: radial-gradient(rgba(107, 96, 80, .16) 1px, transparent 1.2px); background-size: 20px 20px; }
+.at-pc-grid { stroke-dasharray: 4 8; }
+.at-pc-rule { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 4 4; opacity: .5; }
+.at-pc-area { pointer-events: none; }
+.at-pc-on .at-mk-path { stroke-width: 2.75; }
+.at-pc-off .at-mk-path { stroke-width: 1.5; opacity: .45; }
+.at-pc-off .at-pc-end { opacity: .6; }
+.at-pc .at-pc-mark { stroke: var(--paper); stroke-width: 2; filter: drop-shadow(0 2px 2.5px rgba(0, 0, 0, .35)); }
+.at-pc .at-mk-ring { stroke-width: 2.5; }
+.at-pc-svg image { pointer-events: none; }
 .ar-chart.at-pc-chart .ar-tick { font-size: 12px; }
+
+.at-pc-tip { position: absolute; z-index: 5; pointer-events: none; min-width: 180px; background: var(--paper); border: 1px solid var(--ink); box-shadow: 0 8px 20px -8px rgba(40, 30, 10, .4); padding: 8px 10px; font: 500 13px "Barlow", sans-serif; }
+.at-pc-tip-date { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.at-pc-tip-row { display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 0 7px; padding: 1px 0; }
+.at-pc-tip-row b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 14px; font-variant-numeric: tabular-nums; }
+.at-pc-tip-row .at-pc-chg { font-size: 12px; }
+.at-pc-tip-on .at-pc-tip-name { font-weight: 700; }
+.at-pc-note { font: 400 13px "Barlow", sans-serif; color: var(--muted); margin-top: 10px; }
+
+@media (max-width: 560px) {
+    .at-pc-top { flex-direction: column; align-items: stretch; }
+    .at-pc-add { flex-basis: auto; }
+    .at-pc-face { width: 46px; height: 46px; }
+    .at-pc-price { font-size: 36px; }
+    /* One swipeable row of chips instead of a tall stack above the chart. */
+    .at-pc-legend { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; margin-right: -16px; }
+    .at-pc-stats { gap: 2px 14px; font-size: 13px; }
+}

@@ -139,6 +139,10 @@ MAX_STEP = 0.35
 #: Below this many drafts a player's ADP is one room's opinion, not a
 #: consensus, and he starts as undrafted instead.
 MIN_DRAFTS = 20
+#: How many players the price chart draws before the reader picks any.
+#: Five of the six colours, so there is always room to add one.
+CHART_DEFAULT = 5
+
 #: Teams in the league a slot is quoted in. Everything is normalised to a
 #: twelve-team draft, so "2.03" means the third pick of the second round.
 TEAMS = 12
@@ -614,6 +618,10 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     # starting from where he was drafted. Every player, not a chosen six,
     # because the page lets the reader pick who to draw — see weekly().
     weekly_lines = weekly(got["series"], adp, season, rated)
+    # By day as well (John, 23 Oct: "it should be by day, to get the Kalshi
+    # type view"). Every player's line is kept here, in the cache; the page
+    # carries only the default few and fetches the rest when added.
+    day_lines = daily(got["series"], adp, rated)
     from web.luck import photo_url
     pickable = []
     for i, k in enumerate(rated, 1):
@@ -629,6 +637,13 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
         "rows": rows,
         "held": held,
         "weekly": weekly_lines,
+        "daily": day_lines,
+        #: What the page embeds: the default lines only (the top few by
+        #: price). Everybody else is fetched when the reader adds him.
+        "chart": {"base": day_lines["base"], "last": day_lines["last"],
+                  "default": [k for k in rated if k in day_lines["lines"]][:CHART_DEFAULT],
+                  "lines": {k: day_lines["lines"][k]
+                            for k in [k for k in rated if k in day_lines["lines"]][:CHART_DEFAULT]}},
         "pickable": pickable,
         "up": movers[:6],
         "down": list(reversed(movers[-6:])),
@@ -648,6 +663,38 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
         "drift": round(drift, 4),
         "fit": got["fit"],
     }
+
+
+def daily(series: dict, adp: dict[str, float],
+          keys: Iterable[str]) -> dict[str, Any]:
+    """Every player's close on every trading day, as offsets from a base
+    date so a line is pairs of small numbers:
+
+        {"base": "2026-08-27", "last": 57,
+         "lines": {key: [[0, 9.8], [8, 9.1], [9, 8.7], ...]}}
+
+    Day 0 is "the draft": the base is a week before the first trade, and
+    every drafted player's line starts there at his ADP, so the first
+    segment is still draft-to-market. A player first traded in October
+    jumps from his draft price to his first close, which is what happened.
+    A day with no trades anywhere has no close, and the line runs straight
+    across it.
+    """
+    from datetime import date
+    days = sorted({int(pt["day"]) for pts in series.values() for pt in pts})
+    if not days:
+        return {"base": None, "last": 0, "lines": {}}
+    base = days[0] - 7
+    lines: dict[str, list] = {}
+    for key in keys:
+        pts = series.get(key) or []
+        if not pts:
+            continue
+        line = [[0, round(float(adp[key]), 1)]] if key in adp else []
+        line += [[int(pt["day"]) - base, pt["slot"]] for pt in pts]
+        lines[key] = line
+    return {"base": date.fromordinal(base).isoformat(),
+            "last": days[-1] - base, "lines": lines}
 
 
 def weekly(series: dict, adp: dict[str, float], season: int,

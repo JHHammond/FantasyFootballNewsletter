@@ -1487,6 +1487,24 @@ def staff_market(request: Request):
                    job=league_stats.job_status())
 
 
+@app.get("/staff/market/line.json")
+def staff_market_line(request: Request, k: str = ""):
+    """One player's daily price line, for the chart's "add a player". The
+    page carries only the default lines; a whole board of daily lines is
+    too heavy to send to everybody who opens it. Read from the same cached
+    build the page used, so it costs nothing to serve."""
+    _require_staff(request)
+    import nfl_week
+    key = clean_text(k, max_length=40).strip()
+    season = nfl_week.current_season()
+    rating = _trade_rating(season, max(nfl_week.completed_week(), 1)) or {}
+    line = ((rating.get("daily") or {}).get("lines") or {}).get(key)
+    if not line:
+        raise HTTPException(status_code=404)
+    return JSONResponse({"k": key, "line": line},
+                        headers={"Cache-Control": "private, max-age=300"})
+
+
 @app.post("/staff/around/collect")
 def staff_around_collect(request: Request, weeks: str = Form("")):
     """Start a collection in the background. `weeks` is "3" or "1-3"."""
