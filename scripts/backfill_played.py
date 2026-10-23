@@ -44,7 +44,14 @@ def main() -> int:
         took = [k for k, v in played.items() if v["played"]]
         with_snaps = sum(1 for v in played.values() if v["snaps"] is not None)
         stats = ppr.fetch_stats(season, week) or {}
-        zero = [k for k in took if (stats.get(k) or [None])[0] in (0, 0.0)]
+        # Sleeper leaves a zero out of a stat line, so a player who played
+        # and scored nothing has NO points line at all (Skattebo, week 6:
+        # 6 snaps, no pts_ppr). The first version looked for an explicit
+        # 0.0, found none, and reported 0 every week. Fantasy positions
+        # only: linemen and defenders play snaps and never score.
+        zero = [k for k in took if k in names
+                and (names[k][1] or "") in ("QB", "RB", "WR", "TE", "K")
+                and ((stats.get(k) or [None])[0] or 0) == 0]
         zero_names = [(names.get(k) or [k])[0] for k in zero]
         print(f"Week {week}: {len(rows):,} stat lines saved, {len(took):,} took the field, "
               f"{with_snaps:,} with snap counts. Played and scored 0: {len(zero)}"
