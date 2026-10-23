@@ -4381,3 +4381,15 @@ a.pp-tile-him:hover { background: var(--ink); }
 .mk-kicker { margin: 0 0 10px; font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 2.4px; text-transform: uppercase; color: var(--accent); }
 .mk-title { margin: 0; font-family: "Playfair Display", Georgia, serif; font-weight: 900; font-size: clamp(34px, 6vw, 60px); line-height: 1.02; letter-spacing: -.5px; color: var(--ink); }
 .mk-dek { margin: 12px auto 0; max-width: 46ch; font: 500 17px/1.45 Georgia, serif; color: var(--ink-2); }
+
+/* ---- market: sign-up nudges (23 Oct) ---- */
+.mk-myteam { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 999px; background: var(--ink); color: var(--paper); text-decoration: none; font: 700 14px "Barlow", sans-serif; white-space: nowrap; }
+.mk-myteam svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+.mk-myteam:hover { background: var(--accent); color: #fff; }
+.mk-nudge { margin: 4px 0 10px; padding: 10px 14px; border-radius: 10px; background: #fbe3e2; color: var(--ink); font: 500 14px "Barlow", sans-serif; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.mk-nudge[hidden] { display: none; }
+.mk-nudge a { color: var(--accent); font-weight: 700; }
+.mk-nudge .mk-nudge-go { background: var(--accent); color: #fff; padding: 6px 14px; border-radius: 999px; text-decoration: none; }
+.mk-nudge-on { animation: mk-nudge 0.5s ease-out; }
+@keyframes mk-nudge { 0% { transform: translateY(-4px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+a.offer-go { display: inline-block; text-decoration: none; text-align: center; }

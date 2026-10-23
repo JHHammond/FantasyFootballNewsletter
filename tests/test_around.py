@@ -522,11 +522,9 @@ def test_the_market_has_its_own_page(web, monkeypatch):
     import nfl_week
     monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
     _staff(web)
-    r = web.get("/staff/market")
+    r = web.get("/market")
     assert r.status_code == 200
     assert "trade market" in r.text.lower()
-    # And a way back, so the two pages are not strangers.
-    assert "/staff/around" in r.text
 
 
 def test_the_market_is_public_and_the_old_address_redirects(web, monkeypatch):

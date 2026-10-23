@@ -124,13 +124,18 @@
     </div>
     {% endif %}
     <div class="at-pc-legend pp-legend" id="pp-legend"></div>
+    {% if not user %}
+    <p class="mk-nudge" id="pp-nudge" hidden>Free accounts compare up to 5 players and see who has him in their league.
+        <a class="mk-nudge-go" href="/signup?next={{ (request.url.path ~ '?welcome=1')|urlencode }}">Sign up free</a>
+        <a href="/login?next={{ request.url.path|urlencode }}">Sign in</a></p>
+    {% endif %}
     <figure class="ar-chart at-pc-chart">
         <div class="ar-chart-box at-pc-box"><svg viewBox="0 0 760 260" class="ar-line" id="pp-svg" role="img"
              aria-label="{{ who.name }}'s price by day, as a draft pick"></svg>
             <div class="at-pc-tip" id="pp-tip" hidden></div></div>
         <figcaption class="at-pc-note">Each player&rsquo;s place in the market at each day&rsquo;s close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
-    <script type="application/json" id="pp-data">{{ {'base': chart.base, 'last': chart.last, 'line': chart.line, 'best': chart.best, 'worst': chart.worst, 'him': {'k': who.key, 'name': who.name, 'pos': who.position, 'costs': who.costs, 'photo': who.photo}, 'players': players, 'url': '/market/line.json', 'max': 5}|tojson }}</script>
+    <script type="application/json" id="pp-data">{{ {'base': chart.base, 'last': chart.last, 'line': chart.line, 'best': chart.best, 'worst': chart.worst, 'him': {'k': who.key, 'name': who.name, 'pos': who.position, 'costs': who.costs, 'photo': who.photo}, 'players': players, 'url': '/market/line.json', 'max': 5 if user else 2, 'signed_in': user is not none}|tojson }}</script>
 </section>
 {% endif %}
 
@@ -173,7 +178,7 @@
 
     {% if not options %}
     <p class="pp-empty">Connect a league and this tells you who has {{ who.name }}, what they&rsquo;re short at, and the fair offers on your roster, backed by real trades.
-        <a href="/"><b>Connect your league &rarr;</b></a></p>
+        {% if user %}<a href="/connect"><b>Connect your league &rarr;</b></a>{% else %}<a href="/signup?next={{ (request.url.path ~ '?welcome=1#desk')|urlencode }}"><b>Sign up free &rarr;</b></a>{% endif %}</p>
     {% elif not desk %}
     <p class="pp-empty">He has no market price yet, so there&rsquo;s nothing to weigh an offer against.</p>
     {% else %}
@@ -393,6 +398,11 @@
     }
     function add(k) {
         if (!BY[k] || chosen.some(function (c) { return c.k === k; })) return;
+        if (chosen.length > MAX && !C.signed_in) {          // signed out: two, then the sign-up nudge
+            var nudge = document.getElementById("pp-nudge");
+            if (nudge) { nudge.hidden = false; nudge.classList.remove("mk-nudge-on"); void nudge.offsetWidth; nudge.classList.add("mk-nudge-on"); }
+            return;
+        }
         if (chosen.length > MAX) chosen.splice(1, 1);         // full: the oldest comparison goes
         chosen.push({k: k, c: freeColour()});
         remember(); draw();

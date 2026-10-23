@@ -62,6 +62,11 @@
     <h2 class="card-title">The going rate, day by day</h2>
     <div class="at-pc-top">
         <div class="at-pc-head" id="at-pc-head" aria-live="polite"></div>
+        {% if not mine %}
+        <a class="mk-myteam" href="{{ '/connect' if user else ('/signup?next=' ~ ('/market?welcome=1'|urlencode)) }}">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="6.5" r="3.5"/><path d="M3 18c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/></svg>
+            Show my team</a>
+        {% endif %}
         <div class="at-pc-add">
             <label for="at-pc-q" class="at-pc-sr">Add a player to the chart</label>
             <div class="at-pc-search">
@@ -77,6 +82,11 @@
         <select id="at-pc-set" class="at-pc-set"></select>
     </div>
     <div class="at-pc-legend" id="at-pc-legend"></div>
+    {% if not user %}
+    <p class="mk-nudge" id="at-pc-nudge" hidden>Free accounts compare up to 6 players and put their own team on the chart.
+        <a class="mk-nudge-go" href="/signup?next={{ '/market?welcome=1'|urlencode }}">Sign up free</a>
+        <a href="/login?next=/market">Sign in</a></p>
+    {% endif %}
     <div class="at-pc-stats" id="at-pc-stats"></div>
     <figure class="ar-chart at-market-chart at-pc-chart">
         <div class="ar-chart-box at-pc-box">
@@ -87,7 +97,7 @@
         <figcaption class="at-pc-note">The pick his trades say he is worth at each day&rsquo;s
             close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
-    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'mine': mine}|tojson }}</script>
+    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'mine': mine, 'signed_in': user is not none}|tojson }}</script>
 </section>
 <script>
 (function () {
@@ -100,7 +110,7 @@
     var BY = {}; PLAYERS.forEach(function (p) { BY[p.k] = p; });
     var MINE = DATA.mine || null;
     if (MINE && MINE.lines) Object.keys(MINE.lines).forEach(function (k) { LINES[k] = MINE.lines[k]; });
-    var LAST = Math.max(1, DATA.last || 1), MAX = 6;
+    var LAST = Math.max(1, DATA.last || 1), MAX = DATA.signed_in ? 6 : 4;  // signed out: four lines, then the sign-up nudge
     var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     var b0 = DATA.base.split("-").map(Number);
     function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
@@ -158,6 +168,13 @@
     function add(k, andFocus) {
         if (!BY[k]) return;
         if (!chosen.some(function (c) { return c.k === k; })) {
+            if (chosen.length >= MAX && !DATA.signed_in) {
+                if (andFocus) {
+                    var nudge = document.getElementById("at-pc-nudge");
+                    if (nudge) { nudge.hidden = false; nudge.classList.remove("mk-nudge-on"); void nudge.offsetWidth; nudge.classList.add("mk-nudge-on"); }
+                }
+                return;
+            }
             if (chosen.length >= MAX) {
                 // Make room by dropping the oldest line that isn't in focus.
                 var drop = chosen.filter(function (c) { return c.k !== focus; })[0];

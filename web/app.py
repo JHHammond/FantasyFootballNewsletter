@@ -1651,7 +1651,7 @@ def market_player(request: Request, player_key: str, team: str = "",
     pp.dress_trades(trades, prices, key, float((rating or {}).get("spot") or 0), photo_url)
 
     tf = pp.traded_for(trades, prices)
-    return _render(request, "player.html", season=season, latest=latest,
+    return _render(request, "player.html", offer_kind="market", season=season, latest=latest,
                    who=who, chart=ch, usage=use, trend=pp.trend(ch),
                    compare=pp.compare_picks(key, prices, tf) if ch else [],
                    players=pp.compare_players(prices) if ch else [],
@@ -1686,7 +1686,7 @@ def market_page(request: Request):
     latest = max(nfl_week.completed_week(), 1)
     week = latest
     rating = _trade_rating(season, latest)
-    return _render(request, "market.html", season=season, week=week, latest=latest,
+    return _render(request, "market.html", offer_kind="market", season=season, week=week, latest=latest,
                    staff=staff, photo=around.photo,
                    trade_volume=_trade_volume(season) if staff else None,
                    backfill=_trade_backfill(season) if staff else None,
