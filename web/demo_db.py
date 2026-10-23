@@ -1433,6 +1433,20 @@ def drafts_ready() -> bool:
     return True
 
 
+#: Who played in each NFL week (055): (season, week, player_key) -> row.
+_WEEK_PLAYERS: dict = {}
+
+
+def week_players_ready() -> bool:
+    return True
+
+
+def upsert_week_players(rows: list[dict[str, Any]]) -> None:
+    with _lock:
+        for r in rows:
+            _WEEK_PLAYERS[(int(r["season"]), int(r["week"]), r["player_key"])] = dict(r)
+
+
 def draft_scan_league_ids(season: int) -> set:
     return {r["league_id"] for r in _DRAFT_SCANS.values()
             if int(r["season"]) == int(season)}

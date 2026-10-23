@@ -1483,7 +1483,7 @@ def _market_mine(user: Optional[dict], season: int, week: int,
     connect time) comes with its roster and those players' lines, so the
     chart can open on it with no further request. A league where we don't
     know which team is his is offered as a list to pick from; the pick is
-    fetched from /staff/market/roster.json and remembered in the browser.
+    fetched from /market/roster.json and remembered in the browser.
     Never raises: the chart still works without any of this.
     """
     if not user or not rating:
@@ -1513,20 +1513,19 @@ def _market_mine(user: Optional[dict], season: int, week: int,
     if not known and not pick:
         return None
     lines = (rating.get("daily") or {}).get("lines") or {}
-    return {"known": known, "pick": pick, "url": "/staff/market/roster.json",
+    return {"known": known, "pick": pick, "url": "/market/roster.json",
             "lines": {k: lines[k] for k in need if k in lines}}
 
 
-@app.get("/staff/market/roster.json")
-def staff_market_roster(request: Request, league: str = "", team: str = ""):
+@app.get("/market/roster.json")
+def market_roster(request: Request, league: str = "", team: str = ""):
     """One of the viewer's own rosters, as the chart's lines: the team he
     picked in a league where we don't know which team is his.
 
     OWNERSHIP IS CHECKED: the league must be on his account. A team id is
     guessable and a roster is somebody's private lineup."""
-    _require_staff(request)
+    user = _require_user(request)
     import nfl_week
-    user = current_user(request)
     lid = clean_text(league, max_length=64).strip()
     tid = clean_text(team, max_length=64).strip()
     season = nfl_week.current_season()
@@ -1551,9 +1550,9 @@ def staff_market_roster(request: Request, league: str = "", team: str = ""):
                         headers={"Cache-Control": "private, max-age=300"})
 
 
-@app.get("/staff/market/player/{player_key}", response_class=HTMLResponse)
-def staff_market_player(request: Request, player_key: str, team: str = "",
-                        preview: str = ""):
+@app.get("/market/player/{player_key}", response_class=HTMLResponse)
+def market_player(request: Request, player_key: str, team: str = "",
+                  preview: str = ""):
     """One player's page: his price, usage and every trade of him (John,
     23 Oct). Staff-only, like the market.
 
@@ -1562,12 +1561,12 @@ def staff_market_player(request: Request, player_key: str, team: str = "",
     ownership is checked, and only player keys are read from it.
     ?preview=free shows a staff member the locked version.
     """
-    _require_staff(request)
     import nfl_week
 
     from . import around
     from . import player_page as pp
     user = current_user(request)
+    staff = bool(user and user.get("plan") == plans.STAFF)
     key = clean_text(player_key, max_length=40).strip()
     if not key:
         raise HTTPException(status_code=404)
@@ -1575,11 +1574,18 @@ def staff_market_player(request: Request, player_key: str, team: str = "",
     latest = max(nfl_week.completed_week(), 1)
     rating = _trade_rating(season, latest)
     try:
-        names = db.trade_player_names(season) or {}
+        names = around.swr(around._cache, ("pnames", season),
+                           lambda: db.trade_player_names(season) or {}, ttl=900) or {}
     except Exception:  # noqa: BLE001
         names = {}
+    # Public now: only players we know of get a page (and a cache entry), so
+    # a crawler inventing keys can't make us query, or remember, anything.
+    if key not in names and not any(p["k"] == key for p in (rating or {}).get("pickable") or []):
+        raise HTTPException(status_code=404)
     try:
-        raw = (db.player_trades(season, key) or {}).get("trades") or []
+        raw = around.swr(around._cache, ("ptrades", season, key),
+                         lambda: (db.player_trades(season, key) or {}).get("trades") or [],
+                         ttl=600) or []
     except Exception as exc:  # noqa: BLE001 — before 056, the page still shows the rest
         print(f"[market] no trades for {key}: {type(exc).__name__}: {exc}", flush=True)
         raw = []
@@ -1655,45 +1661,46 @@ def staff_market_player(request: Request, player_key: str, team: str = "",
                    paid=paid, options=[{k: v for k, v in o.items() if k != "lg"} for o in options],
                    chosen=chosen and {"value": chosen["value"], "label": chosen["label"],
                                       "league": chosen["league"]},
-                   roster_size=roster_size, staff=True)
+                   roster_size=roster_size, staff=staff)
 
 
-@app.get("/staff/market", response_class=HTMLResponse)
-def staff_market(request: Request):
+@app.get("/market", response_class=HTMLResponse)
+def market_page(request: Request):
     """The trade market, on its own page.
 
     It used to live under Around the Leagues, which meant neither half
     could go public until both were ready. Around the Leagues is finished
     and the market is not, so they are separate: /around can open to the
-    world while this one stays staff-only and gets refined.
+    world while this one stayed staff-only and got refined. Public since
+    23 Oct; staff still see the collection card at the bottom.
 
     Collection still happens on the Around page, because the same run
     fills the scores, the trades and the drafts.
     """
-    _require_staff(request)
     import nfl_week
 
     from . import around, league_stats
+    user = current_user(request)
+    staff = bool(user and user.get("plan") == plans.STAFF)
     season = nfl_week.current_season()
     latest = max(nfl_week.completed_week(), 1)
     week = latest
     rating = _trade_rating(season, latest)
     return _render(request, "market.html", season=season, week=week, latest=latest,
-                   staff=True, photo=around.photo,
-                   trade_volume=_trade_volume(season),
-                   backfill=_trade_backfill(season),
+                   staff=staff, photo=around.photo,
+                   trade_volume=_trade_volume(season) if staff else None,
+                   backfill=_trade_backfill(season) if staff else None,
                    rating=rating,
-                   mine=_market_mine(current_user(request), season, latest, rating),
-                   job=league_stats.job_status())
+                   mine=_market_mine(user, season, latest, rating),
+                   job=league_stats.job_status() if staff else None)
 
 
-@app.get("/staff/market/line.json")
-def staff_market_line(request: Request, k: str = ""):
+@app.get("/market/line.json")
+def market_line(request: Request, k: str = ""):
     """One player's daily price line, for the chart's "add a player". The
     page carries only the default lines; a whole board of daily lines is
     too heavy to send to everybody who opens it. Read from the same cached
     build the page used, so it costs nothing to serve."""
-    _require_staff(request)
     import nfl_week
     key = clean_text(k, max_length=40).strip()
     season = nfl_week.current_season()
@@ -1702,7 +1709,16 @@ def staff_market_line(request: Request, k: str = ""):
     if not line:
         raise HTTPException(status_code=404)
     return JSONResponse({"k": key, "line": line},
-                        headers={"Cache-Control": "private, max-age=300"})
+                        headers={"Cache-Control": "public, max-age=300"})
+
+
+# The staff addresses it lived at, for bookmarks and links already sent.
+@app.get("/staff/market")
+@app.get("/staff/market/player/{player_key}")
+def staff_market_moved(request: Request, player_key: str = ""):
+    path = "/market" + (f"/player/{quote(player_key, safe='')}" if player_key else "")
+    q = request.url.query
+    return RedirectResponse(path + (f"?{q}" if q else ""), status_code=301)
 
 
 @app.post("/staff/around/collect")
@@ -4901,7 +4917,15 @@ def robots():
 def sitemap():
     """Only the pages we actually want found (web/seo.py)."""
     from . import seo
-    return Response(content=seo.sitemap_xml(public_base_url(), datetime.now(timezone.utc).date().isoformat()),
+    import nfl_week
+    extra = []
+    try:   # every priced player's page; never let the sitemap fail over it
+        rating = _trade_rating(nfl_week.current_season(), max(nfl_week.completed_week(), 1)) or {}
+        extra = [(f"/market/player/{quote(p['k'], safe='')}", "daily", True)
+                 for p in rating.get("pickable") or []]
+    except Exception as exc:  # noqa: BLE001
+        print(f"[sitemap] no player pages: {type(exc).__name__}: {exc}", flush=True)
+    return Response(content=seo.sitemap_xml(public_base_url(), datetime.now(timezone.utc).date().isoformat(), tuple(extra)),
                     media_type="application/xml")
 
 

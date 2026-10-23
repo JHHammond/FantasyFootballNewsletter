@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import upgrade_buttons %}
 {% block title %}{{ who.name }} · The trade market{% endblock %}
-{% block description %}What the field pays for {{ who.name }}, and every trade of him this season.{% endblock %}
+{% block description %}What {{ who.name }} costs in fantasy football trades right now{% if who.priced %}: the {{ who.costs }} in draft-pick terms{% endif %}, from real trades across thousands of leagues, and every trade of him this season.{% endblock %}
 {% block wrapclass %}home around{% endblock %}
 
 {#
@@ -13,7 +13,7 @@
 {%- for it in items -%}
 {%- if not loop.first %}<span class="pp-plus">+</span>{% endif -%}
 {%- if it.kind == 'player' and it.key -%}
-<a class="pp-tok pp-tok-player{{ ' pp-tok-yours' if yours and it.key in yours }}" href="/staff/market/player/{{ it.key|urlencode }}">{{ it.label }}{% if it.position %}<small>{{ it.position }}</small>{% endif %}</a>
+<a class="pp-tok pp-tok-player{{ ' pp-tok-yours' if yours and it.key in yours }}" href="/market/player/{{ it.key|urlencode }}">{{ it.label }}{% if it.position %}<small>{{ it.position }}</small>{% endif %}</a>
 {%- else -%}
 <span class="pp-tok pp-tok-{{ it.kind }}">{{ it.label }}</span>
 {%- endif -%}
@@ -24,7 +24,7 @@
 
 {% macro tile(it, him=false) -%}
 {%- if it.kind == 'player' -%}
-<a class="pp-tile{{ ' pp-tile-him' if him }}" href="/staff/market/player/{{ (it.key or '')|urlencode }}">
+<a class="pp-tile{{ ' pp-tile-him' if him }}" href="/market/player/{{ (it.key or '')|urlencode }}">
     <span class="at-face pp-tile-face{{ ' at-face-def' if it.position == 'DEF' }}">
         {%- if it.photo %}<img src="{{ it.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif -%}
         <span>{{ (it.label or '?')[:1] }}</span></span>
@@ -55,7 +55,7 @@
 {% endmacro %}
 
 {% block content %}
-<p class="pp-back"><a href="/staff/market">&larr; The trade market</a></p>
+<p class="pp-back"><a href="/market">&larr; The trade market</a></p>
 
 <section class="card pp-head">
     <span class="at-face pp-photo{{ ' at-face-def' if who.position == 'DEF' }}">
@@ -130,7 +130,7 @@
             <div class="at-pc-tip" id="pp-tip" hidden></div></div>
         <figcaption class="at-pc-note">Each player&rsquo;s place in the market at each day&rsquo;s close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
-    <script type="application/json" id="pp-data">{{ {'base': chart.base, 'last': chart.last, 'line': chart.line, 'best': chart.best, 'worst': chart.worst, 'him': {'k': who.key, 'name': who.name, 'pos': who.position, 'costs': who.costs, 'photo': who.photo}, 'players': players, 'url': '/staff/market/line.json', 'max': 5}|tojson }}</script>
+    <script type="application/json" id="pp-data">{{ {'base': chart.base, 'last': chart.last, 'line': chart.line, 'best': chart.best, 'worst': chart.worst, 'him': {'k': who.key, 'name': who.name, 'pos': who.position, 'costs': who.costs, 'photo': who.photo}, 'players': players, 'url': '/market/line.json', 'max': 5}|tojson }}</script>
 </section>
 {% endif %}
 
@@ -172,7 +172,8 @@
     {% endif %}
 
     {% if not options %}
-    <p class="pp-empty">Connect a league and this tells you who has {{ who.name }}, what they&rsquo;re short at, and the fair offers on your roster, backed by real trades.</p>
+    <p class="pp-empty">Connect a league and this tells you who has {{ who.name }}, what they&rsquo;re short at, and the fair offers on your roster, backed by real trades.
+        <a href="/"><b>Connect your league &rarr;</b></a></p>
     {% elif not desk %}
     <p class="pp-empty">He has no market price yet, so there&rsquo;s nothing to weigh an offer against.</p>
     {% else %}
@@ -222,7 +223,7 @@
 <section class="card pp-for-card">
     <h2 class="card-title">Traded for most</h2>
     {% if lines %}<ul class="pp-lines">{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>{% endif %}
-    {% if lately %}<p class="pp-lately"><span>Lately:</span> {% for p in lately %}<a class="pp-tok pp-tok-player" href="/staff/market/player/{{ p.key|urlencode }}">{{ p.name }}<small>&times;{{ p.n }}</small></a>{% endfor %}</p>{% endif %}
+    {% if lately %}<p class="pp-lately"><span>Lately:</span> {% for p in lately %}<a class="pp-tok pp-tok-player" href="/market/player/{{ p.key|urlencode }}">{{ p.name }}<small>&times;{{ p.n }}</small></a>{% endfor %}</p>{% endif %}
     {% if traded_for %}
     {% set top = traded_for[0].n %}
     <ol class="pp-tf">
@@ -230,7 +231,7 @@
         {% for p in traded_for %}
         <li>
             <span class="at-face pp-tf-face">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
-            <a class="pp-tf-name" href="/staff/market/player/{{ p.key|urlencode }}">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}</a>
+            <a class="pp-tf-name" href="/market/player/{{ p.key|urlencode }}">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}</a>
             <span class="pp-tf-cost">{% if p.costs %}<b>{{ p.costs }}</b>{% if who.rank and p.rank and p.rank != who.rank %}{% set gap = (p.rank - who.rank)|abs %}<small class="{{ 'pp-cheaper' if p.rank > who.rank else 'pp-dearer' }}">{{ gap }} pick{{ '' if gap == 1 else 's' }} {{ 'later' if p.rank > who.rank else 'earlier' }} than him</small>{% endif %}{% else %}<small>no price</small>{% endif %}</span>
             <span class="pp-tf-deals"><span class="pp-split"><i class="pp-split-s" style="width:{{ '%.0f'|format(100 * p.straight / top) }}%"></i><i class="pp-split-p" style="width:{{ '%.0f'|format(100 * p.package / top) }}%"></i></span>
                 <b>{{ p.n }}</b><small>{{ p.straight }} / {{ p.package }}</small></span>
@@ -419,7 +420,7 @@
             chip.className = "at-pc-chip at-mk-" + c.c + (c.c === 0 ? " at-pc-chip-on" : "");
             var main = document.createElement(c.c === 0 ? "span" : "a");
             main.className = "at-pc-chip-main";
-            if (c.c !== 0) { main.href = "/staff/market/player/" + encodeURIComponent(c.k); main.title = "Open " + p.name + "’s page"; }
+            if (c.c !== 0) { main.href = "/market/player/" + encodeURIComponent(c.k); main.title = "Open " + p.name + "’s page"; }
             var sw = document.createElement("i"); sw.className = "at-pc-swatch";
             var nm = document.createElement("span"); nm.textContent = p.name;
             var pr = document.createElement("b"); pr.textContent = LINES[c.k] ? (p.costs || "") : "…";

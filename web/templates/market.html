@@ -30,10 +30,10 @@
 
 {% block content %}
 <section class="front at-front">
-    <p class="at-kicker">The Commissioner&rsquo;s Desk &middot; staff</p>
+    <p class="at-kicker">The Commissioner&rsquo;s Desk</p>
     <h1 class="at-headline">The trade market</h1>
     <p class="at-standfirst">What the field pays, taken from the trades themselves.
-        <a href="/staff/around">Back to Around the Leagues</a>.</p>
+        {% if staff %}<a href="/staff/around">Back to Around the Leagues</a>{% else %}<a href="/around">Around the Leagues</a>{% endif %}.</p>
 </section>
 
 
@@ -88,7 +88,7 @@
         <figcaption class="at-pc-note">The pick his trades say he is worth at each day&rsquo;s
             close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
-    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/staff/market/line.json', 'mine': mine}|tojson }}</script>
+    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'mine': mine}|tojson }}</script>
 </section>
 <script>
 (function () {
@@ -363,7 +363,7 @@
         var txt = document.createElement("div"); txt.className = "at-pc-head-text";
         var nm = document.createElement("div"); nm.className = "at-pc-name";
         var link = document.createElement("a");
-        link.href = "/staff/market/player/" + encodeURIComponent(focus);
+        link.href = "/market/player/" + encodeURIComponent(focus);
         link.textContent = p.name;
         nm.appendChild(link);
         nm.appendChild(document.createTextNode((p.pos ? " \u00b7 " + p.pos : "") + (p.team ? " \u00b7 " + p.team : "")));
@@ -704,7 +704,7 @@
         Tap a player for his page, or the chart button to draw him above.</p>
     <ol class="at-pl-list at-pl-two">
         {% for r in R.rows[:20] %}
-        <li><a class="at-pl-row" href="/staff/market/player/{{ r.player_key|urlencode }}">
+        <li><a class="at-pl-row" href="/market/player/{{ r.player_key|urlencode }}">
             <span class="at-pl-rank">{{ loop.index }}</span>
             {{ face(r) }}
             <span class="at-pl-who"><span class="at-pl-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}</span>
@@ -734,7 +734,7 @@
             <h3 class="at-pl-head {{ cls }}">{{ '&#9650;'|safe if cls == 'at-pc-up' else '&#9660;'|safe }} {{ label }}</h3>
             <ol class="at-pl-list">
                 {% for r in rows %}
-                <li><a class="at-pl-row" href="/staff/market/player/{{ r.player_key|urlencode }}">
+                <li><a class="at-pl-row" href="/market/player/{{ r.player_key|urlencode }}">
                     {{ face(r) }}
                     <span class="at-pl-who"><span class="at-pl-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}</span>
                         <small>{{ r.drafted_at }} &rarr; {{ r.costs }} &middot; {{ '{:,}'.format(r.trades) }} trades</small></span>
@@ -773,6 +773,7 @@
 </script>
 {% endif %}
 
+{% if staff %}
 {# ------------------------------------------------------- trades, collected #}
 {% set TV = trade_volume %}
 <section class="card ar-collect at-trades">
@@ -858,5 +859,5 @@
     </details>
     {% endif %}
 </section>
-
+{% endif %}{# staff #}
 {% endblock %}

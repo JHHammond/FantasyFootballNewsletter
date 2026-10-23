@@ -60,16 +60,19 @@ def public_pages() -> list[tuple[str, str, bool]]:
         pages.append(("/luck", "weekly", True))
     if os.getenv("AROUND_PUBLIC", "").strip() == "1":
         pages.append(("/around", "weekly", True))
+    pages.append(("/market", "daily", True))
     pages += [("/privacy", "yearly", False), ("/terms", "yearly", False)]
     return pages
 
 
-def sitemap_xml(base: str, today: str) -> str:
+def sitemap_xml(base: str, today: str, extra: tuple = ()) -> str:
+    """`extra` is more (path, changefreq, fresh) rows: the market's player
+    pages, which only the app knows."""
     urls = "".join(
         f"<url><loc>{base}{path}</loc>"
         + (f"<lastmod>{today}</lastmod>" if fresh else "")
         + f"<changefreq>{freq}</changefreq></url>"
-        for path, freq, fresh in public_pages())
+        for path, freq, fresh in list(public_pages()) + list(extra))
     return ('<?xml version="1.0" encoding="UTF-8"?>'
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
             f"{urls}</urlset>")

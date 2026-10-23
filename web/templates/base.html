@@ -59,6 +59,7 @@
                 {% if around_open() %}
                 <a href="/around"{{ ' class="nav-here"'|safe if request and request.url.path == '/around' else '' }}>Around the Leagues</a>
                 {% endif %}
+                <a href="/market"{{ ' class="nav-here"'|safe if request and request.url.path.startswith('/market') else '' }}>Trade market</a>
                 {% if user %}
                 <a href="/account">Your papers</a>
                 {% if viewer_paid %}
@@ -86,6 +87,7 @@
         <span>Generated from real league data. Free for readers, and they never sign in.</span>
         <nav class="footer-links">
             {% if around_open() %}<a href="/around">Around the Leagues</a>{% endif %}
+            <a href="/market">Trade market</a>
             <a href="/privacy">Privacy</a>
             <a href="/terms">Terms</a>
         </nav>

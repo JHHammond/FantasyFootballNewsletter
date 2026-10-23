@@ -529,13 +529,35 @@ def test_the_market_has_its_own_page(web, monkeypatch):
     assert "/staff/around" in r.text
 
 
-def test_the_market_is_staff_only_on_its_own_page(web, monkeypatch):
-    """It moved; it did not become public. A reader who is not staff must
-    not find it, and must not find it by guessing either."""
+def test_the_market_is_public_and_the_old_address_redirects(web, monkeypatch):
+    """Public since 23 Oct. Anybody can read it, signed in or not; the
+    staff address it lived at sends people on; the collection card stays
+    staff-only."""
     import nfl_week
     monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
-    # 401 signed out, 404 signed in without the plan: either way, gone.
-    assert web.get("/staff/market").status_code in (401, 302, 303, 404)
+    r = web.get("/market")
+    assert r.status_code == 200
+    assert "staff only" not in r.text.lower()
+    moved = web.get("/staff/market/player/123?team=a:b", follow_redirects=False)
+    assert moved.status_code == 301
+    assert moved.headers["location"] == "/market/player/123?team=a:b"
+    assert web.get("/staff/market", follow_redirects=False).headers["location"] == "/market"
+
+
+def test_a_player_nobody_has_traded_has_no_page(web, monkeypatch):
+    """A made-up key is a 404 before anything is asked of the database,
+    so a crawler inventing addresses costs nothing."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    assert web.get("/market/player/not-a-player").status_code == 404
+
+
+def test_a_roster_needs_a_signed_in_owner(web):
+    assert web.get("/market/roster.json?league=1&team=2").status_code in (401, 302, 303, 404)
+
+
+def test_the_market_is_in_the_sitemap(web):
+    assert "/market</loc>" in web.get("/sitemap.xml").text
 
 
 def test_around_carries_no_trade_market_any_more(web, monkeypatch):
@@ -554,7 +576,7 @@ def test_around_carries_no_trade_market_any_more(web, monkeypatch):
         # The one mention allowed is the link across to the other page.
         assert text.count("trade market") <= (1 if path == "/staff/around" else 0), path
     # ...but staff can still get there.
-    assert "/staff/market" in web.get("/staff/around").text
+    assert 'href="/market"' in web.get("/staff/around").text
 
 
 def _mine(web, user_email="s@example.com", lid="demo-mine"):
