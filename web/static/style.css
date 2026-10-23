@@ -4202,3 +4202,70 @@ a.pp-tok:hover { background: #e8dfcd; color: var(--accent); }
     .pp-usage th:nth-child(4), .pp-usage td:nth-child(4) { white-space: nowrap; }
     .pp-bar { width: 44px; }
 }
+
+/* ---- player page, second pass (23 Oct): strip, desk, traded for most ---- */
+.pp-strip { grid-column: 1 / -1; list-style: none; margin: 4px 0 0; padding: 12px 0 0; border-top: 1px dashed var(--line); display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.pp-strip li { display: flex; flex-direction: column; padding: 6px 8px; background: #f6f1e6; border-radius: 6px; }
+.pp-strip span { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+.pp-strip b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 20px; line-height: 1.1; }
+.pp-strip small { font-size: 11px; color: var(--muted); }
+.pp-strip .pp-strip-out { background: transparent; border: 1px dashed var(--line); }
+.pp-strip .pp-strip-out b { color: var(--muted); font-size: 16px; text-transform: uppercase; letter-spacing: 1px; }
+
+.pp-desk { border-top-color: var(--accent); }
+.pp-desk-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px 24px; margin: 0 0 14px; }
+.pp-owner { margin: 0; font: 500 17px "Barlow", sans-serif; max-width: 60ch; }
+.pp-trend { margin: 0; padding: 8px 14px; border-radius: 10px; font: 600 14px "Barlow", sans-serif; display: flex; flex-direction: column; }
+.pp-trend small { font-weight: 500; font-size: 12px; opacity: .8; }
+.pp-trend-up { background: #fbe3e2; color: var(--accent); }
+.pp-trend-down { background: #e4efdc; color: #2d6a1f; }
+.pp-trend-flat { background: #f2ecdf; color: var(--ink-2); }
+.pp-offers { list-style: none; margin: 0; padding: 0; }
+.pp-offer { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; align-items: center; padding: 14px 16px; margin: 0 0 10px; border: 1px solid var(--line); border-radius: 12px; background: #fffefb; }
+.pp-offer:first-child { border-color: var(--ink); box-shadow: 0 10px 22px -16px rgba(40, 30, 10, .5); }
+.pp-offer-deal { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pp-offer-verb { font: 600 14px "Barlow", sans-serif; color: var(--ink-2); }
+.pp-offer-why { grid-column: 1; display: flex; flex-wrap: wrap; gap: 6px 14px; font: 500 13px "Barlow", sans-serif; color: var(--muted); }
+.pp-fit { font-weight: 700; color: var(--ink); }
+.pp-tag { padding: 1px 8px; border-radius: 999px; background: #e4efdc; color: #2d6a1f; font-weight: 600; }
+.pp-proof b { color: var(--ink); }
+.pp-proof-none { font-style: italic; }
+.pp-pitch { grid-column: 2; grid-row: 1 / span 2; align-self: center; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 8px 14px; font: 600 13px "Barlow", sans-serif; cursor: pointer; white-space: nowrap; }
+.pp-pitch:hover { background: var(--ink); color: var(--paper); }
+.pp-pitch-done { background: #2d6a1f; border-color: #2d6a1f; color: #fff; }
+
+.pp-lines { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pp-lines li { font: 500 16px Georgia, serif; color: var(--ink); padding-left: 14px; border-left: 3px solid var(--accent); }
+.pp-lately { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 14px; }
+.pp-lately span { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+.pp-tf { list-style: none; margin: 0; padding: 0; }
+.pp-tf li { display: grid; grid-template-columns: 36px minmax(150px, 1.4fr) minmax(110px, .9fr) minmax(170px, 1.6fr) 64px; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.pp-tf .pp-tf-head { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1.1px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--ink); padding-top: 0; }
+.pp-tf-face { width: 34px; height: 34px; }
+.pp-tf-name { font: 600 15px "Barlow", sans-serif; color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.pp-tf-name:hover { color: var(--accent); }
+.pp-tf-cost { display: flex; flex-direction: column; line-height: 1.15; }
+.pp-tf-cost b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 19px; }
+.pp-tf-cost small { font-size: 11.5px; color: var(--muted); }
+.pp-tf-cost .pp-cheaper { color: #2d6a1f; }
+.pp-tf-cost .pp-dearer { color: var(--accent); }
+.pp-tf-deals { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; align-items: center; column-gap: 10px; }
+.pp-tf-deals b { grid-column: 2; grid-row: 1 / span 2; font-family: "Anton", sans-serif; font-weight: 400; font-size: 22px; }
+.pp-tf-deals small { font-size: 11.5px; color: var(--muted); }
+.pp-split { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #f0e9db; }
+.pp-split i { display: block; height: 100%; }
+.pp-split-s { background: var(--ink); }
+.pp-split-p { background: #b9ad98; }
+.pp-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+.pp-tf-recent { font-family: "Anton", sans-serif; font-size: 18px; text-align: right; }
+.pp-weeks summary { cursor: pointer; }
+.pp-weeks[open] summary { margin-bottom: 14px; }
+
+@media (max-width: 760px) {
+    .pp-tf li { grid-template-columns: 34px 1fr auto; }
+    .pp-tf .pp-tf-head { display: none; }
+    .pp-tf-deals { grid-column: 2 / -1; }
+    .pp-tf-recent { display: none; }
+    .pp-offer { grid-template-columns: 1fr; }
+    .pp-pitch { grid-column: 1; grid-row: auto; justify-self: start; }
+}

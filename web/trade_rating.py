@@ -653,6 +653,9 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
             #: is, for the player page.
             "dp": drafted_place.get(k),
             "firm": market.row(k)["firmness"],
+            #: His value on the market's own scale, so the player page can
+            #: add a package up and compare it with him (see "spot").
+            "v": round(market.v[k], 6),
             "trades": market.n.get(k, 0),
             "photo": photo_url(k, meta.get("position"))})
     return {

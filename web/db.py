@@ -972,6 +972,20 @@ def lineup_for_team(league_id: str, season: int, week: int,
     return list(res.data or [])
 
 
+def lineup_for_league(league_id: str, season: int, week: int) -> list[dict[str, Any]]:
+    """Every roster in one league for one week: (team_id, player_key) rows.
+
+    For the player page's "Get him / Sell him", which reads the viewer's
+    OWN league to say who has a player and what each team is short at. The
+    caller has already checked the league is the viewer's; this trusts
+    nobody and checks nothing."""
+    res = (client().table("lineup_players")
+           .select("team_id,player_key,slot,started")
+           .eq("league_id", str(league_id)).eq("season", int(season))
+           .eq("week", int(week)).limit(2000).execute())
+    return list(res.data or [])
+
+
 def lineup_league_ids(season: int, week: int) -> set[str]:
     data = _rpc_json("lineup_league_ids", {"p_season": int(season), "p_week": int(week)})
     return {str(x) for x in (data or [])}

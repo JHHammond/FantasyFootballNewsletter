@@ -1340,6 +1340,15 @@ def trade_partners(season: int, player_key: str, limit: int = 8) -> dict[str, An
             "recent": recent}
 
 
+def lineup_for_league(league_id: str, season: int, week: int) -> list[dict[str, Any]]:
+    """The Supabase query's twin: every roster in a league for a week."""
+    return [{"team_id": l["team_id"], "player_key": l["player_key"],
+             "slot": l.get("slot"), "started": l.get("started")}
+            for l in _LINEUPS.values()
+            if str(l["league_id"]) == str(league_id) and int(l["season"]) == int(season)
+            and int(l["week"]) == int(week)]
+
+
 def player_trades(season: int, player_key: str) -> dict[str, Any]:
     """The SQL function's twin (migration 056)."""
     import hashlib

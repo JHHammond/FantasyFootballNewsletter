@@ -1602,28 +1602,55 @@ def staff_market_player(request: Request, player_key: str, team: str = "",
     for lg in leagues:
         for tm in lg["teams"]:
             options.append({"value": f"{lg['id']}:{tm['id']}", "mine": tm.get("mine"),
-                            "label": tm["name"], "league": lg["league"]})
+                            "label": tm["name"], "league": lg["league"], "lg": lg})
+
+    def roster(lid: str, tid: str) -> set:
+        try:
+            return {r.get("player_key") for r in
+                    (db.lineup_for_team(lid, season, latest, tid) or [])} - {None}
+        except Exception:  # noqa: BLE001
+            return set()
+
     wanted = clean_text(team, max_length=140).strip()
-    chosen = next((o for o in options if o["value"] == wanted), None) \
-        or next((o for o in options if o["mine"]), None)
-    yours, roster_size = [], 0
+    chosen = next((o for o in options if o["value"] == wanted), None)
+    if chosen is None:
+        # His owner, if that's you: the page opens on "Sell him".
+        mine = [o for o in options if o["mine"]]
+        chosen = next((o for o in mine if key in roster(*o["value"].split(":", 1))), None) \
+            or (mine[0] if mine else None)
+
+    prices = {p["k"]: p for p in (rating or {}).get("pickable") or []}
+    desk, yours, roster_size = None, [], 0
     if chosen:
         lid, tid = chosen["value"].split(":", 1)
         try:
-            roster = {r.get("player_key") for r in
-                      (db.lineup_for_team(lid, season, latest, tid) or [])} - {None}
-        except Exception:  # noqa: BLE001
-            roster = set()
-        roster_size = len(roster)
-        yours = pp.your_trades(trades, roster)
+            rows = db.lineup_for_league(lid, season, latest) or []
+        except Exception as exc:  # noqa: BLE001
+            print(f"[market] no league rosters for {lid}: {type(exc).__name__}: {exc}", flush=True)
+            rows = []
+        rosters: dict = {}
+        for r in rows:
+            if r.get("player_key"):
+                rosters.setdefault(str(r["team_id"]), set()).add(r["player_key"])
+        my_roster = rosters.get(str(tid)) or roster(lid, tid)
+        rosters.setdefault(str(tid), my_roster)
+        roster_size = len(my_roster)
+        yours = pp.your_trades(trades, my_roster)
+        if who.get("priced"):
+            desk = pp.deal_desk(key, chosen["lg"], rosters, str(tid), prices,
+                                float((rating or {}).get("spot") or 0), trades)
     paid = plans.is_paid(user) and preview != "free"
+    ch = pp.chart(key, rating)
 
     return _render(request, "player.html", season=season, latest=latest,
-                   who=who, chart=pp.chart(key, rating), usage=use,
-                   traded_for=pp.traded_for(trades), trades=trades,
-                   first=pp.TRADES_FIRST, yours=yours, paid=paid,
-                   options=options, chosen=chosen, roster_size=roster_size,
-                   staff=True)
+                   who=who, chart=ch, usage=use, trend=pp.trend(ch),
+                   traded_for=pp.traded_for(trades, prices), lately=pp.lately(trades),
+                   lines=pp.summary_lines(trades, key, prices),
+                   trades=trades, first=pp.TRADES_FIRST, yours=yours, desk=desk,
+                   paid=paid, options=[{k: v for k, v in o.items() if k != "lg"} for o in options],
+                   chosen=chosen and {"value": chosen["value"], "label": chosen["label"],
+                                      "league": chosen["league"]},
+                   roster_size=roster_size, staff=True)
 
 
 @app.get("/staff/market", response_class=HTMLResponse)

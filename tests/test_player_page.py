@@ -72,3 +72,64 @@ def test_the_demo_twin_splits_sides_picks_and_faab():
         demo_db._TRADES.pop((lg, SEASON, "t1"), None)
         for k in ("him", "buddy", "nabers"):
             demo_db._TRADE_PLAYERS.pop((lg, SEASON, "t1", k), None)
+
+
+def _prices():
+    # value on the market's scale; rank 1 is the most expensive
+    rows = [("him", "RB", 0.50), ("nabers", "WR", 0.52), ("adams", "WR", 0.30), ("cook", "RB", 0.28),
+            ("star", "WR", 0.90), ("qb1", "QB", 0.40), ("te1", "TE", 0.20), ("filler", "WR", 0.05),
+            ("rb2", "RB", 0.33), ("wr9", "WR", 0.24)]
+    rows.sort(key=lambda r: -r[2])
+    return {k: {"k": k, "name": k.title(), "pos": pos, "v": v, "rank": i + 1, "costs": f"1.{i + 1:02d}"}
+            for i, (k, pos, v) in enumerate(rows)}
+
+
+def test_fair_offers_are_one_close_player_or_two_that_add_up():
+    prices = _prices()
+    trades = pp.shape_trades([_deal(i, ["nabers"]) for i in range(5)] + [_deal(9, ["adams", "cook"])])
+    got = pp.offers("him", {"nabers", "adams", "cook", "star", "filler"}, prices, 0.05, trades)
+    keys = [o["keys"] for o in got]
+    assert ["nabers"] in keys                         # 0.52 against 0.50
+    assert ["adams", "cook"] in keys                  # 0.30 + 0.28 - spot 0.05 = 0.53
+    assert not any("star" in k for k in keys)         # worth far more: never offered
+    assert not any(k == ["filler"] for k in keys)     # worth far less alone
+    nab = next(o for o in got if o["keys"] == ["nabers"])
+    assert nab["exact"] == 5                          # the proof: five real deals
+    pair = next(o for o in got if o["keys"] == ["adams", "cook"])
+    assert pair["exact"] == 1
+
+
+def test_the_desk_says_get_him_and_who_owns_him():
+    prices = _prices()
+    league = {"id": "L", "league": "Dirty South",
+              "teams": [{"id": "1", "name": "Mine", "mine": True}, {"id": "2", "name": "Rival", "mine": False},
+                        {"id": "3", "name": "Third", "mine": False}]}
+    rosters = {"1": {"nabers", "adams", "cook", "qb1"}, "2": {"him", "rb2", "star", "te1"},
+               "3": {"wr9", "filler", "qb1"}}
+    d = pp.deal_desk("him", league, rosters, "1", prices, 0.05, [])
+    assert d["mode"] == "get" and d["owner"] == "Rival" and d["offers"]
+    # Sell side: he's mine, and the offers come from the other teams.
+    rosters = {"1": {"him", "qb1"}, "2": {"nabers", "star"}, "3": {"adams", "cook", "te1"}}
+    d = pp.deal_desk("him", league, rosters, "1", prices, 0.05, [])
+    assert d["mode"] == "sell" and d["owner"] == "Mine"
+    assert {o["team"] for o in d["offers"]} <= {"Rival", "Third"}
+    assert all(o["keys"] and "him" not in o["keys"] for o in d["offers"])
+
+
+def test_traded_for_splits_straight_from_packages_and_summary_reads_right():
+    prices = _prices()
+    raw = [_deal(i, ["nabers"]) for i in range(4)] + [_deal(5, ["nabers", "adams"]), _deal(6, ["cook"])]
+    trades = pp.shape_trades(raw)
+    row = pp.traded_for(trades, prices)[0]
+    assert (row["key"], row["n"], row["straight"], row["package"]) == ("nabers", 5, 4, 1)
+    assert row["costs"] == prices["nabers"]["costs"]
+    lines = pp.summary_lines(trades, "him", prices)
+    assert lines[0].startswith("Usually goes for one WR") and "83%" in lines[0]
+
+
+def test_buy_now_or_wait_reads_the_last_week():
+    chart = {"line": [[0, 30.0], [10, 20.0], [20, 15.0], [27, 9.0]]}
+    t = pp.trend(chart)
+    assert t["moved"] == 6 and t["tone"] == "up"           # 15 -> 9: dearer, move now
+    t = pp.trend({"line": [[0, 5.0], [10, 6.0], [20, 6.0]]})
+    assert t["tone"] == "flat"

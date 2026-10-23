@@ -62,6 +62,16 @@
         {% else %}<span class="at-pc-chg at-pc-flat">where he was drafted</span>{% endif %}
     </div>
     {% endif %}
+    {% if usage %}
+    <ol class="pp-strip" aria-label="Points and start rate by week">
+        {% for u in usage %}
+        {% set out = (u.did_play is sameas false) or ((u.start_pct or 0) < 0.25 and not u.ppr) %}
+        <li class="{{ 'pp-strip-out' if out }}"><span>Wk {{ u.week }}</span>
+            <b>{% if out %}out{% elif u.ppr is not none %}{{ '%.1f'|format(u.ppr) }}{% else %}&ndash;{% endif %}</b>
+            <small>{{ '%.0f'|format((u.start_pct or 0) * 100) }}% started</small></li>
+        {% endfor %}
+    </ol>
+    {% endif %}
 </section>
 
 {% if chart %}
@@ -78,49 +88,33 @@
 </section>
 {% endif %}
 
-<div class="pp-two">
-    <section class="card">
-        <h2 class="card-title">Week by week</h2>
-        {% if usage %}
-        <table class="pp-usage">
-            <thead><tr><th>Week</th><th>Started</th><th>Points</th><th>Teams that started him won</th></tr></thead>
-            <tbody>
-            {% for u in usage %}
-            <tr>
-                <td>{{ u.week }}</td>
-                <td>{{ '%.0f'|format((u.start_pct or 0) * 100) }}%<small>{{ '{:,}'.format(u.started) }} of {{ '{:,}'.format(u.rostered) }}</small></td>
-                <td>{% if u.ppr is not none %}{{ '%.1f'|format(u.ppr) }}{% else %}&ndash;{% endif %}{% if u.did_play is sameas false %}<small>didn&rsquo;t play</small>{% endif %}</td>
-                <td>{% if u.win_pct is not none and u.started %}<span class="pp-bar"><i style="width:{{ '%.0f'|format(u.win_pct * 100) }}%"></i></span>{{ '%.0f'|format(u.win_pct * 100) }}%{% else %}&ndash;{% endif %}</td>
-            </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-        <p class="pp-note">From Around the Leagues, in plain PPR.</p>
-        {% else %}
-        <p class="pp-empty">Not among the 400 most-rostered players in any week yet.</p>
-        {% endif %}
-    </section>
+{# ------------------------------------------------- Get him / Sell him (paid) #}
+{% macro offer_row(o) -%}
+<li class="pp-offer">
+    <div class="pp-offer-deal">
+        {% if desk.mode == 'sell' %}<span class="pp-offer-verb">Ask <b>{{ o.team }}</b> for</span>
+        {% else %}<span class="pp-offer-verb">Offer</span>{% endif %}
+        {% for p in o.players %}{% if not loop.first %}<span class="pp-plus">+</span>{% endif %}<a class="pp-tok pp-tok-player" href="/staff/market/player/{{ p.k|urlencode }}">{{ p.name }}<small>{{ p.pos }} &middot; {{ p.costs }}</small></a>{% endfor %}
+        {% if desk.mode != 'sell' %}<span class="pp-offer-verb">for him</span>{% endif %}
+    </div>
+    <div class="pp-offer-why">
+        <span class="pp-fit">{{ '%.0f'|format(o.ratio * 100) }}% of his value</span>
+        {% if o.fills_need %}<span class="pp-tag">fills their {{ desk.owner_needs }} need</span>{% endif %}
+        {% if o.wants_him %}<span class="pp-tag">they&rsquo;re short at {{ who.position }}</span>{% endif %}
+        {% if o.exact %}<span class="pp-proof"><b>{{ o.exact }}</b> deal{{ '' if o.exact == 1 else 's' }} exactly like this across the country</span>
+        {% elif o.each|max > 0 %}<span class="pp-proof">{{ o.players[0].name }} has gone for him in <b>{{ o.each[0] }}</b> deal{{ '' if o.each[0] == 1 else 's' }}</span>
+        {% else %}<span class="pp-proof pp-proof-none">No deal like it yet: priced by the market</span>{% endif %}
+    </div>
+    {% set names = o.players|map(attribute='name')|join(' + ') %}
+    {% if desk.mode == 'sell' %}{% set pitch = names ~ ' for ' ~ who.name %}{% else %}{% set pitch = names ~ ' for ' ~ who.name %}{% endif %}
+    <button type="button" class="pp-pitch" data-pitch="{{ pitch }}{% if o.exact %} has happened {{ o.exact }} time{{ '' if o.exact == 1 else 's' }} across the country{% else %} is a fair price by the trade market{% endif %}, per The Commissioner&rsquo;s Desk.">Copy the pitch</button>
+</li>
+{%- endmacro %}
 
-    <section class="card">
-        <h2 class="card-title">Traded for most</h2>
-        {% if traded_for %}
-        <ol class="pp-for">
-            {% for p in traded_for %}
-            <li><a href="/staff/market/player/{{ p.key|urlencode }}">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}</a>
-                <b>{{ p.n }}</b></li>
-            {% endfor %}
-        </ol>
-        <p class="pp-note">How many deals each player went the other way in.</p>
-        {% else %}
-        <p class="pp-empty">No player has gone the other way for him yet.</p>
-        {% endif %}
-    </section>
-</div>
-
-<section class="card pp-yours{{ ' pp-locked' if not paid }}" id="yours">
-    <h2 class="card-title">Trades for him with your players in them</h2>
+<section class="card pp-desk{{ ' pp-locked' if not paid }}" id="desk">
+    <h2 class="card-title">{{ 'Sell him' if desk and desk.mode == 'sell' else 'Get him' }}</h2>
     {% if options %}
-    <form method="get" class="pp-team" action="#yours">
+    <form method="get" class="pp-team" action="#desk">
         <label for="pp-team">Your team</label>
         <select id="pp-team" name="team" class="at-pc-set" onchange="this.form.submit()">
             {% for o in options %}
@@ -130,28 +124,75 @@
         <noscript><button type="submit" class="btn-link">Show</button></noscript>
     </form>
     {% endif %}
+
     {% if not options %}
-    <p class="pp-empty">Connect a league and this shows every trade of {{ who.name }} where one of your players went the other way.</p>
-    {% elif paid %}
-    {% if yours %}
-    <p class="card-sub">{{ yours|length }} trade{{ '' if yours|length == 1 else 's' }} across the country where somebody gave up one of your players to get him. Yours are highlighted.</p>
-    <ol class="pp-deals">{% for t in yours %}{{ deal(t, t.yours) }}{% endfor %}</ol>
+    <p class="pp-empty">Connect a league and this tells you who has {{ who.name }}, what they&rsquo;re short at, and the fair offers on your roster, backed by real trades.</p>
+    {% elif not desk %}
+    <p class="pp-empty">He has no market price yet, so there&rsquo;s nothing to weigh an offer against.</p>
     {% else %}
-    <p class="pp-empty">Nobody has traded one of your {{ roster_size }} players for him yet.</p>
-    {% endif %}
+    <div class="pp-desk-top">
+        <p class="pp-owner">
+        {% if desk.mode == 'sell' %}
+            He&rsquo;s yours in {{ chosen.league }}.
+            {% if desk.needs_him %}Short at {{ who.position }}: <b>{{ desk.needs_him|join(', ') }}</b>.{% endif %}
+        {% elif desk.owner %}
+            Owned by <b>{{ desk.owner }}</b> in {{ chosen.league }}{% if desk.owner_needs %}, who are short at <b>{{ desk.owner_needs }}</b>{% endif %}.
+        {% else %}
+            Nobody in {{ chosen.league }} rosters him. <b>Check your waiver wire.</b>
+        {% endif %}
+        </p>
+        {% if trend %}<p class="pp-trend pp-trend-{{ trend.tone }}">{{ trend.say }}
+            <small>{% if trend.moved %}{{ '&#9650;'|safe if trend.moved > 0 else '&#9660;'|safe }} {{ trend.moved|abs }} pick{{ '' if trend.moved|abs == 1 else 's' }} this week{% else %}level this week{% endif %}</small></p>{% endif %}
+    </div>
+
+    {% if desk.mode == 'get' and not desk.owner %}
+    {% elif not desk.offers %}
+    <p class="pp-empty">{% if desk.mode == 'sell' %}No leaguemate has a player or pair that matches his price.{% else %}Nothing on your roster, alone or in a pair, comes within 15% of his price.{% endif %}</p>
     {% else %}
-    <p class="card-sub"><b>{{ yours|length }}</b> trade{{ '' if yours|length == 1 else 's' }} of {{ who.name }} had one of your players on the other side.</p>
-    <ol class="pp-deals pp-blur" aria-hidden="true">
-        {% for i in range([yours|length, 3]|min if yours else 3) %}
-        <li class="pp-deal"><div class="pp-deal-when">Week ??<small>A league</small></div>
-            <div class="pp-deal-sides"><div class="pp-deal-side"><span class="pp-deal-label">Got</span><span class="pp-tok pp-tok-him">{{ who.name }}</span></div>
-            <div class="pp-deal-side"><span class="pp-deal-label">For</span><span class="pp-tok pp-tok-yours">One of yours</span><span class="pp-plus">+</span><span class="pp-tok">Somebody else</span></div></div></li>
+    <p class="card-sub">{{ desk.offers|length }} fair offer{{ '' if desk.offers|length == 1 else 's' }}{% if desk.mode == 'sell' %} from your leaguemates{% else %} from your roster{% endif %}: within 15% of his value, counting the roster spot a two-for-one costs, best fit first.</p>
+    <ol class="pp-offers">
+        {{ offer_row(desk.offers[0]) }}
+        {% if paid %}{% for o in desk.offers[1:] %}{{ offer_row(o) }}{% endfor %}{% endif %}
+    </ol>
+    {% if not paid and desk.offers|length > 1 %}
+    <ol class="pp-offers pp-blur" aria-hidden="true">
+        {% for i in range([desk.offers|length - 1, 3]|min) %}
+        <li class="pp-offer"><div class="pp-offer-deal"><span class="pp-offer-verb">Offer</span><span class="pp-tok">One of yours</span><span class="pp-plus">+</span><span class="pp-tok">Another</span></div>
+            <div class="pp-offer-why"><span class="pp-fit">98% of his value</span><span class="pp-proof">12 deals exactly like this</span></div></li>
         {% endfor %}
     </ol>
     <div class="pp-unlock">
-        <p>See what your players have fetched for {{ who.name }}, deal by deal.</p>
+        <p>{{ desk.offers|length - 1 }} more fair offer{{ '' if desk.offers|length == 2 else 's' }} for {{ who.name }}, each backed by real trades.</p>
         {% if billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
     </div>
+    {% endif %}
+    {% endif %}
+    {% endif %}
+</section>
+
+{# ------------------------------------------------------------ traded for most #}
+<section class="card pp-for-card">
+    <h2 class="card-title">Traded for most</h2>
+    {% if lines %}<ul class="pp-lines">{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>{% endif %}
+    {% if lately %}<p class="pp-lately"><span>Lately:</span> {% for p in lately %}<a class="pp-tok pp-tok-player" href="/staff/market/player/{{ p.key|urlencode }}">{{ p.name }}<small>&times;{{ p.n }}</small></a>{% endfor %}</p>{% endif %}
+    {% if traded_for %}
+    {% set top = traded_for[0].n %}
+    <ol class="pp-tf">
+        <li class="pp-tf-head" aria-hidden="true"><span></span><span>Player</span><span>Costs today</span><span>Deals: straight up / in a package</span><span>Last 2 wks</span></li>
+        {% for p in traded_for %}
+        <li>
+            <span class="at-face pp-tf-face">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
+            <a class="pp-tf-name" href="/staff/market/player/{{ p.key|urlencode }}">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}</a>
+            <span class="pp-tf-cost">{% if p.costs %}<b>{{ p.costs }}</b>{% if who.rank and p.rank %}<small class="{{ 'pp-cheaper' if p.rank > who.rank else 'pp-dearer' }}">{{ 'cheaper than him' if p.rank > who.rank else 'dearer than him' }}</small>{% endif %}{% else %}<small>no price</small>{% endif %}</span>
+            <span class="pp-tf-deals"><span class="pp-split"><i class="pp-split-s" style="width:{{ '%.0f'|format(100 * p.straight / top) }}%"></i><i class="pp-split-p" style="width:{{ '%.0f'|format(100 * p.package / top) }}%"></i></span>
+                <b>{{ p.n }}</b><small>{{ p.straight }} / {{ p.package }}</small></span>
+            <span class="pp-tf-recent">{{ p.recent or '&ndash;'|safe }}</span>
+        </li>
+        {% endfor %}
+    </ol>
+    <p class="pp-note"><i class="pp-key pp-split-s"></i> straight up, one for one &nbsp; <i class="pp-key pp-split-p"></i> part of a bigger deal</p>
+    {% else %}
+    <p class="pp-empty">No player has gone the other way for him yet.</p>
     {% endif %}
 </section>
 
@@ -170,8 +211,41 @@
     {% endif %}
 </section>
 
+{% if usage %}
+<details class="card pp-weeks">
+    <summary class="card-title">Week by week</summary>
+    <table class="pp-usage">
+        <thead><tr><th>Week</th><th>Started</th><th>Points</th><th>Teams that started him won</th></tr></thead>
+        <tbody>
+        {% for u in usage %}
+        <tr>
+            <td>{{ u.week }}</td>
+            <td>{{ '%.0f'|format((u.start_pct or 0) * 100) }}%<small>{{ '{:,}'.format(u.started) }} of {{ '{:,}'.format(u.rostered) }}</small></td>
+            <td>{% if u.ppr is not none %}{{ '%.1f'|format(u.ppr) }}{% else %}&ndash;{% endif %}{% if u.did_play is sameas false %}<small>didn&rsquo;t play</small>{% endif %}</td>
+            <td>{% if u.win_pct is not none and u.started %}<span class="pp-bar"><i style="width:{{ '%.0f'|format(u.win_pct * 100) }}%"></i></span>{{ '%.0f'|format(u.win_pct * 100) }}%{% else %}&ndash;{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <p class="pp-note">From Around the Leagues, in plain PPR.</p>
+</details>
+{% endif %}
+
 <script>
 (function () {
+    // ---- copy the pitch, to paste to a leaguemate ----
+    document.querySelectorAll(".pp-pitch").forEach(function (b) {
+        b.addEventListener("click", function () {
+            var text = b.getAttribute("data-pitch"), done = function () {
+                var was = b.textContent; b.textContent = "Copied"; b.classList.add("pp-pitch-done");
+                setTimeout(function () { b.textContent = was; b.classList.remove("pp-pitch-done"); }, 1600);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done, function () { window.prompt("Copy this:", text); });
+            } else { window.prompt("Copy this:", text); }
+        });
+    });
+
     // ---- the rest of the trades, on request ----
     var more = document.getElementById("pp-more");
     if (more) more.addEventListener("click", function () {
