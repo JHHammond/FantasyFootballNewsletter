@@ -4333,3 +4333,45 @@ a.pp-tile-him:hover { background: var(--ink); }
 .pp-legend a.at-pc-chip-main:hover span { color: var(--accent); }
 .pp-cmp .at-mk-path { stroke-width: 2; }
 .pp-tip-gap { font-size: 11.5px; color: var(--muted); }
+
+/* ---- player page: "Trade for him" beside the weeks (23 Oct) ---- */
+.pp-strip-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; margin-top: 4px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.pp-strip-row .pp-strip { flex: 1; min-width: 0; margin: 0; padding: 0; border-top: 0; grid-template-columns: repeat(auto-fill, minmax(84px, 112px)); }
+.pp-cta { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border-radius: 999px; background: var(--accent); color: #fff; text-decoration: none; font: 700 15px "Barlow", sans-serif; letter-spacing: .3px; box-shadow: 0 10px 22px -12px rgba(179, 20, 28, .8); transition: transform .15s, box-shadow .15s; }
+.pp-cta span { font-size: 17px; transition: transform .15s; }
+.pp-cta:hover { color: #fff; transform: translateY(-1px); box-shadow: 0 14px 26px -12px rgba(179, 20, 28, .9); }
+.pp-cta:hover span { transform: translateY(2px); }
+.pp-desk { scroll-margin-top: 16px; }
+.pp-flash { animation: pp-flash 1.6s ease-out; }
+@keyframes pp-flash { 0%, 30% { box-shadow: 0 0 0 4px rgba(179, 20, 28, .35); } 100% { box-shadow: 0 0 0 4px rgba(179, 20, 28, 0); } }
+@media (max-width: 760px) {
+    .pp-strip-row { flex-direction: column; align-items: stretch; }
+    .pp-strip-row .pp-strip { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+    .pp-cta { margin-left: 0; justify-content: center; }
+}
+
+/* ---- player page: cleaner offers, one suggestion on phones (23 Oct) ---- */
+.pp-offer { display: block; padding: 0; overflow: hidden; }
+.pp-offer-main { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px 12px; }
+.pp-offer-give { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pp-offer-label { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.pp-offer-label em { font-style: normal; background: var(--ink); color: var(--paper); border-radius: 999px; padding: 1px 8px; letter-spacing: 1px; }
+.pp-offer-score { flex: none; display: flex; flex-direction: column; align-items: flex-end; line-height: 1; }
+.pp-offer-score b { font: 400 34px "Anton", sans-serif; color: var(--ink); }
+.pp-offer-score small { margin-top: 4px; font: 600 11px "Barlow", sans-serif; color: var(--muted); }
+.pp-offer-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; padding: 9px 16px; background: #f6f1e6; border-top: 1px solid var(--line); }
+.pp-offer-proof { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font: 500 13px "Barlow", sans-serif; color: var(--ink-2); }
+.pp-offer-proof b { color: var(--ink); }
+.pp-offer .pp-pitch { grid-column: auto; grid-row: auto; flex: none; padding: 6px 12px; font-size: 12.5px; background: var(--paper); }
+.pp-offer .pp-pitch:hover { background: var(--ink); }
+.pp-offer .pp-pitch-done { background: #2d6a1f; }
+@media (max-width: 760px) {
+    .pp-offer .pp-pitch { grid-column: auto; justify-self: auto; }
+    .pp-offer-main { align-items: flex-start; }
+    .pp-offer-score b { font-size: 28px; }
+    .pp-suggest { flex-wrap: nowrap; }
+    .pp-sug:not([hidden]) ~ .pp-sug { display: none; }
+    .pp-sug { min-width: 0; }
+    .pp-sug b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pp-sug small { white-space: nowrap; }
+}

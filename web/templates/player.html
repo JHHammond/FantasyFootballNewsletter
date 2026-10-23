@@ -83,6 +83,8 @@
         {% else %}<span class="at-pc-chg at-pc-flat">where he was drafted</span>{% endif %}
     </div>
     {% endif %}
+    {% if usage or who.priced %}
+    <div class="pp-strip-row">
     {% if usage %}
     <ol class="pp-strip" aria-label="Points and start rate by week">
         {% for u in usage %}
@@ -92,6 +94,11 @@
             <small>{{ '%.0f'|format((u.start_pct or 0) * 100) }}% started</small></li>
         {% endfor %}
     </ol>
+    {% endif %}
+    {% if who.priced %}
+    <a class="pp-cta" href="#desk" id="pp-cta">{{ 'Sell him' if desk and desk.mode == 'sell' else 'Trade for him' }}<span aria-hidden="true">&darr;</span></a>
+    {% endif %}
+    </div>
     {% endif %}
 </section>
 
@@ -128,25 +135,25 @@
 {% endif %}
 
 {# ------------------------------------------------- Get him / Sell him (paid) #}
-{% macro offer_row(o) -%}
+{% macro offer_row(o, best=false) -%}
+{% set names = o.players|map(attribute='name')|join(' + ') %}
 <li class="pp-offer">
-    <div class="pp-offer-deal">
-        {% if desk.mode == 'sell' %}<span class="pp-offer-verb">Ask <b>{{ o.team }}</b> for</span>
-        {% else %}<span class="pp-offer-verb">Offer</span>{% endif %}
-        {% for p in o.players %}{% if not loop.first %}<span class="pp-plus">+</span>{% endif %}<a class="pp-tok pp-tok-player" href="/staff/market/player/{{ p.k|urlencode }}">{{ p.name }}<small>{{ p.pos }} &middot; {{ p.costs }}</small></a>{% endfor %}
-        {% if desk.mode != 'sell' %}<span class="pp-offer-verb">for him</span>{% endif %}
+    <div class="pp-offer-main">
+        <div class="pp-offer-give">
+            <span class="pp-offer-label">{% if desk.mode == 'sell' %}{{ o.team }} gives{% else %}You give{% endif %}{% if best %}<em>Best fit</em>{% endif %}</span>
+            <div class="pp-tiles">{% for p in o.players %}{{ tile({'kind': 'player', 'key': p.k, 'label': p.name, 'position': p.pos, 'photo': p.photo, 'costs': p.costs}) }}{% endfor %}</div>
+        </div>
+        <div class="pp-offer-score"><b>{{ '%.0f'|format(o.ratio * 100) }}%</b><small>of his value</small></div>
     </div>
-    <div class="pp-offer-why">
-        <span class="pp-fit">{{ '%.0f'|format(o.ratio * 100) }}% of his value</span>
-        {% if o.fills_need %}<span class="pp-tag">fills their {{ desk.owner_needs }} need</span>{% endif %}
-        {% if o.wants_him %}<span class="pp-tag">they&rsquo;re short at {{ who.position }}</span>{% endif %}
-        {% if o.exact %}<span class="pp-proof"><b>{{ o.exact }}</b> deal{{ '' if o.exact == 1 else 's' }} exactly like this across the country</span>
-        {% elif o.each|max > 0 %}<span class="pp-proof">{{ o.players[0].name }} has gone for him in <b>{{ o.each[0] }}</b> deal{{ '' if o.each[0] == 1 else 's' }}</span>
-        {% else %}<span class="pp-proof pp-proof-none">No deal like it yet: priced by the market</span>{% endif %}
+    <div class="pp-offer-foot">
+        <span class="pp-offer-proof"><span>
+        {%- if o.exact %}<b>{{ o.exact }}</b> deal{{ '' if o.exact == 1 else 's' }} exactly like this across the country
+        {%- elif o.each|max > 0 %}{{ o.players[0].name }} has gone for him in <b>{{ o.each[0] }}</b> deal{{ '' if o.each[0] == 1 else 's' }}
+        {%- else %}No deal like it yet: priced by the market{% endif %}</span>
+        {%- if o.fills_need %}<span class="pp-tag">fills their {{ desk.owner_needs }} need</span>{% endif %}
+        {%- if o.wants_him %}<span class="pp-tag">they&rsquo;re short at {{ who.position }}</span>{% endif %}</span>
+        <button type="button" class="pp-pitch" data-pitch="{{ names }} for {{ who.name }}{% if o.exact %} has happened {{ o.exact }} time{{ '' if o.exact == 1 else 's' }} across the country{% else %} is a fair price by the trade market{% endif %}, per The Commissioner&rsquo;s Desk.">Copy pitch</button>
     </div>
-    {% set names = o.players|map(attribute='name')|join(' + ') %}
-    {% if desk.mode == 'sell' %}{% set pitch = names ~ ' for ' ~ who.name %}{% else %}{% set pitch = names ~ ' for ' ~ who.name %}{% endif %}
-    <button type="button" class="pp-pitch" data-pitch="{{ pitch }}{% if o.exact %} has happened {{ o.exact }} time{{ '' if o.exact == 1 else 's' }} across the country{% else %} is a fair price by the trade market{% endif %}, per The Commissioner&rsquo;s Desk.">Copy the pitch</button>
 </li>
 {%- endmacro %}
 
@@ -188,16 +195,18 @@
     {% elif not desk.offers %}
     <p class="pp-empty">{% if desk.mode == 'sell' %}No leaguemate has a player or pair that matches his price.{% else %}Nothing on your roster, alone or in a pair, comes within 15% of his price.{% endif %}</p>
     {% else %}
-    <p class="card-sub">{{ desk.offers|length }} fair offer{{ '' if desk.offers|length == 1 else 's' }}{% if desk.mode == 'sell' %} from your leaguemates{% else %} from your roster{% endif %}: within 15% of his value, counting the roster spot a two-for-one costs, best fit first.</p>
+    <p class="card-sub">{{ desk.offers|length }} fair offer{{ '' if desk.offers|length == 1 else 's' }}{% if desk.mode == 'sell' %} from your leaguemates{% else %} from your roster{% endif %}, best fit first. Each is within 15% of his value.</p>
     <ol class="pp-offers">
-        {{ offer_row(desk.offers[0]) }}
+        {{ offer_row(desk.offers[0], true) }}
         {% if paid %}{% for o in desk.offers[1:] %}{{ offer_row(o) }}{% endfor %}{% endif %}
     </ol>
     {% if not paid and desk.offers|length > 1 %}
     <ol class="pp-offers pp-blur" aria-hidden="true">
         {% for i in range([desk.offers|length - 1, 3]|min) %}
-        <li class="pp-offer"><div class="pp-offer-deal"><span class="pp-offer-verb">Offer</span><span class="pp-tok">One of yours</span><span class="pp-plus">+</span><span class="pp-tok">Another</span></div>
-            <div class="pp-offer-why"><span class="pp-fit">98% of his value</span><span class="pp-proof">12 deals exactly like this</span></div></li>
+        <li class="pp-offer"><div class="pp-offer-main"><div class="pp-offer-give"><span class="pp-offer-label">You give</span>
+            <div class="pp-tiles"><span class="pp-tile"><span class="at-face pp-tile-face"><span>?</span></span><span class="pp-tile-txt"><b>One of yours</b><small>WR &middot; 3.04</small></span></span></div></div>
+            <div class="pp-offer-score"><b>98%</b><small>of his value</small></div></div>
+            <div class="pp-offer-foot"><span class="pp-offer-proof"><span><b>12</b> deals exactly like this</span></span></div></li>
         {% endfor %}
     </ol>
     <div class="pp-unlock">
@@ -222,7 +231,7 @@
         <li>
             <span class="at-face pp-tf-face">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
             <a class="pp-tf-name" href="/staff/market/player/{{ p.key|urlencode }}">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}</a>
-            <span class="pp-tf-cost">{% if p.costs %}<b>{{ p.costs }}</b>{% if who.rank and p.rank %}<small class="{{ 'pp-cheaper' if p.rank > who.rank else 'pp-dearer' }}">{{ 'cheaper than him' if p.rank > who.rank else 'dearer than him' }}</small>{% endif %}{% else %}<small>no price</small>{% endif %}</span>
+            <span class="pp-tf-cost">{% if p.costs %}<b>{{ p.costs }}</b>{% if who.rank and p.rank and p.rank != who.rank %}{% set gap = (p.rank - who.rank)|abs %}<small class="{{ 'pp-cheaper' if p.rank > who.rank else 'pp-dearer' }}">{{ gap }} pick{{ '' if gap == 1 else 's' }} {{ 'later' if p.rank > who.rank else 'earlier' }} than him</small>{% endif %}{% else %}<small>no price</small>{% endif %}</span>
             <span class="pp-tf-deals"><span class="pp-split"><i class="pp-split-s" style="width:{{ '%.0f'|format(100 * p.straight / top) }}%"></i><i class="pp-split-p" style="width:{{ '%.0f'|format(100 * p.package / top) }}%"></i></span>
                 <b>{{ p.n }}</b><small>{{ p.straight }} / {{ p.package }}</small></span>
             <span class="pp-tf-recent">{{ p.recent or '&ndash;'|safe }}</span>
@@ -291,6 +300,15 @@
                 navigator.clipboard.writeText(text).then(done, function () { window.prompt("Copy this:", text); });
             } else { window.prompt("Copy this:", text); }
         });
+    });
+
+    // ---- "Trade for him": down to the desk, and show where you landed ----
+    var cta = document.getElementById("pp-cta"), deskCard = document.getElementById("desk");
+    if (cta && deskCard) cta.addEventListener("click", function (e) {
+        e.preventDefault();
+        deskCard.scrollIntoView({behavior: "smooth", block: "start"});
+        try { history.replaceState(null, "", "#desk"); } catch (er) { /* fine */ }
+        deskCard.classList.remove("pp-flash"); void deskCard.offsetWidth; deskCard.classList.add("pp-flash");
     });
 
     // ---- the rest of the trades, on request ----
@@ -535,7 +553,7 @@
                     var gp = document.createElement("small"); gp.className = "pp-tip-gap";
                     if (mine && r.c.c !== 0) {
                         var n = Math.round(mine[1]) - Math.round(r.p[1]);
-                        gp.textContent = n === 0 ? "same" : (n > 0 ? n + " dearer" : -n + " cheaper");
+                        gp.textContent = n === 0 ? "same price" : Math.abs(n) + (Math.abs(n) === 1 ? " pick " : " picks ") + (n > 0 ? "earlier" : "later");
                     }
                     row.appendChild(sw); row.appendChild(nm); row.appendChild(vb); row.appendChild(gp);
                     tip.appendChild(row);
