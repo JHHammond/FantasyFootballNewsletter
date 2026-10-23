@@ -3957,3 +3957,30 @@ html.nb-lock { overflow: hidden; }
     .at-mkt-chip { font-size: 13px; }
     .at-mkt-face { width: 22px; height: 22px; }
 }
+
+
+/* ---- the trade market's price chart, on top (23 Oct) ---- */
+.at-pc-controls { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 20px; margin: 10px 0 4px; }
+.at-pc-legend { margin: 0; flex: 1 1 320px; min-height: 34px; }
+.at-pc-chip .at-pc-x { margin-left: 2px; color: var(--muted); font-size: 16px; line-height: 1; }
+.at-pc-chip:hover .at-pc-x { color: var(--accent); }
+.at-pc-add { position: relative; flex: 0 1 280px; width: 100%; }
+.at-pc-add-label { display: block; font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+.at-pc-q { width: 100%; box-sizing: border-box; padding: 7px 10px; font: 500 15px "Barlow", sans-serif; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 2px; }
+.at-pc-q:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.at-pc-hits { position: absolute; z-index: 20; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 0; list-style: none; background: var(--paper); border: 1px solid var(--ink); box-shadow: 0 6px 18px rgba(0,0,0,.12); max-height: 320px; overflow-y: auto; }
+.at-pc-hit, .at-pc-none { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; font: 500 14px "Barlow", sans-serif; cursor: pointer; }
+.at-pc-none { cursor: default; color: var(--muted); }
+.at-pc-hit + .at-pc-hit { border-top: 1px solid var(--line); }
+.at-pc-hit.at-pc-active, .at-pc-hit:hover { background: rgba(0,0,0,.05); }
+.at-pc-hit.at-pc-on .at-pc-hit-name::after { content: " \2713"; color: var(--accent); }
+.at-pc-hit-val { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.at-pc-chart { margin-top: 6px; }
+.at-pc .at-mk-dot { stroke-width: 1.5; }
+@media (max-width: 560px) {
+    .at-pc-add { flex-basis: 100%; }
+}
+
+/* The price chart draws its own phone frame (400 wide), so its ticks stay
+   at their natural size instead of the 24px the scaled-down charts need. */
+.ar-chart.at-pc-chart .ar-tick { font-size: 12px; }

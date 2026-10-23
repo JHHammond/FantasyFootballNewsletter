@@ -610,9 +610,26 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
              "drafted_at": pick_label(adp[k]), "drafted": round(adp[k], 1)}
             for k in sorted(adp, key=lambda k: adp[k])
             if k not in skip and market.n.get(k, 0) == 0][:12]
+    # THE CHART: one line per priced player, one point per NFL week,
+    # starting from where he was drafted. Every player, not a chosen six,
+    # because the page lets the reader pick who to draw — see weekly().
+    weekly_lines = weekly(got["series"], adp, season, rated)
+    from web.luck import photo_url
+    pickable = []
+    for i, k in enumerate(rated, 1):
+        meta = names.get(k) or {}
+        pickable.append({
+            "k": k, "name": meta.get("name") or k, "pos": meta.get("position"),
+            "team": meta.get("nfl_team"), "rank": i,
+            "costs": pick_label(ranked[k]),
+            "drafted": pick_label(adp[k]) if k in adp else None,
+            "trades": market.n.get(k, 0),
+            "photo": photo_url(k, meta.get("position"))})
     return {
         "rows": rows,
         "held": held,
+        "weekly": weekly_lines,
+        "pickable": pickable,
         "up": movers[:6],
         "down": list(reversed(movers[-6:])),
         "series": {k: got["series"][k] for k in drawn if k in got["series"]},
@@ -631,6 +648,43 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
         "drift": round(drift, 4),
         "fit": got["fit"],
     }
+
+
+def weekly(series: dict, adp: dict[str, float], season: int,
+           keys: Iterable[str]) -> dict[str, list]:
+    """Daily closes folded to one point per NFL week: the price at the end
+    of that week, for every player in `keys`.
+
+    Each line starts at [0, his ADP] — "where the country drafted him" —
+    so the first segment of every line is the draft-to-now story on its
+    own. Trades before the opener fold into week 1: preseason is real
+    trading, but there is no week 0 to plot it in apart from the draft.
+
+    Weekly, not daily, because trades bunch on weekends and around waivers
+    and a daily line is mostly that rhythm. The rest of the page counts in
+    weeks too.
+    """
+    import nfl_week
+    from datetime import date
+    try:
+        opener = nfl_week.season_opener(int(season)).toordinal()
+    except Exception:  # noqa: BLE001
+        opener = date(int(season), 9, 4).toordinal()
+    out: dict[str, list] = {}
+    for key in keys:
+        points = series.get(key) or []
+        if not points:
+            continue
+        by_week: dict[int, float] = {}
+        for pt in points:                         # in day order: last wins
+            wk = max(1, (int(pt["day"]) - opener) // 7 + 1)
+            by_week[wk] = pt["slot"]
+        line = []
+        if key in adp:
+            line.append([0, round(float(adp[key]), 1)])
+        line += [[w, by_week[w]] for w in sorted(by_week)]
+        out[key] = line
+    return out
 
 
 def _snapshot(market: Market, series: dict, day: int,

@@ -36,6 +36,344 @@
         <a href="/staff/around">Back to Around the Leagues</a>.</p>
 </section>
 
+
+{# ------------------------------------------------- the price, week by week #}
+{#
+    John, 23 Oct: "this is what the graph needs to show", on top, with a
+    way to change who is on it, defaulting to the most expensive player.
+
+    Every priced player's weekly line ships in one JSON block (a few dozen
+    KB), and the reader picks up to six to draw. Lines start at the draft,
+    so the first segment is the draft-to-now story by itself. The y axis is
+    the draft slot on a log scale, best at the top: the gap between the
+    1.01 and the 2.01 is a real argument, the gap between the 14th and 15th
+    rounds is not, and a linear axis would spend its height on the second.
+#}
+{% set R = rating %}
+{% if R and R.weekly and R.pickable %}
+<section class="card at-pc" id="at-pc">
+    <h2 class="card-title">The going rate, week by week</h2>
+    <p class="card-sub">Where each player was drafted, then the pick his trades say he is
+        worth at the end of every week since. Higher is more expensive.</p>
+    <div class="at-pc-controls">
+        <div class="at-mkt-legend at-pc-legend" id="at-pc-legend" aria-live="polite"></div>
+        <div class="at-pc-add">
+            <label for="at-pc-q" class="at-pc-add-label">Add a player</label>
+            <input type="search" id="at-pc-q" class="at-pc-q" placeholder="Name, position or team"
+                   autocomplete="off" spellcheck="false" aria-controls="at-pc-hits" />
+            <ul class="at-pc-hits" id="at-pc-hits" role="listbox" hidden></ul>
+        </div>
+    </div>
+    <figure class="ar-chart at-market-chart at-pc-chart">
+        <div class="ar-chart-box"><svg viewBox="0 0 760 300" class="ar-line at-pc-svg" id="at-pc-svg"
+             role="img" aria-label="Each chosen player's price by week, as a draft pick"></svg></div>
+        <figcaption class="ar-chart-cap" id="at-pc-cap">Drag across the chart to read any week.</figcaption>
+    </figure>
+    <script type="application/json" id="at-pc-data">{{ {'lines': R.weekly, 'players': R.pickable}|tojson }}</script>
+</section>
+<script>
+(function () {
+    var root = document.getElementById("at-pc");
+    if (!root) return;
+    var DATA;
+    try { DATA = JSON.parse(document.getElementById("at-pc-data").textContent); } catch (e) { return; }
+    var LINES = DATA.lines || {}, PLAYERS = (DATA.players || []).filter(function (p) { return LINES[p.k]; });
+    if (!PLAYERS.length) return;
+    var BY = {}; PLAYERS.forEach(function (p) { BY[p.k] = p; });
+
+    var W, H, L, R, T, B, MAX = 6, narrow = null;
+    function frame() {
+        // A phone gets its own taller box. The desktop one, scaled down to
+        // a 360px screen, came out 140px tall with its labels touching.
+        var small = (svg.getBoundingClientRect().width || 760) < 520;
+        if (small === narrow) return false;
+        narrow = small;
+        if (small) { W = 400; H = 340; L = 44; R = 384; T = 14; B = 300; }
+        else { W = 760; H = 300; L = 54; R = 744; T = 16; B = 262; }
+        svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+        return true;
+    }
+    var svg = document.getElementById("at-pc-svg"),
+        legend = document.getElementById("at-pc-legend"),
+        q = document.getElementById("at-pc-q"),
+        hits = document.getElementById("at-pc-hits"),
+        cap = document.getElementById("at-pc-cap"),
+        capText = cap.textContent;
+    var NS = "http://www.w3.org/2000/svg";
+
+    var lastWeek = 0;
+    Object.keys(LINES).forEach(function (k) {
+        LINES[k].forEach(function (pt) { if (pt[0] > lastWeek) lastWeek = pt[0]; });
+    });
+    lastWeek = Math.max(lastWeek, 1);
+
+    // ---- who is drawn: ?p=key,key in the URL, else the most expensive ----
+    var chosen = [];       // [{k, c}] c = colour slot 0..5, kept for the life of the line
+    function fromUrl() {
+        var m = /[?&]p=([^&]*)/.exec(location.search);
+        if (!m) return [];
+        return decodeURIComponent(m[1]).split(",").filter(function (k) { return BY[k]; }).slice(0, MAX);
+    }
+    function toUrl() {
+        var keys = chosen.map(function (c) { return c.k; }).join(",");
+        var base = location.pathname + location.search.replace(/([?&])p=[^&]*&?/, "$1").replace(/[?&]$/, "");
+        var sep = base.indexOf("?") >= 0 ? "&" : "?";
+        try { history.replaceState(null, "", base + (keys ? sep + "p=" + encodeURIComponent(keys) : "") + location.hash); } catch (e) {}
+    }
+    function add(k) {
+        if (!BY[k] || chosen.some(function (c) { return c.k === k; })) return;
+        if (chosen.length >= MAX) chosen.shift();
+        var used = chosen.map(function (c) { return c.c; }), c = 0;
+        while (used.indexOf(c) >= 0) c++;
+        chosen.push({k: k, c: c});
+    }
+    function remove(k) { chosen = chosen.filter(function (c) { return c.k !== k; }); }
+    (fromUrl().length ? fromUrl() : [PLAYERS[0].k]).forEach(add);
+
+    // ---- scales ----
+    function pickLabel(slot) {
+        var n = Math.max(1, Math.round(slot));
+        var r = Math.floor((n - 1) / 12) + 1, p = (n - 1) % 12 + 1;
+        return r + "." + (p < 10 ? "0" : "") + p;
+    }
+    function x(week) { return L + (R - L) * week / lastWeek; }
+    var lo = 1, hi = 24;
+    function y(slot) {
+        var s = Math.min(Math.max(slot, lo), hi);
+        return T + (B - T) * Math.log(s / lo) / Math.log(hi / lo);
+    }
+    function rescale() {
+        // Fixed top at the 1.01 so a single line can't fill the frame and
+        // make a two-pick wobble look like a collapse. The bottom stretches
+        // to whoever is drawn, at least two rounds down.
+        var worst = 24;
+        chosen.forEach(function (c) {
+            LINES[c.k].forEach(function (pt) { if (pt[1] > worst) worst = pt[1]; });
+        });
+        hi = Math.ceil(worst * 1.15 / 12) * 12 + 1;
+    }
+
+    function el(name, attrs, parent) {
+        var e = document.createElementNS(NS, name);
+        for (var a in attrs) e.setAttribute(a, attrs[a]);
+        if (parent) parent.appendChild(e);
+        return e;
+    }
+
+    function draw() {
+        frame();
+        rescale();
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        var defs = el("defs", {}, svg);
+        // Round lines: the start of each round that fits.
+        var lastTick = -99;
+        [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 21].forEach(function (rd) {
+            var slot = (rd - 1) * 12 + 1;
+            if (slot > hi) return;
+            var yy = y(slot);
+            // The log scale bunches the late rounds; "Rd 10" sat on "Rd 12".
+            if (yy - lastTick < 16) return;
+            lastTick = yy;
+            el("line", {x1: L, x2: R, y1: yy, y2: yy, "class": "ar-grid"}, svg);
+            var t = el("text", {x: L - 8, y: yy + 4, "class": "ar-tick", "text-anchor": "end"}, svg);
+            t.textContent = "Rd " + rd;
+        });
+        var fit = Math.max(2, Math.floor((R - L) / 46));
+        var step = Math.max(1, Math.ceil(lastWeek / fit));
+        for (var w = 0; w <= lastWeek; w += (w === 0 ? 1 : step)) {
+            var tx = el("text", {x: x(w), y: B + 22, "class": "ar-tick", "text-anchor": "middle"}, svg);
+            tx.textContent = w === 0 ? "Draft" : "Wk " + w;
+        }
+        el("line", {id: "at-pc-rule", "class": "at-mkt-rule", x1: 0, x2: 0, y1: T, y2: B, style: "display:none"}, svg);
+        chosen.forEach(function (c) {
+            var pts = LINES[c.k], p = BY[c.k];
+            var g = el("g", {"class": "at-mk at-mk-" + c.c, "data-key": c.k}, svg);
+            el("path", {"class": "at-mk-path", d: pts.map(function (pt, i) {
+                return (i ? "L" : "M") + x(pt[0]).toFixed(1) + "," + y(pt[1]).toFixed(1);
+            }).join("")}, g);
+            pts.forEach(function (pt, i) {
+                if (i === pts.length - 1) return;
+                el("circle", {"class": "at-mk-dot", r: 2.5, cx: x(pt[0]), cy: y(pt[1])}, g);
+            });
+            el("circle", {"class": "at-mk-cursor", r: 4, style: "display:none"}, g);
+            var last = pts[pts.length - 1];
+            var end = el("g", {"class": "at-mk-end", transform: "translate(" + x(last[0]) + "," + y(last[1]) + ")"}, g);
+            el("circle", {r: 12, "class": "at-mk-ring"}, end);
+            var clip = el("clipPath", {id: "at-pc-clip-" + c.c}, defs);
+            el("circle", {cx: 0, cy: 0, r: 11}, clip);
+            if (p.photo) {
+                var img = el("image", {x: -11, y: -11, width: 22, height: 22,
+                    "clip-path": "url(#at-pc-clip-" + c.c + ")", preserveAspectRatio: "xMidYMin slice"}, end);
+                img.setAttributeNS("http://www.w3.org/1999/xlink", "href", p.photo);
+                img.setAttribute("href", p.photo);
+                img.addEventListener("error", function () {
+                    var parent = this.parentNode;
+                    this.remove();
+                    var t = el("text", {"class": "at-mk-initial", "text-anchor": "middle", y: 4}, parent);
+                    t.textContent = (p.name || "?").charAt(0);
+                });
+            } else {
+                var ini = el("text", {"class": "at-mk-initial", "text-anchor": "middle", y: 4}, end);
+                ini.textContent = (p.name || "?").charAt(0);
+            }
+        });
+        el("rect", {id: "at-pc-hit", x: L, y: T, width: R - L, height: B - T,
+                    fill: "transparent", style: "touch-action:pan-y"}, svg);
+        drawLegend();
+        bindScrub();
+        toUrl();
+    }
+
+    // ---- the legend: one chip per line, tap to take it off ----
+    function drawLegend() {
+        legend.textContent = "";
+        chosen.forEach(function (c) {
+            var p = BY[c.k];
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "at-mkt-chip at-pc-chip at-mk-" + c.c;
+            b.setAttribute("aria-label", "Remove " + p.name + " from the chart");
+            var face = document.createElement("span");
+            face.className = "at-face at-mkt-face" + (p.pos === "DEF" ? " at-face-def" : "");
+            if (p.photo) {
+                var im = document.createElement("img");
+                im.src = p.photo; im.alt = ""; im.loading = "lazy";
+                im.onerror = function () { this.remove(); };
+                face.appendChild(im);
+            }
+            var ini = document.createElement("span"); ini.textContent = (p.name || "?").charAt(0);
+            face.appendChild(ini);
+            var txt = document.createElement("span"); txt.className = "at-mkt-chip-text";
+            txt.appendChild(document.createTextNode(p.name));
+            var v = document.createElement("b"); v.setAttribute("data-value", "");
+            v.textContent = p.costs; txt.appendChild(v);
+            var x_ = document.createElement("span"); x_.className = "at-pc-x"; x_.textContent = "\u00d7";
+            x_.setAttribute("aria-hidden", "true");
+            b.appendChild(face); b.appendChild(txt); b.appendChild(x_);
+            b.addEventListener("click", function () {
+                remove(c.k);
+                if (!chosen.length) add(PLAYERS[0].k);   // never an empty frame
+                draw();
+            });
+            legend.appendChild(b);
+        });
+    }
+
+    // ---- reading a week ----
+    function bindScrub() {
+        var hit = document.getElementById("at-pc-hit"), rule = document.getElementById("at-pc-rule");
+        var dragging = false;
+        function weekAt(clientX) {
+            var box = svg.getBoundingClientRect();
+            var vx = (clientX - box.left) * W / box.width;
+            return Math.max(0, Math.min(lastWeek, Math.round((vx - L) / (R - L) * lastWeek)));
+        }
+        function show(w) {
+            rule.setAttribute("x1", x(w)); rule.setAttribute("x2", x(w)); rule.style.display = "";
+            var parts = [];
+            chosen.forEach(function (c) {
+                var pt = null;
+                LINES[c.k].forEach(function (q_) { if (q_[0] <= w) pt = q_; });
+                var g = svg.querySelector('.at-mk[data-key="' + c.k.replace(/["\\]/g, "\\$&") + '"]');
+                var cur = g && g.querySelector(".at-mk-cursor");
+                var chip = legend.querySelector(".at-mk-" + c.c + " [data-value]");
+                if (pt && cur) {
+                    cur.setAttribute("cx", x(w)); cur.setAttribute("cy", y(pt[1])); cur.style.display = "";
+                }
+                if (chip) chip.textContent = pt ? pickLabel(pt[1]) : "\u2013";
+                if (pt) parts.push(BY[c.k].name + " " + pickLabel(pt[1]));
+            });
+            cap.textContent = (w === 0 ? "At the draft" : "End of week " + w) + ": " + parts.join(" \u00b7 ");
+        }
+        function clear() {
+            rule.style.display = "none";
+            svg.querySelectorAll(".at-mk-cursor").forEach(function (c_) { c_.style.display = "none"; });
+            chosen.forEach(function (c) {
+                var chip = legend.querySelector(".at-mk-" + c.c + " [data-value]");
+                if (chip) chip.textContent = BY[c.k].costs;
+            });
+            cap.textContent = capText;
+        }
+        function move(e) { var t = e.touches ? e.touches[0] : e; show(weekAt(t.clientX)); }
+        hit.addEventListener("pointerdown", function (e) { dragging = true; if (hit.setPointerCapture) hit.setPointerCapture(e.pointerId); move(e); });
+        hit.addEventListener("pointermove", function (e) { if (dragging || e.pointerType === "mouse") move(e); });
+        hit.addEventListener("pointerup", function () { dragging = false; });
+        hit.addEventListener("pointerleave", function () { if (!dragging) clear(); });
+        hit.addEventListener("pointercancel", function () { dragging = false; clear(); });
+    }
+
+    // ---- search to add ----
+    var found = [], active = -1;
+    function norm(s) { return (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
+    function search() {
+        var s = norm(q.value.trim());
+        hits.textContent = ""; found = []; active = -1;
+        if (!s) { hits.hidden = true; return; }
+        var words = s.split(/\s+/);
+        found = PLAYERS.filter(function (p) {
+            var name = norm(p.name);
+            return words.every(function (w_) {
+                // A name matches anywhere; a position or team has to be the whole word.
+                return name.indexOf(w_) >= 0 || norm(p.pos) === w_ || norm(p.team) === w_;
+            });
+        }).slice(0, 8);
+        found.forEach(function (p, i) {
+            var li = document.createElement("li");
+            li.setAttribute("role", "option"); li.id = "at-pc-hit-" + i;
+            var on = chosen.some(function (c) { return c.k === p.k; });
+            li.className = "at-pc-hit" + (on ? " at-pc-on" : "");
+            var nm = document.createElement("span"); nm.className = "at-pc-hit-name";
+            nm.textContent = p.name + (p.pos ? " \u00b7 " + p.pos : "") + (p.team ? " \u00b7 " + p.team : "");
+            var pr = document.createElement("span"); pr.className = "at-pc-hit-val";
+            pr.textContent = "#" + p.rank + " \u00b7 " + p.costs;
+            li.appendChild(nm); li.appendChild(pr);
+            li.addEventListener("mousedown", function (e) { e.preventDefault(); pick(i); });
+            hits.appendChild(li);
+        });
+        if (!found.length) {
+            var none = document.createElement("li"); none.className = "at-pc-none";
+            none.textContent = "No priced player matches.";
+            hits.appendChild(none);
+        }
+        hits.hidden = false;
+    }
+    function pick(i) {
+        var p = found[i];
+        if (!p) return;
+        add(p.k); draw();
+        q.value = ""; hits.hidden = true; found = [];
+        q.focus();
+    }
+    function highlight(i) {
+        var items = hits.querySelectorAll(".at-pc-hit");
+        items.forEach(function (it, j) { it.classList.toggle("at-pc-active", j === i); });
+        active = i;
+        q.setAttribute("aria-activedescendant", i >= 0 ? "at-pc-hit-" + i : "");
+    }
+    q.addEventListener("input", search);
+    q.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowDown" && found.length) { e.preventDefault(); highlight(Math.min(found.length - 1, active + 1)); }
+        else if (e.key === "ArrowUp" && found.length) { e.preventDefault(); highlight(Math.max(0, active - 1)); }
+        else if (e.key === "Enter") { e.preventDefault(); pick(active >= 0 ? active : 0); }
+        else if (e.key === "Escape") { hits.hidden = true; }
+    });
+    q.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; }, 120); });
+
+    draw();
+    var resizing;
+    window.addEventListener("resize", function () {
+        clearTimeout(resizing);
+        resizing = setTimeout(function () {
+            var was = narrow;
+            narrow = null;
+            frame();
+            if (narrow !== was) draw();
+        }, 150);
+    });
+})();
+</script>
+{% endif %}
+
 {# ------------------------------------------------------- trades, collected #}
 {% set TV = trade_volume %}
 <section class="card ar-collect at-trades">
@@ -215,7 +553,7 @@
     </p>
 
     {% set C = M.chart %}
-    {% if C and C.lines %}
+    {% if C and C.lines and not (R and R.weekly and R.pickable) %}
     <div class="at-mkt" id="at-mkt"
          data-series="{{ M.all_series|tojson|forceescape }}"
          data-lo="{{ C.lo }}" data-hi="{{ C.hi }}">
