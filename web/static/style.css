@@ -4042,3 +4042,79 @@ html.nb-lock { overflow: hidden; }
     .at-pc-legend { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; margin-right: -16px; }
     .at-pc-stats { gap: 2px 14px; font-size: 13px; }
 }
+
+/* ---- the price chart, second pass (23 Oct): search, axis, the lists ---- */
+.at-pc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.at-pc-add { flex: 0 1 340px; }
+.at-pc-search { position: relative; display: flex; align-items: center; }
+.at-pc-mag { position: absolute; left: 15px; width: 17px; height: 17px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+.at-pc .at-pc-q { width: 100%; padding: 11px 16px 11px 42px; font: 500 15px "Barlow", sans-serif; color: var(--ink); background: #faf6ee; border: 1px solid var(--line); border-radius: 999px; box-shadow: inset 0 1px 2px rgba(40, 30, 10, .06); transition: border-color .15s, box-shadow .15s, background-color .15s; -webkit-appearance: none; appearance: none; }
+.at-pc .at-pc-q::placeholder { color: #9a8f7b; }
+.at-pc .at-pc-q:hover { border-color: #c4b9a5; }
+.at-pc .at-pc-q:focus { outline: none; border-color: var(--ink); background: var(--paper); box-shadow: 0 0 0 3px rgba(179, 20, 28, .14); }
+.at-pc .at-pc-q::-webkit-search-cancel-button { -webkit-appearance: none; }
+.at-pc-hits { top: calc(100% + 6px); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 34px -14px rgba(40, 30, 10, .4); max-height: 360px; padding: 4px 0; }
+.at-pc-hit { align-items: center; gap: 10px; padding: 7px 12px; }
+.at-pc-hit + .at-pc-hit { border-top: 0; }
+.at-pc-hit.at-pc-active, .at-pc-hit:hover { background: #f4eee2; }
+.at-pc-hit-face { width: 32px; height: 32px; }
+.at-pc-hit-face > span { font-size: 13px; }
+.at-pc-hit-who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.at-pc-hit-name { font: 600 14px "Barlow", sans-serif; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.at-pc-hit-who small { font-size: 12px; color: var(--muted); }
+.at-pc-hit-val { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+.at-pc-hit-val b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 16px; color: var(--ink); }
+.at-pc-hit-val small { font-size: 11px; }
+.at-pc-none { padding: 10px 14px; }
+
+/* A quieter axis: small, light labels, a short tick under each date. */
+.ar-chart.at-pc-chart .at-pc-xtick,
+.ar-chart.at-pc-chart .at-pc-ytick { font: 500 11px "Barlow", sans-serif; letter-spacing: .2px; fill: #8c8270; }
+.at-pc-xmark { stroke: #c9bfac; stroke-width: 1; }
+
+/* The lists under the chart. */
+.at-pl-list { list-style: none; margin: 0; padding: 0; }
+.at-pl-two { columns: 2; column-gap: 36px; }
+.at-pl-list li { break-inside: avoid; border-bottom: 1px solid var(--line); }
+.at-pl-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 4px; background: none; border: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.at-pl-row:hover { background: #f6f1e6; }
+.at-pl-row:hover .at-pl-name { color: var(--accent); }
+.at-pl-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.at-pl-rank { width: 22px; flex: none; text-align: right; font-family: "Anton", sans-serif; font-size: 18px; color: var(--accent); }
+.at-pl-who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.at-pl-name { font: 600 15px "Barlow", sans-serif; display: flex; align-items: center; gap: 6px; }
+.at-pl-who small { font-size: 12.5px; color: var(--muted); }
+.at-pl-val { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.05; }
+.at-pl-val b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 22px; font-variant-numeric: tabular-nums; }
+.at-pl-val small { font: 600 12px "Barlow", sans-serif; }
+.at-pl-move b { font-size: 24px; }
+.at-pl-move.at-pc-up b { color: #2d6a1f; }
+.at-pl-move.at-pc-down b { color: var(--accent); }
+.at-pl-held { font-size: 13px; color: var(--muted); margin: 12px 0 0; }
+.at-pl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 36px; }
+.at-pl-head { font: 700 13px "Barlow Condensed", sans-serif; letter-spacing: 1.6px; text-transform: uppercase; margin: 0 0 4px; padding-bottom: 6px; border-bottom: 2px solid currentColor; }
+.at-pl-how { margin-top: 18px; font-size: 14px; color: var(--ink-2); }
+.at-pl-how summary { cursor: pointer; font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+.at-pl-how p { margin: 8px 0 0; max-width: 72ch; }
+
+@media (max-width: 760px) {
+    .at-pl-two { columns: 1; }
+    .at-pl-cols { grid-template-columns: 1fr; gap: 22px; }
+}
+@media (max-width: 560px) {
+    .at-pc-add { flex-basis: auto; }
+    .at-pl-row { gap: 10px; }
+    .at-pl-val b { font-size: 20px; }
+}
+
+/* ---- the price chart, third pass (23 Oct): the "Show" menu ---- */
+.at-pc-show { display: flex; align-items: center; gap: 10px; margin: 16px 0 0; }
+.at-pc-show label { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+.at-pc .at-pc-set { width: auto; max-width: 100%; padding: 8px 36px 8px 14px; font: 600 14px "Barlow", sans-serif; color: var(--ink); background-color: #faf6ee; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236b6050' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; }
+.at-pc .at-pc-set:hover { border-color: #c4b9a5; }
+.at-pc .at-pc-set:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px rgba(179, 20, 28, .14); }
+.at-pc-show + .at-pc-legend { margin-top: 10px; }
+@media (max-width: 560px) {
+    .at-pc-show { align-items: stretch; flex-direction: column; gap: 4px; }
+    .at-pc .at-pc-set { width: 100%; }
+}

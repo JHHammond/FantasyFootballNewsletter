@@ -1459,6 +1459,98 @@ def around_my_lineup(request: Request, league: str = "", team: str = "",
     return JSONResponse(out, headers={"Cache-Control": "private, max-age=120"})
 
 
+#: How many of the viewer's own players the chart draws.
+MARKET_MY_TEAM = 6
+
+
+def _market_roster(league_id: str, team_id: str, season: int, week: int,
+                   rating: Optional[dict]) -> list[str]:
+    """The priced players on one team's roster in the last finished week,
+    most expensive first. The caller has already checked the league is the
+    viewer's own."""
+    rank = {p["k"]: p["rank"] for p in (rating or {}).get("pickable") or []}
+    rows = db.lineup_for_team(league_id, season, week, team_id) or []
+    keys = {r.get("player_key") for r in rows} & set(rank)
+    return sorted(keys, key=rank.get)[:MARKET_MY_TEAM]
+
+
+def _market_mine(user: Optional[dict], season: int, week: int,
+                 rating: Optional[dict]) -> Optional[dict]:
+    """The viewer's own teams for the chart's "Show" menu (John, 23 Oct:
+    "can we have it autofill my team").
+
+    A league whose team we know (leagues.my_team_id, saved from Sleeper at
+    connect time) comes with its roster and those players' lines, so the
+    chart can open on it with no further request. A league where we don't
+    know which team is his is offered as a list to pick from; the pick is
+    fetched from /staff/market/roster.json and remembered in the browser.
+    Never raises: the chart still works without any of this.
+    """
+    if not user or not rating:
+        return None
+    from . import around
+    try:
+        leagues = around.my_teams(db, user, season, week)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[market] no teams for the viewer: {type(exc).__name__}: {exc}", flush=True)
+        return None
+    known, pick, need = [], [], set()
+    for lg in leagues:
+        me = next((t for t in lg["teams"] if t.get("mine")), None)
+        if me is None:
+            pick.append({"league_id": lg["id"], "league": lg["league"],
+                         "teams": [{"id": t["id"], "name": t["name"]} for t in lg["teams"]]})
+            continue
+        try:
+            keys = _market_roster(lg["id"], me["id"], season, week, rating)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[market] no roster for {lg['id']}: {type(exc).__name__}: {exc}", flush=True)
+            continue
+        if keys:
+            known.append({"league_id": lg["id"], "league": lg["league"],
+                          "team_id": me["id"], "team": me["name"], "keys": keys})
+            need.update(keys)
+    if not known and not pick:
+        return None
+    lines = (rating.get("daily") or {}).get("lines") or {}
+    return {"known": known, "pick": pick, "url": "/staff/market/roster.json",
+            "lines": {k: lines[k] for k in need if k in lines}}
+
+
+@app.get("/staff/market/roster.json")
+def staff_market_roster(request: Request, league: str = "", team: str = ""):
+    """One of the viewer's own rosters, as the chart's lines: the team he
+    picked in a league where we don't know which team is his.
+
+    OWNERSHIP IS CHECKED: the league must be on his account. A team id is
+    guessable and a roster is somebody's private lineup."""
+    _require_staff(request)
+    import nfl_week
+    user = current_user(request)
+    lid = clean_text(league, max_length=64).strip()
+    tid = clean_text(team, max_length=64).strip()
+    season = nfl_week.current_season()
+    latest = max(nfl_week.completed_week(), 1)
+    try:
+        owned = {str(l["id"]) for l in db.leagues_for_user(user["id"])
+                 if int(l.get("season") or 0) == season}
+    except Exception:  # noqa: BLE001
+        owned = set()
+    if not lid or not tid or lid not in owned:
+        raise HTTPException(status_code=404)
+    rating = _trade_rating(season, latest) or {}
+    try:
+        keys = _market_roster(lid, tid, season, latest, rating)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[market] no roster for {lid}: {type(exc).__name__}: {exc}", flush=True)
+        raise HTTPException(status_code=503) from None
+    if not keys:
+        raise HTTPException(status_code=404)
+    lines = (rating.get("daily") or {}).get("lines") or {}
+    return JSONResponse({"keys": keys, "lines": {k: lines[k] for k in keys if k in lines}},
+                        headers={"Cache-Control": "private, max-age=300"})
+
+
 @app.get("/staff/market", response_class=HTMLResponse)
 def staff_market(request: Request):
     """The trade market, on its own page.
@@ -1478,12 +1570,13 @@ def staff_market(request: Request):
     season = nfl_week.current_season()
     latest = max(nfl_week.completed_week(), 1)
     week = latest
+    rating = _trade_rating(season, latest)
     return _render(request, "market.html", season=season, week=week, latest=latest,
                    staff=True, photo=around.photo,
                    trade_volume=_trade_volume(season),
                    backfill=_trade_backfill(season),
-                   market=_trade_market(season, latest),
-                   rating=_trade_rating(season, latest),
+                   rating=rating,
+                   mine=_market_mine(current_user(request), season, latest, rating),
                    job=league_stats.job_status())
 
 

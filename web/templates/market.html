@@ -64,11 +64,18 @@
     <div class="at-pc-top">
         <div class="at-pc-head" id="at-pc-head" aria-live="polite"></div>
         <div class="at-pc-add">
-            <label for="at-pc-q" class="at-pc-add-label">Add a player</label>
-            <input type="search" id="at-pc-q" class="at-pc-q" placeholder="Name, position or team"
-                   autocomplete="off" spellcheck="false" aria-controls="at-pc-hits" />
+            <label for="at-pc-q" class="at-pc-sr">Add a player to the chart</label>
+            <div class="at-pc-search">
+                <svg class="at-pc-mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8l4.2 4.2" /></svg>
+                <input type="search" id="at-pc-q" class="at-pc-q" placeholder="Add a player: name, position or team"
+                       autocomplete="off" spellcheck="false" aria-controls="at-pc-hits" />
+            </div>
             <ul class="at-pc-hits" id="at-pc-hits" role="listbox" hidden></ul>
         </div>
+    </div>
+    <div class="at-pc-show" id="at-pc-show" hidden>
+        <label for="at-pc-set">Show</label>
+        <select id="at-pc-set" class="at-pc-set"></select>
     </div>
     <div class="at-pc-legend" id="at-pc-legend"></div>
     <div class="at-pc-stats" id="at-pc-stats"></div>
@@ -81,7 +88,7 @@
         <figcaption class="at-pc-note">The pick his trades say he is worth at each day&rsquo;s
             close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
-    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/staff/market/line.json'}|tojson }}</script>
+    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/staff/market/line.json', 'mine': mine}|tojson }}</script>
 </section>
 <script>
 (function () {
@@ -92,6 +99,8 @@
     var LINES = DATA.lines || {}, PLAYERS = DATA.players || [];
     if (!PLAYERS.length || !DATA.base) return;
     var BY = {}; PLAYERS.forEach(function (p) { BY[p.k] = p; });
+    var MINE = DATA.mine || null;
+    if (MINE && MINE.lines) Object.keys(MINE.lines).forEach(function (k) { LINES[k] = MINE.lines[k]; });
     var LAST = Math.max(1, DATA.last || 1), MAX = 6;
     var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     var b0 = DATA.base.split("-").map(Number);
@@ -129,10 +138,17 @@
         return decodeURIComponent(m[1]).split(",").filter(function (k) { return BY[k]; }).slice(0, MAX);
     }
     function toUrl() {
+        // A choice from the Show menu is kept as that choice (?show=), so a
+        // reload or a shared link reopens it by name; only a hand-picked set
+        // is spelled out player by player (?p=).
+        var sel = document.getElementById("at-pc-set");
+        var menu = sel && sel.options.length && sel.value && sel.value !== "custom" ? sel.value : "";
         var keys = chosen.map(function (c) { return c.k; }).join(",");
-        var base = location.pathname + location.search.replace(/([?&])p=[^&]*&?/, "$1").replace(/[?&]$/, "");
+        var base = location.pathname + location.search
+            .replace(/([?&])(p|show)=[^&]*&?/g, "$1").replace(/[?&]$/, "");
         var sep = base.indexOf("?") >= 0 ? "&" : "?";
-        try { history.replaceState(null, "", base + (keys ? sep + "p=" + encodeURIComponent(keys) : "") + location.hash); } catch (e) {}
+        var q = menu ? "show=" + encodeURIComponent(menu) : (keys ? "p=" + encodeURIComponent(keys) : "");
+        try { history.replaceState(null, "", base + (q ? sep + q : "") + location.hash); } catch (e) {}
     }
     function slotFor() {
         var used = chosen.map(function (c) { return c.c; }), c = 0;
@@ -168,10 +184,75 @@
         chosen = chosen.filter(function (c) { return c.k !== k; });
         if (focus === k) focus = chosen.length ? chosen[0].k : null;
     }
+    function useSet(keys) {
+        chosen = []; focus = null;
+        (keys || []).filter(function (k) { return BY[k]; }).forEach(function (k) { add(k); });
+        if (!chosen.length) (DATA["default"] || [PLAYERS[0].k]).forEach(function (k) { add(k); });
+    }
+    var setSel = document.getElementById("at-pc-set");
+    var REMEMBER = "atpc-show";
+    function remembered() { try { return localStorage.getItem(REMEMBER) || ""; } catch (e) { return ""; } }
+    function remember(v) { try { localStorage.setItem(REMEMBER, v); } catch (e) {} }
+    function buildMenu() {
+        if (!MINE || (!(MINE.known || []).length && !(MINE.pick || []).length)) return;
+        document.getElementById("at-pc-show").hidden = false;
+        function opt(parent, value, text) {
+            var o = document.createElement("option"); o.value = value; o.textContent = text;
+            parent.appendChild(o); return o;
+        }
+        (MINE.known || []).forEach(function (t, i) {
+            opt(setSel, "k:" + i, "My team: " + t.team + " (" + t.league + ")");
+        });
+        opt(setSel, "top", "Most expensive");
+        (MINE.pick || []).forEach(function (lg) {
+            var g = document.createElement("optgroup");
+            g.label = "Which team is yours in " + lg.league + "?";
+            lg.teams.forEach(function (t) { opt(g, "p:" + lg.league_id + ":" + t.id, t.name); });
+            setSel.appendChild(g);
+        });
+        opt(setSel, "custom", "Your picks").hidden = true;
+    }
+    function showChoice(v, done) {
+        if (v === "top") { useSet(DATA["default"]); return done(); }
+        var m = /^k:(\d+)$/.exec(v);
+        if (m && MINE.known[+m[1]]) { useSet(MINE.known[+m[1]].keys); return done(); }
+        m = /^p:([^:]+):(.+)$/.exec(v);
+        if (!m) return done();
+        // A team we didn't know was his: fetch its roster, checked server-side.
+        fetch(MINE.url + "?league=" + encodeURIComponent(m[1]) + "&team=" + encodeURIComponent(m[2]),
+              {credentials: "same-origin"})
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                if (d && d.keys) {
+                    Object.keys(d.lines || {}).forEach(function (k) { LINES[k] = d.lines[k]; });
+                    useSet(d.keys);
+                }
+                done();
+            })
+            .catch(done);
+    }
+    buildMenu();
     var start = fromUrl();
-    (start.length ? start : (DATA["default"] || []).filter(function (k) { return BY[k]; }))
-        .forEach(function (k) { add(k); });
-    if (!chosen.length) add(PLAYERS[0].k);
+    var shown = (/[?&]show=([^&]*)/.exec(location.search) || [])[1];
+    var hasOption = function (v) { return !!setSel.querySelector('option[value="' + v.replace(/["\\]/g, "") + '"]'); };
+    if (start.length) {
+        useSet(start);
+        if (setSel.options.length) setSel.value = "custom";
+    } else {
+        var first = shown ? decodeURIComponent(shown) : remembered();
+        if (!hasOption(first)) first = (MINE && (MINE.known || []).length) ? "k:0" : "top";
+        useSet(DATA["default"]);                         // drawn at once; replaced if the choice needs a fetch
+        if (setSel.options.length) {
+            setSel.value = first;
+            if (first !== "top") showChoice(first, function () { draw(); });
+        }
+    }
+    setSel.addEventListener("change", function () {
+        var v = setSel.value;
+        if (v === "custom") return;
+        remember(v);
+        showChoice(v, function () { draw(); });
+    });
 
     // ---- scales ----
     function pickLabel(slot) {
@@ -313,16 +394,21 @@
             if (yy - lastTick < 16) return;
             lastTick = yy;
             el("line", {x1: L, x2: R, y1: yy, y2: yy, "class": "ar-grid at-pc-grid"}, svg);
-            var t = el("text", {x: L - 8, y: yy + 4, "class": "ar-tick", "text-anchor": "end"}, svg);
+            var t = el("text", {x: L - 8, y: yy + 4, "class": "ar-tick at-pc-ytick", "text-anchor": "end"}, svg);
             t.textContent = "Rd " + rd;
         });
-        // Dates along the bottom, a week or more apart, as many as fit.
-        var fit = Math.max(2, Math.floor((R - L) / 56));
-        var step = Math.max(7, Math.ceil(LAST / fit / 7) * 7);
-        var t0 = el("text", {x: x(0), y: B + 22, "class": "ar-tick", "text-anchor": "middle"}, svg);
+        // Dates along the bottom on Sundays, the game days, a week or more
+        // apart and never closer than a label's width.
+        var first = 1;
+        while (first <= LAST && dateOf(first).getUTCDay() !== 0) first++;
+        var gap = 58;
+        var weeks = Math.max(1, Math.ceil(gap / ((R - L) * 7 / LAST)));
+        var t0 = el("text", {x: x(0), y: B + 20, "class": "ar-tick at-pc-xtick", "text-anchor": "start"}, svg);
         t0.textContent = "Draft";
-        for (var d = step; d <= LAST - step / 3; d += step) {
-            var tx = el("text", {x: x(d), y: B + 22, "class": "ar-tick", "text-anchor": "middle"}, svg);
+        for (var d = first; d <= LAST; d += 7 * weeks) {
+            if (x(d) - x(0) < gap || R - x(d) < 18) continue;
+            el("line", {x1: x(d), x2: x(d), y1: B, y2: B + 5, "class": "at-pc-xmark"}, svg);
+            var tx = el("text", {x: x(d), y: B + 20, "class": "ar-tick at-pc-xtick", "text-anchor": "middle"}, svg);
             tx.textContent = dayLabel(d);
         }
         el("line", {id: "at-pc-rule", "class": "at-pc-rule", x1: 0, x2: 0, y1: T, y2: B, style: "display:none"}, svg);
@@ -409,6 +495,7 @@
             x_.type = "button"; x_.className = "at-pc-x"; x_.textContent = "\u00d7";
             x_.setAttribute("aria-label", "Remove " + p.name + " from the chart");
             x_.addEventListener("click", function () {
+                if (setSel.options.length) setSel.value = "custom";
                 remove(c.k);
                 if (!chosen.length) add(PLAYERS[0].k);   // never an empty frame
                 draw();
@@ -504,11 +591,16 @@
             li.setAttribute("role", "option"); li.id = "at-pc-hit-" + i;
             var on = chosen.some(function (c) { return c.k === p.k; });
             li.className = "at-pc-hit" + (on ? " at-pc-on" : "");
-            var nm = document.createElement("span"); nm.className = "at-pc-hit-name";
-            nm.textContent = p.name + (p.pos ? " \u00b7 " + p.pos : "") + (p.team ? " \u00b7 " + p.team : "");
+            var who = document.createElement("span"); who.className = "at-pc-hit-who";
+            var nm = document.createElement("span"); nm.className = "at-pc-hit-name"; nm.textContent = p.name;
+            var meta = document.createElement("small");
+            meta.textContent = [p.pos, p.team].filter(Boolean).join(" \u00b7 ") || "\u00a0";
+            who.appendChild(nm); who.appendChild(meta);
             var pr = document.createElement("span"); pr.className = "at-pc-hit-val";
-            pr.textContent = "#" + p.rank + " \u00b7 " + p.costs;
-            li.appendChild(nm); li.appendChild(pr);
+            var b = document.createElement("b"); b.textContent = p.costs;
+            var rk = document.createElement("small"); rk.textContent = "#" + p.rank;
+            pr.appendChild(b); pr.appendChild(rk);
+            li.appendChild(face(p, "at-pc-hit-face")); li.appendChild(who); li.appendChild(pr);
             li.addEventListener("mousedown", function (e) { e.preventDefault(); pick(i); });
             hits.appendChild(li);
         });
@@ -522,6 +614,7 @@
     function pick(i) {
         var p = found[i];
         if (!p) return;
+        if (setSel.options.length) setSel.value = "custom";
         add(p.k, true); draw();       // somebody you just looked up is who you want to see
         q.value = ""; hits.hidden = true; found = [];
         q.focus();
@@ -542,6 +635,12 @@
     q.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; }, 120); });
 
     draw();
+    window.atPcShow = function (k) {
+        if (!BY[k]) return;
+        if (setSel.options.length) setSel.value = "custom";
+        add(k, true); draw();
+        root.scrollIntoView({behavior: "smooth", block: "start"});
+    };
     var resizing;
     window.addEventListener("resize", function () {
         clearTimeout(resizing);
@@ -551,6 +650,91 @@
             frame();
             if (narrow !== was) draw();
         }, 150);
+    });
+})();
+</script>
+{% endif %}
+
+{# ----------------------------------------- most expensive, then the movers #}
+{#
+    John, 23 Oct: under the chart, the most expensive players, then the
+    biggest movers. Every row puts its player on the chart above. These
+    replace the old batch solver's "The dearest" panel, which priced from a
+    model the draft-anchored one superseded.
+#}
+{% set R = rating %}
+{% if R and R.rows %}
+<section class="card at-pl" id="at-pl">
+    <h2 class="card-title">Most expensive</h2>
+    <p class="card-sub">What the trades say each player costs today, read as a draft pick:
+        the most expensive traded player costs the earliest pick any of them went at.
+        Tap a player to put him on the chart.</p>
+    <ol class="at-pl-list at-pl-two">
+        {% for r in R.rows[:20] %}
+        <li><button type="button" class="at-pl-row" data-key="{{ r.player_key }}">
+            <span class="at-pl-rank">{{ loop.index }}</span>
+            {{ face(r) }}
+            <span class="at-pl-who"><span class="at-pl-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}</span>
+                <small>{% if r.drafted_at %}drafted {{ r.drafted_at }} &middot; {% endif %}{{ '{:,}'.format(r.trades) }} trade{{ '' if r.trades == 1 else 's' }}</small></span>
+            <span class="at-pl-val"><b>{{ r.costs }}</b>
+                {%- if r.moved is not none and r.moved|abs >= 0.5 %}
+                <small class="{{ 'at-pc-up' if r.moved > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if r.moved > 0 else '&#9660;'|safe }} {{ '%.0f'|format(r.moved|abs) }}</small>
+                {%- endif %}</span>
+        </button></li>
+        {% endfor %}
+    </ol>
+    {% if R.held %}
+    {# Drafted early, never traded: no market price, so not ranked. #}
+    <p class="at-pl-held">Not traded once, so not priced:
+        {% for h in R.held %}{{ h.name }} ({{ h.drafted_at }}){{ ', ' if not loop.last else '.' }}{% endfor %}</p>
+    {% endif %}
+</section>
+
+{% if R.up or R.down %}
+<section class="card at-pl" id="at-pl-movers">
+    <h2 class="card-title">Biggest movers since the draft</h2>
+    <p class="card-sub">Picks gained or lost against everybody else the trades price: up means
+        he has passed players drafted ahead of him. At least {{ R.mover_min_trades or 10 }} trades.</p>
+    <div class="at-pl-cols">
+        {% for label, rows, cls in [('Up', R.up, 'at-pc-up'), ('Down', R.down, 'at-pc-down')] %}
+        <div class="at-pl-col">
+            <h3 class="at-pl-head {{ cls }}">{{ '&#9650;'|safe if cls == 'at-pc-up' else '&#9660;'|safe }} {{ label }}</h3>
+            <ol class="at-pl-list">
+                {% for r in rows %}
+                <li><button type="button" class="at-pl-row" data-key="{{ r.player_key }}">
+                    {{ face(r) }}
+                    <span class="at-pl-who"><span class="at-pl-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}</span>
+                        <small>{{ r.drafted_at }} &rarr; {{ r.costs }} &middot; {{ '{:,}'.format(r.trades) }} trades</small></span>
+                    <span class="at-pl-val at-pl-move {{ cls }}"><b>{{ '%+.0f'|format(r.moved) }}</b></span>
+                </button></li>
+                {% endfor %}
+            </ol>
+        </div>
+        {% endfor %}
+    </div>
+    <details class="at-pl-how">
+        <summary>How the price is set</summary>
+        <p>Every player starts where the country drafted him ({{ '{:,}'.format(R.picks or 0) }} picks
+            across {{ '{:,}'.format(R.drafts or 0) }} leagues) and {{ '{:,}'.format(R.used or 0) }} trades
+            move him from there. A trade is read as two bundles worth about the same, and each player
+            moves by his own uncertainty: a player we barely know swings, one with forty trades behind
+            him barely budges. Certainty grows with trades and fades without them.</p>
+        <p>Prices are places in the market, read as draft picks, so the scale can&rsquo;t sag: somebody is
+            always first. {{ R.rated }} players priced{% if R.streamers %}; {{ R.streamers }} kickers and
+            defences left off, because they are streamed rather than traded for{% endif %}. Trades with
+            draft picks or FAAB in them are left out, and so are three-way deals.</p>
+        <p><b>This is not a ranking of who is good.</b> It is the going rate, and a player nobody will
+            part with doesn&rsquo;t get one.</p>
+    </details>
+</section>
+{% endif %}
+<script>
+(function () {
+    // A row in either list puts its player on the chart above.
+    document.querySelectorAll(".at-pl-row").forEach(function (b) {
+        b.addEventListener("click", function () {
+            if (window.atPcShow) window.atPcShow(b.getAttribute("data-key"));
+        });
     });
 })();
 </script>
@@ -642,396 +826,4 @@
     {% endif %}
 </section>
 
-{# --------------------------------------------- the draft-anchored market #}
-{% set R = rating %}
-{% if R and R.rows %}
-<section class="card ar-collect at-market at-draftmkt">
-    <h2 class="card-title">What a player costs &middot; staff only</h2>
-    <p class="card-sub">Every player starts where the country drafted him &mdash;
-        {{ '{:,}'.format(R.picks) }} picks across {{ '{:,}'.format(R.drafts) }} leagues &mdash;
-        and {{ '{:,}'.format(R.used) }} trades move him from there. A price is his
-        <b>place in the market, read as a draft pick</b>: &ldquo;costs the 2.03&rdquo;
-        means he is the fifteenth most expensive player, so the most expensive costs the
-        first traded player off the board costs the earliest pick any of them went at.
-        <b>Up</b> means he has passed players drafted ahead of him. A player with no
-        trades has no market price and is listed separately.
-        {{ R.rated }} players priced{% if R.streamers %}, {{ R.streamers }} kickers and
-        defences left off{% endif %}.
-        <br><b>This is not a ranking of who is good.</b> It is the going rate, and a
-        player nobody will part with can sit cheap.</p>
-
-    <div class="ar-boards ar-boards-2 at-market-boards">
-        <article class="ar-board">
-            <h3 class="ar-board-head">Most expensive</h3>
-            <p class="ar-board-sub">Where the country drafted him, and where it pays now.</p>
-            <ol class="ar-list at-rows at-mkt-board">
-                {% for r in R.rows[:15] %}
-                <li>
-                    {{ face(r) }}<span class="ar-name">{{ player(r) }}<small>
-                        {% if r.drafted_at %}drafted {{ r.drafted_at }} &middot; {% endif %}
-                        {{ r.trades }} trade{{ '' if r.trades == 1 else 's' }}
-                        &middot; <span class="at-firm at-firm-{{ r.firmness }}">{{ r.firmness }}</span>
-                        {%- if r.moved %} &middot; <span class="{{ 'at-over' if r.moved > 0 else 'at-under' }}">{{
-                            '%+.0f'|format(r.moved) }} picks</span>{% endif %}</small></span>
-                    <span class="ar-val"><b>{{ r.costs }}</b></span>
-                </li>
-                {% endfor %}
-            </ol>
-            {% if R.held %}
-            {# Drafted early, never traded: no market price, so not ranked. #}
-            <p class="ar-board-sub at-held">Not traded once, so not priced:
-                {% for h in R.held %}{{ h.name }} ({{ h.drafted_at }}){{ ', ' if not loop.last else '.' }}{% endfor %}</p>
-            {% endif %}
-        </article>
-        <article class="ar-board">
-            <h3 class="ar-board-head">Since the draft</h3>
-            {% for label, rows in [('Up', R.up), ('Down', R.down)] %}
-            {% if rows %}
-            <p class="at-mover-head">{{ label }}</p>
-            <ol class="ar-list at-rows at-movers">
-                {% for r in rows %}
-                <li><span class="ar-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}<small>
-                    {{ r.drafted_at }} &rarr; {{ r.costs }} &middot; {{ r.trades }} trades</small></span>
-                    <span class="ar-val"><b class="{{ 'at-up' if r.moved > 0 else 'at-down' }}">{{
-                        '%+.0f'|format(r.moved) }}</b></span></li>
-                {% endfor %}
-            </ol>
-            {% endif %}
-            {% endfor %}
-        </article>
-    </div>
-    <p class="card-sub at-market-note">
-        How it works: a trade is read as a statement that two bundles are worth about
-        the same, and each player moves by his own uncertainty divided by everyone&rsquo;s
-        &mdash; a player we barely know swings, one with forty trades behind him barely
-        budges. Certainty grows with trades and decays without them, so a player nobody
-        has touched since August becomes movable again rather than frozen at a preseason
-        price. <b>Firmness</b> is how much of the draft&rsquo;s original doubt the trades
-        have removed.
-        <br>The curve from pick to value is fitted to the trades themselves
-        (decay {{ R.decay }}, shift {{ R.shift }}), so the drafts supply the order and
-        the trades supply the steepness. A roster spot is priced at {{ R.spot }},
-        because the side taking back fewer bodies is buying one.
-        <br>Trades carrying picks or FAAB are left out, and so are three-way deals.
-        Dynasty leagues are not drafted against: a startup prices a career, not a season.
-    </p>
-</section>
-{% endif %}
-
-{# ------------------------------------------------------------- the market #}
-{% set M = market %}
-{% if M and M.board %}
-<section class="card ar-collect at-market">
-    <h2 class="card-title">The trade market &middot; staff only</h2>
-    <p class="card-sub">
-        What the field pays, solved from {{ '{:,}'.format(M.used) }} two-sided,
-        player-only trades &mdash; every trade is an equation saying one bundle is
-        worth another. <strong>Not a ranking of who is good:</strong> it is the going
-        rate, and a great player nobody will part with can sit cheap. The typical
-        traded player is {{ M.median_at|int }}, so 100 is twice him. A player needs
-        {{ M.min_trades }} trades before he gets a number; {{ '{:,}'.format(M.players) }}
-        of {{ '{:,}'.format(M.seen) }} cleared that.
-        <br><strong>Check the names below before this goes anywhere near the public page.</strong>
-    </p>
-
-    {% set C = M.chart %}
-    {% if C and C.lines and not (R and R.chart and R.chart.lines and R.pickable) %}
-    <div class="at-mkt" id="at-mkt"
-         data-series="{{ M.all_series|tojson|forceescape }}"
-         data-lo="{{ C.lo }}" data-hi="{{ C.hi }}">
-        <div class="at-mkt-legend" id="at-mkt-legend">
-            {% for L in C.lines %}
-            <button type="button" class="at-mkt-chip at-mk-{{ L.n }}" data-key="{{ L.key }}">
-                <span class="at-face at-mkt-face{{ ' at-face-def' if L.position == 'DEF' }}">
-                    {%- if L.photo %}<img src="{{ L.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif -%}
-                    <span>{{ L.name[:1] }}</span></span>
-                <span class="at-mkt-chip-text">{{ L.short }}<b data-value>{{ L.last.v if L.last }}</b></span>
-            </button>
-            {% endfor %}
-        </div>
-        <figure class="ar-chart at-market-chart">
-            <figcaption class="ar-chart-cap" id="at-mkt-cap">Trade value by day, each point
-                from the {{ M.window }} days behind it &mdash; drag across to read any day</figcaption>
-            <div class="ar-chart-box at-mkt-box">
-            <svg viewBox="0 0 {{ C.width }} {{ C.height }}" class="ar-line at-mkt-svg" id="at-mkt-svg"
-                 role="img" aria-label="Trade value by day for the dearest players">
-                <defs>
-                    {% for L in C.lines %}<clipPath id="at-clip-{{ L.n }}"><circle cx="0" cy="0" r="11" /></clipPath>{% endfor %}
-                </defs>
-                {% for g in C.grid %}
-                <line x1="{{ C.left }}" x2="{{ C.right }}" y1="{{ g.y }}" y2="{{ g.y }}" class="ar-grid" />
-                <text x="{{ C.left - 8 }}" y="{{ g.y + 4 }}" class="ar-tick" text-anchor="end">{{ g.v }}</text>
-                {% endfor %}
-                {% for d in C.days if d.tick %}
-                <text x="{{ d.x }}" y="{{ C.base + 20 }}" class="ar-tick" text-anchor="middle">{{ d.label }}</text>
-                {% endfor %}
-                <line id="at-mkt-rule" class="at-mkt-rule" x1="0" x2="0"
-                      y1="{{ C.top }}" y2="{{ C.base }}" style="display:none" />
-                {% for L in C.lines %}
-                <g class="at-mk at-mk-{{ L.n }}" data-key="{{ L.key }}">
-                    <path d="{{ L.path }}" class="at-mk-path" />
-                    <circle class="at-mk-cursor" r="4" style="display:none" />
-                    {% if L.last %}
-                    <g class="at-mk-end" transform="translate({{ L.last.x }},{{ L.last.y }})">
-                        <circle r="12" class="at-mk-ring" />
-                        {% if L.photo %}<image href="{{ L.photo }}" x="-11" y="-11" width="22" height="22"
-                               clip-path="url(#at-clip-{{ L.n }})" preserveAspectRatio="xMidYMin slice" />
-                        {% else %}<text class="at-mk-initial" text-anchor="middle" y="4">{{ L.name[:1] }}</text>{% endif %}
-                    </g>
-                    {% endif %}
-                </g>
-                {% endfor %}
-                <rect id="at-mkt-hit" x="{{ C.left }}" y="{{ C.top }}"
-                      width="{{ C.right - C.left }}" height="{{ C.base - C.top }}"
-                      fill="transparent" style="touch-action:pan-y" />
-            </svg>
-            </div>
-        </figure>
-    </div>
-    {% elif M.no_chart %}
-    <p class="card-sub at-market-nochart">No price line yet &mdash; {{ M.no_chart }}.
-        The board below is still the going rate; it just can&rsquo;t be drawn moving.</p>
-    {% endif %}
-
-    <div class="ar-boards ar-boards-2 at-market-boards">
-        <article class="ar-board">
-            <h3 class="ar-board-head">The dearest</h3>
-            <p class="ar-board-sub">Tap a player for his line and what he gets traded for.</p>
-            <ol class="ar-list at-rows at-mkt-board" id="at-mkt-board">
-                {% for r in M.board[:15] %}
-                <li><button type="button" class="at-mkt-row" data-key="{{ r.player_key }}"
-                            data-name="{{ r.name }}">
-                    {{ face(r) }}<span class="ar-name">{{ player(r) }}<small>
-                    {{ '{:,}'.format(r.trades) }} trades{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}{% if r.premium %}
-                    &middot; <span class="{{ 'at-over' if r.premium >= 1.08 else ('at-under' if r.premium <= 0.92 else 'at-level') }}"
-                          title="Priced #{{ r.price_rank }}, usage ranks him #{{ r.book_rank }}. Book ({{ r.book }}) is what the field pays a player of his usage standing.">{% if r.premium >= 1.08 %}{{ '%d'|format((r.premium - 1) * 100) }}% over book{% elif r.premium <= 0.92 %}{{ '%d'|format((1 - r.premium) * 100) }}% under book{% else %}at book{% endif %}</span>{% endif %}</small></span>
-                    <span class="ar-val">{% if r.floored %}<b class="at-floored" title="Cheaper than the trades can separate">&lt;1</b>{% else %}<b>{{ r.value }}</b>{% endif %}</span>
-                </button></li>
-                {% endfor %}
-            </ol>
-        </article>
-        <article class="ar-board at-mkt-detail" id="at-mkt-detail">
-            <h3 class="ar-board-head" id="at-mkt-detail-head">Risers and fallers</h3>
-            <div id="at-mkt-movers">
-                <p class="ar-board-sub">Since each player&rsquo;s first published day.</p>
-                {% for label, rows in [('Up', M.movers.up[:6]), ('Down', M.movers.down[:6])] %}
-                {% if rows %}
-                <p class="at-mover-head">{{ label }}</p>
-                <ol class="ar-list at-rows at-movers">
-                    {% for r in rows %}
-                    <li><span class="ar-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}<small>
-                        {{ r.from }} &rarr; {{ r.to }} &middot; {{ r.span }}</small></span>
-                        <span class="ar-val"><b class="{{ 'at-up' if r.change > 0 else 'at-down' }}">{{ '%+.1f'|format(r.change) }}</b></span></li>
-                    {% endfor %}
-                </ol>
-                {% endif %}
-                {% endfor %}
-            </div>
-            <div id="at-mkt-player" hidden></div>
-        </article>
-    </div>
-    <p class="card-sub at-market-note">
-        <b>Usage</b> ranks a player by how many of the week&rsquo;s
-        {{ '{:,}'.format(a.teams) if a and a.teams else 'thousands of' }} teams start him
-        and what he gives them when they do, measured against the last man anybody
-        deliberately starts at his position. <b>Book</b> is then what the field pays a
-        player of that standing, and the <b>price</b> is what it actually paid for
-        him. So &ldquo;22% over book&rdquo; means the field pays him 22% more than it
-        pays the typical player his usage looks like. Usage is a record and the price
-        is a forecast, which is why the gap is the interesting part: it is the country
-        changing its mind. A kicker is the clearest case &mdash; started by everybody,
-        traded for by nobody, so he prices far under book.
-        <br>Trades carrying draft picks or FAAB are left out: nobody knows what the pick
-        is worth, and guessing would corrupt the players beside it. Three-way deals
-        are out too. Valuing picks is the next piece of work, and in a dynasty-heavy
-        population it is the big one.
-        <br>A player shown as &lt;1 is at the floor: trades fix the gaps BETWEEN
-        players, never the bottom of the scale, so the cheapest come out pinned
-        together rather than separated.
-    </p>
-</section>
-{% elif M and M.thin %}
-<section class="card ar-collect at-market">
-    <h2 class="card-title">The trade market &middot; staff only</h2>
-    <p class="card-sub">{{ '{:,}'.format(M.used) }} usable trades so far, and nobody has
-        reached {{ M.min_trades if M.min_trades else 8 }} of them yet. Collect more weeks.</p>
-</section>
-{% endif %}
-<script>
-(function () {
-    // ---- the trade market: scrub, swap, and who-for-whom ----------------
-    (function () {
-        var box = document.getElementById("at-mkt");
-        if (!box) return;
-        var svg = document.getElementById("at-mkt-svg"),
-            hit = document.getElementById("at-mkt-hit"),
-            rule = document.getElementById("at-mkt-rule"),
-            cap = document.getElementById("at-mkt-cap"),
-            legend = document.getElementById("at-mkt-legend"),
-            detail = document.getElementById("at-mkt-detail"),
-            head = document.getElementById("at-mkt-detail-head"),
-            moversBox = document.getElementById("at-mkt-movers"),
-            playerBox = document.getElementById("at-mkt-player");
-        var DAYS = {{ (M.chart.days if M and M.chart else [])|tojson }};
-        var capText = cap ? cap.textContent : "";
-        var groups = Array.prototype.slice.call(svg.querySelectorAll(".at-mk"));
-
-        // Each line's value on each day, read straight off the markup.
-        var at = {};
-        groups.forEach(function (g) {
-            var pts = {};
-            g.querySelectorAll(".at-mk-path").length;
-            at[g.getAttribute("data-key")] = pts;
-        });
-        var SERIES = {};
-        try { SERIES = JSON.parse(box.getAttribute("data-series") || "{}"); } catch (e) { SERIES = {}; }
-
-        function nearest(clientX) {
-            var r = svg.getBoundingClientRect();
-            var vb = svg.viewBox.baseVal;
-            var x = (clientX - r.left) / r.width * vb.width;
-            var best = null, gap = Infinity;
-            DAYS.forEach(function (d) {
-                var g2 = Math.abs(d.x - x);
-                if (g2 < gap) { gap = g2; best = d; }
-            });
-            return best;
-        }
-        function show(day) {
-            if (!day) return;
-            rule.setAttribute("x1", day.x); rule.setAttribute("x2", day.x);
-            rule.style.display = "";
-            groups.forEach(function (g) {
-                var key = g.getAttribute("data-key");
-                var v = (SERIES[key] || {})[String(day.d)];
-                var dot = g.querySelector(".at-mk-cursor");
-                var chip = legend.querySelector('[data-key="' + cssEscape(key) + '"] [data-value]');
-                if (v === undefined) {
-                    if (dot) dot.style.display = "none";
-                    if (chip) chip.textContent = "\u2013";
-                    return;
-                }
-                var y = yFor(v);
-                if (dot) { dot.setAttribute("cx", day.x); dot.setAttribute("cy", y); dot.style.display = ""; }
-                if (chip) chip.textContent = v;
-            });
-            if (cap) cap.textContent = day.label;
-        }
-        function clear() {
-            rule.style.display = "none";
-            groups.forEach(function (g) {
-                var dot = g.querySelector(".at-mk-cursor");
-                if (dot) dot.style.display = "none";
-                var key = g.getAttribute("data-key");
-                var pts = SERIES[key] || {};
-                var last = DAYS.length ? pts[String(DAYS[DAYS.length - 1].d)] : undefined;
-                var chip = legend.querySelector('[data-key="' + cssEscape(key) + '"] [data-value]');
-                if (chip) chip.textContent = last === undefined ? "\u2013" : last;
-            });
-            if (cap) cap.textContent = capText;
-        }
-        function cssEscape(v) { return String(v).replace(/["\\]/g, "\\$&"); }
-        var LO = parseFloat(box.getAttribute("data-lo")), HI = parseFloat(box.getAttribute("data-hi"));
-        var TOP = {{ (M.chart.top if M and M.chart else 0)|tojson }},
-            BASE = {{ (M.chart.base if M and M.chart else 0)|tojson }};
-        function yFor(v) { return TOP + (BASE - TOP) * (1 - (v - LO) / ((HI - LO) || 1)); }
-
-        var dragging = false;
-        function at_move(e) {
-            var t = e.touches ? e.touches[0] : e;
-            show(nearest(t.clientX));
-        }
-        hit.addEventListener("pointerdown", function (e) {
-            dragging = true; hit.setPointerCapture && hit.setPointerCapture(e.pointerId); at_move(e);
-        });
-        hit.addEventListener("pointermove", function (e) { if (dragging || e.pointerType === "mouse") at_move(e); });
-        hit.addEventListener("pointerup", function () { dragging = false; });
-        hit.addEventListener("pointerleave", function () { if (!dragging) clear(); });
-        hit.addEventListener("pointercancel", function () { dragging = false; clear(); });
-
-        // ---- who has he been traded for ----
-        var cache = {};
-        function esc(t) { var d = document.createElement("div"); d.textContent = t == null ? "" : t; return d.innerHTML; }
-        function bundle(list) {
-            return (list || []).map(function (p) { return esc(p.name); }).join(" + ") || "\u2014";
-        }
-        function showPlayer(key, name) {
-            head.textContent = name;
-            moversBox.hidden = true;
-            playerBox.hidden = false;
-            playerBox.innerHTML = '<p class="ar-board-sub">Reading his trades\u2026</p>';
-            var done = function (d) {
-                if (!d) { playerBox.innerHTML = '<p class="ar-board-sub">Nothing to show for him.</p>'; return; }
-                var html = '<p class="ar-board-sub">' + esc(name) + " has been in "
-                    + (d.trades || 0).toLocaleString() + " trades.</p>";
-                if ((d.counterparts || []).length) {
-                    html += '<p class="at-mover-head">Most often traded for</p><ol class="ar-list at-rows at-movers">';
-                    d.counterparts.forEach(function (c) {
-                        html += "<li><span class=\"ar-name\">" + esc(c.name)
-                            + (c.position ? '<span class="ar-pos">' + esc(c.position) + "</span>" : "")
-                            + "</span><span class=\"ar-val\"><b>" + c.n + "</b></span></li>";
-                    });
-                    html += "</ol>";
-                }
-                if ((d.recent || []).length) {
-                    html += '<p class="at-mover-head">Latest deals</p><ul class="at-mkt-deals">';
-                    d.recent.forEach(function (r) {
-                        // A side can be empty because what came back was a
-                        // draft pick or FAAB, not a player. Printing "for —"
-                        // read as a bug; it was the truth with the picks
-                        // left out. We still can't price one, which is
-                        // exactly why these deals are missing from the
-                        // numbers, and saying so is better than a dash.
-                        var extra = (r.picks || []).map(function (p) { return esc(p); });
-                        (r.faab || []).forEach(function (f) {
-                            extra.push("$" + f + " FAAB");
-                        });
-                        var got = bundle(r.got), gave = bundle(r.gave);
-                        if (!r.gave || !r.gave.length) {
-                            gave = extra.length ? extra.join(" + ")
-                                 : "something we didn't store";
-                        } else if (extra.length) {
-                            gave += " + " + extra.join(" + ");
-                        }
-                        var note = extra.length
-                            ? '<small class="at-nopric">not priced \u2014 picks and FAAB '
-                              + 'are left out of the market</small>' : "";
-                        html += "<li><b>" + got + "</b> for " + gave
-                            + "<small>" + (r.day ? esc(r.day) : "week " + r.week)
-                            + "</small>" + note + "</li>";
-                    });
-                    html += "</ul>";
-                }
-                html += '<p class="at-mkt-back"><button type="button" class="at-all-toggle" '
-                    + 'data-back>Back to risers and fallers</button></p>';
-                playerBox.innerHTML = html;
-                var back = playerBox.querySelector("[data-back]");
-                if (back) back.addEventListener("click", function () {
-                    playerBox.hidden = true; moversBox.hidden = false;
-                    head.textContent = "Risers and fallers";
-                });
-            };
-            if (cache[key]) { done(cache[key]); return; }
-            fetch("/staff/around/player/" + encodeURIComponent(key) + ".json",
-                  {credentials: "same-origin"})
-                .then(function (r) { return r.ok ? r.json() : null; })
-                .then(function (d) { cache[key] = d; done(d); })
-                .catch(function () { done(null); });
-        }
-
-        var board = document.getElementById("at-mkt-board");
-        if (board) board.addEventListener("click", function (e) {
-            var row = e.target.closest(".at-mkt-row");
-            if (!row) return;
-            showPlayer(row.getAttribute("data-key"), row.getAttribute("data-name"));
-        });
-        legend.addEventListener("click", function (e) {
-            var chip = e.target.closest(".at-mkt-chip");
-            if (!chip) return;
-            var key = chip.getAttribute("data-key");
-            showPlayer(key, chip.querySelector(".at-mkt-chip-text").firstChild.textContent.trim());
-        });
-    })();
-})();
-</script>
 {% endblock %}

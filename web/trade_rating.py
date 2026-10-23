@@ -143,6 +143,11 @@ MIN_DRAFTS = 20
 #: Five of the six colours, so there is always room to add one.
 CHART_DEFAULT = 5
 
+#: The movers boards: how many each way, and the trades a player needs
+#: before his move counts.
+MOVERS = 10
+MOVER_MIN_TRADES = 10
+
 #: Teams in the league a slot is quoted in. Everything is normalised to a
 #: twelve-team draft, so "2.03" means the third pick of the second round.
 TEAMS = 12
@@ -584,8 +589,9 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     rated.sort(key=lambda k: ranked[k])
     rows = [market.row(k, names, now=ranked[k]) for k in rated[:limit]]
 
+    # Ten trades before a move counts: one odd deal is not a market moving.
     movers = sorted((r for r in (market.row(k, names, now=ranked[k]) for k in rated)
-                     if r["moved"] is not None and r["trades"] > 0),
+                     if r["moved"] is not None and r["trades"] >= MOVER_MIN_TRADES),
                     key=lambda r: -r["moved"])
 
     # WHICH PLAYERS GET A LINE, and why not simply the dearest six.
@@ -645,8 +651,9 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
                   "lines": {k: day_lines["lines"][k]
                             for k in [k for k in rated if k in day_lines["lines"]][:CHART_DEFAULT]}},
         "pickable": pickable,
-        "up": movers[:6],
-        "down": list(reversed(movers[-6:])),
+        "up": [r for r in movers if r["moved"] > 0][:MOVERS],
+        "down": [r for r in reversed(movers) if r["moved"] < 0][:MOVERS],
+        "mover_min_trades": MOVER_MIN_TRADES,
         "series": {k: got["series"][k] for k in drawn if k in got["series"]},
         "lines": drawn,
         "days": got["days"],
@@ -673,7 +680,7 @@ def daily(series: dict, adp: dict[str, float],
         {"base": "2026-08-27", "last": 57,
          "lines": {key: [[0, 9.8], [8, 9.1], [9, 8.7], ...]}}
 
-    Day 0 is "the draft": the base is a week before the first trade, and
+    Day 0 is "the draft": the base is three days before the first trade, and
     every drafted player's line starts there at his ADP, so the first
     segment is still draft-to-market. A player first traded in October
     jumps from his draft price to his first close, which is what happened.
@@ -684,7 +691,7 @@ def daily(series: dict, adp: dict[str, float],
     days = sorted({int(pt["day"]) for pts in series.values() for pt in pts})
     if not days:
         return {"base": None, "last": 0, "lines": {}}
-    base = days[0] - 7
+    base = days[0] - 3
     lines: dict[str, list] = {}
     for key in keys:
         pts = series.get(key) or []
