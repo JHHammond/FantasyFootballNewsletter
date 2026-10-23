@@ -393,9 +393,9 @@ class Market:
     # -- reading it back ---------------------------------------------------
 
     def ranked(self, skip: frozenset = frozenset()) -> dict[str, float]:
-        """Every player's price as a draft slot, BY RANK: the most expensive
-        player costs the first pick anybody makes, the twelfth costs the
-        twelfth, and so on down the board.
+        """Every TRADED player's price as a draft slot, by rank: the most
+        expensive costs the earliest pick any of them was drafted at, the
+        twelfth the twelfth, and so on down.
 
         WHY NOT value_slot(). The values are right about ORDER and wrong
         about LEVEL. Live on 23 Oct the order was exactly what anybody
@@ -405,37 +405,24 @@ class Market:
         movers all converged on rounds nine to twelve from both ends. The
         additive bundle arithmetic squeezes the top of the scale, and no
         normalisation of the level undoes a squeeze. Rank cannot be
-        squeezed: somebody is always first. "Up" now means he passed
-        somebody, which was always the only thing it should have meant.
+        squeezed: somebody is always first.
 
-        The slots are the real draft's own ADPs, in order, so a player who
-        holds his draft rank reads as exactly where he was drafted and the
-        page's pick labels stay honest. Past the last drafted player it is
-        one slot per place.
+        ONLY TRADED PLAYERS TAKE A PLACE. The first version let an untraded
+        player hold his draft position against the field, and Puka came out
+        "costing the 3.02" with twenty-six invisible players ahead of him:
+        everybody traded had been squeezed and nobody untraded had, so
+        every untraded first-rounder outranked every star the market had
+        actually priced. A player with no trades has no market price, only
+        a draft price; he is listed apart (see build's "held"), not ranked.
 
-        A player nobody has traded keeps his place relative to the field:
-        his draft value, scaled the way the median traded player's has
-        been. Leaving him out would hand his rank to whoever is next, and
-        the stars that nobody parts with are exactly those players.
-        `skip` (kickers, defences) is out of both the ranking and the slots.
+        The slots are the traded players' own ADPs, in order, so a player
+        who holds his draft rank among them reads as where he was drafted.
+        Past the last drafted one it is one slot per place. `skip`
+        (kickers, defences) is out of both the ranking and the slots.
         """
-        moved = sorted(self.v[k] / self.start[k] for k in self.v
-                       if self.n.get(k, 0) > 0 and self.start.get(k, 0) > 0
-                       and k not in skip)
-        level = moved[len(moved) // 2] if len(moved) >= 10 else 1.0
-        values: dict[str, float] = {}
-        for key, slot in self.adp.items():
-            if key in skip:
-                continue
-            if key in self.v and self.n.get(key, 0) > 0:
-                values[key] = self.v[key]
-            else:
-                values[key] = slot_value(slot, self.decay, self.shift) * level
-        for key in self.v:
-            if key not in values and key not in skip and self.n.get(key, 0) > 0:
-                values[key] = self.v[key]
-        slots = sorted(s for k, s in self.adp.items() if k not in skip)
-        order = sorted(values, key=lambda k: (-values[k], k))
+        pool = [k for k in self.v if self.n.get(k, 0) > 0 and k not in skip]
+        slots = sorted(self.adp[k] for k in pool if k in self.adp)
+        order = sorted(pool, key=lambda k: (-self.v[k], k))
         out: dict[str, float] = {}
         for i, key in enumerate(order):
             out[key] = (slots[i] if i < len(slots)
@@ -614,8 +601,18 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     drawn = [r["player_key"] for r in travelled[:lines]]
     if len(drawn) < 2:
         drawn = rated[:lines]
+    # Drafted early and never traded: nobody is selling. Listed rather
+    # than ranked (see Market.ranked). Also the first place to look if a
+    # name appears twice — a platform pick that never matched its Sleeper
+    # id has an ADP under its own key, and that key never trades.
+    held = [{"player_key": k, "name": (names.get(k) or {}).get("name") or k,
+             "position": (names.get(k) or {}).get("position"),
+             "drafted_at": pick_label(adp[k]), "drafted": round(adp[k], 1)}
+            for k in sorted(adp, key=lambda k: adp[k])
+            if k not in skip and market.n.get(k, 0) == 0][:12]
     return {
         "rows": rows,
+        "held": held,
         "up": movers[:6],
         "down": list(reversed(movers[-6:])),
         "series": {k: got["series"][k] for k in drawn if k in got["series"]},

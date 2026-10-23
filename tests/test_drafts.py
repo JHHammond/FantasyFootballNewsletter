@@ -294,13 +294,17 @@ def test_the_price_is_read_by_rank_so_the_dearest_costs_the_first_pick():
     assert m.slot("b") > 2.0                              # ...where the curve said "down"
 
 
-def test_a_player_nobody_trades_keeps_his_place():
-    """The stars nobody parts with are exactly the ones a trade board never
-    sees. They hold their draft position against the field instead of
-    handing their rank to whoever is next."""
+def test_a_player_nobody_trades_is_not_ranked_above_the_market():
+    """First version, live 23 Oct: untraded players held their draft spots,
+    and Puka, the dearest player the market had priced, "cost the 3.02"
+    with twenty-six invisible players ahead of him. A player with no
+    trades has a draft price, not a market price: he is not ranked."""
     adp = {"star": 1.0, "b": 2.0, "c": 3.0}
     m = trade_rating.Market(adp, decay=1.0, shift=8.0)
     for key in ("b", "c"):
         m._ensure(key, 0)
+        m.v[key] = m.start[key] * 0.3          # squeezed, as live
         m.n[key] = 3
-    assert m.ranked()["star"] == 1.0 and m.ranked()["b"] == 2.0
+    r = m.ranked()
+    assert "star" not in r
+    assert r["b"] == 2.0                       # the earliest a TRADED player went

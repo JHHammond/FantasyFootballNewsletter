@@ -132,8 +132,9 @@
         and {{ '{:,}'.format(R.used) }} trades move him from there. A price is his
         <b>place in the market, read as a draft pick</b>: &ldquo;costs the 2.03&rdquo;
         means he is the fifteenth most expensive player, so the most expensive costs the
-        1.01. <b>Up</b> means he has passed players drafted ahead of him; a star nobody
-        trades keeps his draft position.
+        first traded player off the board costs the earliest pick any of them went at.
+        <b>Up</b> means he has passed players drafted ahead of him. A player with no
+        trades has no market price and is listed separately.
         {{ R.rated }} players priced{% if R.streamers %}, {{ R.streamers }} kickers and
         defences left off{% endif %}.
         <br><b>This is not a ranking of who is good.</b> It is the going rate, and a
@@ -156,6 +157,11 @@
                 </li>
                 {% endfor %}
             </ol>
+            {% if R.held %}
+            {# Drafted early, never traded: no market price, so not ranked. #}
+            <p class="ar-board-sub at-held">Not traded once, so not priced:
+                {% for h in R.held %}{{ h.name }} ({{ h.drafted_at }}){{ ', ' if not loop.last else '.' }}{% endfor %}</p>
+            {% endif %}
         </article>
         <article class="ar-board">
             <h3 class="ar-board-head">Since the draft</h3>
