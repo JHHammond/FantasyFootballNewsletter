@@ -407,3 +407,44 @@ def deal_desk(him_key: str, league: dict, rosters: dict[str, set], my_team: str,
     return {"mode": "get", "owner": names.get(str(owner)) if owner else None,
             "owner_needs": owner_need,
             "offers": offers(him_key, mine, prices, spot, trades, prefer_pos=owner_need)}
+
+
+# How far apart the two sides can be, by today's prices, and still be "fair".
+EVEN = 0.10
+
+
+def dress_trades(trades: list[dict], prices: dict, him_key: str, spot: float,
+                 photo: Optional[Callable] = None) -> list[dict]:
+    """Add what the trade list draws beyond names: a photo and today's
+    price on every player, and a verdict from the side that got him.
+
+    The verdict values each side at today's prices, less a roster spot for
+    every player past the first (the same sum the offers use). It's left
+    out when a pick or FAAB is in the deal, or anybody in it is unpriced,
+    because then half the deal can't be weighed."""
+    him = prices.get(him_key)
+    for t in trades:
+        for item in t["got"] + t["gave"]:
+            if item["kind"] != "player":
+                continue
+            p = prices.get(item.get("key")) or {}
+            item["costs"] = p.get("costs")
+            item["photo"] = p.get("photo") or (photo(item.get("key"), item.get("position"))
+                                               if photo and item.get("key") else None)
+        t["picks"] = any(i["kind"] != "player" for i in t["got"] + t["gave"])
+        t["verdict"] = None
+        if not him or t["picks"]:
+            continue
+        got = [him] + [prices.get(i.get("key")) for i in t["got"]]
+        gave = [prices.get(i.get("key")) for i in t["gave"]]
+        if not gave or any(p is None for p in got + gave):
+            continue
+        gv = sum(p["v"] for p in got) - spot * (len(got) - 1)
+        pv = sum(p["v"] for p in gave) - spot * (len(gave) - 1)
+        if gv <= 0 or pv <= 0:
+            continue
+        edge = gv / pv - 1.0
+        word = "fair" if abs(edge) < EVEN else ("won" if edge > 0 else "paid")
+        t["verdict"] = {"word": word, "edge": round(100 * edge),
+                        "share": round(100 * gv / (gv + pv))}
+    return trades

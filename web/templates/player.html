@@ -22,13 +22,34 @@
 {%- endfor -%}
 {%- endmacro %}
 
-{% macro deal(t, yours=none) %}
-<li class="pp-deal">
-    <div class="pp-deal-when">{{ t.day or ('Week ' ~ t.week) }}<small>{{ t.league }}{% if t.three_way %} &middot; three-way{% endif %}</small></div>
-    <div class="pp-deal-sides">
-        <div class="pp-deal-side"><span class="pp-deal-label">Got</span>
-            <span class="pp-tok pp-tok-him">{{ who.name }}</span>{% if t.got %}<span class="pp-plus">+</span>{{ side(t.got) }}{% endif %}</div>
-        <div class="pp-deal-side"><span class="pp-deal-label">For</span>{{ side(t.gave, yours) }}</div>
+{% macro tile(it, him=false) -%}
+{%- if it.kind == 'player' -%}
+<a class="pp-tile{{ ' pp-tile-him' if him }}" href="/staff/market/player/{{ (it.key or '')|urlencode }}">
+    <span class="at-face pp-tile-face{{ ' at-face-def' if it.position == 'DEF' }}">
+        {%- if it.photo %}<img src="{{ it.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif -%}
+        <span>{{ (it.label or '?')[:1] }}</span></span>
+    <span class="pp-tile-txt"><b>{{ it.label }}</b><small>{{ it.position or '' }}{% if it.costs %} &middot; {{ it.costs }}{% endif %}</small></span>
+</a>
+{%- else -%}
+<span class="pp-tile pp-tile-{{ it.kind }}"><span class="pp-tile-txt"><b>{{ it.label }}</b></span></span>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro deal(t) %}
+<li class="pp-deal" data-shape="{{ 'straight' if t.straight else 'package' }}" data-picks="{{ 1 if t.picks else 0 }}">
+    <div class="pp-deal-when"><b>{{ t.day or ('Week ' ~ t.week) }}</b><small>{{ t.league }}{% if t.three_way %} &middot; three-way{% endif %}</small></div>
+    <div class="pp-deal-side"><span class="pp-deal-label">Got</span>
+        <div class="pp-tiles">{{ tile({'kind': 'player', 'key': who.key, 'label': who.name, 'position': who.position, 'photo': who.photo, 'costs': who.costs if who.priced}, true) }}{% for it in t.got %}{{ tile(it) }}{% endfor %}</div></div>
+    <span class="pp-deal-swap" aria-hidden="true">&#8644;</span>
+    <div class="pp-deal-side"><span class="pp-deal-label">Gave</span>
+        <div class="pp-tiles">{% for it in t.gave %}{{ tile(it) }}{% else %}<span class="pp-tile pp-tile-none"><span class="pp-tile-txt"><b>nothing we stored</b></span></span>{% endfor %}</div></div>
+    <div class="pp-deal-verdict">
+        {%- if t.verdict %}
+        <span class="pp-bal" title="Today&rsquo;s prices: what they got against what they gave"><i style="width:{{ t.verdict.share }}%"></i></span>
+        <b class="pp-v-{{ t.verdict.word }}">{% if t.verdict.word == 'fair' %}Fair deal{% elif t.verdict.word == 'won' %}Won it by {{ t.verdict.edge }}%{% else %}Paid {{ -t.verdict.edge }}% extra{% endif %}</b>
+        <small>by today&rsquo;s prices</small>
+        {%- elif t.picks %}<small>Picks or FAAB in it: not weighed</small>
+        {%- endif %}
     </div>
 </li>
 {% endmacro %}
@@ -200,6 +221,14 @@
     <h2 class="card-title">Every trade this season</h2>
     {% if trades %}
     <p class="card-sub">{{ '{:,}'.format(trades|length) }} deal{{ '' if trades|length == 1 else 's' }}, newest first: what the team that got him received, and what it gave. Leagues are described, never named.</p>
+    {% set n_straight = trades|selectattr('straight')|list|length %}
+    {% set n_picks = trades|selectattr('picks')|list|length %}
+    <div class="pp-filter" role="group" aria-label="Show">
+        <button type="button" class="on" data-f="all">All <small>{{ '{:,}'.format(trades|length) }}</small></button>
+        <button type="button" data-f="straight">Straight up <small>{{ '{:,}'.format(n_straight) }}</small></button>
+        <button type="button" data-f="package">Packages <small>{{ '{:,}'.format(trades|length - n_straight) }}</small></button>
+        {% if n_picks %}<button type="button" data-f="picks">With picks or FAAB <small>{{ '{:,}'.format(n_picks) }}</small></button>{% endif %}
+    </div>
     <ol class="pp-deals" id="pp-all">
         {% for t in trades %}{% if loop.index > first %}<template class="pp-more-row">{{ deal(t) }}</template>{% else %}{{ deal(t) }}{% endif %}{% endfor %}
     </ol>
@@ -248,13 +277,31 @@
 
     // ---- the rest of the trades, on request ----
     var more = document.getElementById("pp-more");
-    if (more) more.addEventListener("click", function () {
+    function showAll() {
         var list = document.getElementById("pp-all");
+        if (!list) return;
         list.querySelectorAll("template.pp-more-row").forEach(function (t) {
             list.insertBefore(t.content.cloneNode(true), t);
             t.remove();
         });
-        more.parentNode.remove();
+        if (more && more.parentNode) more.parentNode.remove();
+    }
+
+    // ---- filter: straight up, packages, with picks ----
+    document.querySelectorAll(".pp-filter button").forEach(function (b) {
+        b.addEventListener("click", function () {
+            var f = b.getAttribute("data-f");
+            if (f !== "all") showAll();
+            document.querySelectorAll(".pp-filter button").forEach(function (x) { x.classList.toggle("on", x === b); });
+            document.querySelectorAll("#pp-all .pp-deal").forEach(function (li) {
+                var keep = f === "all" || (f === "picks" ? li.getAttribute("data-picks") === "1"
+                                                        : li.getAttribute("data-shape") === f);
+                li.hidden = !keep;
+            });
+        });
+    });
+    if (more) more.addEventListener("click", function () {
+        showAll();
     });
 
     // ---- his price line: the market chart's look, one player ----

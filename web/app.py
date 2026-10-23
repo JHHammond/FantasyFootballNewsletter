@@ -1641,6 +1641,8 @@ def staff_market_player(request: Request, player_key: str, team: str = "",
                                 float((rating or {}).get("spot") or 0), trades)
     paid = plans.is_paid(user) and preview != "free"
     ch = pp.chart(key, rating)
+    from .luck import photo_url
+    pp.dress_trades(trades, prices, key, float((rating or {}).get("spot") or 0), photo_url)
 
     return _render(request, "player.html", season=season, latest=latest,
                    who=who, chart=ch, usage=use, trend=pp.trend(ch),

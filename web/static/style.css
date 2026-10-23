@@ -4269,3 +4269,51 @@ a.pp-tok:hover { background: #e8dfcd; color: var(--accent); }
     .pp-offer { grid-template-columns: 1fr; }
     .pp-pitch { grid-column: 1; grid-row: auto; justify-self: start; }
 }
+
+/* ---- player page, every trade with faces (23 Oct) ---- */
+.pp-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.pp-filter button { border: 1px solid var(--line); background: #fffefb; color: var(--ink-2); border-radius: 999px; padding: 6px 12px; font: 600 13px "Barlow", sans-serif; cursor: pointer; }
+.pp-filter button small { font-weight: 500; color: var(--muted); margin-left: 2px; }
+.pp-filter button.on { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.pp-filter button.on small { color: inherit; opacity: .7; }
+.pp-deals .pp-deal { grid-template-columns: 112px minmax(0, 1fr) 22px minmax(0, 1fr) 150px; align-items: start; gap: 10px 14px; padding: 14px 0; }
+.pp-deal[hidden] { display: none; }
+.pp-deal-when b { display: block; font: 400 19px "Anton", sans-serif; letter-spacing: .3px; }
+.pp-deal .pp-deal-side { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
+.pp-deal .pp-deal-label { width: auto; }
+.pp-tiles { display: flex; flex-wrap: wrap; gap: 6px; }
+.pp-tile { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px; background: #f2ecdf; color: var(--ink); text-decoration: none; min-width: 0; max-width: 100%; }
+a.pp-tile:hover { background: #e8dfcd; }
+a.pp-tile:hover b { color: var(--accent); }
+.pp-tile-face { width: 34px; height: 34px; flex: none; background: #e6dfcf; }
+.pp-tile-txt { display: flex; flex-direction: column; line-height: 1.12; min-width: 0; }
+.pp-tile-txt b { font: 600 14px "Barlow", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pp-tile-txt small { font: 700 10.5px "Barlow Condensed", sans-serif; letter-spacing: .8px; color: var(--muted); }
+.pp-tile-him { background: var(--ink); color: var(--paper); }
+.pp-tile-him small { color: rgba(255, 253, 248, .65); }
+a.pp-tile-him:hover { background: var(--ink); }
+.pp-tile-pick, .pp-tile-faab, .pp-tile-none { padding: 9px 12px; background: #fff; border: 1px dashed #b9ad98; }
+.pp-tile-faab b { color: #2d6a1f; }
+.pp-tile-none { border: 0; background: none; }
+.pp-tile-none b { font-style: italic; font-weight: 500; color: var(--muted); }
+.pp-deal-swap { align-self: start; margin-top: 30px; color: var(--muted); font-size: 18px; text-align: center; }
+.pp-deal-verdict { padding-top: 22px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; }
+.pp-deal-verdict b { font: 600 14px "Barlow", sans-serif; }
+.pp-deal-verdict small { font-size: 11.5px; color: var(--muted); }
+.pp-bal { display: block; width: 100%; max-width: 130px; height: 6px; border-radius: 3px; background: #d9cfbc; overflow: hidden; position: relative; }
+.pp-bal i { display: block; height: 100%; background: var(--ink); }
+.pp-bal::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: var(--paper); }
+.pp-v-won { color: #2d6a1f; }
+.pp-v-paid { color: var(--accent); }
+.pp-v-fair { color: var(--ink); }
+@media (max-width: 900px) {
+    .pp-deals .pp-deal { grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr); }
+    .pp-deal-when { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; }
+    .pp-deal-when small { display: inline; }
+    .pp-deal-verdict { padding-top: 0; grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; text-align: left; }
+    .pp-bal { width: 90px; }
+}
+@media (max-width: 560px) {
+    .pp-deals .pp-deal { grid-template-columns: 1fr; }
+    .pp-deal-swap { display: none; }
+}
