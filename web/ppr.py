@@ -145,6 +145,67 @@ def _stats_from(raw) -> dict[str, list]:
     return out
 
 
+#: Snap fields in a Sleeper stat line. A player who was on the field for
+#: one snap played, whatever he scored.
+SNAP_FIELDS = ("off_snp", "def_snp", "st_snp")
+
+
+def _played_from(raw) -> dict[str, dict]:
+    """Either shape Sleeper returns -> {sleeper_id: {played, snaps, team_snaps}}.
+
+    WHY (John, 23 Oct): the win-rate boards dropped every player who scored
+    exactly 0, to stop byes and inactives topping Worst win rate (054). That
+    also dropped Cam Skattebo, who played and scored nothing, which is the
+    exact player that board is for. Points cannot tell "played and did
+    nothing" from "never played"; games played and snaps can.
+
+    played is True when the line shows a game played or any snap, False
+    when it carries those fields and they are all zero, and None when it
+    carries none of them (we then fall back to the points, as before).
+    A player with no stat line at all is simply absent, which the board
+    reads as "did not play".
+    """
+    out: dict[str, dict] = {}
+    if isinstance(raw, list):
+        items = []
+        for item in raw:
+            if isinstance(item, dict):
+                stats = item.get("stats") or {}
+                items.append((item.get("player_id") or stats.get("player_id"), {**item, **stats}))
+    elif isinstance(raw, dict):
+        items = list(raw.items())
+    else:
+        return out
+    for pid, s in items:
+        if not pid or not isinstance(s, dict):
+            continue
+        snap_vals = [s.get(f) for f in SNAP_FIELDS if s.get(f) is not None]
+        gp = s.get("gp")
+        if gp is None and not snap_vals:
+            continue
+        snaps = int(sum(float(v) for v in snap_vals)) if snap_vals else None
+        played = bool((gp is not None and float(gp) > 0) or (snaps or 0) > 0)
+        team = s.get("tm_off_snp") if s.get("off_snp") else (
+            s.get("tm_def_snp") if s.get("def_snp") else s.get("tm_st_snp"))
+        out[str(pid)] = {"played": played, "snaps": snaps,
+                         "team_snaps": int(float(team)) if team else None}
+    return out
+
+
+def fetch_played(season: int, week: int) -> dict[str, dict]:
+    """Who played in a week, from the same endpoint the scores come from."""
+    def fetch():
+        try:
+            got = _played_from(_get(STATS_URL.format(season=season, week=week),
+                                    {"season_type": "regular"}))
+        except Exception:  # noqa: BLE001 — try the older address
+            got = {}
+        if not got:
+            got = _played_from(_get(STATS_URL_OLD.format(season=season, week=week)))
+        return got
+    return _cache().get_or_fetch(f"played:v1:{season}:{week}", TTL_STATS, fetch)
+
+
 def _get(url, params=None):
     r = requests.get(url, params=params, timeout=TIMEOUT)
     r.raise_for_status()

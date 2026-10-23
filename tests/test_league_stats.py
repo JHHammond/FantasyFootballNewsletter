@@ -525,3 +525,50 @@ def test_a_player_who_did_not_play_has_no_win_rate():
     assert "dud" in worst, worst
     # Still in the full list: he was rostered, and searchable.
     assert "on_a_bye" in [c["player_key"] for c in got["players"]["all"]]
+
+
+def test_a_player_who_played_and_scored_nothing_is_still_on_the_board():
+    """John, 23 Oct: Worst win rate had "cycled out people who played but
+    actually scored 0 points (Cam Skattebo)". 054 dropped every exact zero
+    to keep byes off the board. Snaps (055) tell the two apart."""
+    lg = _league("Snaps", pid="sn")
+    rows, lu = [], []
+
+    def start(team, key, pts, result):
+        rows.append(_row(lg, team, 80.0, result, opp=90.0 if result == "L" else 70.0))
+        lu.append({"league_id": lg["id"], "season": SEASON, "week": 3,
+                   "team_id": team, "player_key": key, "slot": "RB",
+                   "started": True, "points": pts, "ppr_points": pts})
+
+    for i in range(4):
+        start(f"sk{i}", "skattebo", 0.0, "L")     # played, scored nothing
+        start(f"bye{i}", "on_a_bye", 0.0, "L")    # never took the field
+        start(f"unk{i}", "unmatched", 0.0, "L")   # no snap data at all
+    played = {"skattebo": True, "on_a_bye": False}
+    got = league_stats.compute_week(rows, lu, {}, SEASON, 3, min_starts=3, played=played)
+    worst = [c["player_key"] for c in got["players"]["win_worst"]]
+    assert "skattebo" in worst, worst
+    assert "on_a_bye" not in worst, worst
+    # Nothing known about him: the old rule, a zero stays off.
+    assert "unmatched" not in worst, worst
+
+    # Without any snap data the board behaves exactly as 054 did.
+    old = league_stats.compute_week(rows, lu, {}, SEASON, 3, min_starts=3)
+    assert "skattebo" not in [c["player_key"] for c in old["players"]["win_worst"]]
+
+
+def test_a_starter_who_played_for_nothing_counts_as_turning_up():
+    """The abandoned-roster rule counted starters who SCORED. A team whose
+    starters played and scored zero was there; snaps say so."""
+    lg = _league("Turned", pid="tu")
+    rows, lu = [], []
+    rows.append(_row(lg, "unlucky", 20.0, "L", opp=90.0))
+    lu += _lineup(lg, "unlucky", scored=3, blank=6)    # six starters at 0.0...
+    for i in range(8):
+        rows.append(_row(lg, f"t{i}", 95.0 + i, "W", opp=90.0))
+        lu += _lineup(lg, f"t{i}", scored=9, blank=0)
+    played = {f"out{i}": True for i in range(6)}        # ...who all played
+    got = league_stats.compute_week(rows, lu, {}, SEASON, 3, played=played)
+    lowest = [c["team_name"] for c in got["halls"]["lowest"]]
+    assert lowest[0] == "unlucky", lowest
+    assert (got["halls"]["lowest"][0]["played"], got["halls"]["lowest"][0]["starters"]) == (9, 9)

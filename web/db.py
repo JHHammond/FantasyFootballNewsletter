@@ -1832,6 +1832,22 @@ def upsert_draft_picks(rows: list[dict[str, Any]]) -> None:
         rows, on_conflict="league_id,season,player_key").execute()
 
 
+def week_players_ready() -> bool:
+    """False until migration 055 is run."""
+    try:
+        client().table("nfl_week_players").select("player_key").limit(1).execute()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def upsert_week_players(rows: list[dict[str, Any]]) -> None:
+    """Who played in one NFL week (055). Idempotent on (season, week, player)."""
+    for i in range(0, len(rows), 500):
+        client().table("nfl_week_players").upsert(
+            rows[i:i + 500], on_conflict="season,week,player_key").execute()
+
+
 def upsert_draft_scan(row: dict[str, Any]) -> None:
     client().table("draft_scans").upsert(
         row, on_conflict="league_id,season").execute()

@@ -259,6 +259,7 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
         ctx = ppr.context(season, week)
         log(f"Week {week}: standardized PPR "
             f"{'ready' if ctx else 'UNAVAILABLE (Sleeper unreachable) - raw scores only'}.")
+        save_played(db, season, week, log)
     # "Done" means stored WITH its PPR scores when PPR is available now
     # (3 Oct: a week saved while Sleeper was unreachable, by a paper or an
     # earlier run, had lineups and no PPR, counted as done, and was never
@@ -591,9 +592,31 @@ def believable_std(points, ppr) -> bool:
     return ppr is not None and points is not None and ppr > 0
 
 
+def save_played(db, season: int, week: int, log: Callable[[str], None] = print) -> int:
+    """Store who played in a week (migration 055). Once per week, ~1,500
+    rows. Never raises: the boards fall back to points without it."""
+    try:
+        if not db.week_players_ready():
+            return 0
+        from web import ppr
+        got = ppr.fetch_played(season, week)
+        rows = [{"season": season, "week": week, "player_key": k, **v} for k, v in got.items()]
+        if rows:
+            db.upsert_week_players(rows)
+        played = sum(1 for r in rows if r["played"])
+        log(f"Week {week}: {played:,} players took the field "
+            f"({len(rows):,} stat lines with games or snaps).")
+        return len(rows)
+    except Exception as exc:  # noqa: BLE001
+        log(f"Week {week}: who-played not saved: {type(exc).__name__}: {exc}")
+        return 0
+
+
 def compute_week(team_rows: list[dict], lineup_rows: list[dict],
                  players: dict[str, dict], season: int, week: int,
-                 min_starts: int = 150) -> dict:
+                 min_starts: int = 150, played: Optional[dict] = None) -> dict:
+    """`played` is {player_key: True/False} from nfl_week_players (055); a
+    player missing from it is unknown, and falls back to his points."""
     f = lambda v: float(v) if v is not None else None  # noqa: E731
     tw = []
     for r in team_rows:
@@ -649,7 +672,8 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
         if t is None:
             continue
         lut.append(dict(l, points=f(l["points"]), ppr_points=f(l.get("ppr_points")),
-                        result=t["result"]))
+                        result=t["result"],
+                        did_play=(played or {}).get(l["player_key"])))
 
     # Did this team field a lineup? See migration 053: the five lowest
     # scores in America were 2.7 to 6.9, which is five abandoned rosters
@@ -662,7 +686,9 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
         e = fielded.setdefault((l["league_id"], l["team_id"]),
                                {"starters": 0, "played": 0})
         e["starters"] += 1
-        if (l["ppr_points"] if l["ppr_points"] is not None else l["points"]) > 0:
+        # Took the field, by snaps where we know them (055), else by points.
+        if l.get("did_play") is True or (
+                (l["ppr_points"] if l["ppr_points"] is not None else l["points"]) > 0):
             e["played"] += 1
     for r in tw:
         f = fielded.get((r["league_id"], r["team_id"]))
@@ -694,7 +720,9 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
     for l in lut:
         e = ps.setdefault(l["player_key"], {"rostered": 0, "started": 0, "benched": 0,
                                             "wins": 0.0, "ppr": None, "best": None,
-                                            "bench": []})
+                                            "bench": [], "did_play": None})
+        if l.get("did_play") is not None:
+            e["did_play"] = (e["did_play"] is True) or bool(l["did_play"])
         e["rostered"] += 1
         bench = (not l["started"]) and l["slot"] == "BN"
         if l["started"]:
@@ -721,13 +749,17 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
             "teams": (top_on.get(key) or {}).get("teams", 0),
             "bench_total": _r(sum(e["bench"]), 2),
             "bench_avg": _r(_avg(e["bench"]), 2),
+            "did_play": e["did_play"],
         })
     pk = lambda c: c["player_key"]  # noqa: E731
 
     def took_field(c) -> bool:
-        """Scored something. A zero cannot tell a bad game from no game,
-        so it is the one score left off the win-rate boards; a negative
-        score was a game, and stays. Mirrors `coalesce(ppr, best, 0) <> 0`."""
+        """Played. Snaps say so where we have them (055): Cam Skattebo
+        played and scored 0, and belongs on Worst win rate. Without them a
+        zero can't tell a bad game from no game, so a zero is left off and
+        a negative score, which was a game, stays. Mirrors the SQL."""
+        if c.get("did_play") is not None:
+            return bool(c["did_play"])
         v = c["ppr"] if c["ppr"] is not None else c["best"]
         return v is not None and v != 0
 
