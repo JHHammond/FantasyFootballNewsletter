@@ -256,6 +256,7 @@
     <p class="card-sub">{{ '{:,}'.format(trades|length) }} deal{{ '' if trades|length == 1 else 's' }}, newest first: what the team that got him received, and what it gave. Leagues are described, never named.</p>
     {% set n_straight = trades|selectattr('straight')|list|length %}
     {% set n_picks = trades|selectattr('picks')|list|length %}
+    {% if paid %}
     <div class="pp-filter" role="group" aria-label="Show">
         <button type="button" class="on" data-f="all">All <small>{{ '{:,}'.format(trades|length) }}</small></button>
         <button type="button" data-f="straight">Straight up <small>{{ '{:,}'.format(n_straight) }}</small></button>
@@ -267,6 +268,17 @@
     </ol>
     {% if trades|length > first %}
     <p class="pp-more"><button type="button" class="pp-more-btn" id="pp-more">Show all {{ '{:,}'.format(trades|length) }}</button></p>
+    {% endif %}
+    {% else %}
+    {# Free: the three newest only. The rest never leave the server. #}
+    <ol class="pp-deals" id="pp-all">{% for t in trades[:3] %}{{ deal(t) }}{% endfor %}</ol>
+    {% if trades|length > 3 %}
+    <div class="pp-unlock">
+        <p><b>{{ '{:,}'.format(trades|length - 3) }} more trade{{ '' if trades|length - 3 == 1 else 's' }}</b> of {{ who.name }} this season, with filters for straight-up deals and packages.</p>
+        {% if not user %}<a class="btn btn-primary" href="/signup?next={{ (request.url.path ~ '?welcome=1')|urlencode }}">Sign up free</a>
+        {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
+    </div>
+    {% endif %}
     {% endif %}
     {% else %}
     <p class="pp-empty">No trades of him stored yet.</p>
