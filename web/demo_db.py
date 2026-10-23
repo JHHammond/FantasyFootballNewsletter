@@ -1173,6 +1173,11 @@ _OPTOUTS: set = set()
 _REMINDERS: set = set()
 
 
+def market_only_league_ids(season: int) -> set:
+    return {l["id"] for l in _LEAGUES.values()
+            if int(l.get("season") or 0) == int(season) and l.get("market_only")}
+
+
 def leagues_for_reminders(season: int) -> list[dict[str, Any]]:
     return [dict(l) for l in _LEAGUES.values() if l.get("season") == int(season)]
 

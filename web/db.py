@@ -1317,8 +1317,8 @@ def _weekly_rows(linked, unlinked, owners, by_email) -> list[dict[str, Any]]:
     for league in rows:
         if int(league.get("season") or 0) != newest:
             continue
-        if league.get("auto_send_off"):
-            continue
+        if league.get("auto_send_off") or league.get("market_only"):
+            continue    # market-only (058): connected to see a team, not for a paper
         owner = (owners.get(league.get("user_id") or "")
                  or by_email.get((league.get("owner_email") or "").strip().lower()))
         if not owner:
@@ -1787,6 +1787,16 @@ def _paged(table: str, columns: str, **eq) -> list[dict[str, Any]]:
         if len(rows) < page:
             return out
         start += page
+
+
+def market_only_league_ids(season: int) -> set:
+    """Leagues connected only for the trade market (058). Empty before 058."""
+    try:
+        rows = (client().table("leagues").select("id").eq("season", int(season))
+                .eq("market_only", True).execute()).data or []
+    except Exception:  # noqa: BLE001
+        return set()
+    return {r["id"] for r in rows}
 
 
 def leagues_for_reminders(season: int) -> list[dict[str, Any]]:

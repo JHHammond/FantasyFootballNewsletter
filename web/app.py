@@ -318,13 +318,33 @@ _LEAGUE_LANDING = re.compile(r"^/l/[^/?#]+(/setup)?([?#].*)?$")
 @app.middleware("http")
 async def market_funnel(request: Request, call_next):
     response = await call_next(request)
-    if (request.cookies.get(FUNNEL_COOKIE) == "market"
-            and request.url.path.startswith("/connect")
-            and response.status_code in (302, 303)
-            and _LEAGUE_LANDING.match(response.headers.get("location", ""))):
+    landing = (_LEAGUE_LANDING.match(response.headers.get("location", ""))
+               if request.url.path.startswith("/connect") and response.status_code in (302, 303)
+               else None)
+    if not landing:
+        return response
+    token = response.headers["location"].split("/")[2].split("?")[0].split("#")[0]
+    if request.cookies.get(FUNNEL_COOKIE) == "market":
+        # Connected only to see their team: no paper (058). A brand-new
+        # league lands on /setup; one they already had keeps what it was.
+        if landing.group(1):
+            _set_market_only(token, True)
         response.headers["location"] = "/market?show=k%3A0"
         response.delete_cookie(FUNNEL_COOKIE, path="/")
+    else:
+        # Connected the normal way: they want the paper after all.
+        _set_market_only(token, False)
     return response
+
+
+def _set_market_only(admin_token: str, value: bool) -> None:
+    """Best effort: before migration 058 there's no column, and nothing changes."""
+    try:
+        league = db.league_by_admin_token(admin_token)
+        if league and bool(league.get("market_only")) != value:
+            db.update_league(league["id"], {"market_only": value})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[market-only] {admin_token[:6]}…: {type(exc).__name__}: {exc}", flush=True)
 
 
 @app.middleware("http")
@@ -687,7 +707,8 @@ def out_of_leagues(user: dict | None) -> bool:
     if not user:
         return False        # token-only creation, the accountless path
     try:
-        count = len(db.leagues_for_user(user["id"]))
+        # A league connected only for the trade market isn't a paper (058).
+        count = len([l for l in db.leagues_for_user(user["id"]) if not l.get("market_only")])
     except Exception:  # noqa: BLE001
         return False        # never block a sale on a database blip
     return not plans.allows_another_league(plans.plan_for(user), count)

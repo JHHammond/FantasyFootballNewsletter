@@ -119,8 +119,9 @@ def audience(db, season: int, week: int) -> list[dict[str, Any]]:
         trial = None
 
     by_email: dict[str, list[dict[str, Any]]] = {}
+    market_only = db.market_only_league_ids(season)   # 058: no paper, so no nudge
     for league in db.leagues_for_reminders(season):
-        if league["id"] in done or not league.get("admin_token"):
+        if league["id"] in done or league["id"] in market_only or not league.get("admin_token"):
             continue
         owner = users.get(league.get("user_id") or "")
         if owner and plans.plan_for(owner).key in (plans.PAID, plans.STAFF):
