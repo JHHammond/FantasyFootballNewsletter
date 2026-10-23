@@ -462,11 +462,13 @@ class Market:
         return (hi, max(hi, lo))
 
     def row(self, key: str, names: Optional[dict] = None,
-            now: Optional[float] = None) -> dict[str, Any]:
-        """`now` is the price to print, from ranked(); without it, the
-        value read straight off the curve (what the validators compare)."""
+            now: Optional[float] = None,
+            drafted: Optional[float] = None) -> dict[str, Any]:
+        """`now` is the price to print and `drafted` where he went, both as
+        places (see places()); without them, the value read straight off
+        the curve and the raw ADP (what the validators compare)."""
         meta = (names or {}).get(key) or {}
-        drafted = self.adp.get(key)
+        drafted = self.adp.get(key) if drafted is None else float(drafted)
         now = self.slot(key) if now is None else float(now)
         dear, cheap = self.band(key)
         # How much of the draft's original doubt we have talked ourselves
@@ -586,11 +588,20 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
 
     rated = [k for k in market.v if k not in skip and market.n.get(k, 0) > 0
              and k in ranked]
-    rated.sort(key=lambda k: ranked[k])
-    rows = [market.row(k, names, now=ranked[k]) for k in rated[:limit]]
+    rated.sort(key=lambda k: (ranked[k], k))
+    # PLACES, NOT AVERAGES (John, 23 Oct: "it should work like 1.01, 1.02,
+    # 1.03"). The price was the average draft slot at his place, so two
+    # players could share the 1.05 and the list started wherever the
+    # earliest traded ADP happened to be. Now the most expensive player is
+    # the 1.01 and nobody shares a pick; "drafted" is his place in the
+    # draft order among the same players, so "up 3" means he passed three.
+    place, drafted_place = places(rated, adp)
+    rows = [market.row(k, names, now=place[k], drafted=drafted_place.get(k))
+            for k in rated[:limit]]
 
     # Ten trades before a move counts: one odd deal is not a market moving.
-    movers = sorted((r for r in (market.row(k, names, now=ranked[k]) for k in rated)
+    movers = sorted((r for r in (market.row(k, names, now=place[k], drafted=drafted_place.get(k))
+                                 for k in rated)
                      if r["moved"] is not None and r["trades"] >= MOVER_MIN_TRADES),
                     key=lambda r: -r["moved"])
 
@@ -623,11 +634,12 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     # THE CHART: one line per priced player, one point per NFL week,
     # starting from where he was drafted. Every player, not a chosen six,
     # because the page lets the reader pick who to draw — see weekly().
-    weekly_lines = weekly(got["series"], adp, season, rated)
+    series = on_place_scale(got["series"], rated, adp, place)
+    weekly_lines = weekly(series, drafted_place, season, rated)
     # By day as well (John, 23 Oct: "it should be by day, to get the Kalshi
     # type view"). Every player's line is kept here, in the cache; the page
     # carries only the default few and fetches the rest when added.
-    day_lines = daily(got["series"], adp, rated)
+    day_lines = daily(series, drafted_place, rated)
     from web.luck import photo_url
     pickable = []
     for i, k in enumerate(rated, 1):
@@ -635,8 +647,8 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
         pickable.append({
             "k": k, "name": meta.get("name") or k, "pos": meta.get("position"),
             "team": meta.get("nfl_team"), "rank": i,
-            "costs": pick_label(ranked[k]),
-            "drafted": pick_label(adp[k]) if k in adp else None,
+            "costs": pick_label(place[k]),
+            "drafted": pick_label(drafted_place[k]) if k in drafted_place else None,
             "trades": market.n.get(k, 0),
             "photo": photo_url(k, meta.get("position"))})
     return {
@@ -670,6 +682,46 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
         "drift": round(drift, 4),
         "fit": got["fit"],
     }
+
+
+def places(rated: list[str], adp: dict[str, float]) -> tuple[dict, dict]:
+    """(price place, draft place) for every rated player, 1 = the 1.01.
+
+    `rated` arrives most expensive first. The draft place is his position
+    when the same players are ordered by ADP, ties broken the same way every
+    time; a player nobody drafted has none."""
+    place = {k: i + 1 for i, k in enumerate(rated)}
+    drafted = [k for k in rated if k in adp]
+    drafted.sort(key=lambda k: (adp[k], k))
+    return place, {k: i + 1 for i, k in enumerate(drafted)}
+
+
+def on_place_scale(series: dict, rated: list[str], adp: dict[str, float],
+                   place: dict[str, int]) -> dict:
+    """The daily closes re-read as places, so a line ends on the place in
+    the table and starts at his place in the draft.
+
+    Each close was taken as the ADP sitting at his place that day (see
+    Market.ranked); that ADP's position among the final board's ADPs is the
+    place it stands for. On the last day this is exactly his place."""
+    from bisect import bisect_left
+    vals = sorted(adp[k] for k in rated if k in adp)
+    n = len(vals)
+
+    def to_place(v: float) -> float:
+        if n and v > vals[-1]:
+            return float(n + (v - vals[-1]))
+        return float(bisect_left(vals, v - 1e-9) + 1)
+
+    out = {}
+    for key, pts in series.items():
+        if key not in place:
+            continue
+        line = [dict(pt, slot=to_place(pt["slot"])) for pt in pts]
+        if line:
+            line[-1]["slot"] = float(place[key])
+        out[key] = line
+    return out
 
 
 def daily(series: dict, adp: dict[str, float],

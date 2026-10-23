@@ -690,8 +690,9 @@
 {% if R and R.rows %}
 <section class="card at-pl" id="at-pl">
     <h2 class="card-title">Most expensive</h2>
-    <p class="card-sub">What the trades say each player costs today, read as a draft pick:
-        the most expensive traded player costs the earliest pick any of them went at.
+    <p class="card-sub">Every traded player in one draft order: the most expensive costs the
+        1.01, the next the 1.02. &ldquo;Drafted&rdquo; is his place in the real draft order among
+        the same players, so the arrow is how many he has passed, or been passed by.
         Tap a player to put him on the chart.</p>
     <ol class="at-pl-list at-pl-two">
         {% for r in R.rows[:20] %}

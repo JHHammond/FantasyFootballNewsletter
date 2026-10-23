@@ -308,3 +308,18 @@ def test_a_player_nobody_trades_is_not_ranked_above_the_market():
     r = m.ranked()
     assert "star" not in r
     assert r["b"] == 2.0                       # the earliest a TRADED player went
+
+
+def test_prices_are_places_and_nobody_shares_a_pick():
+    """John, 23 Oct: two players both "cost the 1.05", and the list
+    started at the 1.05. Prices and draft spots are places now: the first
+    is the 1.01 and every pick is somebody's alone."""
+    rated = ["puka", "jsn", "bijan", "walker"]              # most expensive first
+    adp = {"bijan": 5.4, "puka": 9.8, "jsn": 10.7, "walker": 21.6, "elsewhere": 1.0}
+    place, drafted = trade_rating.places(rated, adp)
+    assert [place[k] for k in rated] == [1, 2, 3, 4]
+    assert drafted == {"bijan": 1, "puka": 2, "jsn": 3, "walker": 4}   # not 1.05, 1.10...
+    assert "elsewhere" not in drafted                       # not on this board
+    series = {"walker": [{"day": 1, "slot": 21.6}, {"day": 9, "slot": 9.8}]}
+    line = trade_rating.on_place_scale(series, rated, adp, place)["walker"]
+    assert [pt["slot"] for pt in line] == [4.0, 4.0]        # ends on his place in the table
