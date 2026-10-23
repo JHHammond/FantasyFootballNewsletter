@@ -476,3 +476,52 @@ def test_a_team_with_no_stored_lineup_is_not_assumed_dead():
     got = league_stats.compute_week(rows, [], {}, SEASON, 3)
     assert got["halls"]["lowest"][0]["team_name"] == "quiet"
     assert got["halls"]["lowest"][0]["played"] is None
+
+
+def test_an_abandoned_roster_is_not_a_bench_disaster():
+    """Live, 22 Oct: "scored 2.7 with C.J. Stroud on the bench, 1 of 4
+    starters scored" led the front page as the bench disaster. That is a
+    roster nobody opened, not a lineup decision. Same rule as Lowest."""
+    lg = _league("Benchers", pid="bn")
+    rows, lu = [], []
+    rows.append(_row(lg, "gone", 2.7, "L", opp=90.0, bench_left=163.7))
+    lu += _lineup(lg, "gone", scored=1, blank=3)
+    rows.append(_row(lg, "chose_badly", 88.0, "L", opp=90.0, bench_left=61.0))
+    lu += _lineup(lg, "chose_badly", scored=9, blank=0)
+    for i in range(8):
+        rows.append(_row(lg, f"b{i}", 95.0 + i, "W", opp=90.0, bench_left=5.0))
+        lu += _lineup(lg, f"b{i}", scored=9, blank=0)
+
+    got = league_stats.compute_week(rows, lu, {}, SEASON, 3)
+    bench = [c["team_name"] for c in got["halls"]["bench"]]
+    assert "gone" not in bench, bench
+    assert bench[0] == "chose_badly", bench
+
+
+def test_a_player_who_did_not_play_has_no_win_rate():
+    """Live, 22 Oct: Worst win rate was Hurts, Lamar, Saquon and
+    Montgomery, every one at 0.0 — players on a bye, started by managers
+    who did not look. A zero cannot tell a bad game from no game, so it
+    is left off both win-rate boards. A negative score was a game."""
+    lg = _league("WinRates", pid="wr")
+    rows, lu = [], []
+
+    def start(team, key, pts, result):
+        rows.append(_row(lg, team, 80.0, result, opp=90.0 if result == "L" else 70.0))
+        lu.append({"league_id": lg["id"], "season": SEASON, "week": 3,
+                   "team_id": team, "player_key": key, "slot": "QB",
+                   "started": True, "points": pts, "ppr_points": pts})
+
+    for i in range(4):
+        start(f"dnp{i}", "on_a_bye", 0.0, "L")      # never played: 0% won
+        start(f"neg{i}", "fumbled", -1.5, "L")      # played, badly: 0% won
+        start(f"dud{i}", "dud", 3.0, "W" if i == 0 else "L")
+    got = league_stats.compute_week(rows, lu, {}, SEASON, 3, min_starts=3)
+
+    worst = [c["player_key"] for c in got["players"]["win_worst"]]
+    best = [c["player_key"] for c in got["players"]["win_best"]]
+    assert "on_a_bye" not in worst and "on_a_bye" not in best, (worst, best)
+    assert worst[0] == "fumbled", worst
+    assert "dud" in worst, worst
+    # Still in the full list: he was rostered, and searchable.
+    assert "on_a_bye" in [c["player_key"] for c in got["players"]["all"]]

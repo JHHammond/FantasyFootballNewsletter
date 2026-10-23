@@ -262,7 +262,7 @@
        on, and the expanded list below ranks by it until a tab is clicked. #}
     {% set boards = [
         ('win_best', 'Best win rate', 'Win rate for teams that started him. At least ' ~ P.min_starts ~ ' starts.', P.win_best),
-        ('win_worst', 'Worst win rate', 'Same rule. Starting these players was a coin flip you mostly lost.', P.win_worst),
+        ('win_worst', 'Worst win rate', 'Same rule, counting players who played. Starting these was a coin flip you mostly lost.', P.win_worst),
         ('top_on', 'Carried teams', 'How many lineups he was the best player in.', P.top_on),
         ('started', 'Most started', 'Started on the most teams, and what he gave them.', P.started),
         ('benched', 'Benched', 'Points scored from the bench, added up across every team that sat him.', P.benched),
@@ -802,11 +802,11 @@
                     qual: " who scored from a bench",
                     val: function (p) { return fmtInt(Math.round(p.bench_total)) + " pts"; }},
         win_best:  {sort: function (p) { return -p.win_pct; },
-                    keep: function (p) { return p.started >= MIN_STARTS; },
+                    keep: function (p) { return p.started >= MIN_STARTS && tookField(p); },
                     qual: " with " + MIN_STARTS + "+ starts",
                     val: function (p) { return pctOf(p.win_pct) + " won"; }},
         win_worst: {sort: function (p) { return p.win_pct; },
-                    keep: function (p) { return p.started >= MIN_STARTS; },
+                    keep: function (p) { return p.started >= MIN_STARTS && tookField(p); },
                     qual: " with " + MIN_STARTS + "+ starts",
                     val: function (p) { return pctOf(p.win_pct) + " won"; }},
         top_on:    {sort: function (p) { return -p.teams; },
@@ -814,6 +814,12 @@
                     qual: " who were a team's best player",
                     val: function (p) { return fmtInt(p.teams) + " teams"; }}
     };
+    // Same rule as the boards above (054): a player who scored exactly
+    // nothing did not play, so he has no win rate worth ranking.
+    function tookField(p) {
+        var v = (p.ppr !== null && p.ppr !== undefined) ? p.ppr : p.best;
+        return v !== null && v !== undefined && v !== 0;
+    }
     function fmtInt(n) { return (n || 0).toLocaleString(); }
     function pctOf(v) { return v === null || v === undefined ? "–" : Math.round(v * 100) + "%"; }
     function pts(v) { return v === null || v === undefined ? "–" : v.toFixed(1); }

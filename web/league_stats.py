@@ -724,6 +724,13 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
         })
     pk = lambda c: c["player_key"]  # noqa: E731
 
+    def took_field(c) -> bool:
+        """Scored something. A zero cannot tell a bad game from no game,
+        so it is the one score left off the win-rate boards; a negative
+        score was a game, and stays. Mirrors `coalesce(ppr, best, 0) <> 0`."""
+        v = c["ppr"] if c["ppr"] is not None else c["best"]
+        return v is not None and v != 0
+
     def top(rows, key, n):
         return sorted(rows, key=key)[:n]
 
@@ -804,8 +811,10 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
                 [r for r in norm if r["result"] == "W" and r["margin"] is not None
                  and (r.get("opponent_points") or 0) > 0],
                 lambda r: (-r["margin"], tkey(r)), 5)],
+            # Same rule as 'lowest': 163.7 benched beside a 2.7 with one of
+            # four starters playing is an abandoned roster (054).
             "bench": [card(r) for r in top(
-                [r for r in norm if r["bench_left"] is not None],
+                [r for r in norm if r["bench_left"] is not None and turned_up(r)],
                 lambda r: (-r["bench_left"], tkey(r)), 5)],
         },
         "groups": groups,
@@ -819,9 +828,11 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
                            lambda c: (-c["bench_total"], pk(c)), 10),
             "started": top([c for c in pcard if c["started"] > 0],
                            lambda c: (-c["started"], pk(c)), 10),
-            "win_best": top([c for c in pcard if c["started"] >= min_starts],
+            # A player who scored exactly nothing did not play (054): Hurts,
+            # Lamar and Saquon at 0.0 were the whole Worst win rate board.
+            "win_best": top([c for c in pcard if c["started"] >= min_starts and took_field(c)],
                             lambda c: (-c["win_pct"], -c["started"], pk(c)), 10),
-            "win_worst": top([c for c in pcard if c["started"] >= min_starts],
+            "win_worst": top([c for c in pcard if c["started"] >= min_starts and took_field(c)],
                              lambda c: (c["win_pct"], -c["started"], pk(c)), 10),
             "flops": top([c for c in pcard if c["started"] > 0 and c["ppr"] is not None
                           and c["ppr"] < 5], lambda c: (-c["started"], pk(c)), 5),
