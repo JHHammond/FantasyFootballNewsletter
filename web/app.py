@@ -308,6 +308,25 @@ templates.env.globals["yahoo_live"] = _YahooProvider.implemented
 # of every league in the database.
 # ---------------------------------------------------------------------------
 
+#: Set by "Show my team" on the trade market. While it's there, finishing a
+#: league connection lands back on the market (with the upgrade offer)
+#: instead of the paper's setup page. Cleared when it has done its job.
+FUNNEL_COOKIE = "cd_then"
+_LEAGUE_LANDING = re.compile(r"^/l/[^/?#]+(/setup)?([?#].*)?$")
+
+
+@app.middleware("http")
+async def market_funnel(request: Request, call_next):
+    response = await call_next(request)
+    if (request.cookies.get(FUNNEL_COOKIE) == "market"
+            and request.url.path.startswith("/connect")
+            and response.status_code in (302, 303)
+            and _LEAGUE_LANDING.match(response.headers.get("location", ""))):
+        response.headers["location"] = "/market?welcome=1"
+        response.delete_cookie(FUNNEL_COOKIE, path="/")
+    return response
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -828,6 +847,37 @@ def connect_sleeper(request: Request, username: str = "", error: str = ""):
                    username=username, error=error, leagues=None)
 
 
+def _follow_instead(request: Request, user: dict, league: dict, platform: str,
+                    sleeper_user_id: str = "") -> RedirectResponse:
+    """Somebody else has the paper for this league. The paper stays theirs,
+    but the trade market is about each person's own team, so this account
+    follows the league (057) and gets its team on the market."""
+    team_id = None
+    if platform == "sleeper" and sleeper_user_id:
+        try:
+            team_id = get_provider("sleeper").roster_for_user(
+                str(league.get("platform_league_id") or ""), sleeper_user_id)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[follow] no team for {league.get('id')}: {exc}", flush=True)
+    try:
+        db.follow_league(user["id"], league["id"], team_id)
+    except Exception as exc:  # noqa: BLE001 — before 057: say what it always said
+        print(f"[follow] couldn't follow {league.get('id')}: {exc}", flush=True)
+        return RedirectResponse(
+            f"/connect/{platform}?error=Another+account+already+has+a+paper+for+that+"
+            "league.+If+that+is+you,+sign+in+with+that+email.", status_code=303)
+    if request.cookies.get(FUNNEL_COOKIE) == "market":
+        response = RedirectResponse("/market?welcome=1", status_code=303)
+        response.delete_cookie(FUNNEL_COOKIE, path="/")
+        return response
+    # Came to make a paper: say why there isn't one, and what they got instead.
+    return RedirectResponse(
+        f"/connect/{platform}?error=" + quote(
+            "Another account already has the paper for that league, so we've added "
+            "your team to the trade market instead. If the paper is yours, sign in "
+            "with that email."), status_code=303)
+
+
 def _remember_sleeper_team(league: dict, sleeper_user_id: str) -> None:
     """Save which team in this league belongs to the Sleeper account that
     connected it (migration 034), so /rankings knows who you are. Best effort:
@@ -942,11 +992,10 @@ def connect_sleeper_add(request: Request, league_id: str = Form(...),
                 f"/l/{existing['admin_token']}?notice=Picked+up+where+you+left+off.",
                 status_code=303)
 
-        # Someone else's. That one stays refused, and says what to do.
-        return RedirectResponse(
-            "/connect/sleeper?error=Another+account+already+has+a+paper+for+that+"
-            "league.+If+that+is+you,+sign+in+with+that+email.",
-            status_code=303)
+        # Someone else's paper. It stays theirs; this account follows the
+        # league for the trade market, with its own team (057).
+        return _follow_instead(request, user, existing, "sleeper",
+                               clean_text(sleeper_user_id, max_length=40))
 
     # One league on the free plan. Checked here, where a NEW row is about to
     # be created, and not on the adopt-an-existing-league branches above.
@@ -1028,10 +1077,7 @@ def connect_espn_add(request: Request, league_id: str = Form(...),
             return RedirectResponse(
                 f"/l/{existing['admin_token']}?notice=Picked+up+where+you+left+off.",
                 status_code=303)
-        return RedirectResponse(
-            "/connect/espn?error=Another+account+already+has+a+paper+for+that+"
-            "league.+If+that+is+you,+sign+in+with+that+email.",
-            status_code=303)
+        return _follow_instead(request, user, existing, "espn")
 
     # One league on the free plan. Checked here, where a NEW row is about to
     # be created, and not on the adopt-an-existing-league branches above.
@@ -1531,7 +1577,7 @@ def market_roster(request: Request, league: str = "", team: str = ""):
     season = nfl_week.current_season()
     latest = max(nfl_week.completed_week(), 1)
     try:
-        owned = {str(l["id"]) for l in db.leagues_for_user(user["id"])
+        owned = {str(l["id"]) for l in db.market_leagues_for_user(user["id"])
                  if int(l.get("season") or 0) == season}
     except Exception:  # noqa: BLE001
         owned = set()
@@ -1710,6 +1756,32 @@ def market_line(request: Request, k: str = ""):
         raise HTTPException(status_code=404)
     return JSONResponse({"k": key, "line": line},
                         headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.get("/market/my-team")
+def market_my_team(request: Request):
+    """"Show my team" (John, 23 Oct): sign up -> connect -> back on the
+    market with your team on the chart and the upgrade offer, with nothing
+    in between that isn't needed."""
+    import nfl_week
+    user = current_user(request)
+    if user:
+        season = nfl_week.current_season()
+        try:
+            has = any(int(l.get("season") or 0) == season for l in db.market_leagues_for_user(user["id"]))
+        except Exception:  # noqa: BLE001
+            has = False
+        if has:
+            response = RedirectResponse("/market?welcome=1", status_code=303)
+            response.delete_cookie(FUNNEL_COOKIE, path="/")
+            return response
+        response = RedirectResponse("/connect", status_code=303)
+    else:
+        response = RedirectResponse("/signup?next=/market/my-team", status_code=303)
+    kw = auth.cookie_kwargs()
+    response.set_cookie(FUNNEL_COOKIE, "market", max_age=3 * 86400, path="/",
+                        httponly=True, samesite="lax", secure=bool(kw.get("secure")))
+    return response
 
 
 # The staff addresses it lived at, for bookmarks and links already sent.
@@ -2304,10 +2376,7 @@ def connect_yahoo_add(request: Request, league_id: str = Form(...),
             return RedirectResponse(
                 f"/l/{existing['admin_token']}?notice=Picked+up+where+you+left+off.",
                 status_code=303)
-        return RedirectResponse(
-            "/connect/yahoo?error=Another+account+already+has+a+paper+for+that+"
-            "league.+If+that+is+you,+sign+in+with+that+email.",
-            status_code=303)
+        return _follow_instead(request, user, existing, "yahoo")
 
     if out_of_leagues(user):
         return RedirectResponse(
@@ -2512,7 +2581,9 @@ def signup(request: Request, email: str = Form(...), password: str = Form(...),
     # Somebody who signed up to search the player boards wants the player
     # boards back, not the connect wizard. Connecting is still the default,
     # because for everyone arriving the usual way it is the next step.
-    response = RedirectResponse(_local(next) or "/connect?welcome=1",
+    from_market = request.cookies.get(FUNNEL_COOKIE) == "market"
+    response = RedirectResponse(_local(next) or ("/market/my-team" if from_market
+                                                 else "/connect?welcome=1"),
                                 status_code=303)
     return _set_session(response, user["id"])
 

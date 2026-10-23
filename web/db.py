@@ -1445,6 +1445,35 @@ def leagues_for_user(user_id: str) -> list[dict[str, Any]]:
     return res.data or []
 
 
+def follow_league(user_id: str, league_id: str, team_id: Optional[str] = None) -> None:
+    """A second account in a league somebody else has the paper for (057).
+    Idempotent; a known team id is never overwritten with nothing."""
+    row = {"user_id": user_id, "league_id": league_id}
+    if team_id:
+        row["team_id"] = str(team_id)
+    client().table("league_followers").upsert(row, on_conflict="user_id,league_id").execute()
+
+
+def market_leagues_for_user(user_id: str) -> list[dict[str, Any]]:
+    """Every league whose market view is this account's: its own papers,
+    then the ones it follows (057), each carrying THIS account's team as
+    my_team_id. Followed leagues are missing, not an error, before 057."""
+    own = leagues_for_user(user_id)
+    seen = {str(l["id"]) for l in own}
+    try:
+        rows = (client().table("league_followers").select("league_id,team_id")
+                .eq("user_id", user_id).execute()).data or []
+    except Exception:  # noqa: BLE001 — before 057
+        rows = []
+    ids = [r["league_id"] for r in rows if str(r["league_id"]) not in seen]
+    if not ids:
+        return own
+    team = {str(r["league_id"]): r.get("team_id") for r in rows}
+    res = client().table("leagues").select("*").in_("id", ids).execute()
+    followed = [dict(l, my_team_id=team.get(str(l["id"])), followed=True) for l in res.data or []]
+    return own + followed
+
+
 def claim_league(league_id: str, user_id: str) -> None:
     """Attach a league to an account."""
     client().table("leagues").update({"user_id": user_id}).eq("id", league_id).execute()

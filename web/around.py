@@ -221,7 +221,7 @@ def my_teams(db, user: Optional[dict], season: int, week: int) -> list[dict[str,
     if not user:
         return []
     try:
-        leagues = [l for l in db.leagues_for_user(user["id"])
+        leagues = [l for l in db.market_leagues_for_user(user["id"])
                    if int(l.get("season") or 0) == int(season)][:20]
         if not leagues:
             return []
@@ -585,7 +585,7 @@ def my_lineup(db, user: Optional[dict], season: int, week: int,
     if not user or not league_id or not team_id:
         return {}
     try:
-        mine = {str(l["id"]): l for l in db.leagues_for_user(user["id"])
+        mine = {str(l["id"]): l for l in db.market_leagues_for_user(user["id"])
                 if int(l.get("season") or 0) == int(season)}
         league = mine.get(str(league_id))
         if league is None:

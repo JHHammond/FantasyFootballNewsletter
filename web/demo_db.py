@@ -958,6 +958,25 @@ def leagues_for_user(user_id: str) -> list[dict[str, Any]]:
     return leagues
 
 
+_FOLLOWERS: dict = {}
+
+
+def follow_league(user_id: str, league_id: str, team_id: Optional[str] = None) -> None:
+    with _lock:
+        row = _FOLLOWERS.setdefault((user_id, league_id), {"user_id": user_id, "league_id": league_id})
+        if team_id:
+            row["team_id"] = str(team_id)
+
+
+def market_leagues_for_user(user_id: str) -> list[dict[str, Any]]:
+    own = leagues_for_user(user_id)
+    seen = {str(l["id"]) for l in own}
+    followed = [dict(_LEAGUES[r["league_id"]], my_team_id=r.get("team_id"), followed=True)
+                for (u, lid), r in _FOLLOWERS.items()
+                if u == user_id and lid in _LEAGUES and str(lid) not in seen]
+    return own + followed
+
+
 def claim_league(league_id: str, user_id: str) -> None:
     with _lock:
         if league_id in _LEAGUES:
