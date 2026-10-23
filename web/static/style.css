@@ -4118,3 +4118,4 @@ html.nb-lock { overflow: hidden; }
     .at-pc-show { align-items: stretch; flex-direction: column; gap: 4px; }
     .at-pc .at-pc-set { width: 100%; }
 }
+.at-pc-grid-minor { opacity: .55; }

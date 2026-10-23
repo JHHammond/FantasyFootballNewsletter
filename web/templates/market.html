@@ -268,14 +268,27 @@
     }
     function drawn() { return chosen.filter(function (c) { return LINES[c.k]; }); }
     function rescale() {
-        // Fixed top at the 1.01 so a single line can't fill the frame and
-        // make a two-pick wobble look like a collapse. The bottom stretches
-        // to whoever is drawn, at least two rounds down.
-        var worst = 24;
+        // Fit the frame to whoever is drawn (John, 23 Oct: "no reason for the
+        // 1st round part to take up so much room when nobody there is a first
+        // rounder"). A little padding either side, and never narrower than
+        // MIN_SPAN, so a two-pick wobble can't fill the frame and read as a
+        // collapse.
+        var best = Infinity, worst = 0;
         drawn().forEach(function (c) {
-            LINES[c.k].forEach(function (pt) { if (pt[1] > worst) worst = pt[1]; });
+            LINES[c.k].forEach(function (pt) {
+                if (pt[1] < best) best = pt[1];
+                if (pt[1] > worst) worst = pt[1];
+            });
         });
-        hi = Math.ceil(worst * 1.15 / 12) * 12 + 1;
+        if (!isFinite(best)) { lo = 1; hi = 24; return; }
+        lo = Math.max(1, best / 1.1);
+        hi = Math.max(lo + 1, worst * 1.08);
+        var MIN_SPAN = 1.6;                 // e.g. 3.01 to 4.11 at the narrowest
+        if (hi / lo < MIN_SPAN) {
+            var mid = Math.sqrt(lo * hi);
+            lo = Math.max(1, mid / Math.sqrt(MIN_SPAN));
+            hi = lo * MIN_SPAN;
+        }
     }
     function at(k, d) {
         var pt = null;
@@ -385,17 +398,28 @@
         rescale();
         while (svg.firstChild) svg.removeChild(svg.firstChild);
         var defs = el("defs", {}, svg);
+        // The start of every round inside the frame. When the frame spans
+        // only a round or two, the middle of each round as well (3.07), so a
+        // move within a round still has a line to be read against.
+        var ticks = [];
+        for (var rd = 1; rd <= 25; rd++) {
+            ticks.push({slot: (rd - 1) * 12 + 1, label: "Rd " + rd, major: true});
+            ticks.push({slot: (rd - 1) * 12 + 7, label: pickLabel((rd - 1) * 12 + 7), major: false});
+        }
+        var inside = ticks.filter(function (tk) { return tk.slot >= lo && tk.slot <= hi; });
+        if (inside.filter(function (tk) { return tk.major; }).length >= 3) {
+            inside = inside.filter(function (tk) { return tk.major; });
+        }
         var lastTick = -99;
-        [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 21].forEach(function (rd) {
-            var slot = (rd - 1) * 12 + 1;
-            if (slot > hi) return;
-            var yy = y(slot);
-            // The log scale bunches the late rounds; "Rd 10" sat on "Rd 12".
-            if (yy - lastTick < 16) return;
+        inside.forEach(function (tk) {
+            var yy = y(tk.slot);
+            // The log scale bunches the late rounds; never let labels touch.
+            if (yy - lastTick < 18) return;
             lastTick = yy;
-            el("line", {x1: L, x2: R, y1: yy, y2: yy, "class": "ar-grid at-pc-grid"}, svg);
+            el("line", {x1: L, x2: R, y1: yy, y2: yy,
+                        "class": "ar-grid at-pc-grid" + (tk.major ? "" : " at-pc-grid-minor")}, svg);
             var t = el("text", {x: L - 8, y: yy + 4, "class": "ar-tick at-pc-ytick", "text-anchor": "end"}, svg);
-            t.textContent = "Rd " + rd;
+            t.textContent = tk.label;
         });
         // Dates along the bottom on Sundays, the game days, a week or more
         // apart and never closer than a label's width.
