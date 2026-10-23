@@ -40,7 +40,7 @@
                 {% else %}
                 <form method="post" action="/connect/yahoo/add">
                     <input type="hidden" name="league_id" value="{{ league.league_id }}" />
-                    <button type="submit" class="btn btn-sm btn-primary">Make a paper</button>
+                    <button type="submit" class="btn btn-sm btn-primary">{{ 'Show my team' if funnel_market else 'Make a paper' }}</button>
                 </form>
                 {% endif %}
             </div>

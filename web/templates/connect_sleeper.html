@@ -33,14 +33,14 @@
             </div>
             <div class="paper-row-actions">
                 {% if league.already %}
-                <span class="paper-meta">Already added</span>
+                {% if funnel_market %}<a class="btn btn-sm btn-primary" href="/market/my-team">Show my team</a>{% else %}<span class="paper-meta">Already added</span>{% endif %}
                 {% elif league.status == 'pre_draft' %}
                 <span class="paper-meta">No games yet</span>
                 {% else %}
                 <form method="post" action="/connect/sleeper/add">
                     <input type="hidden" name="league_id" value="{{ league.league_id }}" />
                     {% if sleeper_user_id %}<input type="hidden" name="sleeper_user_id" value="{{ sleeper_user_id }}" />{% endif %}
-                    <button type="submit" class="btn btn-sm btn-primary">Make a paper</button>
+                    <button type="submit" class="btn btn-sm btn-primary">{{ 'Show my team' if funnel_market else 'Make a paper' }}</button>
                 </form>
                 {% endif %}
             </div>

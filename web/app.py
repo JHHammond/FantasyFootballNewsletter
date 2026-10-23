@@ -322,7 +322,7 @@ async def market_funnel(request: Request, call_next):
             and request.url.path.startswith("/connect")
             and response.status_code in (302, 303)
             and _LEAGUE_LANDING.match(response.headers.get("location", ""))):
-        response.headers["location"] = "/market?welcome=1"
+        response.headers["location"] = "/market?show=k%3A0"
         response.delete_cookie(FUNNEL_COOKIE, path="/")
     return response
 
@@ -639,6 +639,7 @@ def _render(request: Request, template: str, **context) -> HTMLResponse:
     # owner, so it cannot come from `plan` above.
     context.setdefault("viewer_paid", plans.is_paid(context.get("user")))
     context.setdefault("offer_upgrade", _offer_upgrade(request, context.get("user")))
+    context.setdefault("funnel_market", request.cookies.get(FUNNEL_COOKIE) == "market")
     return templates.TemplateResponse(request, template, context)
 
 
@@ -867,7 +868,7 @@ def _follow_instead(request: Request, user: dict, league: dict, platform: str,
             f"/connect/{platform}?error=Another+account+already+has+a+paper+for+that+"
             "league.+If+that+is+you,+sign+in+with+that+email.", status_code=303)
     if request.cookies.get(FUNNEL_COOKIE) == "market":
-        response = RedirectResponse("/market?welcome=1", status_code=303)
+        response = RedirectResponse("/market?show=k%3A0", status_code=303)
         response.delete_cookie(FUNNEL_COOKIE, path="/")
         return response
     # Came to make a paper: say why there isn't one, and what they got instead.
@@ -1772,10 +1773,15 @@ def market_my_team(request: Request):
         except Exception:  # noqa: BLE001
             has = False
         if has:
-            response = RedirectResponse("/market?welcome=1", status_code=303)
+            response = RedirectResponse("/market?show=k%3A0", status_code=303)
             response.delete_cookie(FUNNEL_COOKIE, path="/")
             return response
-        response = RedirectResponse("/connect", status_code=303)
+        # No league yet. First the offer (the market pop-up, about trades),
+        # unless they've seen it (?go=connect), already pay, or we can't take
+        # money; then connecting.
+        offer = (request.query_params.get("go") != "connect"
+                 and plans.billing_enabled() and not plans.is_paid(user))
+        response = RedirectResponse("/market?welcome=1" if offer else "/connect", status_code=303)
     else:
         response = RedirectResponse("/signup?next=/market/my-team", status_code=303)
     kw = auth.cookie_kwargs()
@@ -2724,8 +2730,11 @@ def google_callback(request: Request, code: str = "", state: str = "",
     db.update_user(user["id"], {"last_login_at": "now()"})
 
     # Somewhere useful: a brand-new account has no papers to look at.
-    response = RedirectResponse("/connect?welcome=1" if is_new else "/account",
-                                status_code=303)
+    if request.cookies.get(FUNNEL_COOKIE) == "market":
+        response = RedirectResponse("/market/my-team", status_code=303)
+    else:
+        response = RedirectResponse("/connect?welcome=1" if is_new else "/account",
+                                    status_code=303)
     response.delete_cookie(oauth.STATE_COOKIE, path="/")
     return _set_session(response, user["id"])
 
@@ -2930,7 +2939,10 @@ def billing_done(request: Request, ok: int = 0):
               "Stripe has your subscription and we're waiting to hear back "
               "from them — it usually takes a few seconds. Refresh your "
               "account page in a moment."),
-        link_url="/account", link_label="Your papers")
+        link_url=("/market/my-team?go=connect" if request.cookies.get(FUNNEL_COOKIE) == "market"
+                  else "/account"),
+        link_label=("Now connect your league" if request.cookies.get(FUNNEL_COOKIE) == "market"
+                    else "Your papers"))
 
 
 @app.post("/stripe/webhook")

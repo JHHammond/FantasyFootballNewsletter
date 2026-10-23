@@ -3,7 +3,7 @@
 
 {% block content %}
 <section class="hero">
-    <h1 class="hero-title">Where do you play?</h1>
+    <h1 class="hero-title">{{ 'Where is your team?' if funnel_market else 'Where do you play?' }}</h1>
     <p class="hero-sub">
         We read your league&rsquo;s results straight from the platform. Nothing is
         ever written back &mdash; we only ever look.

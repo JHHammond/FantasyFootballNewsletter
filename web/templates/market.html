@@ -63,7 +63,7 @@
     <div class="at-pc-top">
         <div class="at-pc-head" id="at-pc-head" aria-live="polite"></div>
         {% if not mine %}
-        <a class="mk-myteam" href="{{ '/connect' if user else ('/signup?next=' ~ ('/market?welcome=1'|urlencode)) }}">
+        <a class="mk-myteam" href="/market/my-team">
             <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="6.5" r="3.5"/><path d="M3 18c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/></svg>
             Show my team</a>
         {% endif %}
@@ -255,7 +255,9 @@
         useSet(start);
         if (setSel.options.length) setSel.value = "custom";
     } else {
-        var first = shown ? decodeURIComponent(shown) : remembered();
+        // Just back from "Show my team": open on it, whatever was remembered.
+        var arrived = /[?&]welcome=1/.test(location.search) && MINE && (MINE.known || []).length;
+        var first = shown ? decodeURIComponent(shown) : (arrived ? "k:0" : remembered());
         if (!hasOption(first)) first = (MINE && (MINE.known || []).length) ? "k:0" : "top";
         useSet(DATA["default"]);                         // drawn at once; replaced if the choice needs a fetch
         if (setSel.options.length) {

@@ -52,6 +52,6 @@
 <p class="empty">
     <a href="/forgot">Forgotten your password?</a>
     &nbsp;&middot;&nbsp;
-    No account? <a href="/signup">Create one</a>.
+    No account? <a href="/signup{% if next %}?next={{ next|urlencode }}{% endif %}">Create one</a>.
 </p>
 {% endblock %}

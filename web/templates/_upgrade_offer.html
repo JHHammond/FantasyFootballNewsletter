@@ -44,11 +44,16 @@
   {# Shown instead of closing, the first time they pass on the offer (John,
      25 Sep): the three-paper limit should never be a surprise at paper four. #}
   <div id="offer-headsup" hidden>
-    {% if offer_kind == 'market' %}
+    {% if offer_kind == 'market' and mine %}
+    <div class="offer-eyebrow">You&rsquo;re in</div>
+    <h2 class="offer-title">Your team is on the chart.</h2>
+    <p class="offer-sub">Prices stay free. Your league&rsquo;s first three papers are on us too.</p>
+    <button type="button" class="btn btn-primary offer-go" id="offer-go">See my team</button>
+    {% elif offer_kind == 'market' %}
     <div class="offer-eyebrow">Next step</div>
     <h2 class="offer-title">Connect your league to see your team.</h2>
     <p class="offer-sub">Your players go straight on the chart, and your first three papers are on us.</p>
-    <a class="btn btn-primary offer-go" href="/connect">Connect my league</a>
+    <a class="btn btn-primary offer-go" href="/market/my-team?go=connect">Connect my league</a>
     <button type="button" class="offer-later" id="offer-go">Just browse for now</button>
     {% else %}
     <div class="offer-eyebrow">Just a heads up</div>
