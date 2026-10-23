@@ -96,16 +96,34 @@
 </section>
 
 {% if chart %}
-<section class="card pp-chart-card">
+<section class="card pp-chart-card at-pc" id="pp-chart">
     <h2 class="card-title">His price, day by day</h2>
-    <p class="pp-stats">High <b class="at-pc-hi" id="pp-hi"></b> &middot; Low <b class="at-pc-lo" id="pp-lo"></b></p>
+    <div class="at-pc-top">
+        <p class="pp-stats">High <b class="at-pc-hi" id="pp-hi"></b> &middot; Low <b class="at-pc-lo" id="pp-lo"></b></p>
+        <div class="at-pc-add">
+            <label for="pp-q" class="at-pc-sr">Add a player to compare</label>
+            <div class="at-pc-search">
+                <svg class="at-pc-mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8l4.2 4.2" /></svg>
+                <input type="search" id="pp-q" class="at-pc-q" placeholder="Compare with: name, position or team"
+                       autocomplete="off" spellcheck="false" aria-controls="pp-hits" />
+            </div>
+            <ul class="at-pc-hits" id="pp-hits" role="listbox" hidden></ul>
+        </div>
+    </div>
+    {% if compare %}
+    <div class="pp-suggest" id="pp-suggest">
+        <span>Try</span>
+        {% for c in compare %}<button type="button" class="pp-sug" data-k="{{ c.k }}"><b>+ {{ c.name }}</b><small>{{ c.why }}</small></button>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="at-pc-legend pp-legend" id="pp-legend"></div>
     <figure class="ar-chart at-pc-chart">
         <div class="ar-chart-box at-pc-box"><svg viewBox="0 0 760 260" class="ar-line" id="pp-svg" role="img"
              aria-label="{{ who.name }}'s price by day, as a draft pick"></svg>
             <div class="at-pc-tip" id="pp-tip" hidden></div></div>
-        <figcaption class="at-pc-note">His place in the market at each day&rsquo;s close, starting from where he was drafted. Higher is more expensive.</figcaption>
+        <figcaption class="at-pc-note">Each player&rsquo;s place in the market at each day&rsquo;s close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
-    <script type="application/json" id="pp-data">{{ chart|tojson }}</script>
+    <script type="application/json" id="pp-data">{{ {'base': chart.base, 'last': chart.last, 'line': chart.line, 'best': chart.best, 'worst': chart.worst, 'him': {'k': who.key, 'name': who.name, 'pos': who.position, 'costs': who.costs, 'photo': who.photo}, 'players': players, 'url': '/staff/market/line.json', 'max': 5}|tojson }}</script>
 </section>
 {% endif %}
 
@@ -304,14 +322,21 @@
         showAll();
     });
 
-    // ---- his price line: the market chart's look, one player ----
+    // ---- his price line, and anybody you add to compare ----
     var src = document.getElementById("pp-data");
     if (!src) return;
     var C; try { C = JSON.parse(src.textContent); } catch (e) { return; }
-    var svg = document.getElementById("pp-svg"), tip = document.getElementById("pp-tip");
+    var svg = document.getElementById("pp-svg"), tip = document.getElementById("pp-tip"),
+        legend = document.getElementById("pp-legend"), q = document.getElementById("pp-q"),
+        hits = document.getElementById("pp-hits");
     var NS = "http://www.w3.org/2000/svg";
     var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    var b0 = C.base.split("-").map(Number), LAST = Math.max(1, C.last), P = C.line;
+    var b0 = C.base.split("-").map(Number), LAST = Math.max(1, C.last), HIM = C.him, MAX = C.max || 5;
+    var BY = {}; (C.players || []).forEach(function (p) { BY[p.k] = p; });
+    if (!BY[HIM.k]) BY[HIM.k] = HIM;
+    var LINES = {}; LINES[HIM.k] = C.line;
+    // Who is on the chart: him first (colour 0, can't be removed), then up to MAX more.
+    var chosen = [{k: HIM.k, c: 0}], loading = {};
     function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
     function dayLabel(d) { var t = dateOf(d); return MONTHS[t.getUTCMonth()] + " " + t.getUTCDate(); }
     function pick(slot) {
@@ -320,6 +345,84 @@
     }
     document.getElementById("pp-hi").textContent = pick(C.best[1]) + " · " + dayLabel(C.best[0]);
     document.getElementById("pp-lo").textContent = pick(C.worst[1]) + " · " + dayLabel(C.worst[0]);
+
+    function face(p, cls) {
+        var f = document.createElement("span");
+        f.className = "at-face " + (cls || "") + (p.pos === "DEF" ? " at-face-def" : "");
+        if (p.photo) {
+            var im = document.createElement("img");
+            im.src = p.photo; im.alt = ""; im.loading = "lazy";
+            im.onerror = function () { this.remove(); };
+            f.appendChild(im);
+        }
+        var ini = document.createElement("span"); ini.textContent = (p.name || "?").charAt(0);
+        f.appendChild(ini);
+        return f;
+    }
+
+    // ---- who's on it, kept in the address so a comparison can be shared ----
+    function remember() {
+        try {
+            var u = new URL(window.location.href), vs = chosen.slice(1).map(function (c) { return c.k; });
+            if (vs.length) u.searchParams.set("vs", vs.join(",")); else u.searchParams.delete("vs");
+            window.history.replaceState(null, "", u.toString().replace(/%2C/gi, ","));
+        } catch (e) { /* old browser: no sharing, no harm */ }
+    }
+    function freeColour() {
+        for (var c = 1; c <= MAX; c++) if (!chosen.some(function (x) { return x.c === c; })) return c;
+        return 0;
+    }
+    function add(k) {
+        if (!BY[k] || chosen.some(function (c) { return c.k === k; })) return;
+        if (chosen.length > MAX) chosen.splice(1, 1);         // full: the oldest comparison goes
+        chosen.push({k: k, c: freeColour()});
+        remember(); draw();
+        if (LINES[k] || loading[k]) return;
+        loading[k] = true;
+        fetch(C.url + "?k=" + encodeURIComponent(k), {credentials: "same-origin"})
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) { delete loading[k]; if (j && j.line) LINES[k] = j.line; else drop(k); draw(); })
+            .catch(function () { delete loading[k]; drop(k); draw(); });
+    }
+    function drop(k) {
+        if (k === HIM.k) return;
+        chosen = chosen.filter(function (c) { return c.k !== k; });
+        remember(); draw();
+    }
+    document.querySelectorAll(".pp-sug").forEach(function (b) {
+        b.addEventListener("click", function () { add(b.getAttribute("data-k")); });
+    });
+
+    function drawLegend() {
+        legend.textContent = "";
+        chosen.forEach(function (c) {
+            var p = BY[c.k] || {name: c.k};
+            var chip = document.createElement("span");
+            chip.className = "at-pc-chip at-mk-" + c.c + (c.c === 0 ? " at-pc-chip-on" : "");
+            var main = document.createElement(c.c === 0 ? "span" : "a");
+            main.className = "at-pc-chip-main";
+            if (c.c !== 0) { main.href = "/staff/market/player/" + encodeURIComponent(c.k); main.title = "Open " + p.name + "’s page"; }
+            var sw = document.createElement("i"); sw.className = "at-pc-swatch";
+            var nm = document.createElement("span"); nm.textContent = p.name;
+            var pr = document.createElement("b"); pr.textContent = LINES[c.k] ? (p.costs || "") : "…";
+            main.appendChild(sw); main.appendChild(nm); main.appendChild(pr);
+            chip.appendChild(main);
+            if (c.c !== 0) {
+                var x_ = document.createElement("button");
+                x_.type = "button"; x_.className = "at-pc-x"; x_.innerHTML = "&times;";
+                x_.setAttribute("aria-label", "Take " + p.name + " off the chart");
+                x_.addEventListener("click", function () { drop(c.k); });
+                chip.appendChild(x_);
+            } else {
+                chip.style.paddingRight = "11px";
+            }
+            legend.appendChild(chip);
+        });
+        document.querySelectorAll(".pp-sug").forEach(function (b) {
+            b.hidden = chosen.some(function (c) { return c.k === b.getAttribute("data-k"); });
+        });
+    }
+
     var W, H, L, R, T, B;
     function frame() {
         var small = (svg.getBoundingClientRect().width || 760) < 520;
@@ -327,10 +430,12 @@
         else { W = 760; H = 260; L = 54; R = 744; T = 16; B = 222; }
         svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     }
+    function drawn() { return chosen.filter(function (c) { return LINES[c.k]; }); }
     var lo, hi;
     function scale() {
-        var best = Math.min.apply(null, P.map(function (p) { return p[1]; }));
-        var worst = Math.max.apply(null, P.map(function (p) { return p[1]; }));
+        var all = [];
+        drawn().forEach(function (c) { LINES[c.k].forEach(function (p) { all.push(p[1]); }); });
+        var best = Math.min.apply(null, all), worst = Math.max.apply(null, all);
         lo = Math.max(1, best / 1.1); hi = Math.max(lo + 1, worst * 1.08);
         if (hi / lo < 1.6) { var m = Math.sqrt(lo * hi); lo = Math.max(1, m / Math.sqrt(1.6)); hi = lo * 1.6; }
     }
@@ -356,8 +461,10 @@
         }
         return d;
     }
-    function at(d) { var p = null; P.forEach(function (q) { if (q[0] <= d) p = q; }); return p; }
+    function at(line, d) { var p = null; line.forEach(function (q) { if (q[0] <= d) p = q; }); return p; }
+
     function draw() {
+        drawLegend();
         frame(); scale();
         while (svg.firstChild) svg.removeChild(svg.firstChild);
         var defs = el("defs", {}, svg), last = -99, ticks = [];
@@ -380,44 +487,145 @@
             el("line", {x1: x(d), x2: x(d), y1: B, y2: B + 5, "class": "at-pc-xmark"}, svg);
             el("text", {x: x(d), y: B + 20, "class": "ar-tick at-pc-xtick", "text-anchor": "middle"}, svg).textContent = dayLabel(d);
         }
-        var Q = P.map(function (p) { return [x(p[0]), y(p[1])]; }), line = smooth(Q);
-        var g = el("g", {"class": "at-mk at-mk-0 at-pc-on"}, svg);
-        var grad = el("linearGradient", {id: "pp-fill", x1: 0, y1: 0, x2: 0, y2: 1}, defs);
-        el("stop", {offset: "0%", "stop-color": "#b3141c", "stop-opacity": .16}, grad);
-        el("stop", {offset: "100%", "stop-color": "#b3141c", "stop-opacity": 0}, grad);
-        el("path", {"class": "at-pc-area", fill: "url(#pp-fill)", d: line + "L" + Q[Q.length - 1][0].toFixed(1) + "," + B + "L" + Q[0][0].toFixed(1) + "," + B + "Z"}, g);
-        el("path", {"class": "at-mk-path", d: line}, g);
-        [C.best, C.worst].forEach(function (p) {
-            if (p === P[P.length - 1]) return;
-            el("circle", {"class": "at-mk-dot at-pc-mark", r: 4.5, cx: x(p[0]), cy: y(p[1])}, g);
+        // The others first, so his line sits on top.
+        var groups = {}, many = drawn().length > 1;
+        drawn().slice().reverse().forEach(function (c) {
+            var P = LINES[c.k], Q = P.map(function (p) { return [x(p[0]), y(p[1])]; }), line = smooth(Q);
+            var g = el("g", {"class": "at-mk at-mk-" + c.c + (c.c === 0 ? " at-pc-on" : " pp-cmp")}, svg);
+            if (c.c === 0) {
+                var grad = el("linearGradient", {id: "pp-fill", x1: 0, y1: 0, x2: 0, y2: 1}, defs);
+                el("stop", {offset: "0%", "stop-color": "#b3141c", "stop-opacity": many ? .08 : .16}, grad);
+                el("stop", {offset: "100%", "stop-color": "#b3141c", "stop-opacity": 0}, grad);
+                el("path", {"class": "at-pc-area", fill: "url(#pp-fill)", d: line + "L" + Q[Q.length - 1][0].toFixed(1) + "," + B + "L" + Q[0][0].toFixed(1) + "," + B + "Z"}, g);
+            }
+            el("path", {"class": "at-mk-path", d: line}, g);
+            if (c.c === 0 && !many) {
+                [C.best, C.worst].forEach(function (p) {
+                    if (p === P[P.length - 1]) return;
+                    el("circle", {"class": "at-mk-dot at-pc-mark", r: 4.5, cx: x(p[0]), cy: y(p[1])}, g);
+                });
+            }
+            el("circle", {"class": "at-mk-dot", r: c.c === 0 ? 5 : 4, cx: Q[Q.length - 1][0], cy: Q[Q.length - 1][1]}, g);
+            groups[c.k] = {g: g, cur: el("circle", {"class": "at-mk-cursor", r: c.c === 0 ? 5 : 4, style: "display:none"}, g)};
         });
-        el("circle", {"class": "at-mk-dot", r: 5, cx: Q[Q.length - 1][0], cy: Q[Q.length - 1][1]}, g);
         var rule = el("line", {"class": "at-pc-rule", x1: 0, x2: 0, y1: T, y2: B, style: "display:none"}, svg);
-        var cur = el("circle", {"class": "at-mk-cursor", r: 5, style: "display:none"}, g);
+        svg.insertBefore(rule, svg.querySelector(".at-mk"));
         var hit = el("rect", {x: L, y: T, width: R - L, height: B - T, fill: "transparent", style: "touch-action:pan-y"}, svg);
         var drag = false;
         function show(e) {
             var t = e.touches ? e.touches[0] : e, box = svg.getBoundingClientRect();
             var d = Math.max(0, Math.min(LAST, Math.round(((t.clientX - box.left) * W / box.width - L) / (R - L) * LAST)));
-            var p = at(d); if (!p) return;
             rule.setAttribute("x1", x(d)); rule.setAttribute("x2", x(d)); rule.style.display = "";
-            cur.setAttribute("cx", x(d)); cur.setAttribute("cy", y(p[1])); cur.style.display = "";
             tip.textContent = "";
             var h = document.createElement("div"); h.className = "at-pc-tip-date"; h.textContent = d === 0 ? "At the draft" : dayLabel(d);
-            var v = document.createElement("div"); v.className = "pp-tip-val"; v.textContent = pick(p[1]);
-            tip.appendChild(h); tip.appendChild(v); tip.hidden = false;
+            tip.appendChild(h);
+            var rows = drawn().map(function (c) { return {c: c, p: at(LINES[c.k], d)}; }).filter(function (r) { return r.p; });
+            if (!rows.length) return;
+            if (rows.length === 1) {
+                var v = document.createElement("div"); v.className = "pp-tip-val"; v.textContent = pick(rows[0].p[1]);
+                tip.appendChild(v);
+            } else {
+                var mine = (rows.filter(function (r) { return r.c.c === 0; })[0] || {}).p;
+                rows.sort(function (a, b) { return a.p[1] - b.p[1]; }).forEach(function (r) {
+                    var row = document.createElement("div");
+                    row.className = "at-pc-tip-row at-mk-" + r.c.c + (r.c.c === 0 ? " at-pc-tip-on" : "");
+                    var sw = document.createElement("i"); sw.className = "at-pc-swatch";
+                    var nm = document.createElement("span"); nm.className = "at-pc-tip-name"; nm.textContent = (BY[r.c.k] || {}).name || r.c.k;
+                    var vb = document.createElement("b"); vb.textContent = pick(r.p[1]);
+                    var gp = document.createElement("small"); gp.className = "pp-tip-gap";
+                    if (mine && r.c.c !== 0) {
+                        var n = Math.round(mine[1]) - Math.round(r.p[1]);
+                        gp.textContent = n === 0 ? "same" : (n > 0 ? n + " dearer" : -n + " cheaper");
+                    }
+                    row.appendChild(sw); row.appendChild(nm); row.appendChild(vb); row.appendChild(gp);
+                    tip.appendChild(row);
+                });
+            }
+            rows.forEach(function (r) {
+                var gr = groups[r.c.k]; if (!gr) return;
+                gr.cur.setAttribute("cx", x(d)); gr.cur.setAttribute("cy", y(r.p[1])); gr.cur.style.display = "";
+            });
+            tip.hidden = false;
             var sc = box.width / W, px = x(d) * sc, tw = tip.offsetWidth;
             tip.style.left = (px + 14 + tw > box.width ? Math.max(0, px - 14 - tw) : px + 14) + "px";
             tip.style.top = (T * sc + 4) + "px";
         }
-        function clear() { rule.style.display = "none"; cur.style.display = "none"; tip.hidden = true; }
+        function clear() {
+            rule.style.display = "none"; tip.hidden = true;
+            Object.keys(groups).forEach(function (k) { groups[k].cur.style.display = "none"; });
+        }
         hit.addEventListener("pointerdown", function (e) { drag = true; if (hit.setPointerCapture) hit.setPointerCapture(e.pointerId); show(e); });
         hit.addEventListener("pointermove", function (e) { if (drag || e.pointerType === "mouse") show(e); });
         hit.addEventListener("pointerup", function (e) { drag = false; if (e.pointerType !== "mouse") clear(); });
         hit.addEventListener("pointerleave", function () { if (!drag) clear(); });
         hit.addEventListener("pointercancel", function () { drag = false; clear(); });
     }
+
+    // ---- search to add ----
+    var found = [], active = -1;
+    function norm(s) { return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+    function search() {
+        var s = norm(q.value.trim());
+        hits.textContent = ""; found = []; active = -1;
+        if (!s) { hits.hidden = true; return; }
+        var words = s.split(/\s+/);
+        found = (C.players || []).filter(function (p) {
+            if (p.k === HIM.k) return false;
+            var name = norm(p.name);
+            return words.every(function (w_) { return name.indexOf(w_) >= 0 || norm(p.pos) === w_ || norm(p.team) === w_; });
+        }).slice(0, 8);
+        found.forEach(function (p, i) {
+            var li = document.createElement("li");
+            li.setAttribute("role", "option"); li.id = "pp-hit-" + i;
+            var on = chosen.some(function (c) { return c.k === p.k; });
+            li.className = "at-pc-hit" + (on ? " at-pc-on" : "");
+            var who = document.createElement("span"); who.className = "at-pc-hit-who";
+            var nm = document.createElement("span"); nm.className = "at-pc-hit-name"; nm.textContent = p.name;
+            var meta = document.createElement("small"); meta.textContent = [p.pos, p.team].filter(Boolean).join(" · ") || " ";
+            who.appendChild(nm); who.appendChild(meta);
+            var pr = document.createElement("span"); pr.className = "at-pc-hit-val";
+            var b = document.createElement("b"); b.textContent = p.costs || "";
+            var rk = document.createElement("small"); rk.textContent = p.rank ? "#" + p.rank : "";
+            pr.appendChild(b); pr.appendChild(rk);
+            li.appendChild(face(p, "at-pc-hit-face")); li.appendChild(who); li.appendChild(pr);
+            li.addEventListener("mousedown", function (e) { e.preventDefault(); choose(i); });
+            hits.appendChild(li);
+        });
+        if (!found.length) {
+            var none = document.createElement("li"); none.className = "at-pc-none";
+            none.textContent = "No priced player matches.";
+            hits.appendChild(none);
+        }
+        hits.hidden = false;
+    }
+    function choose(i) {
+        var p = found[i]; if (!p) return;
+        add(p.k);
+        q.value = ""; hits.hidden = true; found = [];
+        q.focus();
+    }
+    function highlight(i) {
+        hits.querySelectorAll(".at-pc-hit").forEach(function (it, j) { it.classList.toggle("at-pc-active", j === i); });
+        active = i;
+        q.setAttribute("aria-activedescendant", i >= 0 ? "pp-hit-" + i : "");
+    }
+    if (q) {
+        q.addEventListener("input", search);
+        q.addEventListener("keydown", function (e) {
+            if (e.key === "ArrowDown" && found.length) { e.preventDefault(); highlight(Math.min(found.length - 1, active + 1)); }
+            else if (e.key === "ArrowUp" && found.length) { e.preventDefault(); highlight(Math.max(0, active - 1)); }
+            else if (e.key === "Enter") { e.preventDefault(); choose(active >= 0 ? active : 0); }
+            else if (e.key === "Escape") { hits.hidden = true; }
+        });
+        q.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; }, 120); });
+    }
+
     draw();
+    // Anybody named in the address (?vs=a,b) comes back on.
+    try {
+        (new URL(window.location.href).searchParams.get("vs") || "").split(",").filter(Boolean)
+            .slice(0, MAX).forEach(add);
+    } catch (e) { /* ignore */ }
     var rt; window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(draw, 150); });
 })();
 </script>

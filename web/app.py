@@ -1644,9 +1644,12 @@ def staff_market_player(request: Request, player_key: str, team: str = "",
     from .luck import photo_url
     pp.dress_trades(trades, prices, key, float((rating or {}).get("spot") or 0), photo_url)
 
+    tf = pp.traded_for(trades, prices)
     return _render(request, "player.html", season=season, latest=latest,
                    who=who, chart=ch, usage=use, trend=pp.trend(ch),
-                   traded_for=pp.traded_for(trades, prices), lately=pp.lately(trades),
+                   compare=pp.compare_picks(key, prices, tf) if ch else [],
+                   players=pp.compare_players(prices) if ch else [],
+                   traded_for=tf, lately=pp.lately(trades),
                    lines=pp.summary_lines(trades, key, prices),
                    trades=trades, first=pp.TRADES_FIRST, yours=yours, desk=desk,
                    paid=paid, options=[{k: v for k, v in o.items() if k != "lg"} for o in options],

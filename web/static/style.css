@@ -4317,3 +4317,19 @@ a.pp-tile-him:hover { background: var(--ink); }
     .pp-deals .pp-deal { grid-template-columns: 1fr; }
     .pp-deal-swap { display: none; }
 }
+
+/* ---- player page: compare on the chart (23 Oct) ---- */
+.pp-chart-card .at-pc-top { align-items: center; margin-bottom: 10px; }
+.pp-chart-card .pp-stats { margin: 0; }
+.pp-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; }
+.pp-suggest > span { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
+.pp-sug { display: inline-flex; align-items: baseline; gap: 6px; border: 1px dashed #b9ad98; background: transparent; border-radius: 999px; padding: 5px 12px; cursor: pointer; color: var(--ink); }
+.pp-sug b { font: 600 13px "Barlow", sans-serif; }
+.pp-sug small { font: 500 11.5px "Barlow", sans-serif; color: var(--muted); }
+.pp-sug:hover { border-style: solid; border-color: var(--ink); background: #f4eee2; }
+.pp-sug[hidden] { display: none; }
+.pp-legend { margin: 0 0 6px; }
+.pp-legend a.at-pc-chip-main { text-decoration: none; }
+.pp-legend a.at-pc-chip-main:hover span { color: var(--accent); }
+.pp-cmp .at-mk-path { stroke-width: 2; }
+.pp-tip-gap { font-size: 11.5px; color: var(--muted); }

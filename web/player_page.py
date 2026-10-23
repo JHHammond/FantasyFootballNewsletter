@@ -448,3 +448,45 @@ def dress_trades(trades: list[dict], prices: dict, him_key: str, spot: float,
         t["verdict"] = {"word": word, "edge": round(100 * edge),
                         "share": round(100 * gv / (gv + pv))}
     return trades
+
+
+#: Players the chart can hold beside him.
+COMPARE_MAX = 5
+
+
+def compare_picks(him_key: str, prices: dict, traded_for_rows: list[dict],
+                  limit: int = 5) -> list[dict]:
+    """Who you'd most likely want on his chart: the players he is traded
+    for most, then the next player at his position either side of him in
+    the market."""
+    out, seen = [], {him_key}
+
+    def add(k, why):
+        p = prices.get(k)
+        if p and k not in seen and len(out) < limit:
+            seen.add(k)
+            out.append({"k": k, "name": p.get("name"), "pos": p.get("pos"),
+                        "costs": p.get("costs"), "why": why})
+
+    him = prices.get(him_key) or {}
+    if him.get("pos") and him.get("rank"):
+        same = sorted((p for p in prices.values() if p.get("pos") == him["pos"] and p.get("rank")),
+                      key=lambda p: p["rank"])
+        up = [p for p in same if p["rank"] < him["rank"]]
+        down = [p for p in same if p["rank"] > him["rank"]]
+        if up:
+            add(up[-1]["k"], f"next {him['pos']} up")
+        if down:
+            add(down[0]["k"], f"next {him['pos']} down")
+    for e in traded_for_rows:
+        add(e["key"], f"traded for him {e['n']}\u00d7")
+    # The traded-for ones read better first; the neighbours close the row.
+    return sorted(out, key=lambda o: 0 if o["why"].startswith("traded") else 1)
+
+
+def compare_players(prices: dict) -> list[dict]:
+    """The search list for "add a player": everyone priced, most expensive
+    first, with only what the search and the legend draw."""
+    return [{"k": p["k"], "name": p.get("name"), "pos": p.get("pos"), "team": p.get("team"),
+             "costs": p.get("costs"), "rank": p.get("rank"), "photo": p.get("photo")}
+            for p in sorted(prices.values(), key=lambda p: p.get("rank") or 9999)]
