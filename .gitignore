@@ -11,3 +11,4 @@ _to_delete/
 
 # Files delivered into this folder by the Claude desktop app.
 Claude outputs/
+.trade_check_cache.json

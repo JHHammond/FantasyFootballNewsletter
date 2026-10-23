@@ -271,3 +271,36 @@ def test_a_band_never_runs_off_the_end_of_the_draft():
     dear, cheap = m.band("p")
     assert cheap <= m.undrafted_slot + trade_rating.TEAMS + 1
     assert dear <= cheap
+
+
+def test_the_price_is_read_by_rank_so_the_dearest_costs_the_first_pick():
+    """23 Oct, live: the order was right (Puka, Walker, Bijan, JSN...) but
+    the most expensive player in the country "cost the 5.10" and every one
+    of the top fifteen was "down" 38 to 64 picks. The bundle arithmetic
+    squeezes the top of the value scale; rank cannot be squeezed."""
+    adp = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0, "k": 5.0}
+    m = trade_rating.Market(adp, decay=1.0, shift=8.0)
+    # Everybody traded has sagged to a fraction of his draft value, the
+    # way the live board did, but b has passed a.
+    for key, share in (("a", 0.30), ("b", 0.40), ("c", 0.25), ("d", 0.20)):
+        m._ensure(key, 0)
+        m.v[key] = m.start[key] * share
+        m.n[key] = 5
+    r = m.ranked(frozenset({"k"}))
+    assert "k" not in r                                   # kickers out of the ranking
+    assert r["b"] == 1.0 and r["a"] == 2.0                # the dearest costs the 1st pick
+    assert m.row("b", now=r["b"])["moved"] == 1.0         # up one: he passed a
+    assert m.row("a", now=r["a"])["moved"] == -1.0
+    assert m.slot("b") > 2.0                              # ...where the curve said "down"
+
+
+def test_a_player_nobody_trades_keeps_his_place():
+    """The stars nobody parts with are exactly the ones a trade board never
+    sees. They hold their draft position against the field instead of
+    handing their rank to whoever is next."""
+    adp = {"star": 1.0, "b": 2.0, "c": 3.0}
+    m = trade_rating.Market(adp, decay=1.0, shift=8.0)
+    for key in ("b", "c"):
+        m._ensure(key, 0)
+        m.n[key] = 3
+    assert m.ranked()["star"] == 1.0 and m.ranked()["b"] == 2.0

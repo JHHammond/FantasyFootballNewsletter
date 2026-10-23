@@ -392,6 +392,56 @@ class Market:
 
     # -- reading it back ---------------------------------------------------
 
+    def ranked(self, skip: frozenset = frozenset()) -> dict[str, float]:
+        """Every player's price as a draft slot, BY RANK: the most expensive
+        player costs the first pick anybody makes, the twelfth costs the
+        twelfth, and so on down the board.
+
+        WHY NOT value_slot(). The values are right about ORDER and wrong
+        about LEVEL. Live on 23 Oct the order was exactly what anybody
+        watching would say — Puka, Walker, Bijan, JSN, Lamb, Taylor, Gibbs
+        — but the most expensive player in the country "cost the 5.10",
+        every one of the top fifteen was "down" 38 to 64 picks, and the
+        movers all converged on rounds nine to twelve from both ends. The
+        additive bundle arithmetic squeezes the top of the scale, and no
+        normalisation of the level undoes a squeeze. Rank cannot be
+        squeezed: somebody is always first. "Up" now means he passed
+        somebody, which was always the only thing it should have meant.
+
+        The slots are the real draft's own ADPs, in order, so a player who
+        holds his draft rank reads as exactly where he was drafted and the
+        page's pick labels stay honest. Past the last drafted player it is
+        one slot per place.
+
+        A player nobody has traded keeps his place relative to the field:
+        his draft value, scaled the way the median traded player's has
+        been. Leaving him out would hand his rank to whoever is next, and
+        the stars that nobody parts with are exactly those players.
+        `skip` (kickers, defences) is out of both the ranking and the slots.
+        """
+        moved = sorted(self.v[k] / self.start[k] for k in self.v
+                       if self.n.get(k, 0) > 0 and self.start.get(k, 0) > 0
+                       and k not in skip)
+        level = moved[len(moved) // 2] if len(moved) >= 10 else 1.0
+        values: dict[str, float] = {}
+        for key, slot in self.adp.items():
+            if key in skip:
+                continue
+            if key in self.v and self.n.get(key, 0) > 0:
+                values[key] = self.v[key]
+            else:
+                values[key] = slot_value(slot, self.decay, self.shift) * level
+        for key in self.v:
+            if key not in values and key not in skip and self.n.get(key, 0) > 0:
+                values[key] = self.v[key]
+        slots = sorted(s for k, s in self.adp.items() if k not in skip)
+        order = sorted(values, key=lambda k: (-values[k], k))
+        out: dict[str, float] = {}
+        for i, key in enumerate(order):
+            out[key] = (slots[i] if i < len(slots)
+                        else (slots[-1] if slots else 0.0) + (i - len(slots) + 1))
+        return out
+
     def slot(self, key: str) -> float:
         return value_slot(self.v[key], self.decay, self.shift)
 
@@ -415,10 +465,13 @@ class Market:
                                    self.decay, self.shift))
         return (hi, max(hi, lo))
 
-    def row(self, key: str, names: Optional[dict] = None) -> dict[str, Any]:
+    def row(self, key: str, names: Optional[dict] = None,
+            now: Optional[float] = None) -> dict[str, Any]:
+        """`now` is the price to print, from ranked(); without it, the
+        value read straight off the curve (what the validators compare)."""
         meta = (names or {}).get(key) or {}
         drafted = self.adp.get(key)
-        now = self.slot(key)
+        now = self.slot(key) if now is None else float(now)
         dear, cheap = self.band(key)
         # How much of the draft's original doubt we have talked ourselves
         # out of. This, not the band, is what the page shows: a band in
@@ -449,7 +502,8 @@ class Market:
 
 
 def run(exchanges: Iterable[dict], adp: dict[str, float], *,
-        decay: Optional[float] = None, days: bool = True) -> dict[str, Any]:
+        decay: Optional[float] = None, days: bool = True,
+        skip: frozenset = frozenset()) -> dict[str, Any]:
     """Play every trade through in order and keep the daily state.
 
     Order is the whole point — a filter reads its observations once, in
@@ -478,12 +532,12 @@ def run(exchanges: Iterable[dict], adp: dict[str, float], *,
         day = deal.get("day")
         if days and day is not None and day != day_now:
             if day_now is not None:
-                _snapshot(market, series, day_now)
+                _snapshot(market, series, day_now, skip)
                 seen_days.append(day_now)
             day_now = day
         market.observe(list(deal["a"]), list(deal["b"]), day)
     if days and day_now is not None:
-        _snapshot(market, series, day_now)
+        _snapshot(market, series, day_now, skip)
         seen_days.append(day_now)
 
     return {"market": market, "series": series, "days": seen_days,
@@ -521,21 +575,25 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     ex = trade_market.days_for(raw, season)
     for i, e in enumerate(ex):
         e.setdefault("key", str(i))
-    got = run(ex, adp)
-    market = got["market"]
-    # The level sags over a season (see Market.normalise); divide it out so
-    # "up" and "down" mean "against the rest of the field".
-    drift = market.normalise()
-
     # Kickers and defences are churned rather than valued — see the note
-    # in trade_market.build. They stay in the fit and off the board.
-    skip = {k for k in market.v
-            if ((names.get(k) or {}).get("position") or "") in trade_prior.THIN}
-    rated = [k for k in market.v if k not in skip]
-    rated.sort(key=lambda k: market.slot(k))
-    rows = [market.row(k, names) for k in rated[:limit]]
+    # in trade_market.build. They stay in the fit and off the board, and
+    # out of the ranking that prices everybody else.
+    keys = set(adp) | {k for e in ex for k in list(e.get("a") or []) + list(e.get("b") or [])}
+    skip = frozenset(k for k in keys
+                     if ((names.get(k) or {}).get("position") or "") in trade_prior.THIN)
+    got = run(ex, adp, skip=skip)
+    market = got["market"]
+    # The level sags over a season (see Market.normalise). Prices are read
+    # by rank now and do not need it, but the drift is still reported.
+    drift = market.normalise()
+    ranked = market.ranked(skip)
 
-    movers = sorted((r for r in (market.row(k, names) for k in rated)
+    rated = [k for k in market.v if k not in skip and market.n.get(k, 0) > 0
+             and k in ranked]
+    rated.sort(key=lambda k: ranked[k])
+    rows = [market.row(k, names, now=ranked[k]) for k in rated[:limit]]
+
+    movers = sorted((r for r in (market.row(k, names, now=ranked[k]) for k in rated)
                      if r["moved"] is not None and r["trades"] > 0),
                     key=lambda r: -r["moved"])
 
@@ -578,10 +636,17 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     }
 
 
-def _snapshot(market: Market, series: dict, day: int) -> None:
-    """One day's close, for every player the market has an opinion on."""
+def _snapshot(market: Market, series: dict, day: int,
+              skip: frozenset = frozenset()) -> None:
+    """One day's close, for every player the market has an opinion on.
+
+    By rank, like the board, so a line's last point is the price printed
+    beside it. They were on different scales before (the series was taken
+    before the level was normalised), and the lines ended a few picks away
+    from their own table."""
+    ranked = market.ranked(skip)
     for key in market.v:
-        if market.n.get(key, 0) > 0:
+        if market.n.get(key, 0) > 0 and key in ranked:
             series.setdefault(key, []).append({
-                "day": day, "slot": round(market.slot(key), 1),
+                "day": day, "slot": round(ranked[key], 1),
                 "trades": market.n[key]})

@@ -129,9 +129,11 @@
     <h2 class="card-title">What a player costs &middot; staff only</h2>
     <p class="card-sub">Every player starts where the country drafted him &mdash;
         {{ '{:,}'.format(R.picks) }} picks across {{ '{:,}'.format(R.drafts) }} leagues &mdash;
-        and {{ '{:,}'.format(R.used) }} trades move him from there. A price is the
-        <b>draft pick he is now worth</b>: &ldquo;costs the 2.03&rdquo; means the field
-        pays about what the third pick of the second round went for.
+        and {{ '{:,}'.format(R.used) }} trades move him from there. A price is his
+        <b>place in the market, read as a draft pick</b>: &ldquo;costs the 2.03&rdquo;
+        means he is the fifteenth most expensive player, so the most expensive costs the
+        1.01. <b>Up</b> means he has passed players drafted ahead of him; a star nobody
+        trades keeps his draft position.
         {{ R.rated }} players priced{% if R.streamers %}, {{ R.streamers }} kickers and
         defences left off{% endif %}.
         <br><b>This is not a ranking of who is good.</b> It is the going rate, and a
