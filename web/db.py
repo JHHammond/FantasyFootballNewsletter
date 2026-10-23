@@ -1820,6 +1820,13 @@ def trade_partners(season: int, player_key: str, limit: int = 8) -> dict[str, An
                                         "p_limit": int(limit)}) or {}
 
 
+def player_trades(season: int, player_key: str) -> dict[str, Any]:
+    """See migration 056: every trade of one player this season, newest
+    first, his side against the other. Players, pick labels and FAAB only."""
+    return _rpc_json("player_trades", {"p_season": int(season),
+                                       "p_player": str(player_key)}) or {}
+
+
 def trade_player_names(season: int) -> dict[str, Any]:
     return _rpc_json("trade_player_names", {"p_season": int(season)}) or {}
 

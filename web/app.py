@@ -1551,6 +1551,81 @@ def staff_market_roster(request: Request, league: str = "", team: str = ""):
                         headers={"Cache-Control": "private, max-age=300"})
 
 
+@app.get("/staff/market/player/{player_key}", response_class=HTMLResponse)
+def staff_market_player(request: Request, player_key: str, team: str = "",
+                        preview: str = ""):
+    """One player's page: his price, usage and every trade of him (John,
+    23 Oct). Staff-only, like the market.
+
+    The paid section lists trades of him where one of the viewer's players
+    went the other way. ?team=<league>:<team> picks which of his rosters;
+    ownership is checked, and only player keys are read from it.
+    ?preview=free shows a staff member the locked version.
+    """
+    _require_staff(request)
+    import nfl_week
+
+    from . import around
+    from . import player_page as pp
+    user = current_user(request)
+    key = clean_text(player_key, max_length=40).strip()
+    if not key:
+        raise HTTPException(status_code=404)
+    season = nfl_week.current_season()
+    latest = max(nfl_week.completed_week(), 1)
+    rating = _trade_rating(season, latest)
+    try:
+        names = db.trade_player_names(season) or {}
+    except Exception:  # noqa: BLE001
+        names = {}
+    try:
+        raw = (db.player_trades(season, key) or {}).get("trades") or []
+    except Exception as exc:  # noqa: BLE001 — before 056, the page still shows the rest
+        print(f"[market] no trades for {key}: {type(exc).__name__}: {exc}", flush=True)
+        raw = []
+    trades = pp.shape_trades(raw)
+    who = pp.summary(key, rating, names)
+    if not who["priced"] and not trades:
+        raise HTTPException(status_code=404)
+    if not who.get("photo"):
+        from .luck import photo_url
+        who["photo"] = photo_url(key, who.get("position"))
+    use = pp.usage(lambda wk: around.week_json(db, season, wk), key,
+                   list(range(1, latest + 1)))
+
+    # The viewer's teams, his own first in each league, for the picker.
+    try:
+        leagues = around.my_teams(db, user, season, latest)
+    except Exception:  # noqa: BLE001
+        leagues = []
+    options = []
+    for lg in leagues:
+        for tm in lg["teams"]:
+            options.append({"value": f"{lg['id']}:{tm['id']}", "mine": tm.get("mine"),
+                            "label": tm["name"], "league": lg["league"]})
+    wanted = clean_text(team, max_length=140).strip()
+    chosen = next((o for o in options if o["value"] == wanted), None) \
+        or next((o for o in options if o["mine"]), None)
+    yours, roster_size = [], 0
+    if chosen:
+        lid, tid = chosen["value"].split(":", 1)
+        try:
+            roster = {r.get("player_key") for r in
+                      (db.lineup_for_team(lid, season, latest, tid) or [])} - {None}
+        except Exception:  # noqa: BLE001
+            roster = set()
+        roster_size = len(roster)
+        yours = pp.your_trades(trades, roster)
+    paid = plans.is_paid(user) and preview != "free"
+
+    return _render(request, "player.html", season=season, latest=latest,
+                   who=who, chart=pp.chart(key, rating), usage=use,
+                   traded_for=pp.traded_for(trades), trades=trades,
+                   first=pp.TRADES_FIRST, yours=yours, paid=paid,
+                   options=options, chosen=chosen, roster_size=roster_size,
+                   staff=True)
+
+
 @app.get("/staff/market", response_class=HTMLResponse)
 def staff_market(request: Request):
     """The trade market, on its own page.

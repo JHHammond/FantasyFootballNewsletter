@@ -649,6 +649,10 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
             "team": meta.get("nfl_team"), "rank": i,
             "costs": pick_label(place[k]),
             "drafted": pick_label(drafted_place[k]) if k in drafted_place else None,
+            #: The numbers behind those labels, and how settled the price
+            #: is, for the player page.
+            "dp": drafted_place.get(k),
+            "firm": market.row(k)["firmness"],
             "trades": market.n.get(k, 0),
             "photo": photo_url(k, meta.get("position"))})
     return {

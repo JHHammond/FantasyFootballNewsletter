@@ -1340,6 +1340,45 @@ def trade_partners(season: int, player_key: str, limit: int = 8) -> dict[str, An
             "recent": recent}
 
 
+def player_trades(season: int, player_key: str) -> dict[str, Any]:
+    """The SQL function's twin (migration 056)."""
+    import hashlib
+    season, key = int(season), str(player_key)
+    mine = {(r["league_id"], r["trade_key"]): r for r in _TRADE_PLAYERS.values()
+            if int(r["season"]) == season and r["player_key"] == key}
+    heads = [h for h in _TRADES.values()
+             if int(h["season"]) == season and (h["league_id"], h["trade_key"]) in mine]
+    heads.sort(key=lambda h: (h.get("traded_at") is not None, str(h.get("traded_at") or ""),
+                              int(h["week"])), reverse=True)
+    out = []
+    for h in heads:
+        tk = (h["league_id"], h["trade_key"])
+        to = mine[tk].get("to_team")
+        rows = [r for r in _TRADE_PLAYERS.values()
+                if (r["league_id"], r["trade_key"]) == tk and int(r["season"]) == season]
+        pl = lambda r: {"player_key": r["player_key"], "name": r.get("name") or r["player_key"],  # noqa: E731
+                        "position": r.get("position")}
+        picks = [p for p in (h.get("picks") or []) if isinstance(p, (list, tuple)) and len(p) > 1 and p[1]]
+        faab = [f for f in (h.get("faab") or []) if isinstance(f, (list, tuple)) and len(f) > 2 and f[2] is not None]
+        out.append({
+            "key": hashlib.md5(f"{h['league_id']}:{h['trade_key']}".encode()).hexdigest(),
+            "week": int(h["week"]),
+            "day": (str(h.get("traded_at") or "")[:10]) or None,
+            "provider": h.get("provider"), "team_count": h.get("team_count"),
+            "scoring_type": h.get("scoring_type"),
+            "teams": len({r.get("to_team") for r in rows}),
+            "with": sorted((pl(r) for r in rows if r["player_key"] != key and r.get("to_team") == to),
+                           key=lambda x: x["player_key"]),
+            "gave": sorted((pl(r) for r in rows if r.get("to_team") != to),
+                           key=lambda x: x["player_key"]),
+            "got_picks": [p[1] for p in picks if p[0] == to],
+            "gave_picks": [p[1] for p in picks if p[0] != to],
+            "got_faab": sum(f[2] for f in faab if f[1] == to),
+            "gave_faab": sum(f[2] for f in faab if f[1] != to),
+        })
+    return {"player": key, "trades": out}
+
+
 def _Dec(x):
     from decimal import Decimal
     return Decimal(x)

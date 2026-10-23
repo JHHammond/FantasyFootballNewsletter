@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% from "_macros.html" import upgrade_buttons %}
+{% block title %}{{ who.name }} · The trade market{% endblock %}
+{% block description %}What the field pays for {{ who.name }}, and every trade of him this season.{% endblock %}
+{% block wrapclass %}home around{% endblock %}
+
+{#
+    One player's page (John, 23 Oct 2026). Opened from any row in the trade
+    market. See web/player_page.py for where each piece comes from.
+#}
+
+{% macro side(items, yours=none) -%}
+{%- for it in items -%}
+{%- if not loop.first %}<span class="pp-plus">+</span>{% endif -%}
+{%- if it.kind == 'player' and it.key -%}
+<a class="pp-tok pp-tok-player{{ ' pp-tok-yours' if yours and it.key in yours }}" href="/staff/market/player/{{ it.key|urlencode }}">{{ it.label }}{% if it.position %}<small>{{ it.position }}</small>{% endif %}</a>
+{%- else -%}
+<span class="pp-tok pp-tok-{{ it.kind }}">{{ it.label }}</span>
+{%- endif -%}
+{%- else -%}
+<span class="pp-tok pp-tok-none">nothing we stored</span>
+{%- endfor -%}
+{%- endmacro %}
+
+{% macro deal(t, yours=none) %}
+<li class="pp-deal">
+    <div class="pp-deal-when">{{ t.day or ('Week ' ~ t.week) }}<small>{{ t.league }}{% if t.three_way %} &middot; three-way{% endif %}</small></div>
+    <div class="pp-deal-sides">
+        <div class="pp-deal-side"><span class="pp-deal-label">Got</span>
+            <span class="pp-tok pp-tok-him">{{ who.name }}</span>{% if t.got %}<span class="pp-plus">+</span>{{ side(t.got) }}{% endif %}</div>
+        <div class="pp-deal-side"><span class="pp-deal-label">For</span>{{ side(t.gave, yours) }}</div>
+    </div>
+</li>
+{% endmacro %}
+
+{% block content %}
+<p class="pp-back"><a href="/staff/market">&larr; The trade market</a></p>
+
+<section class="card pp-head">
+    <span class="at-face pp-photo{{ ' at-face-def' if who.position == 'DEF' }}">
+        {%- if who.photo %}<img src="{{ who.photo }}" alt="" onerror="this.remove()" />{% endif -%}
+        <span>{{ (who.name or '?')[:1] }}</span></span>
+    <div class="pp-id">
+        <p class="pp-kicker">{{ who.position or '' }}{% if who.team %} &middot; {{ who.team }}{% endif %}</p>
+        <h1 class="pp-name">{{ who.name }}</h1>
+        {% if who.priced %}
+        <p class="pp-facts">
+            <span>#{{ who.rank }} in the market</span>
+            {% if who.drafted %}<span>drafted {{ who.drafted }}</span>{% endif %}
+            <span>{{ '{:,}'.format(who.trades or 0) }} trades</span>
+            {% if who.firm %}<span class="at-firm at-firm-{{ who.firm }}">{{ who.firm }}</span>{% endif %}
+        </p>
+        {% else %}
+        <p class="pp-facts"><span>Not priced: kickers and defences are streamed, not traded for.</span></p>
+        {% endif %}
+    </div>
+    {% if who.priced %}
+    <div class="pp-price">
+        <span class="pp-price-label">Costs</span>
+        <b>{{ who.costs }}</b>
+        {% if who.moved %}<span class="at-pc-chg {{ 'at-pc-up' if who.moved > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if who.moved > 0 else '&#9660;'|safe }} {{ who.moved|abs }} pick{{ '' if who.moved|abs == 1 else 's' }} since the draft</span>
+        {% else %}<span class="at-pc-chg at-pc-flat">where he was drafted</span>{% endif %}
+    </div>
+    {% endif %}
+</section>
+
+{% if chart %}
+<section class="card pp-chart-card">
+    <h2 class="card-title">His price, day by day</h2>
+    <p class="pp-stats">High <b class="at-pc-hi" id="pp-hi"></b> &middot; Low <b class="at-pc-lo" id="pp-lo"></b></p>
+    <figure class="ar-chart at-pc-chart">
+        <div class="ar-chart-box at-pc-box"><svg viewBox="0 0 760 260" class="ar-line" id="pp-svg" role="img"
+             aria-label="{{ who.name }}'s price by day, as a draft pick"></svg>
+            <div class="at-pc-tip" id="pp-tip" hidden></div></div>
+        <figcaption class="at-pc-note">His place in the market at each day&rsquo;s close, starting from where he was drafted. Higher is more expensive.</figcaption>
+    </figure>
+    <script type="application/json" id="pp-data">{{ chart|tojson }}</script>
+</section>
+{% endif %}
+
+<div class="pp-two">
+    <section class="card">
+        <h2 class="card-title">Week by week</h2>
+        {% if usage %}
+        <table class="pp-usage">
+            <thead><tr><th>Week</th><th>Started</th><th>Points</th><th>Teams that started him won</th></tr></thead>
+            <tbody>
+            {% for u in usage %}
+            <tr>
+                <td>{{ u.week }}</td>
+                <td>{{ '%.0f'|format((u.start_pct or 0) * 100) }}%<small>{{ '{:,}'.format(u.started) }} of {{ '{:,}'.format(u.rostered) }}</small></td>
+                <td>{% if u.ppr is not none %}{{ '%.1f'|format(u.ppr) }}{% else %}&ndash;{% endif %}{% if u.did_play is sameas false %}<small>didn&rsquo;t play</small>{% endif %}</td>
+                <td>{% if u.win_pct is not none and u.started %}<span class="pp-bar"><i style="width:{{ '%.0f'|format(u.win_pct * 100) }}%"></i></span>{{ '%.0f'|format(u.win_pct * 100) }}%{% else %}&ndash;{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p class="pp-note">From Around the Leagues, in plain PPR.</p>
+        {% else %}
+        <p class="pp-empty">Not among the 400 most-rostered players in any week yet.</p>
+        {% endif %}
+    </section>
+
+    <section class="card">
+        <h2 class="card-title">Traded for most</h2>
+        {% if traded_for %}
+        <ol class="pp-for">
+            {% for p in traded_for %}
+            <li><a href="/staff/market/player/{{ p.key|urlencode }}">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}</a>
+                <b>{{ p.n }}</b></li>
+            {% endfor %}
+        </ol>
+        <p class="pp-note">How many deals each player went the other way in.</p>
+        {% else %}
+        <p class="pp-empty">No player has gone the other way for him yet.</p>
+        {% endif %}
+    </section>
+</div>
+
+<section class="card pp-yours{{ ' pp-locked' if not paid }}" id="yours">
+    <h2 class="card-title">Trades for him with your players in them</h2>
+    {% if options %}
+    <form method="get" class="pp-team" action="#yours">
+        <label for="pp-team">Your team</label>
+        <select id="pp-team" name="team" class="at-pc-set" onchange="this.form.submit()">
+            {% for o in options %}
+            <option value="{{ o.value }}"{{ ' selected' if chosen and chosen.value == o.value }}>{{ o.label }}{{ ' (yours)' if o.mine }} &middot; {{ o.league }}</option>
+            {% endfor %}
+        </select>
+        <noscript><button type="submit" class="btn-link">Show</button></noscript>
+    </form>
+    {% endif %}
+    {% if not options %}
+    <p class="pp-empty">Connect a league and this shows every trade of {{ who.name }} where one of your players went the other way.</p>
+    {% elif paid %}
+    {% if yours %}
+    <p class="card-sub">{{ yours|length }} trade{{ '' if yours|length == 1 else 's' }} across the country where somebody gave up one of your players to get him. Yours are highlighted.</p>
+    <ol class="pp-deals">{% for t in yours %}{{ deal(t, t.yours) }}{% endfor %}</ol>
+    {% else %}
+    <p class="pp-empty">Nobody has traded one of your {{ roster_size }} players for him yet.</p>
+    {% endif %}
+    {% else %}
+    <p class="card-sub"><b>{{ yours|length }}</b> trade{{ '' if yours|length == 1 else 's' }} of {{ who.name }} had one of your players on the other side.</p>
+    <ol class="pp-deals pp-blur" aria-hidden="true">
+        {% for i in range([yours|length, 3]|min if yours else 3) %}
+        <li class="pp-deal"><div class="pp-deal-when">Week ??<small>A league</small></div>
+            <div class="pp-deal-sides"><div class="pp-deal-side"><span class="pp-deal-label">Got</span><span class="pp-tok pp-tok-him">{{ who.name }}</span></div>
+            <div class="pp-deal-side"><span class="pp-deal-label">For</span><span class="pp-tok pp-tok-yours">One of yours</span><span class="pp-plus">+</span><span class="pp-tok">Somebody else</span></div></div></li>
+        {% endfor %}
+    </ol>
+    <div class="pp-unlock">
+        <p>See what your players have fetched for {{ who.name }}, deal by deal.</p>
+        {% if billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
+    </div>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2 class="card-title">Every trade this season</h2>
+    {% if trades %}
+    <p class="card-sub">{{ '{:,}'.format(trades|length) }} deal{{ '' if trades|length == 1 else 's' }}, newest first: what the team that got him received, and what it gave. Leagues are described, never named.</p>
+    <ol class="pp-deals" id="pp-all">
+        {% for t in trades %}{% if loop.index > first %}<template class="pp-more-row">{{ deal(t) }}</template>{% else %}{{ deal(t) }}{% endif %}{% endfor %}
+    </ol>
+    {% if trades|length > first %}
+    <p class="pp-more"><button type="button" class="pp-more-btn" id="pp-more">Show all {{ '{:,}'.format(trades|length) }}</button></p>
+    {% endif %}
+    {% else %}
+    <p class="pp-empty">No trades of him stored yet.</p>
+    {% endif %}
+</section>
+
+<script>
+(function () {
+    // ---- the rest of the trades, on request ----
+    var more = document.getElementById("pp-more");
+    if (more) more.addEventListener("click", function () {
+        var list = document.getElementById("pp-all");
+        list.querySelectorAll("template.pp-more-row").forEach(function (t) {
+            list.insertBefore(t.content.cloneNode(true), t);
+            t.remove();
+        });
+        more.parentNode.remove();
+    });
+
+    // ---- his price line: the market chart's look, one player ----
+    var src = document.getElementById("pp-data");
+    if (!src) return;
+    var C; try { C = JSON.parse(src.textContent); } catch (e) { return; }
+    var svg = document.getElementById("pp-svg"), tip = document.getElementById("pp-tip");
+    var NS = "http://www.w3.org/2000/svg";
+    var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    var b0 = C.base.split("-").map(Number), LAST = Math.max(1, C.last), P = C.line;
+    function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
+    function dayLabel(d) { var t = dateOf(d); return MONTHS[t.getUTCMonth()] + " " + t.getUTCDate(); }
+    function pick(slot) {
+        var n = Math.max(1, Math.round(slot)), r = Math.floor((n - 1) / 12) + 1, p = (n - 1) % 12 + 1;
+        return r + "." + (p < 10 ? "0" : "") + p;
+    }
+    document.getElementById("pp-hi").textContent = pick(C.best[1]) + " · " + dayLabel(C.best[0]);
+    document.getElementById("pp-lo").textContent = pick(C.worst[1]) + " · " + dayLabel(C.worst[0]);
+    var W, H, L, R, T, B;
+    function frame() {
+        var small = (svg.getBoundingClientRect().width || 760) < 520;
+        if (small) { W = 400; H = 300; L = 44; R = 384; T = 14; B = 262; }
+        else { W = 760; H = 260; L = 54; R = 744; T = 16; B = 222; }
+        svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    }
+    var lo, hi;
+    function scale() {
+        var best = Math.min.apply(null, P.map(function (p) { return p[1]; }));
+        var worst = Math.max.apply(null, P.map(function (p) { return p[1]; }));
+        lo = Math.max(1, best / 1.1); hi = Math.max(lo + 1, worst * 1.08);
+        if (hi / lo < 1.6) { var m = Math.sqrt(lo * hi); lo = Math.max(1, m / Math.sqrt(1.6)); hi = lo * 1.6; }
+    }
+    function x(d) { return L + (R - L) * d / LAST; }
+    function y(s) { s = Math.min(Math.max(s, lo), hi); return T + (B - T) * Math.log(s / lo) / Math.log(hi / lo); }
+    function el(n, a, p) { var e = document.createElementNS(NS, n); for (var k in a) e.setAttribute(k, a[k]); if (p) p.appendChild(e); return e; }
+    function smooth(Q) {
+        var n = Q.length;
+        if (n < 3) return Q.map(function (q, i) { return (i ? "L" : "M") + q[0].toFixed(1) + "," + q[1].toFixed(1); }).join("");
+        var dx = [], m = [], t = [], i;
+        for (i = 0; i < n - 1; i++) { dx[i] = Q[i + 1][0] - Q[i][0]; m[i] = dx[i] ? (Q[i + 1][1] - Q[i][1]) / dx[i] : 0; }
+        t[0] = m[0]; t[n - 1] = m[n - 2];
+        for (i = 1; i < n - 1; i++) t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
+        for (i = 0; i < n - 1; i++) {
+            if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+            var a = t[i] / m[i], b = t[i + 1] / m[i], s = a * a + b * b;
+            if (s > 9) { var tau = 3 / Math.sqrt(s); t[i] = tau * a * m[i]; t[i + 1] = tau * b * m[i]; }
+        }
+        var d = "M" + Q[0][0].toFixed(1) + "," + Q[0][1].toFixed(1);
+        for (i = 0; i < n - 1; i++) {
+            var h = dx[i] / 3;
+            d += "C" + (Q[i][0] + h).toFixed(1) + "," + (Q[i][1] + t[i] * h).toFixed(1) + " " + (Q[i + 1][0] - h).toFixed(1) + "," + (Q[i + 1][1] - t[i + 1] * h).toFixed(1) + " " + Q[i + 1][0].toFixed(1) + "," + Q[i + 1][1].toFixed(1);
+        }
+        return d;
+    }
+    function at(d) { var p = null; P.forEach(function (q) { if (q[0] <= d) p = q; }); return p; }
+    function draw() {
+        frame(); scale();
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        var defs = el("defs", {}, svg), last = -99, ticks = [];
+        for (var rd = 1; rd <= 25; rd++) {
+            ticks.push({s: (rd - 1) * 12 + 1, l: "Rd " + rd, major: true});
+            ticks.push({s: (rd - 1) * 12 + 7, l: pick((rd - 1) * 12 + 7), major: false});
+        }
+        var inside = ticks.filter(function (k) { return k.s >= lo && k.s <= hi; });
+        if (inside.filter(function (k) { return k.major; }).length >= 3) inside = inside.filter(function (k) { return k.major; });
+        inside.forEach(function (k) {
+            var yy = y(k.s); if (yy - last < 18) return; last = yy;
+            el("line", {x1: L, x2: R, y1: yy, y2: yy, "class": "ar-grid at-pc-grid" + (k.major ? "" : " at-pc-grid-minor")}, svg);
+            el("text", {x: L - 8, y: yy + 4, "class": "ar-tick at-pc-ytick", "text-anchor": "end"}, svg).textContent = k.l;
+        });
+        var first = 1; while (first <= LAST && dateOf(first).getUTCDay() !== 0) first++;
+        var gap = 58, weeks = Math.max(1, Math.ceil(gap / ((R - L) * 7 / LAST)));
+        el("text", {x: x(0), y: B + 20, "class": "ar-tick at-pc-xtick", "text-anchor": "start"}, svg).textContent = "Draft";
+        for (var d = first; d <= LAST; d += 7 * weeks) {
+            if (x(d) - x(0) < gap || R - x(d) < 18) continue;
+            el("line", {x1: x(d), x2: x(d), y1: B, y2: B + 5, "class": "at-pc-xmark"}, svg);
+            el("text", {x: x(d), y: B + 20, "class": "ar-tick at-pc-xtick", "text-anchor": "middle"}, svg).textContent = dayLabel(d);
+        }
+        var Q = P.map(function (p) { return [x(p[0]), y(p[1])]; }), line = smooth(Q);
+        var g = el("g", {"class": "at-mk at-mk-0 at-pc-on"}, svg);
+        var grad = el("linearGradient", {id: "pp-fill", x1: 0, y1: 0, x2: 0, y2: 1}, defs);
+        el("stop", {offset: "0%", "stop-color": "#b3141c", "stop-opacity": .16}, grad);
+        el("stop", {offset: "100%", "stop-color": "#b3141c", "stop-opacity": 0}, grad);
+        el("path", {"class": "at-pc-area", fill: "url(#pp-fill)", d: line + "L" + Q[Q.length - 1][0].toFixed(1) + "," + B + "L" + Q[0][0].toFixed(1) + "," + B + "Z"}, g);
+        el("path", {"class": "at-mk-path", d: line}, g);
+        [C.best, C.worst].forEach(function (p) {
+            if (p === P[P.length - 1]) return;
+            el("circle", {"class": "at-mk-dot at-pc-mark", r: 4.5, cx: x(p[0]), cy: y(p[1])}, g);
+        });
+        el("circle", {"class": "at-mk-dot", r: 5, cx: Q[Q.length - 1][0], cy: Q[Q.length - 1][1]}, g);
+        var rule = el("line", {"class": "at-pc-rule", x1: 0, x2: 0, y1: T, y2: B, style: "display:none"}, svg);
+        var cur = el("circle", {"class": "at-mk-cursor", r: 5, style: "display:none"}, g);
+        var hit = el("rect", {x: L, y: T, width: R - L, height: B - T, fill: "transparent", style: "touch-action:pan-y"}, svg);
+        var drag = false;
+        function show(e) {
+            var t = e.touches ? e.touches[0] : e, box = svg.getBoundingClientRect();
+            var d = Math.max(0, Math.min(LAST, Math.round(((t.clientX - box.left) * W / box.width - L) / (R - L) * LAST)));
+            var p = at(d); if (!p) return;
+            rule.setAttribute("x1", x(d)); rule.setAttribute("x2", x(d)); rule.style.display = "";
+            cur.setAttribute("cx", x(d)); cur.setAttribute("cy", y(p[1])); cur.style.display = "";
+            tip.textContent = "";
+            var h = document.createElement("div"); h.className = "at-pc-tip-date"; h.textContent = d === 0 ? "At the draft" : dayLabel(d);
+            var v = document.createElement("div"); v.className = "pp-tip-val"; v.textContent = pick(p[1]);
+            tip.appendChild(h); tip.appendChild(v); tip.hidden = false;
+            var sc = box.width / W, px = x(d) * sc, tw = tip.offsetWidth;
+            tip.style.left = (px + 14 + tw > box.width ? Math.max(0, px - 14 - tw) : px + 14) + "px";
+            tip.style.top = (T * sc + 4) + "px";
+        }
+        function clear() { rule.style.display = "none"; cur.style.display = "none"; tip.hidden = true; }
+        hit.addEventListener("pointerdown", function (e) { drag = true; if (hit.setPointerCapture) hit.setPointerCapture(e.pointerId); show(e); });
+        hit.addEventListener("pointermove", function (e) { if (drag || e.pointerType === "mouse") show(e); });
+        hit.addEventListener("pointerup", function (e) { drag = false; if (e.pointerType !== "mouse") clear(); });
+        hit.addEventListener("pointerleave", function () { if (!drag) clear(); });
+        hit.addEventListener("pointercancel", function () { drag = false; clear(); });
+    }
+    draw();
+    var rt; window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(draw, 150); });
+})();
+</script>
+{% endblock %}

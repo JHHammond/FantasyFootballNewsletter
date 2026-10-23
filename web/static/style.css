@@ -4119,3 +4119,86 @@ html.nb-lock { overflow: hidden; }
     .at-pc .at-pc-set { width: 100%; }
 }
 .at-pc-grid-minor { opacity: .55; }
+
+/* ---- a player's page in the trade market (23 Oct) ---- */
+.pp-back { margin: 0 0 12px; font: 600 14px "Barlow", sans-serif; }
+.pp-back a { color: var(--muted); text-decoration: none; }
+.pp-back a:hover { color: var(--accent); }
+.pp-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 22px; }
+.pp-photo { width: 112px; height: 112px; border-width: 2px; }
+.pp-photo > span { font-size: 44px; }
+.pp-kicker { margin: 0; font: 700 13px "Barlow Condensed", sans-serif; letter-spacing: 1.6px; text-transform: uppercase; color: var(--accent); }
+.pp-name { margin: 2px 0 6px; font: 900 40px/1.05 "Playfair Display", Georgia, serif; }
+.pp-facts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font: 500 14px "Barlow", sans-serif; color: var(--muted); }
+.pp-price { display: flex; flex-direction: column; align-items: flex-end; text-align: right; gap: 2px; }
+.pp-price-label { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); }
+.pp-price b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 64px; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.pp-stats { margin: 0 0 4px; font: 500 14px "Barlow", sans-serif; color: var(--muted); }
+.pp-stats b { font-weight: 600; }
+.pp-tip-val { font-family: "Anton", sans-serif; font-size: 22px; }
+
+.pp-two { display: grid; grid-template-columns: 3fr 2fr; gap: 0 22px; }
+.pp-usage { width: 100%; border-collapse: collapse; font: 500 14px "Barlow", sans-serif; }
+.pp-usage th { text-align: left; font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); padding: 0 8px 6px 0; border-bottom: 1px solid var(--ink); }
+.pp-usage td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line); vertical-align: middle; font-variant-numeric: tabular-nums; }
+.pp-usage td small { display: block; font-size: 12px; color: var(--muted); }
+.pp-bar { display: inline-block; width: 70px; height: 7px; background: #ece4d4; border-radius: 4px; margin-right: 8px; vertical-align: middle; overflow: hidden; }
+.pp-bar i { display: block; height: 100%; background: var(--ink); }
+.pp-note, .pp-empty { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.pp-for { list-style: none; margin: 0; padding: 0; }
+.pp-for li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.pp-for a { font: 600 15px "Barlow", sans-serif; color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.pp-for a:hover { color: var(--accent); }
+.pp-for b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 20px; }
+
+.pp-team { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; flex-wrap: wrap; }
+.pp-team label { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+.pp-team .at-pc-set { width: auto; max-width: 100%; padding: 8px 36px 8px 14px; font: 600 14px "Barlow", sans-serif; color: var(--ink); background-color: #faf6ee; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236b6050' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; }
+
+.pp-deals { list-style: none; margin: 0; padding: 0; }
+.pp-deal { display: grid; grid-template-columns: 150px 1fr; gap: 6px 18px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.pp-deal-when { font: 600 14px "Barlow", sans-serif; }
+.pp-deal-when small { display: block; font-weight: 500; font-size: 12px; color: var(--muted); }
+.pp-deal-sides { display: flex; flex-direction: column; gap: 6px; }
+.pp-deal-side { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.pp-deal-label { width: 34px; flex: none; font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+.pp-plus { color: var(--muted); font-size: 13px; }
+.pp-tok { display: inline-flex; align-items: baseline; gap: 4px; padding: 3px 9px; border-radius: 999px; background: #f2ecdf; font: 600 13.5px "Barlow", sans-serif; color: var(--ink); text-decoration: none; }
+.pp-tok small { font: 700 10px "Barlow Condensed", sans-serif; letter-spacing: .8px; color: var(--muted); }
+a.pp-tok:hover { background: #e8dfcd; color: var(--accent); }
+.pp-tok-him { background: var(--ink); color: var(--paper); }
+.pp-tok-pick { background: #fff; border: 1px dashed #b9ad98; color: var(--ink-2); }
+.pp-tok-faab { background: #fff; border: 1px dashed #b9ad98; color: #2d6a1f; }
+.pp-tok-none { background: none; color: var(--muted); font-style: italic; font-weight: 500; }
+.pp-tok-yours { background: #fbe3e2; color: var(--accent); box-shadow: inset 0 0 0 1px rgba(179, 20, 28, .35); }
+.pp-more { margin: 14px 0 0; }
+.pp-more-btn { background: none; border: 1px solid var(--ink); border-radius: 999px; padding: 8px 18px; font: 600 14px "Barlow", sans-serif; cursor: pointer; color: var(--ink); }
+.pp-more-btn:hover { background: var(--ink); color: var(--paper); }
+
+.pp-locked { position: relative; }
+.pp-blur { filter: blur(5px); opacity: .6; pointer-events: none; user-select: none; }
+.pp-unlock { margin-top: -110px; position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 18px; background: linear-gradient(to bottom, rgba(255, 253, 248, 0), var(--paper) 35%); }
+.pp-unlock p { margin: 30px 0 0; font: 600 15px "Barlow", sans-serif; }
+
+/* The rows in the market's lists open the page; this button still charts him. */
+.at-pl-row { padding-right: 46px; position: relative; }
+.at-pl-list li { position: relative; }
+.at-pl-chart { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--paper); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.at-pl-chart svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.at-pl-chart:hover { color: var(--accent); border-color: var(--accent); }
+.at-pc-name a { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; }
+.at-pc-name a:hover { color: var(--accent); }
+
+@media (max-width: 760px) {
+    .pp-head { grid-template-columns: auto 1fr; }
+    .pp-price { grid-column: 1 / -1; flex-direction: row; align-items: baseline; gap: 12px; justify-content: flex-start; text-align: left; }
+    .pp-two { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+    .pp-photo { width: 76px; height: 76px; }
+    .pp-name { font-size: 30px; }
+    .pp-price b { font-size: 46px; }
+    .pp-deal { grid-template-columns: 1fr; }
+    .pp-usage th:nth-child(4), .pp-usage td:nth-child(4) { white-space: nowrap; }
+    .pp-bar { width: 44px; }
+}
