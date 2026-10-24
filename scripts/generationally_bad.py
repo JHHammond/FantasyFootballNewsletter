@@ -68,4 +68,5 @@ for k in ("winless", "blown_out", "under_100"):
     out[k + "_pct"] = round(100 * out[k] / out["all_teams"], 1) if out["all_teams"] else 0
 out["one_in"] = round(out["all_teams"] / out["under_100"]) if out["under_100"] else None
 print(json.dumps(out, indent=2))
+(ROOT / "output").mkdir(exist_ok=True)
 (ROOT / "output" / f"generationally_bad_week{N}.json").write_text(json.dumps(out, indent=2))
