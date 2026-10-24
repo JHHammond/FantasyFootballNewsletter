@@ -66,21 +66,47 @@ unbeaten = {k for k, v in full.items() if all(x == "W" for x in v.values())}
 winless = {k for k, v in full.items() if all(x == "L" for x in v.values())}
 total = len(full)
 
-# 2. Week-N rosters
+# 2. Week-N rosters, league by league (6 Oct-style lesson: one big ordered
+# scan of lineup_players times out; the primary key starts with league_id, so
+# a few leagues at a time is an index walk). Only leagues that have a 6-0 or
+# 0-6 team are read; "all teams" below means every team in those leagues.
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+
+wanted = sorted({k[0] for k in unbeaten | winless})
+print(f"reading week {N} rosters for {len(wanted):,} leagues", flush=True)
+
+def fetch(chunk):
+    out, start = [], 0
+    while True:
+        rows = (db.client().table("lineup_players").select("league_id,team_id,player_key")
+                .in_("league_id", chunk).eq("season", SEASON).eq("week", N)
+                .order("league_id").order("team_id").order("player_key")
+                .range(start, start + 999).execute().data or [])
+        out += rows
+        if len(rows) < 1000:
+            return out
+        start += 1000
+
 roster = defaultdict(set)
-for r in pages("lineup_players", "league_id,team_id,player_key", N,
-               ["league_id", "team_id", "player_key"]):
-    k = (r["league_id"], r["team_id"])
-    if k in full:
-        roster[k].add(r["player_key"])
-print(f"week {N} rosters: {len(roster)} teams", flush=True)
+chunks = [wanted[i:i + 4] for i in range(0, len(wanted), 4)]
+with ThreadPoolExecutor(8) as pool:
+    for i, rows in enumerate(pool.map(fetch, chunks), 1):
+        for r in rows:
+            k = (r["league_id"], r["team_id"])
+            if k in full:
+                roster[k].add(r["player_key"])
+        if i % 100 == 0:
+            print(f"  {i}/{len(chunks)} chunks", flush=True)
+print(f"week {N} rosters: {len(roster):,} teams", flush=True)
+wanted_set = set(wanted)
+sampled = {k for k in full if k[0] in wanted_set}
 
 def share(group):
     teams = [t for t in group if t in roster]
     c = Counter(p for t in teams for p in roster[t])
     return c, len(teams)
 
-all_c, all_n = share(full)
+all_c, all_n = share(sampled)
 un_c, un_n = share(unbeaten)
 wl_c, wl_n = share(winless)
 
@@ -112,7 +138,7 @@ report = {
     "through_week": N, "teams": total,
     "undefeated": len(unbeaten), "undefeated_pct": round(100 * len(unbeaten) / total, 2),
     "winless": len(winless), "winless_pct": round(100 * len(winless) / total, 2),
-    "rosters_checked": {"all": all_n, "undefeated": un_n, "winless": wl_n},
+    "rosters_checked": {"all_in_same_leagues": all_n, "undefeated": un_n, "winless": wl_n},
     "top_undefeated": top(un_c, un_n), "top_winless": top(wl_c, wl_n),
 }
 out_dir = ROOT / "output"
@@ -125,7 +151,7 @@ print(f"  0-{N}: {len(winless):,} ({report['winless_pct']}%)")
 for label, rows in (("UNDEFEATED", report["top_undefeated"]), ("WINLESS", report["top_winless"])):
     print(f"\nMost common on {label} rosters (share of them, share of all teams):")
     for i, r in enumerate(rows, 1):
-        print(f"  {i:>2}. {r['name']} {r['pos']} {r['team']}: {r['share']}%  (all teams {r['share_all']}%)")
+        print(f"  {i:>2}. {r['name']} {r['pos']} {r['team']}: {r['share']}%  (all teams in those leagues {r['share_all']}%)")
 
 # 3. Headshots, zipped and uploaded
 buf = io.BytesIO()
