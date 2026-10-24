@@ -174,11 +174,11 @@ def value_slot(value: float, decay: float = DECAY, shift: float = SHIFT) -> floa
 
 
 def pick_label(slot: float, teams: int = TEAMS) -> str:
-    """A slot as a draft pick: 14.2 -> "2.03" in a twelve-team league."""
-    n = max(1, int(round(float(slot))))
-    rnd = (n - 1) // teams + 1
-    pick = (n - 1) % teams + 1
-    return f"{rnd}.{pick:02d}"
+    """A place in the market as a player number (John, 23 Oct): whoever is
+    the most expensive is #1, the next #2, and so on. It replaced the
+    draft-pick reading ("2.03"), which made people do round arithmetic.
+    `teams` is kept so callers needn't change."""
+    return f"#{max(1, int(round(float(slot))))}"
 
 
 def curve(exchanges: Iterable[dict], adp: dict[str, float], *,

@@ -149,13 +149,12 @@ def test_the_disagreement_is_kept_not_just_the_average():
 # -------------------------------------------------------------- the pricing
 
 
-def test_a_price_is_a_draft_pick():
-    """John's call, and the right one: "costs the 1.04" means something to
-    anybody who has drafted a team and "worth 103.9" does not."""
-    assert trade_rating.pick_label(1) == "1.01"
-    assert trade_rating.pick_label(12) == "1.12"
-    assert trade_rating.pick_label(13) == "2.01"
-    assert trade_rating.pick_label(27.4) == "3.03"
+def test_a_price_is_a_player_number():
+    """John, 23 Oct: the 1.01 becomes #1, the 1.02 #2 — no round arithmetic."""
+    assert trade_rating.pick_label(1) == "#1"
+    assert trade_rating.pick_label(12) == "#12"
+    assert trade_rating.pick_label(13) == "#13"
+    assert trade_rating.pick_label(27.4) == "#27"
 
 
 def test_the_slot_and_value_curves_are_inverses():
@@ -178,7 +177,7 @@ def test_a_player_nobody_traded_still_has_a_price():
     for key in adp:
         m._ensure(key, None)
     assert m.slot("star") < m.slot("mid") < m.slot("deep")
-    assert m.row("star")["costs"] == "1.02"
+    assert m.row("star")["costs"] == "#2"
 
 
 def test_one_trade_moves_an_unknown_player_further_than_a_known_one():

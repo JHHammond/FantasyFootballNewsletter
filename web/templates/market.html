@@ -32,7 +32,7 @@
 <section class="front at-front mk-front">
     <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; Trade market</p>
     <h1 class="mk-title">What every player costs</h1>
-    <p class="mk-dek">Priced from real fantasy trades across thousands of leagues, as the draft pick he&rsquo;s worth today.</p>
+    <p class="mk-dek">Priced from real fantasy trades across thousands of leagues, ranked by what he costs today. #1 is the most expensive player in fantasy.</p>
 </section>
 
 
@@ -91,10 +91,10 @@
     <figure class="ar-chart at-market-chart at-pc-chart">
         <div class="ar-chart-box at-pc-box">
             <svg viewBox="0 0 760 300" class="ar-line at-pc-svg" id="at-pc-svg"
-                 role="img" aria-label="Each chosen player's price by day, as a draft pick"></svg>
+                 role="img" aria-label="Each chosen player's place in the market by day"></svg>
             <div class="at-pc-tip" id="at-pc-tip" hidden></div>
         </div>
-        <figcaption class="at-pc-note">The pick his trades say he is worth at each day&rsquo;s
+        <figcaption class="at-pc-note">His place in the market (#1 is the most expensive) at each day&rsquo;s
             close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
     <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'mine': mine, 'signed_in': user is not none}|tojson }}</script>
@@ -273,11 +273,7 @@
     });
 
     // ---- scales ----
-    function pickLabel(slot) {
-        var n = Math.max(1, Math.round(slot));
-        var r = Math.floor((n - 1) / 12) + 1, p = (n - 1) % 12 + 1;
-        return r + "." + (p < 10 ? "0" : "") + p;
-    }
+    function pickLabel(slot) { return "#" + Math.max(1, Math.round(slot)); }
     function x(d) { return L + (R - L) * d / LAST; }
     var lo = 1, hi = 24;
     function y(slot) {
@@ -319,7 +315,7 @@
         var s = document.createElement("span");
         s.className = "at-pc-chg " + (n > 0 ? "at-pc-up" : n < 0 ? "at-pc-down" : "at-pc-flat");
         s.textContent = n === 0 ? "level" + (unit ? " " + unit : "")
-            : (n > 0 ? "\u25b2 " : "\u25bc ") + Math.abs(n) + " pick" + (Math.abs(n) === 1 ? "" : "s") + (unit ? " " + unit : "");
+            : (n > 0 ? "\u25b2 " : "\u25bc ") + Math.abs(n) + " spot" + (Math.abs(n) === 1 ? "" : "s") + (unit ? " " + unit : "");
         return s;
     }
 
@@ -423,11 +419,7 @@
         // The start of every round inside the frame. When the frame spans
         // only a round or two, the middle of each round as well (3.07), so a
         // move within a round still has a line to be read against.
-        var ticks = [];
-        for (var rd = 1; rd <= 25; rd++) {
-            ticks.push({slot: (rd - 1) * 12 + 1, label: "Rd " + rd, major: true});
-            ticks.push({slot: (rd - 1) * 12 + 7, label: pickLabel((rd - 1) * 12 + 7), major: false});
-        }
+        var ticks = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300].map(function (n) { return {slot: n, label: "#" + n, major: true}; });
         var inside = ticks.filter(function (tk) { return tk.slot >= lo && tk.slot <= hi; });
         if (inside.filter(function (tk) { return tk.major; }).length >= 3) {
             inside = inside.filter(function (tk) { return tk.major; });
@@ -716,8 +708,8 @@
 {%- endmacro %}
 <section class="card at-pl" id="at-pl">
     <h2 class="card-title">Most expensive</h2>
-    <p class="card-sub">Every traded player in one draft order: the most expensive costs the
-        1.01, the next the 1.02. &ldquo;Drafted&rdquo; is his place in the real draft order among
+    <p class="card-sub">Every traded player numbered by price: the most expensive is #1, the
+        next #2. &ldquo;Drafted&rdquo; is his place in the real draft order among
         the same players, so the arrow is how many he has passed, or been passed by.
         Tap a player for his page, or the chart button to draw him above.</p>
     <ol class="at-pl-list at-pl-two">
@@ -770,7 +762,7 @@
             move him from there. A trade is read as two bundles worth about the same, and each player
             moves by his own uncertainty: a player we barely know swings, one with forty trades behind
             him barely budges. Certainty grows with trades and fades without them.</p>
-        <p>Prices are places in the market, read as draft picks, so the scale can&rsquo;t sag: somebody is
+        <p>Prices are places in the market &mdash; #1 is the most expensive player &mdash; so the scale can&rsquo;t sag: somebody is
             always first. {{ R.rated }} players priced{% if R.streamers %}; {{ R.streamers }} kickers and
             defences left off, because they are streamed rather than traded for{% endif %}. Trades with
             draft picks or FAAB in them are left out, and so are three-way deals.</p>

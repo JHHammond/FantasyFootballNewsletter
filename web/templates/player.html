@@ -77,11 +77,10 @@
     {% if who.priced %}
     <div class="pp-price">
         <div class="pp-figs">
-            <div class="pp-fig"><span class="pp-price-label">Costs</span><b>{{ who.costs }}</b></div>
+            <div class="pp-fig"><span class="pp-price-label">Overall</span><b>{{ who.costs }}</b></div>
             {% if who.position and who.pos_rank %}<div class="pp-fig pp-fig-alt"><span class="pp-price-label">Position</span><b>{{ who.position }}{{ who.pos_rank }}</b></div>{% endif %}
-            <div class="pp-fig pp-fig-alt"><span class="pp-price-label">Overall</span><b>#{{ who.rank }}</b></div>
         </div>
-        {% if who.moved %}<span class="at-pc-chg {{ 'at-pc-up' if who.moved > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if who.moved > 0 else '&#9660;'|safe }} {{ who.moved|abs }} pick{{ '' if who.moved|abs == 1 else 's' }} since the draft</span>
+        {% if who.moved %}<span class="at-pc-chg {{ 'at-pc-up' if who.moved > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if who.moved > 0 else '&#9660;'|safe }} {{ who.moved|abs }} spot{{ '' if who.moved|abs == 1 else 's' }} since the draft</span>
         {% else %}<span class="at-pc-chg at-pc-flat">where he was drafted</span>{% endif %}
     </div>
     {% endif %}
@@ -133,7 +132,7 @@
     {% endif %}
     <figure class="ar-chart at-pc-chart">
         <div class="ar-chart-box at-pc-box"><svg viewBox="0 0 760 260" class="ar-line" id="pp-svg" role="img"
-             aria-label="{{ who.name }}'s price by day, as a draft pick"></svg>
+             aria-label="{{ who.name }}'s place in the market by day"></svg>
             <div class="at-pc-tip" id="pp-tip" hidden></div></div>
         <figcaption class="at-pc-note">Each player&rsquo;s place in the market at each day&rsquo;s close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
@@ -196,7 +195,7 @@
         {% endif %}
         </p>
         {% if trend %}<p class="pp-trend pp-trend-{{ trend.tone }}">{{ trend.say }}
-            <small>{% if trend.moved %}{{ '&#9650;'|safe if trend.moved > 0 else '&#9660;'|safe }} {{ trend.moved|abs }} pick{{ '' if trend.moved|abs == 1 else 's' }} this week{% else %}level this week{% endif %}</small></p>{% endif %}
+            <small>{% if trend.moved %}{{ '&#9650;'|safe if trend.moved > 0 else '&#9660;'|safe }} {{ trend.moved|abs }} spot{{ '' if trend.moved|abs == 1 else 's' }} this week{% else %}level this week{% endif %}</small></p>{% endif %}
     </div>
 
     {% if desk.mode == 'get' and not desk.owner %}
@@ -239,7 +238,7 @@
         <li>
             <span class="at-face pp-tf-face">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
             <a class="pp-tf-name" href="/market/player/{{ p.key|urlencode }}">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}</a>
-            <span class="pp-tf-cost">{% if p.costs %}<b>{{ p.costs }}</b>{% if who.rank and p.rank and p.rank != who.rank %}{% set gap = (p.rank - who.rank)|abs %}<small class="{{ 'pp-cheaper' if p.rank > who.rank else 'pp-dearer' }}">{{ gap }} pick{{ '' if gap == 1 else 's' }} {{ 'later' if p.rank > who.rank else 'earlier' }} than him</small>{% endif %}{% else %}<small>no price</small>{% endif %}</span>
+            <span class="pp-tf-cost">{% if p.costs %}<b>{{ p.costs }}</b>{% if who.rank and p.rank and p.rank != who.rank %}{% set gap = (p.rank - who.rank)|abs %}<small class="{{ 'pp-cheaper' if p.rank > who.rank else 'pp-dearer' }}">{{ gap }} spot{{ '' if gap == 1 else 's' }} {{ 'lower' if p.rank > who.rank else 'higher' }} than him</small>{% endif %}{% else %}<small>no price</small>{% endif %}</span>
             <span class="pp-tf-deals"><span class="pp-split"><i class="pp-split-s" style="width:{{ '%.0f'|format(100 * p.straight / top) }}%"></i><i class="pp-split-p" style="width:{{ '%.0f'|format(100 * p.package / top) }}%"></i></span>
                 <b>{{ p.n }}</b><small>{{ p.straight }} / {{ p.package }}</small></span>
             <span class="pp-tf-recent">{{ p.recent or '&ndash;'|safe }}</span>
@@ -377,10 +376,7 @@
     var chosen = [{k: HIM.k, c: 0}], loading = {};
     function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
     function dayLabel(d) { var t = dateOf(d); return MONTHS[t.getUTCMonth()] + " " + t.getUTCDate(); }
-    function pick(slot) {
-        var n = Math.max(1, Math.round(slot)), r = Math.floor((n - 1) / 12) + 1, p = (n - 1) % 12 + 1;
-        return r + "." + (p < 10 ? "0" : "") + p;
-    }
+    function pick(slot) { return "#" + Math.max(1, Math.round(slot)); }
     document.getElementById("pp-hi").textContent = pick(C.best[1]) + " · " + dayLabel(C.best[0]);
     document.getElementById("pp-lo").textContent = pick(C.worst[1]) + " · " + dayLabel(C.worst[0]);
 
@@ -511,10 +507,7 @@
         frame(); scale();
         while (svg.firstChild) svg.removeChild(svg.firstChild);
         var defs = el("defs", {}, svg), last = -99, ticks = [];
-        for (var rd = 1; rd <= 25; rd++) {
-            ticks.push({s: (rd - 1) * 12 + 1, l: "Rd " + rd, major: true});
-            ticks.push({s: (rd - 1) * 12 + 7, l: pick((rd - 1) * 12 + 7), major: false});
-        }
+        ticks = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300].map(function (n) { return {s: n, l: "#" + n, major: true}; });
         var inside = ticks.filter(function (k) { return k.s >= lo && k.s <= hi; });
         if (inside.filter(function (k) { return k.major; }).length >= 3) inside = inside.filter(function (k) { return k.major; });
         inside.forEach(function (k) {
@@ -578,7 +571,7 @@
                     var gp = document.createElement("small"); gp.className = "pp-tip-gap";
                     if (mine && r.c.c !== 0) {
                         var n = Math.round(mine[1]) - Math.round(r.p[1]);
-                        gp.textContent = n === 0 ? "same price" : Math.abs(n) + (Math.abs(n) === 1 ? " pick " : " picks ") + (n > 0 ? "earlier" : "later");
+                        gp.textContent = n === 0 ? "same price" : Math.abs(n) + (Math.abs(n) === 1 ? " spot " : " spots ") + (n > 0 ? "higher" : "lower");
                     }
                     row.appendChild(sw); row.appendChild(nm); row.appendChild(vb); row.appendChild(gp);
                     tip.appendChild(row);
