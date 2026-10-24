@@ -110,7 +110,7 @@
     var BY = {}; PLAYERS.forEach(function (p) { BY[p.k] = p; });
     var MINE = DATA.mine || null;
     if (MINE && MINE.lines) Object.keys(MINE.lines).forEach(function (k) { LINES[k] = MINE.lines[k]; });
-    var LAST = Math.max(1, DATA.last || 1), MAX = DATA.signed_in ? 6 : 4;  // signed out: four lines, then the sign-up nudge
+    var LAST = Math.max(1, DATA.last || 1), MAX = DATA.signed_in ? 10 : 4;  // signed out: four lines, then the sign-up nudge
     var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     var b0 = DATA.base.split("-").map(Number);
     function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
@@ -231,7 +231,7 @@
     function showChoice(v, done) {
         if (v === "top") { useSet(DATA["default"]); return done(); }
         var m = /^k:(\d+)$/.exec(v);
-        if (m && MINE.known[+m[1]]) { useSet(MINE.known[+m[1]].keys); return done(); }
+        if (m && MINE.known[+m[1]]) { useSet(MINE.known[+m[1]].keys); if (window.mkMark) window.mkMark(MINE.known[+m[1]].all || MINE.known[+m[1]].keys); return done(); }
         m = /^p:([^:]+):(.+)$/.exec(v);
         if (!m) return done();
         // A team we didn't know was his: fetch its roster, checked server-side.
@@ -242,6 +242,7 @@
                 if (d && d.keys) {
                     Object.keys(d.lines || {}).forEach(function (k) { LINES[k] = d.lines[k]; });
                     useSet(d.keys);
+                    if (window.mkMark) window.mkMark(d.all || d.keys);
                 }
                 done();
             })
@@ -706,32 +707,79 @@
 <button type="button" class="at-pl-chart" data-key="{{ r.player_key }}" title="Add {{ r.name }} to the chart"
         aria-label="Add {{ r.name }} to the chart"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 13l4-5 3 3 6-8" /></svg></button>
 {%- endmacro %}
-<section class="card at-pl" id="at-pl">
-    <h2 class="card-title">Most expensive</h2>
-    <p class="card-sub">Every traded player numbered by price: the most expensive is #1, the
-        next #2. &ldquo;Drafted&rdquo; is his place in the real draft order among
-        the same players, so the arrow is how many he has passed, or been passed by.
+<section class="card mk-board" id="at-pl">
+    <h2 class="card-title">The board</h2>
+    <p class="card-sub">Every traded player, numbered by what he costs today.{% if mine %} Your players are highlighted.{% endif %}
         Tap a player for his page, or the chart button to draw him above.</p>
-    <ol class="at-pl-list at-pl-two">
-        {% for r in R.rows[:20] %}
-        <li><a class="at-pl-row" href="/market/player/{{ r.player_key|urlencode }}">
-            <span class="at-pl-rank">{{ loop.index }}</span>
-            {{ face(r) }}
-            <span class="at-pl-who"><span class="at-pl-name">{{ r.name }}{% if r.position %}<span class="ar-pos">{{ r.position }}</span>{% endif %}</span>
-                <small>{% if r.drafted_at %}drafted {{ r.drafted_at }} &middot; {% endif %}{{ '{:,}'.format(r.trades) }} trade{{ '' if r.trades == 1 else 's' }}</small></span>
-            <span class="at-pl-val"><b>{{ r.costs }}</b>
-                {%- if r.moved is not none and r.moved|abs >= 0.5 %}
-                <small class="{{ 'at-pc-up' if r.moved > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if r.moved > 0 else '&#9660;'|safe }} {{ '%.0f'|format(r.moved|abs) }}</small>
-                {%- endif %}</span>
-        </a>{{ chartbtn(r) }}</li>
+    {% set my_keys = [] %}
+    {% for t in (mine.known if mine and mine.known else []) %}{% for k in (t.all or t['keys']) %}{% set _ = my_keys.append(k) %}{% endfor %}{% endfor %}
+    <div class="mk-tabs" role="tablist" aria-label="Position">
+        {% for p in ['All', 'QB', 'RB', 'WR', 'TE'] %}<button type="button" role="tab" class="mk-tab{{ ' on' if loop.first }}" data-pos="{{ p }}">{{ p }}</button>{% endfor %}
+        {% if not mine %}<a class="mk-myteam mk-myteam-sm" href="/market/my-team">Show my team</a>{% endif %}
+    </div>
+    {% set posn = {} %}
+    <div class="mk-scroll">
+    <table class="mk-table" id="mk-table">
+        <thead><tr><th class="mk-c-rk">#</th><th>Player</th><th class="mk-c-pos">Pos</th><th class="mk-c-chg"><span class="mk-wide">Since draft</span><span class="mk-narrow">+/&minus;</span></th><th class="mk-c-tr">Trades</th><th class="mk-c-conf">Confidence</th><th class="mk-c-btn"></th></tr></thead>
+        <tbody>
+        {% for p in R.pickable|sort(attribute='rank') %}
+        {% set n = posn.get(p.pos, 0) + 1 %}{% set _ = posn.update({p.pos: n}) %}
+        {% set moved = (p.dp - p.rank) if p.dp else none %}
+        <tr class="mk-row{{ ' mine' if p.k in my_keys }}" data-pos="{{ p.pos }}" data-k="{{ p.k }}" data-rk="{{ p.rank }}" data-prk="{{ n }}">
+            <td class="mk-c-rk">{{ p.rank }}</td>
+            <td><a class="mk-who" href="/market/player/{{ p.k|urlencode }}">
+                <span class="at-face mk-face{{ ' at-face-def' if p.pos == 'DEF' }}">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
+                <span class="mk-name">{{ p.name }}{% if p.team %} <small>({{ p.team }})</small>{% endif %}</span></a></td>
+            <td class="mk-c-pos">{{ p.pos }}{{ n }}</td>
+            <td class="mk-c-chg">{% if moved is not none and moved|abs >= 1 %}<span class="{{ 'at-pc-up' if moved > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if moved > 0 else '&#9660;'|safe }} {{ '%.0f'|format(moved|abs) }}</span>{% else %}<span class="mk-flat">&ndash;</span>{% endif %}</td>
+            <td class="mk-c-tr">{{ '{:,}'.format(p.trades or 0) }}</td>
+            <td class="mk-c-conf" title="{{ p.firm or '' }}">{% set lit = {'settled': 5, 'firming': 3, 'thin': 1}.get(p.firm, 0) %}<span class="mk-dash mk-dash-{{ p.firm or 'none' }}">{% for i in range(5) %}<i class="{{ 'lit' if i < lit }}"></i>{% endfor %}</span></td>
+            <td class="mk-c-btn">{{ chartbtn({'player_key': p.k, 'name': p.name}) }}</td>
+        </tr>
         {% endfor %}
-    </ol>
+        </tbody>
+    </table>
+    </div>
+    <p class="mk-more"><button type="button" class="pp-more-btn" id="mk-more">Show all</button></p>
     {% if R.held %}
     {# Drafted early, never traded: no market price, so not ranked. #}
     <p class="at-pl-held">Not traded once, so not priced:
         {% for h in R.held %}{{ h.name }} ({{ h.drafted_at }}){{ ', ' if not loop.last else '.' }}{% endfor %}</p>
     {% endif %}
 </section>
+<script>
+(function () {
+    var table = document.getElementById("mk-table");
+    if (!table) return;
+    var rows = Array.prototype.slice.call(table.querySelectorAll("tbody .mk-row"));
+    var more = document.getElementById("mk-more"), pos = "All", all = false, FIRST = 50;
+    function show() {
+        var n = 0;
+        rows.forEach(function (r) {
+            var fits = pos === "All" || r.getAttribute("data-pos") === pos;
+            if (fits) n++;
+            r.hidden = !fits || (!all && n > FIRST);
+            r.querySelector(".mk-c-rk").textContent = pos === "All" ? r.getAttribute("data-rk") : r.getAttribute("data-prk");
+        });
+        more.parentNode.hidden = all || n <= FIRST;
+        more.textContent = "Show all " + n;
+    }
+    document.querySelectorAll(".mk-tab").forEach(function (b) {
+        b.addEventListener("click", function () {
+            pos = b.getAttribute("data-pos"); all = false;
+            document.querySelectorAll(".mk-tab").forEach(function (x) { x.classList.toggle("on", x === b); });
+            show();
+        });
+    });
+    more.addEventListener("click", function () { all = true; show(); });
+    // The chart's "Show" menu calls this when a team is chosen.
+    window.mkMark = function (keys) {
+        var set = {}; (keys || []).forEach(function (k) { set[k] = 1; });
+        rows.forEach(function (r) { r.classList.toggle("mine", !!set[r.getAttribute("data-k")]); });
+    };
+    show();
+})();
+</script>
 
 {% if R.up or R.down %}
 <section class="card at-pl" id="at-pl-movers">

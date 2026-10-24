@@ -1528,7 +1528,7 @@ def around_my_lineup(request: Request, league: str = "", team: str = "",
 
 
 #: How many of the viewer's own players the chart draws.
-MARKET_MY_TEAM = 6
+MARKET_MY_TEAM = 10   # John, 23 Oct: was 6; "if it is too much we will undo it"
 
 
 def _market_roster(league_id: str, team_id: str, season: int, week: int,
@@ -1539,7 +1539,7 @@ def _market_roster(league_id: str, team_id: str, season: int, week: int,
     rank = {p["k"]: p["rank"] for p in (rating or {}).get("pickable") or []}
     rows = db.lineup_for_team(league_id, season, week, team_id) or []
     keys = {r.get("player_key") for r in rows} & set(rank)
-    return sorted(keys, key=rank.get)[:MARKET_MY_TEAM]
+    return sorted(keys, key=rank.get)   # the whole roster; callers draw the top MARKET_MY_TEAM
 
 
 def _market_mine(user: Optional[dict], season: int, week: int,
@@ -1570,13 +1570,15 @@ def _market_mine(user: Optional[dict], season: int, week: int,
                          "teams": [{"id": t["id"], "name": t["name"]} for t in lg["teams"]]})
             continue
         try:
-            keys = _market_roster(lg["id"], me["id"], season, week, rating)
+            roster = _market_roster(lg["id"], me["id"], season, week, rating)
+            keys = roster[:MARKET_MY_TEAM]
         except Exception as exc:  # noqa: BLE001
             print(f"[market] no roster for {lg['id']}: {type(exc).__name__}: {exc}", flush=True)
             continue
         if keys:
             known.append({"league_id": lg["id"], "league": lg["league"],
-                          "team_id": me["id"], "team": me["name"], "keys": keys})
+                          "team_id": me["id"], "team": me["name"], "keys": keys,
+                          "all": roster})   # the board highlights the whole roster
             need.update(keys)
     if not known and not pick:
         return None
@@ -1607,14 +1609,15 @@ def market_roster(request: Request, league: str = "", team: str = ""):
         raise HTTPException(status_code=404)
     rating = _trade_rating(season, latest) or {}
     try:
-        keys = _market_roster(lid, tid, season, latest, rating)
+        roster = _market_roster(lid, tid, season, latest, rating)
+        keys = roster[:MARKET_MY_TEAM]
     except Exception as exc:  # noqa: BLE001
         print(f"[market] no roster for {lid}: {type(exc).__name__}: {exc}", flush=True)
         raise HTTPException(status_code=503) from None
     if not keys:
         raise HTTPException(status_code=404)
     lines = (rating.get("daily") or {}).get("lines") or {}
-    return JSONResponse({"keys": keys, "lines": {k: lines[k] for k in keys if k in lines}},
+    return JSONResponse({"keys": keys, "all": roster, "lines": {k: lines[k] for k in keys if k in lines}},
                         headers={"Cache-Control": "private, max-age=300"})
 
 
