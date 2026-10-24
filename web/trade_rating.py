@@ -136,6 +136,16 @@ MIN_RD = 0.17
 #: trade. One absurd deal — somebody dumping a star for a kicker in a dead
 #: league — should not relocate the top of the board.
 MAX_STEP = 0.35
+#: A trade whose cheaper side is worth less than this share of the dearer
+#: side, by today's prices, is a dump, a joke or collusion, not a price
+#: (John, 23 Oct: Jahmyr Gibbs at #11). Gibbs + Kenneth Walker for
+#: MarShawn Lloyd + Tim Tebow; Gibbs + Drake Maye + Nico Collins for Kenny
+#: Gainwell. Each one, read as fair, dragged him down by the full step cap.
+#: Only judged when every player on the dearer side already has a settled
+#: price (LOPSIDED_KNOWN trades), so an early-season rookie whose real
+#: value nobody knew yet can still teach the market.
+LOPSIDED = 0.25
+LOPSIDED_KNOWN = 3
 #: Below this many drafts a player's ADP is one room's opinion, not a
 #: consensus, and he starts as undrafted instead.
 MIN_DRAFTS = 20
@@ -287,6 +297,8 @@ class Market:
         self.v: dict[str, float] = {}
         self.p: dict[str, float] = {}
         self.n: dict[str, int] = {}
+        #: Trades ignored as lopsided (see LOPSIDED), for the page's footnote.
+        self.ignored = 0
         self.seen_day: dict[str, int] = {}
         self.start: dict[str, float] = {}
         # Where an undrafted player comes in: just past the last pick
@@ -344,6 +356,16 @@ class Market:
         # looks like a broken model — it drove rank correlation to 0.57.
         innovation = (va - vb) - self.spot * (len(a) - len(b))
         if va + vb <= 0:
+            return 0.0
+        # A dump, not a price. The roster-spot charge is credited to the
+        # side taking back fewer bodies before the two are compared.
+        fa = va - self.spot * max(0, len(a) - len(b))
+        fb = vb - self.spot * max(0, len(b) - len(a))
+        hi_side = a if fa >= fb else b
+        lo, hi = sorted((max(fa, 0.0), max(fb, 0.0)))
+        if (hi > 0 and lo / hi < LOPSIDED
+                and all(self.n.get(k, 0) >= LOPSIDED_KNOWN for k in hi_side)):
+            self.ignored += 1
             return 0.0
 
         # Observation noise, relative to the size of the deal: two stars
@@ -540,7 +562,7 @@ def run(exchanges: Iterable[dict], adp: dict[str, float], *,
 
     return {"market": market, "series": series, "days": seen_days,
             "decay": decay, "shift": shift, "spot": spot,
-            "fit": fit, "used": len(deals)}
+            "fit": fit, "used": len(deals) - market.ignored, "ignored": market.ignored}
 
 
 def build(db, season: int, weeks: list[int], *, limit: int = 40,
@@ -677,6 +699,7 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
         "lines": drawn,
         "days": got["days"],
         "used": got["used"],
+        "ignored": got.get("ignored", 0),
         "rated": len(rated),
         "streamers": len(skip),
         "drafts": board.get("drafts") or 0,

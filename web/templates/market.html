@@ -110,7 +110,7 @@
     var BY = {}; PLAYERS.forEach(function (p) { BY[p.k] = p; });
     var MINE = DATA.mine || null;
     if (MINE && MINE.lines) Object.keys(MINE.lines).forEach(function (k) { LINES[k] = MINE.lines[k]; });
-    var LAST = Math.max(1, DATA.last || 1), MAX = DATA.signed_in ? 10 : 4;  // signed out: four lines, then the sign-up nudge
+    var LAST = Math.max(1, DATA.last || 1), MAX = DATA.signed_in ? 6 : 4;  // signed out: four lines, then the sign-up nudge
     var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     var b0 = DATA.base.split("-").map(Number);
     function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
@@ -731,7 +731,8 @@
                 <span class="at-face mk-face{{ ' at-face-def' if p.pos == 'DEF' }}">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
                 <span class="mk-name">{{ p.name }}{% if p.team %} <small>({{ p.team }})</small>{% endif %}</span></a></td>
             <td class="mk-c-pos">{{ p.pos }}{{ n }}</td>
-            <td class="mk-c-chg">{% if moved is not none and moved|abs >= 1 %}<span class="{{ 'at-pc-up' if moved > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if moved > 0 else '&#9660;'|safe }} {{ '%.0f'|format(moved|abs) }}</span>{% else %}<span class="mk-flat">&ndash;</span>{% endif %}</td>
+            {% set pmoved = (pos_drafted[p.k] - n) if pos_drafted and p.k in pos_drafted else none %}
+            <td class="mk-c-chg">{% for mv, cls in ((moved, 'mk-chg-all'), (pmoved, 'mk-chg-pos')) %}<span class="{{ cls }}">{% if mv is not none and mv|abs >= 1 %}<span class="{{ 'at-pc-up' if mv > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if mv > 0 else '&#9660;'|safe }} {{ '%.0f'|format(mv|abs) }}</span>{% else %}<span class="mk-flat">&ndash;</span>{% endif %}</span>{% endfor %}</td>
             <td class="mk-c-tr">{{ '{:,}'.format(p.trades or 0) }}</td>
             <td class="mk-c-conf" title="{{ p.firm or '' }}">{% set lit = {'settled': 5, 'firming': 3, 'thin': 1}.get(p.firm, 0) %}<span class="mk-dash mk-dash-{{ p.firm or 'none' }}">{% for i in range(5) %}<i class="{{ 'lit' if i < lit }}"></i>{% endfor %}</span></td>
             <td class="mk-c-btn">{{ chartbtn({'player_key': p.k, 'name': p.name}) }}</td>
@@ -767,6 +768,7 @@
     document.querySelectorAll(".mk-tab").forEach(function (b) {
         b.addEventListener("click", function () {
             pos = b.getAttribute("data-pos"); all = false;
+            table.classList.toggle("mk-by-pos", pos !== "All");   // since-draft counts within the position
             document.querySelectorAll(".mk-tab").forEach(function (x) { x.classList.toggle("on", x === b); });
             show();
         });
@@ -813,7 +815,7 @@
         <p>Prices are places in the market &mdash; #1 is the most expensive player &mdash; so the scale can&rsquo;t sag: somebody is
             always first. {{ R.rated }} players priced{% if R.streamers %}; {{ R.streamers }} kickers and
             defences left off, because they are streamed rather than traded for{% endif %}. Trades with
-            draft picks or FAAB in them are left out, and so are three-way deals.</p>
+            draft picks or FAAB in them are left out, and so are three-way deals{% if R.ignored %}, and {{ '{:,}'.format(R.ignored) }} lopsided ones where one side was worth under a quarter of the other (dumps, jokes and collusion, not prices){% endif %}.</p>
         <p><b>This is not a ranking of who is good.</b> It is the going rate, and a player nobody will
             part with doesn&rsquo;t get one.</p>
     </details>

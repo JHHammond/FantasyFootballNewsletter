@@ -4467,3 +4467,6 @@ th.mk-c-rk { text-align: center; }
 }
 .mk-narrow { display: none; }
 @media (max-width: 760px) { .mk-wide { display: none; } .mk-narrow { display: inline; } }
+.mk-chg-pos { display: none; }
+.mk-by-pos .mk-chg-all { display: none; }
+.mk-by-pos .mk-chg-pos { display: inline; }

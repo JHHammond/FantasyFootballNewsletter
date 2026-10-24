@@ -201,11 +201,27 @@ async def lifespan(_app: FastAPI):
     # is sized so the generations can never take more than half of it.
     import anyio.to_thread
     anyio.to_thread.current_default_thread_limiter().total_tokens = THREADPOOL_SIZE
+    # Warm the trade market's price list in the background, so the first
+    # visitor after a deploy doesn't wait for it.
+    def warm():
+        try:
+            import nfl_week
+            _trade_rating(nfl_week.current_season(), max(nfl_week.completed_week(), 1))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[market] warm-up skipped: {type(exc).__name__}: {exc}", flush=True)
+    if not os.getenv("DEMO_MODE"):
+        threading.Thread(target=warm, daemon=True, name="rating-warm").start()
     yield
 
 
 app = FastAPI(title="The Commissioner's Desk", docs_url=None, redoc_url=None,
               lifespan=lifespan)
+
+# Compress pages on the way out (23 Oct): the trade market's board is ~700 KB
+# of HTML for 500 players and ~45 KB gzipped, which is the difference on a
+# phone. Small responses aren't worth it.
+from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -1306,14 +1322,71 @@ def _trade_rating(season: int, latest: int) -> Optional[dict]:
     it is worth. None until the drafts are collected (migration 050), in
     which case the page falls back to the older batch market."""
     from . import around, trade_rating
-    try:
+    key = ("rating", season, latest)
+
+    def refresh():
         return around.swr(
-            around._cache, ("rating", season, latest),
+            around._cache, key,
             lambda: trade_rating.build(db, season, list(range(1, max(latest, 1) + 1))),
-            ttl=900) or None
+            ttl=RATING_TTL) or None
+
+    # Nobody waits for a rebuild (John, 23 Oct: "the trades page is very
+    # slow"). The build reads every trade of the season and walks every
+    # player day by day; it takes seconds, and before this the first visitor
+    # after each 15-minute expiry, each deploy, and each new NFL week sat
+    # through it. Now an expired price list is served while a background
+    # thread rebuilds it, and a new week is served last week's list until
+    # its own is ready. Only a cold start with nothing at all still waits.
+    hit = around._cache.get(key)
+    if hit is None:
+        older = [k for k in around._cache
+                 if isinstance(k, tuple) and len(k) == 3 and k[:2] == ("rating", season)]
+        if older:
+            hit = around._cache[max(older, key=lambda k: k[2])]
+            hit = (0.0, hit[1])            # stale by definition: rebuild for this week
+    if hit is not None and time.time() - hit[0] >= RATING_TTL:
+        _rebuild_soon(key, refresh)
+        return hit[1] or None
+    try:
+        return refresh()
     except Exception as exc:  # noqa: BLE001
         print(f"[around] no draft market: {type(exc).__name__}: {exc}", flush=True)
         return None
+
+
+def _week_now(around, season: int, wk: int) -> dict:
+    """One finished week for the player page's usage strip, never waited on
+    once it has been read: an expired week is served as it was while a
+    background thread re-reads it. (Each is a ~1 second national query, and
+    the strip reads every week of the season — up to six seconds for the
+    first visitor after the cache expired.)"""
+    key = ("w", season, wk, around.MIN_STARTS)
+    hit = around._cache.get(key)
+    if hit is not None and time.time() - hit[0] >= around.CACHE_SECONDS:
+        _rebuild_soon(key, lambda: around.week_json(db, season, wk))
+        return hit[1] or {}
+    return around.week_json(db, season, wk)
+
+
+#: How long a built price list is served before a background rebuild.
+RATING_TTL = 900
+_REBUILDING: set = set()
+
+
+def _rebuild_soon(key, refresh) -> None:
+    """One background rebuild per key at a time."""
+    if key in _REBUILDING:
+        return
+    _REBUILDING.add(key)
+
+    def run():
+        try:
+            refresh()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[market] background rebuild failed: {type(exc).__name__}: {exc}", flush=True)
+        finally:
+            _REBUILDING.discard(key)
+    threading.Thread(target=run, daemon=True, name="rating-rebuild").start()
 
 
 def _trade_backfill(season: int) -> Optional[dict]:
@@ -1528,7 +1601,25 @@ def around_my_lineup(request: Request, league: str = "", team: str = "",
 
 
 #: How many of the viewer's own players the chart draws.
-MARKET_MY_TEAM = 10   # John, 23 Oct: was 6; "if it is too much we will undo it"
+MARKET_MY_TEAM = 6
+#: Which six (John, 23 Oct: "ten players is too many"): a starting lineup,
+#: each slot his most expensive player at that position.
+MARKET_MY_LINEUP = ("QB", "RB", "RB", "WR", "WR", "TE")
+
+
+def _my_lineup(roster: list[str], rating: Optional[dict]) -> list[str]:
+    """The six the chart draws for "My team": best QB, two best RBs, two
+    best WRs, best TE. A roster short at a position fills the gap with its
+    next most expensive player, so there are still six lines."""
+    pos = {p["k"]: p.get("pos") for p in (rating or {}).get("pickable") or []}
+    out, left = [], list(roster)            # roster is most expensive first
+    for slot in MARKET_MY_LINEUP:
+        k = next((k for k in left if pos.get(k) == slot), None)
+        if k:
+            out.append(k)
+            left.remove(k)
+    out += left[:MARKET_MY_TEAM - len(out)]
+    return out
 
 
 def _market_roster(league_id: str, team_id: str, season: int, week: int,
@@ -1571,7 +1662,7 @@ def _market_mine(user: Optional[dict], season: int, week: int,
             continue
         try:
             roster = _market_roster(lg["id"], me["id"], season, week, rating)
-            keys = roster[:MARKET_MY_TEAM]
+            keys = _my_lineup(roster, rating)
         except Exception as exc:  # noqa: BLE001
             print(f"[market] no roster for {lg['id']}: {type(exc).__name__}: {exc}", flush=True)
             continue
@@ -1610,7 +1701,7 @@ def market_roster(request: Request, league: str = "", team: str = ""):
     rating = _trade_rating(season, latest) or {}
     try:
         roster = _market_roster(lid, tid, season, latest, rating)
-        keys = roster[:MARKET_MY_TEAM]
+        keys = _my_lineup(roster, rating)
     except Exception as exc:  # noqa: BLE001
         print(f"[market] no roster for {lid}: {type(exc).__name__}: {exc}", flush=True)
         raise HTTPException(status_code=503) from None
@@ -1667,7 +1758,7 @@ def market_player(request: Request, player_key: str, team: str = "",
     if not who.get("photo"):
         from .luck import photo_url
         who["photo"] = photo_url(key, who.get("position"))
-    use = pp.usage(lambda wk: around.week_json(db, season, wk), key,
+    use = pp.usage(lambda wk: _week_now(around, season, wk), key,
                    list(range(1, latest + 1)))
 
     # The viewer's teams, his own first in each league, for the picker.
@@ -1757,7 +1848,12 @@ def market_page(request: Request):
     latest = max(nfl_week.completed_week(), 1)
     week = latest
     rating = _trade_rating(season, latest)
-    return _render(request, "market.html", offer_kind="market", season=season, week=week, latest=latest,
+    pos_drafted: dict = {}
+    for pos in {p.get("pos") for p in (rating or {}).get("pickable") or []}:
+        drafted = sorted((p for p in rating["pickable"] if p.get("pos") == pos and p.get("dp")),
+                         key=lambda p: p["dp"])
+        pos_drafted.update({p["k"]: i + 1 for i, p in enumerate(drafted)})
+    return _render(request, "market.html", offer_kind="market", pos_drafted=pos_drafted, season=season, week=week, latest=latest,
                    staff=staff, photo=around.photo,
                    trade_volume=_trade_volume(season) if staff else None,
                    backfill=_trade_backfill(season) if staff else None,
