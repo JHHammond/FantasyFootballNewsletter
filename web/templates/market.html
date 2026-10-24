@@ -742,15 +742,7 @@
     </table>
     </div>
     <p class="mk-more"><button type="button" class="pp-more-btn" id="mk-more">Show all</button></p>
-    {% if R.injured %}
-    <p class="at-pl-held mk-injured"><b>Off the board while on IR:</b>
-        {% for h in R.injured %}<a href="/market/player/{{ h.k|urlencode }}">{{ h.name }}</a> (was {{ h.was }}){{ ', ' if not loop.last else '.' }}{% endfor %}</p>
-    {% endif %}
-    {% if R.held %}
-    {# Drafted early, never traded: no market price, so not ranked. #}
-    <p class="at-pl-held">Not traded once, so not priced:
-        {% for h in R.held %}{{ h.name }} ({{ h.drafted_at }}){{ ', ' if not loop.last else '.' }}{% endfor %}</p>
-    {% endif %}
+    <p class="at-pl-held">Players on injured reserve are left off the board until they&rsquo;re back. Prices are for redraft leagues; dynasty trades and rookie drafts are left out.</p>
 </section>
 <script>
 (function () {
