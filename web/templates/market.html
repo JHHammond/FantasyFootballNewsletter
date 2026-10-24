@@ -89,9 +89,26 @@
         <span>Put a team from any of your other leagues on the chart and the board.</span></p>
     {% endif %}
     {% if mine and not mine.paid %}
-    <p class="mk-teams-note">{% if mine.locked %}<b>{{ mine.locked|length }} more of your team{{ '' if mine.locked|length == 1 else 's' }} ({{ mine.locked[:3]|join(', ') }}) locked.</b>{% else %}<b>Free accounts show one team.</b>{% endif %}
-        Every team you have, on the chart and the board, comes with the season pass.
-        {% if billing_enabled() %}<span class="mk-teams-cta">{{ upgrade_buttons() }}</span>{% endif %}</p>
+    <div class="mk-lockbar">
+        <span class="mk-lock-ico" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span>
+        <div class="mk-lock-txt">
+            <b>{% if mine.locked %}{{ mine.locked|length }} more of your team{{ '' if mine.locked|length == 1 else 's' }} locked{% else %}Free accounts show one team{% endif %}</b>
+            <span>{% if mine.locked %}{{ mine.locked[:2]|join(', ') }}{% if mine.locked|length > 2 %} and more{% endif %}: unlock{% else %}Unlock{% endif %} every league you play in, on the chart and the board.</span>
+        </div>
+        {% if billing_enabled() %}
+        <div class="mk-lock-cta">
+            {% if season_pass_enabled() %}
+            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="season" />
+                <button type="submit" class="mk-lock-btn">Season pass &middot; {{ season_price_text|replace(' a season', '') }}</button></form>
+            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" />
+                <button type="submit" class="mk-lock-alt">or {{ price_text }}</button></form>
+            {% else %}
+            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" />
+                <button type="submit" class="mk-lock-btn">Upgrade &middot; {{ price_text }}</button></form>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
     {% endif %}
     {% if not user %}
     <p class="mk-nudge" id="at-pc-nudge" hidden>Free accounts compare up to 6 players and put their own team on the chart.

@@ -4582,3 +4582,21 @@ th.mk-c-rk { text-align: center; }
 
 .mk-addleague { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 999px; background: var(--ink); color: var(--paper); text-decoration: none; font: 700 13px "Barlow", sans-serif; white-space: nowrap; }
 .mk-addleague:hover { background: var(--accent); color: #fff; }
+
+/* ---- market: the one-team lock bar (24 Oct) ---- */
+.mk-lockbar { display: flex; align-items: center; gap: 14px; margin: 8px 0 12px; padding: 12px 14px 12px 12px; border: 1px solid #ecd2cf; border-radius: 14px; background: linear-gradient(90deg, #fdf0ee, #fbf7ef); }
+.mk-lock-ico { flex: none; width: 38px; height: 38px; border-radius: 50%; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; }
+.mk-lock-ico svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; }
+.mk-lock-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.mk-lock-txt b { font: 700 15px "Barlow", sans-serif; color: var(--ink); }
+.mk-lock-txt span { font: 500 13.5px "Barlow", sans-serif; color: var(--ink-2); }
+.mk-lock-cta { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.mk-lock-cta form { margin: 0; }
+.mk-lock-btn { border: 0; border-radius: 999px; background: var(--accent); color: #fff; padding: 9px 18px; font: 700 14px "Barlow", sans-serif; cursor: pointer; white-space: nowrap; box-shadow: 0 8px 18px -10px rgba(179, 20, 28, .8); }
+.mk-lock-btn:hover { background: #8f0f16; }
+.mk-lock-alt { border: 0; background: none; padding: 2px; font: 500 12.5px "Barlow", sans-serif; color: var(--muted); text-decoration: underline; cursor: pointer; }
+@media (max-width: 640px) {
+    .mk-lockbar { flex-wrap: wrap; }
+    .mk-lock-txt { flex-basis: calc(100% - 52px); }
+    .mk-lock-cta { flex-direction: row; gap: 10px; margin-left: 52px; }
+}
