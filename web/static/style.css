@@ -4579,3 +4579,6 @@ th.mk-c-rk { text-align: center; }
 @media (max-width: 760px) { .mk-week-cols { grid-template-columns: 1fr; } }
 .pp-prof-tile .pp-mix-key b, .pp-prof-tile .pp-mix-key b { font: 600 13px "Barlow", sans-serif; color: var(--ink); }
 @media (max-width: 760px) { .pp-prof-tile .pp-mix-key b { font-size: 13px; } }
+
+.mk-addleague { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 999px; background: var(--ink); color: var(--paper); text-decoration: none; font: 700 13px "Barlow", sans-serif; white-space: nowrap; }
+.mk-addleague:hover { background: var(--accent); color: #fff; }

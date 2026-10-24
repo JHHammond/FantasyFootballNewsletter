@@ -1986,9 +1986,21 @@ def market_my_team(request: Request):
             has = any(int(l.get("season") or 0) == season for l in db.market_leagues_for_user(user["id"]))
         except Exception:  # noqa: BLE001
             has = False
-        if has:
+        adding = request.query_params.get("add") == "1"
+        if has and adding and not plans.is_paid(user):
+            # Another league is part of the pass: straight to the offer.
+            return RedirectResponse("/market?welcome=1", status_code=303)
+        if has and not adding:
             response = RedirectResponse("/market?show=k%3A0", status_code=303)
             response.delete_cookie(FUNNEL_COOKIE, path="/")
+            return response
+        if has and adding:
+            # A paying account adding another league (John, 24 Oct): connect
+            # it market-only, then straight back here.
+            response = RedirectResponse("/connect", status_code=303)
+            kw = auth.cookie_kwargs()
+            response.set_cookie(FUNNEL_COOKIE, "market", max_age=3 * 86400, path="/",
+                                httponly=True, samesite="lax", secure=bool(kw.get("secure")))
             return response
         # No league yet. First the offer (the market pop-up, about trades),
         # unless they've seen it (?go=connect), already pay, or we can't take
