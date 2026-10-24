@@ -228,8 +228,28 @@
 {# ------------------------------------------------------------ traded for most #}
 <section class="card pp-for-card">
     <h2 class="card-title">Traded for most</h2>
-    {% if lines %}<ul class="pp-lines">{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>{% endif %}
-    {% if lately %}<p class="pp-lately"><span>Lately:</span> {% for p in lately %}<a class="pp-tok pp-tok-player" href="/market/player/{{ p.key|urlencode }}">{{ p.name }}<small>&times;{{ p.n }}</small></a>{% endfor %}</p>{% endif %}
+    {% if profile %}
+    <div class="pp-prof">
+        <div class="pp-prof-tile"><span class="pp-prof-label">Usually goes for</span><b>{{ profile.usual }}</b>
+            <small>in {{ profile.usual_share }}% of his deals</small></div>
+        <div class="pp-prof-tile"><span class="pp-prof-label">Straight up</span><b>{{ profile.straight }}%</b>
+            <span class="pp-prof-bar"><i style="width:{{ profile.straight }}%"></i></span><small>one player for one player</small></div>
+        {% if profile.packaged %}{% set pk = profile.packaged.pct %}
+        <div class="pp-prof-tile"><span class="pp-prof-label">In a package</span>
+            {% if pk >= 50 %}<b>{{ pk }}%</b><small>of the time he&rsquo;s the priciest player in it</small>
+            {% else %}<b>{{ 100 - pk }}%</b><small>of the time someone pricier is in it</small>{% endif %}</div>
+        {% endif %}
+        {% if profile.mix %}
+        <div class="pp-prof-tile pp-prof-mix"><span class="pp-prof-label">Traded for</span>
+            <span class="pp-mix">{% for m in profile.mix %}<i style="width:{{ m.pct }}%;background:{{ m.colour }}" title="{{ m.pos }} {{ m.pct }}%"></i>{% endfor %}</span>
+            <span class="pp-mix-key">{% for m in profile.mix[:4] %}<span><i style="background:{{ m.colour }}"></i>{{ m.pos }} <b>{{ m.pct }}%</b></span>{% endfor %}</span></div>
+        {% endif %}
+    </div>
+    {% elif lines %}<ul class="pp-lines">{% for l in lines %}<li>{{ l }}</li>{% endfor %}</ul>{% endif %}
+    {% if lately %}<div class="pp-lately2"><span class="pp-prof-label">Lately, he&rsquo;s gone for</span>
+        <div class="pp-tiles">{% for p in lately %}<a class="pp-tile" href="/market/player/{{ p.key|urlencode }}">
+            <span class="at-face pp-tile-face">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
+            <span class="pp-tile-txt"><b>{{ p.name }}</b><small>{{ p.position or '' }} &middot; {{ p.n }} deal{{ '' if p.n == 1 else 's' }}</small></span></a>{% endfor %}</div></div>{% endif %}
     {% if traded_for %}
     {% set top = traded_for[0].n %}
     <ol class="pp-tf">
@@ -465,7 +485,7 @@
     var W, H, L, R, T, B;
     function frame() {
         var small = (svg.getBoundingClientRect().width || 760) < 520;
-        if (small) { W = 400; H = 300; L = 44; R = 384; T = 14; B = 262; }
+        if (small) { W = 400; H = 440; L = 40; R = 388; T = 14; B = 402; }   // taller on phones
         else { W = 760; H = 260; L = 54; R = 744; T = 16; B = 222; }
         svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     }

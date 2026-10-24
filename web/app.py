@@ -1678,6 +1678,41 @@ def _market_roster(league_id: str, team_id: str, season: int, week: int,
     return sorted(keys, key=rank.get)   # the whole roster; callers draw the top MARKET_MY_TEAM
 
 
+#: How many risers and fallers the "Moving this week" panel lists.
+MOVERS_WEEK = 5
+#: Only players traded at least this often are judged on a week's move: a
+#: player with three trades jumps on one.
+MOVERS_WEEK_MIN_TRADES = 15
+
+
+def _movers_this_week(rating: Optional[dict]) -> Optional[dict]:
+    """The biggest risers and fallers over the last seven days of daily
+    closes. The market page shows the first of each to everyone and the
+    rest to paying accounts (John, 24 Oct: "something gatekept on the main
+    trade market that immediately makes people want to see it")."""
+    daily = (rating or {}).get("daily") or {}
+    lines = daily.get("lines") or {}
+    last = daily.get("last")
+    if not lines or not last:
+        return None
+    moves = []
+    for p in (rating or {}).get("pickable") or []:
+        line = lines.get(p["k"])
+        if not line or (p.get("trades") or 0) < MOVERS_WEEK_MIN_TRADES:
+            continue
+        then = next((pt[1] for pt in reversed(line) if pt[0] <= last - 7), None)
+        if then is None:
+            continue
+        moved = round(then - line[-1][1])          # up = a smaller number now
+        if moved:
+            moves.append(dict(p, moved=moved))
+    if not moves:
+        return None
+    up = sorted((m for m in moves if m["moved"] > 0), key=lambda m: -m["moved"])[:MOVERS_WEEK]
+    down = sorted((m for m in moves if m["moved"] < 0), key=lambda m: m["moved"])[:MOVERS_WEEK]
+    return {"up": up, "down": down}
+
+
 def _market_mine(user: Optional[dict], season: int, week: int,
                  rating: Optional[dict]) -> Optional[dict]:
     """The viewer's own teams for the chart's "Show" menu (John, 23 Oct:
@@ -1718,8 +1753,19 @@ def _market_mine(user: Optional[dict], season: int, week: int,
             need.update(keys)
     if not known and not pick:
         return None
+    # Free accounts: one team on the market (John, 24 Oct: "make it clear you
+    # need to pay to add multiple teams"). The rest are named, locked.
+    locked = []
+    if not plans.is_paid(user):
+        teams = [("k", t) for t in known] + [("p", t) for t in pick]
+        keep = teams[:1]
+        locked = [t.get("team") or t.get("league") for _, t in teams[1:]]
+        known = [t for kind, t in keep if kind == "k"]
+        pick = [t for kind, t in keep if kind == "p"]
+        need = {k for t in known for k in t["keys"]}
     lines = (rating.get("daily") or {}).get("lines") or {}
-    return {"known": known, "pick": pick, "url": "/market/roster.json",
+    return {"known": known, "pick": pick, "url": "/market/roster.json", "locked": locked,
+            "paid": plans.is_paid(user),
             "lines": {k: lines[k] for k in need if k in lines}}
 
 
@@ -1862,8 +1908,9 @@ def market_player(request: Request, player_key: str, team: str = "",
                    who=who, chart=ch, usage=use, trend=pp.trend(ch),
                    compare=pp.compare_picks(key, prices, tf) if ch else [],
                    players=pp.compare_players(prices) if ch else [],
-                   traded_for=tf, lately=pp.lately(trades),
+                   traded_for=tf, lately=pp.lately(trades, prices=prices),
                    lines=pp.summary_lines(trades, key, prices),
+                   profile=pp.trade_profile(trades, key, prices),
                    trades=trades, first=pp.TRADES_FIRST, yours=yours, desk=desk,
                    paid=paid, options=[{k: v for k, v in o.items() if k != "lg"} for o in options],
                    chosen=chosen and {"value": chosen["value"], "label": chosen["label"],
@@ -1893,12 +1940,14 @@ def market_page(request: Request):
     latest = max(nfl_week.completed_week(), 1)
     week = latest
     rating = _trade_rating(season, latest)
+    movers7 = _movers_this_week(rating)
     pos_drafted: dict = {}
     for pos in {p.get("pos") for p in (rating or {}).get("pickable") or []}:
         drafted = sorted((p for p in rating["pickable"] if p.get("pos") == pos and p.get("dp")),
                          key=lambda p: p["dp"])
         pos_drafted.update({p["k"]: i + 1 for i, p in enumerate(drafted)})
-    return _render(request, "market.html", offer_kind="market", pos_drafted=pos_drafted, season=season, week=week, latest=latest,
+    return _render(request, "market.html", offer_kind="market", pos_drafted=pos_drafted,
+                   movers7=movers7, paid=plans.is_paid(user), season=season, week=week, latest=latest,
                    staff=staff, photo=around.photo,
                    trade_volume=_trade_volume(season) if staff else None,
                    backfill=_trade_backfill(season) if staff else None,

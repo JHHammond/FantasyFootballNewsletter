@@ -132,13 +132,13 @@ def traded_for(trades: list[dict], prices: Optional[dict] = None,
     return out
 
 
-def lately(trades: list[dict], limit: int = 3) -> list[dict]:
+def lately(trades: list[dict], limit: int = 3, prices: Optional[dict] = None) -> list[dict]:
     """Who he has gone for in the last two weeks, most often first."""
     cut = recent_cut(trades)
     if not cut:
         return []
     recent = [t for t in trades if t.get("date") and t["date"] > cut]
-    return traded_for(recent, limit=limit)
+    return traded_for(recent, prices, limit=limit)
 
 
 POS_WORD = {"QB": "QB", "RB": "RB", "WR": "WR", "TE": "TE", "K": "kicker", "DEF": "defence"}
@@ -496,3 +496,51 @@ def compare_players(prices: dict) -> list[dict]:
     return [{"k": p["k"], "name": p.get("name"), "pos": p.get("pos"), "team": p.get("team"),
              "costs": p.get("costs"), "rank": p.get("rank"), "photo": p.get("photo")}
             for p in sorted(prices.values(), key=lambda p: p.get("rank") or 9999)]
+
+
+
+#: Colours for the position mix bar, matching the chart's palette.
+POS_COLOUR = {"QB": "#4a5b8c", "RB": "#2d6a1f", "WR": "#b3141c", "TE": "#8a6d1f"}
+
+
+def trade_profile(trades: list[dict], key: str, prices: Optional[dict] = None) -> Optional[dict]:
+    """The same facts as summary_lines, as numbers for tiles (John, 24 Oct:
+    "should be presented better"): what he usually goes for, how often
+    straight up, whether he's the priciest piece of a package, and the mix
+    of positions he's traded for."""
+    prices = prices or {}
+    if len(trades) < 3:
+        return None
+    sizes: dict[int, int] = {}
+    pos: dict[str, int] = {}
+    for t in trades:
+        players = [i for i in t["gave"] if i["kind"] == "player"]
+        sizes[len(players)] = sizes.get(len(players), 0) + 1
+        for i in players:
+            if i.get("position"):
+                pos[i["position"]] = pos.get(i["position"], 0) + 1
+    n_size = max(sizes.items(), key=lambda kv: (kv[1], -kv[0]))[0]
+    top_pos = max(pos.items(), key=lambda kv: kv[1])[0] if pos else None
+    usual = ("1 " + POS_WORD.get(top_pos, top_pos)) if n_size == 1 and top_pos else \
+        {0: "Picks only", 1: "1 player"}.get(n_size, f"{n_size} players")
+    straight = round(100 * sum(1 for t in trades if t.get("straight")) / len(trades))
+    packaged = None
+    mine = prices.get(key) or {}
+    if mine.get("rank"):
+        judged = best = 0
+        for t in trades:
+            if t.get("straight"):
+                continue
+            ranks = [o["rank"] for o in (prices.get(k) for k in t["gave_keys"] + t["with_keys"])
+                     if o and o.get("rank")]
+            if ranks:
+                judged += 1
+                best += mine["rank"] < min(ranks)
+        if judged >= 3:
+            packaged = {"pct": round(100 * best / judged), "deals": judged}
+    total = sum(pos.values())
+    mix = [{"pos": p, "pct": round(100 * n / total), "colour": POS_COLOUR.get(p, "#9a8f7b")}
+           for p, n in sorted(pos.items(), key=lambda kv: -kv[1])] if total else []
+    mix = [m for m in mix if m["pct"] >= 3]
+    return {"usual": usual, "usual_share": round(100 * sizes[n_size] / len(trades)),
+            "straight": straight, "packaged": packaged, "mix": mix, "deals": len(trades)}

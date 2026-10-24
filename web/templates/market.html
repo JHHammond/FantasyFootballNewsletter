@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import upgrade_buttons %}
 {% block title %}The trade market, week {{ week }}{% endblock %}
 {% block description %}What the field pays for a player, read off every trade across the connected leagues.{% endblock %}
 {% block wrapclass %}home around{% endblock %}
@@ -34,6 +35,43 @@
     <h1 class="mk-title">What every player costs</h1>
     <p class="mk-dek">Priced from real fantasy trades across thousands of leagues, ranked by what he costs today. #1 is the most expensive player in fantasy.</p>
 </section>
+
+{# ------------------------------------------------- moving this week (gated) #}
+{% if movers7 %}
+{% macro mrow(m, locked=false) -%}
+<li class="mk-mv">
+    {%- if locked %}<span class="mk-mv-lock"><span class="at-face mk-face"><span>?</span></span><span class="mk-mv-name">Locked player <small>RB &middot; #00</small></span><span class="mk-mv-chg">&#9650; 00</span></span>
+    {%- else %}<a class="mk-mv-link" href="/market/player/{{ m.k|urlencode }}"><span class="at-face mk-face">{% if m.photo %}<img src="{{ m.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (m.name or '?')[:1] }}</span></span>
+        <span class="mk-mv-name">{{ m.name }} <small>{{ m.pos }} &middot; {{ m.costs }}</small></span>
+        <span class="mk-mv-chg {{ 'at-pc-up' if m.moved > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if m.moved > 0 else '&#9660;'|safe }} {{ m.moved|abs }}</span></a>
+    {%- endif %}
+</li>
+{%- endmacro %}
+<section class="card mk-week">
+    <h2 class="card-title">Moving this week</h2>
+    <div class="mk-week-cols">
+        {% for label, sub, rows in [('Buy now', 'Rising fastest: get him before he costs more', movers7.up), ('Sell now', 'Falling fastest: move him before he drops further', movers7.down)] %}
+        {% if rows %}
+        <div class="mk-week-col">
+            <h3 class="mk-week-head">{{ label }}<small>{{ sub }}</small></h3>
+            <ol class="mk-mv-list">
+                {{ mrow(rows[0]) }}
+                {% if paid %}{% for m in rows[1:] %}{{ mrow(m) }}{% endfor %}
+                {% else %}{% for m in rows[1:] %}{{ mrow(none, true) }}{% endfor %}{% endif %}
+            </ol>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% if not paid %}
+    <div class="mk-week-unlock">
+        <p><b>See every riser and faller this week</b>, plus fair offers built from your own roster for any player.</p>
+        {% if not user %}<a class="btn btn-primary" href="/signup?next={{ '/market?welcome=1'|urlencode }}">Sign up free</a>
+        {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
+    </div>
+    {% endif %}
+</section>
+{% endif %}
 
 
 {# -------------------------------------------------- the price, day by day #}
@@ -81,6 +119,11 @@
         <label for="at-pc-set">Show</label>
         <select id="at-pc-set" class="at-pc-set"></select>
     </div>
+    {% if mine and not mine.paid %}
+    <p class="mk-teams-note">{% if mine.locked %}<b>{{ mine.locked|length }} more of your team{{ '' if mine.locked|length == 1 else 's' }} ({{ mine.locked[:3]|join(', ') }}) locked.</b>{% else %}<b>Free accounts show one team.</b>{% endif %}
+        Every team you have, on the chart and the board, comes with the season pass.
+        {% if billing_enabled() %}<span class="mk-teams-cta">{{ upgrade_buttons() }}</span>{% endif %}</p>
+    {% endif %}
     {% if not user %}
     <p class="mk-nudge" id="at-pc-nudge" hidden>Free accounts compare up to 6 players and put their own team on the chart.
         <a class="mk-nudge-go" href="/signup?next={{ '/market?welcome=1'|urlencode }}">Sign up free</a>
@@ -146,7 +189,7 @@
         var small = (svg.getBoundingClientRect().width || 760) < 520;
         if (small === narrow) return false;
         narrow = small;
-        if (small) { W = 400; H = 330; L = 44; R = 388; T = 14; B = 292; }
+        if (small) { W = 400; H = 470; L = 40; R = 390; T = 14; B = 432; }   // taller on phones (24 Oct: too condensed)
         else { W = 760; H = 300; L = 54; R = 744; T = 16; B = 262; }
         svg.setAttribute("viewBox", "0 0 " + W + " " + H);
         return true;

@@ -4534,3 +4534,48 @@ th.mk-c-rk { text-align: center; }
 @media (max-width: 400px) {
     .at-pc-c-4 { display: none; }
 }
+
+/* ---- player page: how he trades, as tiles (24 Oct) ---- */
+.pp-prof { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 4px 0 16px; }
+.pp-prof-tile { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; background: #f6f1e6; border-radius: 12px; }
+.pp-prof-label { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1.3px; text-transform: uppercase; color: var(--muted); }
+.pp-prof-tile b { font: 400 30px/1.05 "Anton", sans-serif; color: var(--ink); }
+.pp-prof-tile small { font: 500 13px "Barlow", sans-serif; color: var(--ink-2); }
+.pp-prof-bar { display: block; height: 6px; border-radius: 3px; background: #e2d9c7; overflow: hidden; }
+.pp-prof-bar i { display: block; height: 100%; background: var(--accent); }
+.pp-prof-mix { grid-column: span 2; }
+.pp-mix { display: flex; height: 14px; border-radius: 7px; overflow: hidden; margin: 8px 0 6px; background: #e2d9c7; }
+.pp-mix i { display: block; height: 100%; }
+.pp-mix-key { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 500 13px "Barlow", sans-serif; color: var(--ink-2); }
+.pp-mix-key span { display: inline-flex; align-items: center; gap: 6px; }
+.pp-mix-key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.pp-mix-key b { font: 600 13px "Barlow", sans-serif; color: var(--ink); }
+.pp-lately2 { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; }
+@media (max-width: 760px) {
+    .pp-prof { grid-template-columns: 1fr 1fr; }
+    .pp-prof-mix { grid-column: 1 / -1; }
+    .pp-prof-tile b { font-size: 26px; }
+}
+
+/* ---- market: moving this week (gated), one-team note (24 Oct) ---- */
+.mk-week-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.mk-week-head { margin: 0 0 8px; font: 400 22px "Anton", sans-serif; letter-spacing: .3px; display: flex; flex-direction: column; }
+.mk-week-head small { font: 500 13px "Barlow", sans-serif; color: var(--muted); letter-spacing: 0; }
+.mk-mv-list { list-style: none; margin: 0; padding: 0; }
+.mk-mv { border-bottom: 1px solid var(--line); }
+.mk-mv-link, .mk-mv-lock { display: flex; align-items: center; gap: 10px; padding: 8px 2px; color: var(--ink); text-decoration: none; }
+.mk-mv-link:hover .mk-mv-name { color: var(--accent); }
+.mk-mv-name { flex: 1; min-width: 0; font: 700 15px "Barlow", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-mv-name small { font-weight: 500; font-size: 12.5px; color: var(--muted); }
+.mk-mv-chg { font: 700 15px "Barlow", sans-serif; white-space: nowrap; }
+.mk-mv-lock { filter: blur(4.5px); opacity: .55; user-select: none; pointer-events: none; }
+.mk-week-unlock { margin-top: 14px; padding: 14px 16px; border-radius: 12px; background: #fbe3e2; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.mk-week-unlock p { margin: 0; flex: 1 1 260px; font: 500 15px "Barlow", sans-serif; }
+.mk-week-unlock form { margin: 0; }
+.mk-teams-note { margin: 6px 0 10px; padding: 10px 14px; border-radius: 10px; background: #f6f1e6; font: 500 14px "Barlow", sans-serif; color: var(--ink-2); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.mk-teams-note b { color: var(--ink); }
+.mk-teams-cta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mk-teams-cta form { margin: 0; }
+@media (max-width: 760px) { .mk-week-cols { grid-template-columns: 1fr; } }
+.pp-prof-tile .pp-mix-key b, .pp-prof-tile .pp-mix-key b { font: 600 13px "Barlow", sans-serif; color: var(--ink); }
+@media (max-width: 760px) { .pp-prof-tile .pp-mix-key b { font-size: 13px; } }
