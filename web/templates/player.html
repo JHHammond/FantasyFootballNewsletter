@@ -62,7 +62,7 @@
         {%- if who.photo %}<img src="{{ who.photo }}" alt="" onerror="this.remove()" />{% endif -%}
         <span>{{ (who.name or '?')[:1] }}</span></span>
     <div class="pp-id">
-        <p class="pp-kicker">{{ who.position or '' }}{% if who.team %} &middot; {{ who.team }}{% endif %}</p>
+        <p class="pp-kicker">{{ who.position or '' }}{% if who.team %} &middot; {{ who.team }}{% endif %}{% if who.inj %} <span class="mk-inj mk-inj-{{ who.inj|lower }}">{{ who.inj }}</span>{% endif %}</p>
         <h1 class="pp-name">{{ who.name }}</h1>
         {% if who.priced %}
         <p class="pp-facts">
@@ -71,7 +71,7 @@
             {% if who.firm %}<span class="at-firm at-firm-{{ who.firm }}">{{ who.firm }}</span>{% endif %}
         </p>
         {% else %}
-        <p class="pp-facts"><span>Not priced: kickers and defences are streamed, not traded for.</span></p>
+        <p class="pp-facts"><span>{% if who.off_board %}Off the board while on {{ who.inj }}. He was {{ who.off_board }} before; trades of him are still below.{% else %}Not priced: kickers and defences are streamed, not traded for.{% endif %}</span></p>
         {% endif %}
     </div>
     {% if who.priced %}
@@ -136,7 +136,7 @@
             <div class="at-pc-tip" id="pp-tip" hidden></div></div>
         <figcaption class="at-pc-note">Each player&rsquo;s place in the market at each day&rsquo;s close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
-    <script type="application/json" id="pp-data">{{ {'base': chart.base, 'last': chart.last, 'line': chart.line, 'best': chart.best, 'worst': chart.worst, 'him': {'k': who.key, 'name': who.name, 'pos': who.position, 'costs': who.costs, 'photo': who.photo}, 'players': players, 'url': '/market/line.json', 'max': 5 if user else 2, 'signed_in': user is not none}|tojson }}</script>
+    <script type="application/json" id="pp-data">{{ {'base': chart.base, 'last': chart.last, 'line': chart.line, 'best': chart.best, 'worst': chart.worst, 'him': {'k': who.key, 'name': who.name, 'pos': who.position, 'costs': who.get('costs'), 'photo': who.photo}, 'players': players, 'url': '/market/line.json', 'max': 5 if user else 2, 'signed_in': user is not none}|tojson }}</script>
 </section>
 {% endif %}
 

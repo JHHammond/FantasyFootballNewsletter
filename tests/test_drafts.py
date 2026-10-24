@@ -322,3 +322,23 @@ def test_prices_are_places_and_nobody_shares_a_pick():
     series = {"walker": [{"day": 1, "slot": 21.6}, {"day": 9, "slot": 9.8}]}
     line = trade_rating.on_place_scale(series, rated, adp, place)["walker"]
     assert [pt["slot"] for pt in line] == [4.0, 4.0]        # ends on his place in the table
+
+
+def test_injured_reserve_comes_off_the_board_and_the_rest_renumber():
+    """John, 23 Oct: Jalen Hurts out for the year shouldn't keep his price."""
+    r = {"pickable": [
+            {"k": "a", "name": "A", "pos": "QB", "rank": 1, "costs": "#1", "dp": 2},
+            {"k": "hurts", "name": "Jalen Hurts", "pos": "QB", "rank": 2, "costs": "#2", "dp": 1},
+            {"k": "c", "name": "C", "pos": "RB", "rank": 3, "costs": "#3", "dp": 3}],
+         "rows": [{"player_key": k, "costs": "?"} for k in ("a", "hurts", "c")],
+         "up": [], "down": [{"player_key": "hurts"}]}
+    out = trade_rating.apply_injuries(r, {"hurts": "IR", "c": "Questionable"})
+    assert [p["k"] for p in out["pickable"]] == ["a", "c"]
+    assert [p["costs"] for p in out["pickable"]] == ["#1", "#2"]
+    assert out["pickable"][1]["inj"] == "Q"
+    assert out["injured"][0]["k"] == "hurts" and out["injured"][0]["was"] == "#2"
+    assert [x["player_key"] for x in out["rows"]] == ["a", "c"] and out["down"] == []
+    # The cached build itself is untouched.
+    assert len(r["pickable"]) == 3 and r["pickable"][2]["costs"] == "#3"
+    # No statuses: nothing changes.
+    assert trade_rating.apply_injuries(r, {}) is r

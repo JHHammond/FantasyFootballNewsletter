@@ -253,11 +253,13 @@ def your_trades(trades: list[dict], roster: set[str]) -> list[dict]:
 def summary(key: str, rating: Optional[dict], names: dict) -> dict:
     """Who he is and what he costs, from the market's cached build."""
     pick = next((p for p in (rating or {}).get("pickable") or [] if p["k"] == key), None)
+    hurt = next((p for p in (rating or {}).get("injured") or [] if p["k"] == key), None)
     meta = names.get(key) or {}
-    s = {"key": key, "name": (pick or {}).get("name") or meta.get("name") or key,
-         "position": (pick or {}).get("pos") or meta.get("position"),
-         "team": (pick or {}).get("team") or meta.get("nfl_team"),
-         "photo": (pick or {}).get("photo"), "priced": pick is not None}
+    s = {"key": key, "name": (pick or hurt or {}).get("name") or meta.get("name") or key,
+         "position": (pick or hurt or {}).get("pos") or meta.get("position"),
+         "team": (pick or hurt or {}).get("team") or meta.get("nfl_team"),
+         "photo": (pick or hurt or {}).get("photo"), "priced": pick is not None,
+         "inj": (pick or hurt or {}).get("inj"), "off_board": hurt["was"] if hurt else None}
     if pick:
         # His place among his own position (RB2), by the same prices.
         pos_rank = 1 + sum(1 for p in (rating or {}).get("pickable") or []

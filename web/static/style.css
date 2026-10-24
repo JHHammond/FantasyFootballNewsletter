@@ -4470,3 +4470,10 @@ th.mk-c-rk { text-align: center; }
 .mk-chg-pos { display: none; }
 .mk-by-pos .mk-chg-all { display: none; }
 .mk-by-pos .mk-chg-pos { display: inline; }
+
+/* ---- injury tags (23 Oct) ---- */
+.mk-inj { display: inline-block; margin-left: 8px; padding: 1px 6px; border-radius: 4px; font: 700 10.5px "Barlow Condensed", sans-serif; letter-spacing: .8px; vertical-align: 2px; background: #f2ecdf; color: var(--ink-2); }
+.mk-inj-q { background: #fff3cd; color: #7a5b00; }
+.mk-inj-d, .mk-inj-out, .mk-inj-ir, .mk-inj-pup, .mk-inj-sus { background: #fbe3e2; color: var(--accent); }
+.pp-kicker .mk-inj { font-size: 12px; vertical-align: 1px; }
+.mk-injured a { color: var(--ink); }

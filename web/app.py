@@ -1327,7 +1327,9 @@ def _trade_rating(season: int, latest: int) -> Optional[dict]:
     def refresh():
         return around.swr(
             around._cache, key,
-            lambda: trade_rating.build(db, season, list(range(1, max(latest, 1) + 1))),
+            lambda: trade_rating.apply_injuries(
+                trade_rating.build(db, season, list(range(1, max(latest, 1) + 1))),
+                _injury_status()),
             ttl=RATING_TTL) or None
 
     # Nobody waits for a rebuild (John, 23 Oct: "the trades page is very
@@ -1366,6 +1368,19 @@ def _week_now(around, season: int, wk: int) -> dict:
         _rebuild_soon(key, lambda: around.week_json(db, season, wk))
         return hit[1] or {}
     return around.week_json(db, season, wk)
+
+
+def _injury_status() -> dict:
+    """{sleeper player id: injury status} from Sleeper's player index, which
+    the provider already holds in memory (refreshed daily, as Sleeper asks).
+    Empty on any failure: the market then simply carries no injury tags."""
+    try:
+        index = get_provider("sleeper")._player_index() or {}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[market] no injury statuses: {type(exc).__name__}: {exc}", flush=True)
+        return {}
+    return {pid: p["injury_status"] for pid, p in index.items()
+            if isinstance(p, dict) and p.get("injury_status")}
 
 
 #: How long a built price list is served before a background rebuild.
@@ -1753,7 +1768,7 @@ def market_player(request: Request, player_key: str, team: str = "",
         raw = []
     trades = pp.shape_trades(raw)
     who = pp.summary(key, rating, names)
-    if not who["priced"] and not trades:
+    if not who["priced"] and not trades and not who.get("off_board"):
         raise HTTPException(status_code=404)
     if not who.get("photo"):
         from .luck import photo_url

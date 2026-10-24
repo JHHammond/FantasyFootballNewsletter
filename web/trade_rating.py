@@ -837,3 +837,61 @@ def _snapshot(market: Market, series: dict, day: int,
             series.setdefault(key, []).append({
                 "day": day, "slot": round(ranked[key], 1),
                 "trades": market.n[key]})
+
+
+# ---------------------------------------------------------------------------
+# Injuries (John, 23 Oct). The market only moves on trades, and an injured
+# player stops being traded, so his price freezes where it was: Jalen Hurts,
+# out for the year, would sit at his pre-injury number for weeks. Sleeper's
+# injury status fixes the obvious cases without guessing at prices.
+# ---------------------------------------------------------------------------
+
+#: Off the board while one of these: injured reserve, or not yet activated.
+SEASON_OUT = {"IR", "PUP"}
+#: How each status prints as a tag.
+INJURY_TAG = {"QUESTIONABLE": "Q", "DOUBTFUL": "D", "OUT": "OUT", "IR": "IR",
+              "PUP": "PUP", "SUS": "SUS", "NA": "NA"}
+
+
+def injury_tag(status) -> Optional[str]:
+    return INJURY_TAG.get(str(status or "").strip().upper())
+
+
+def apply_injuries(r: Optional[dict], status: dict) -> Optional[dict]:
+    """Tag every priced player with his injury status, and take players on
+    IR/PUP off the board: renumbered without them, listed separately as
+    `injured`. Works on a copy of the lists; the cached build is untouched.
+    `status` is {player_key: Sleeper injury_status}."""
+    if not r or not status:
+        return r
+    r = dict(r)
+    pickable = [dict(p, inj=injury_tag(status.get(p["k"]))) for p in r.get("pickable") or []]
+    gone = {p["k"] for p in pickable if (p.get("inj") or "") in SEASON_OUT}
+    keep = sorted((p for p in pickable if p["k"] not in gone), key=lambda p: p["rank"])
+    drafted = {p["k"]: i + 1 for i, p in enumerate(
+        sorted((p for p in keep if p.get("dp")), key=lambda p: p["dp"]))}
+    for i, p in enumerate(keep):
+        p["rank"], p["costs"] = i + 1, pick_label(i + 1)
+        if p["k"] in drafted:
+            p["dp"], p["drafted"] = drafted[p["k"]], pick_label(drafted[p["k"]])
+    by_key = {p["k"]: p for p in keep}
+
+    def fix(rows):
+        out = []
+        for row in rows or []:
+            p = by_key.get(row.get("player_key"))
+            if p is None:
+                continue
+            row = dict(row, costs=p["costs"], inj=p.get("inj"))
+            if p.get("dp"):
+                row["moved"] = p["dp"] - p["rank"]
+                row["drafted_at"] = p["drafted"]
+            out.append(row)
+        return out
+
+    r["pickable"] = keep
+    r["rows"], r["up"], r["down"] = fix(r.get("rows")), fix(r.get("up")), fix(r.get("down"))
+    r["injured"] = [{"k": p["k"], "name": p.get("name"), "pos": p.get("pos"), "team": p.get("team"),
+                     "inj": p["inj"], "was": p["costs"], "photo": p.get("photo")}
+                    for p in sorted((p for p in pickable if p["k"] in gone), key=lambda p: p["rank"])]
+    return r

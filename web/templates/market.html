@@ -729,7 +729,7 @@
             <td class="mk-c-rk">{{ p.rank }}</td>
             <td><a class="mk-who" href="/market/player/{{ p.k|urlencode }}">
                 <span class="at-face mk-face{{ ' at-face-def' if p.pos == 'DEF' }}">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
-                <span class="mk-name">{{ p.name }}{% if p.team %} <small>({{ p.team }})</small>{% endif %}</span></a></td>
+                <span class="mk-name">{{ p.name }}{% if p.team %} <small>({{ p.team }})</small>{% endif %}</span>{% if p.inj %}<span class="mk-inj mk-inj-{{ p.inj|lower }}" title="Injury status from Sleeper">{{ p.inj }}</span>{% endif %}</a></td>
             <td class="mk-c-pos">{{ p.pos }}{{ n }}</td>
             {% set pmoved = (pos_drafted[p.k] - n) if pos_drafted and p.k in pos_drafted else none %}
             <td class="mk-c-chg">{% for mv, cls in ((moved, 'mk-chg-all'), (pmoved, 'mk-chg-pos')) %}<span class="{{ cls }}">{% if mv is not none and mv|abs >= 1 %}<span class="{{ 'at-pc-up' if mv > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if mv > 0 else '&#9660;'|safe }} {{ '%.0f'|format(mv|abs) }}</span>{% else %}<span class="mk-flat">&ndash;</span>{% endif %}</span>{% endfor %}</td>
@@ -742,6 +742,10 @@
     </table>
     </div>
     <p class="mk-more"><button type="button" class="pp-more-btn" id="mk-more">Show all</button></p>
+    {% if R.injured %}
+    <p class="at-pl-held mk-injured"><b>Off the board while on IR:</b>
+        {% for h in R.injured %}<a href="/market/player/{{ h.k|urlencode }}">{{ h.name }}</a> (was {{ h.was }}){{ ', ' if not loop.last else '.' }}{% endfor %}</p>
+    {% endif %}
     {% if R.held %}
     {# Drafted early, never traded: no market price, so not ranked. #}
     <p class="at-pl-held">Not traded once, so not priced:
