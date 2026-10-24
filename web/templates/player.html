@@ -66,7 +66,6 @@
         <h1 class="pp-name">{{ who.name }}</h1>
         {% if who.priced %}
         <p class="pp-facts">
-            <span>#{{ who.rank }} in the market</span>
             {% if who.drafted %}<span>drafted {{ who.drafted }}</span>{% endif %}
             <span>{{ '{:,}'.format(who.trades or 0) }} trades</span>
             {% if who.firm %}<span class="at-firm at-firm-{{ who.firm }}">{{ who.firm }}</span>{% endif %}
@@ -77,8 +76,11 @@
     </div>
     {% if who.priced %}
     <div class="pp-price">
-        <span class="pp-price-label">Costs</span>
-        <b>{{ who.costs }}</b>
+        <div class="pp-figs">
+            <div class="pp-fig"><span class="pp-price-label">Costs</span><b>{{ who.costs }}</b></div>
+            {% if who.position and who.pos_rank %}<div class="pp-fig pp-fig-alt"><span class="pp-price-label">Position</span><b>{{ who.position }}{{ who.pos_rank }}</b></div>{% endif %}
+            <div class="pp-fig pp-fig-alt"><span class="pp-price-label">Overall</span><b>#{{ who.rank }}</b></div>
+        </div>
         {% if who.moved %}<span class="at-pc-chg {{ 'at-pc-up' if who.moved > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if who.moved > 0 else '&#9660;'|safe }} {{ who.moved|abs }} pick{{ '' if who.moved|abs == 1 else 's' }} since the draft</span>
         {% else %}<span class="at-pc-chg at-pc-flat">where he was drafted</span>{% endif %}
     </div>

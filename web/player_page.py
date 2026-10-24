@@ -259,6 +259,10 @@ def summary(key: str, rating: Optional[dict], names: dict) -> dict:
          "team": (pick or {}).get("team") or meta.get("nfl_team"),
          "photo": (pick or {}).get("photo"), "priced": pick is not None}
     if pick:
+        # His place among his own position (RB2), by the same prices.
+        pos_rank = 1 + sum(1 for p in (rating or {}).get("pickable") or []
+                           if p.get("pos") == pick.get("pos") and p["rank"] < pick["rank"])
+        s.update(pos_rank=pos_rank)
         s.update(costs=pick["costs"], rank=pick["rank"], drafted=pick.get("drafted"),
                  trades=pick.get("trades"), firm=pick.get("firm"),
                  moved=(pick["dp"] - pick["rank"]) if pick.get("dp") else None)

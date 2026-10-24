@@ -4393,3 +4393,16 @@ a.pp-tile-him:hover { background: var(--ink); }
 .mk-nudge-on { animation: mk-nudge 0.5s ease-out; }
 @keyframes mk-nudge { 0% { transform: translateY(-4px); opacity: 0; } 100% { transform: none; opacity: 1; } }
 a.offer-go { display: inline-block; text-decoration: none; text-align: center; }
+
+/* ---- player page: price, position rank, overall rank side by side (23 Oct) ---- */
+.pp-figs { display: flex; align-items: flex-end; gap: 0; }
+.pp-fig { display: flex; flex-direction: column; align-items: flex-end; padding: 0 0 0 22px; }
+.pp-fig + .pp-fig { margin-left: 22px; border-left: 1px solid var(--line); }
+.pp-fig-alt b { color: var(--ink); }
+.pp-price .pp-figs + .at-pc-chg { margin-top: 4px; }
+@media (max-width: 760px) {
+    .pp-price { flex-direction: column; align-items: flex-start; }
+    .pp-fig { align-items: flex-start; padding-left: 14px; }
+    .pp-fig:first-child { padding-left: 0; }
+    .pp-fig + .pp-fig { margin-left: 14px; }
+}
