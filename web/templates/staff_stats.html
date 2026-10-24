@@ -52,6 +52,21 @@
     <div class="stat-tile"><div class="stat-label">Unsubscribed</div><div class="stat-value">{{ "{:,}".format(s.optouts) if s.optouts is not none else "—" }}</div><div class="stat-sub">from reminders, all time</div></div>
 </div>
 
+<div class="stat-section">Funnel, by week</div>
+<section class="card" style="padding:0; overflow-x:auto;">
+    <table class="stat-table">
+        <tr><th>Week of</th>{% for key, label in s.funnel_steps %}<th>{{ label }}</th>{% endfor %}<th>Connect &rarr; league</th></tr>
+        {% for w in s.funnel %}
+        <tr><td>{{ w.week_start }}</td>
+            {% for key, label in s.funnel_steps %}<td>{{ "{:,}".format(w.get(key, 0)) }}{% if key in ("paper_generated", "paper_read") and w.get(key ~ "_leagues") %} <span class="stat-sub">({{ w.get(key ~ "_leagues") }} lg)</span>{% endif %}</td>{% endfor %}
+            <td>{{ (w.connect_rate|string ~ "%") if w.connect_rate is not none else "—" }}</td></tr>
+        {% else %}
+        <tr><td colspan="{{ s.funnel_steps|length + 2 }}">No events yet. They start once migration 060 has run.</td></tr>
+        {% endfor %}
+    </table>
+</section>
+<p class="card-sub" style="margin-top:12px;">Weeks start Monday, Eastern. Counted on the server, with link previews and bots left out; no visitor is identified. &ldquo;lg&rdquo; is how many different leagues. Connect &rarr; league is leagues connected per 100 views of the connect page. Page traffic is in Cloudflare Web Analytics.</p>
+
 <div class="stat-section">By week, this season</div>
 <section class="card" style="padding:0;">
     <table class="stat-table">
@@ -63,5 +78,5 @@
         {% endfor %}
     </table>
 </section>
-<p class="card-sub" style="margin-top:12px;">Views count every page load, including the commissioner's own and link previews in group chats, so they're readership in impressions, not unique people.</p>
+<p class="card-sub" style="margin-top:12px;">Views count every page load, including the commissioner's own, so they're readership in impressions, not unique people. Link previews in group chats stopped counting on 24 Oct 2026; weeks before that include them.</p>
 {% endblock %}

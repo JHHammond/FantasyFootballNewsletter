@@ -63,6 +63,7 @@
     <script>
     document.getElementById('share-copy').addEventListener('click', async function () {
         const input = document.getElementById('share-link');
+        if (window.cdEvent) cdEvent('link_copied', 'manage');
         const original = this.textContent;
         try {
             await navigator.clipboard.writeText(input.value);

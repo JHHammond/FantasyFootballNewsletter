@@ -71,6 +71,7 @@ import themes  # noqa: E402
 
 from . import auth, billing, emailer, images, legal, oauth, picks, slugs  # noqa: E402
 from . import yahoo_auth  # noqa: E402
+from . import analytics  # noqa: E402
 from .sanitize import clean_html, clean_image_url, clean_text  # noqa: E402
 from .generate import (  # noqa: E402
     WriterError,
@@ -308,6 +309,8 @@ templates.env.globals["google_enabled"] = oauth.configured
 # own verified flag, so flipping it is the only change needed on launch day.
 from providers.yahoo import YahooProvider as _YahooProvider  # noqa: E402
 templates.env.globals["yahoo_live"] = _YahooProvider.implemented
+# Cloudflare Web Analytics, on public pages only. See web/analytics.py.
+templates.env.globals["analytics_beacon"] = analytics.beacon
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +343,7 @@ async def market_funnel(request: Request, call_next):
     if not landing:
         return response
     token = response.headers["location"].split("/")[2].split("?")[0].split("#")[0]
+    _log_league_connected(request, token, new=bool(landing.group(1)))
     if request.cookies.get(FUNNEL_COOKIE) == "market":
         # Connected only to see their team: no paper (058). A brand-new
         # league lands on /setup; one they already had keeps what it was.
@@ -351,6 +355,18 @@ async def market_funnel(request: Request, call_next):
         # Connected the normal way: they want the paper after all.
         _set_market_only(token, False)
     return response
+
+
+def _log_league_connected(request: Request, admin_token: str, new: bool) -> None:
+    """Every successful connect ends in this redirect, whichever platform."""
+    parts = request.url.path.strip("/").split("/")
+    platform = parts[1] if len(parts) > 1 else ""
+    try:
+        league = db.league_by_admin_token(admin_token)
+    except Exception:  # noqa: BLE001
+        league = None
+    _log(request, "league_connected", league["id"] if league else None,
+         platform=platform or (league or {}).get("provider") or "", new=new)
 
 
 def _set_market_only(admin_token: str, value: bool) -> None:
@@ -598,6 +614,16 @@ def _client_ip(request: Request) -> str:
         if len(hops) >= TRUSTED_PROXY_HOPS >= 1:
             return hops[len(hops) - TRUSTED_PROXY_HOPS]
     return request.client.host if request.client else "unknown"
+
+
+def _log(request: Request, name: str, league_id: str | None = None, **props) -> None:
+    """One funnel step (migration 060), unless a bot or link preview did it."""
+    if analytics.is_bot(request.headers.get("user-agent")):
+        return
+    try:
+        db.log_event(name, league_id, props or None)
+    except Exception:  # noqa: BLE001 — a counter never fails a page
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -874,6 +900,8 @@ def _platforms_for(user: dict | None) -> list[dict]:
 @app.get("/connect", response_class=HTMLResponse)
 def connect(request: Request, error: str = ""):
     user = _require_user(request)
+    if not error:
+        _log(request, "connect_viewed")
     return _render(request, "connect.html", platforms=_platforms_for(user),
                    error=error)
 
@@ -1232,6 +1260,8 @@ def staff_stats(fresh: bool = False) -> dict:
         "reminders_sent": safe(lambda: len(db.reminders_sent(campaign))),
         "optouts": safe(lambda: len(db.email_optouts())),
         "by_week": [by_week[w] for w in sorted(by_week)],
+        "funnel": safe(lambda: analytics.weekly_table(db.events_weekly(8)), []),
+        "funnel_steps": analytics.FUNNEL,
         "as_of": _t.strftime("%-I:%M %p UTC", _t.gmtime()),
     }
     _STATS_CACHE["v"] = (_t.time(), out)
@@ -2716,6 +2746,8 @@ def signup(request: Request, email: str = Form(...), password: str = Form(...),
                             "already had an account, we've sent a reminder.",
                        link_url="/login", link_label="Sign in")
 
+    _log(request, "account_created", method="password")
+
     # Straight on to the next thing rather than an empty shelf. Signing up is
     # not the goal; having a paper is.
     # ?welcome=1 is what raises the upgrade offer, once, on arrival.
@@ -2863,6 +2895,8 @@ def google_callback(request: Request, code: str = "", state: str = "",
             "with your password, and you can link Google afterwards.")
 
     db.update_user(user["id"], {"last_login_at": "now()"})
+    if is_new:
+        _log(request, "account_created", method="google")
 
     # Somewhere useful: a brand-new account has no papers to look at.
     if request.cookies.get(FUNNEL_COOKIE) == "market":
@@ -4030,6 +4064,9 @@ def _generate_response(request: Request, league: dict, week: int,
     finally:
         _GENERATION_SLOTS.release()
 
+    _log(request, "paper_generated", league["id"], week=int(week),
+         regenerated=bool(existing))
+
     # Show them the paper. Waiting thirty seconds and being handed a URL to
     # click is a bad payoff for the one moment the product actually delivers.
     return RedirectResponse(f"/l/{token}/published/{week}", status_code=303)
@@ -4770,14 +4807,48 @@ def read_paper(request: Request, slug: str, season: int, week: int, embed: int =
         # floating over it, and no scrollbar inside the frame.
         html = html.replace("</head>", "<style>.print-button{display:none!important}"
                             "html,body{overflow:hidden!important}</style></head>", 1)
-    else:
+    elif not analytics.is_bot(request.headers.get("user-agent")):
+        # Link previews (iMessage, Slack, Discord…) fetch the page to draw
+        # the card. They are not readers, and every share used to count one.
         db.record_view(league["id"], season, week)
+        _log(request, "paper_read", league["id"], season=int(season), week=int(week))
+
+    if not embed:
+        # Cloudflare Web Analytics. Not in the homepage's preview frame: that
+        # would count a read every time somebody looked at the landing page.
+        html = analytics.beacon_for_paper(html, request.url.path)
 
     return HTMLResponse(
         content=html,
         # Editions never change once published.
         headers={"Cache-Control": "public, max-age=3600, s-maxage=86400"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Events a browser reports: a link copied, a card shared. Nothing else — the
+# names and places are an allowlist in analytics.CLIENT_EVENTS, so this can't
+# write arbitrary rows. Capped per IP in memory, the same trade as the paper
+# lookups above: a few lost counts on a restart beats a write per call.
+# ---------------------------------------------------------------------------
+
+CLIENT_EVENTS_PER_HOUR = 120
+_client_event_hits: dict[str, list[float]] = {}
+
+
+@app.post("/e", include_in_schema=False)
+def client_event(request: Request, n: str = Form(""), where: str = Form("")):
+    if where in analytics.CLIENT_EVENTS.get(n, ()):
+        ip, now = _client_ip(request), time.time()
+        hits = [t for t in _client_event_hits.get(ip, []) if now - t < 3600]
+        if len(hits) < CLIENT_EVENTS_PER_HOUR:
+            hits.append(now)
+            _log(request, n, where=where)
+        _client_event_hits[ip] = hits
+        if len(_client_event_hits) > 50_000:
+            _client_event_hits.clear()
+    # Always the same answer, so it says nothing about what was counted.
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

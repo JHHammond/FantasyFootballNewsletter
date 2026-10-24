@@ -746,6 +746,7 @@
     // it can; everywhere else the picture opens in a tab to save or drag.
     if (shareBtn) shareBtn.addEventListener("click", function () {
         if (!current) return;
+        if (window.cdEvent) cdEvent("card_shared", "around");
         var text = current.score.toFixed(1) + " beat " + current.pct + "% of "
                  + current.teams.toLocaleString() + " " + POOL[current.fmt]
                  + " in week " + WEEK + ".";

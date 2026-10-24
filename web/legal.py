@@ -85,8 +85,11 @@ PRIVACY_SECTIONS = [
             "new week's paper is ready to be made — each with a one-click "
             "unsubscribe. A reader's address is used to send the weekly "
             "edition they asked for, and nothing else.",
-            "<strong>Read counts</strong> — how many times each published paper "
-            "was opened. A number per edition, not a record of who opened it.",
+            "<strong>Read counts and usage totals</strong> — how many times "
+            "each published paper was opened, and how many times things like "
+            "connecting a league or making a paper happened each week. These "
+            "are counts, not a record of who did them: no IP address, cookie "
+            "or device identifier is stored with them.",
             "<strong>Weekly scores, combined across leagues.</strong> We keep "
             "each team's weekly score and a few highlights so we can compare "
             "leagues against each other: the week's lowest score, the biggest "
@@ -129,6 +132,11 @@ PRIVACY_SECTIONS = [
             "address it is delivering to.",
             "<strong>Supabase</strong> — stores the leagues, papers and "
             "subscriber list.",
+            "<strong>Cloudflare Web Analytics</strong> — counts visits to the "
+            "public pages (the homepage, papers, Around the Leagues and the "
+            "like) so we can see how much each one is used. It sets no cookies "
+            "and does not follow you across other sites. It never runs on a "
+            "commissioner's private manage pages.",
             "<strong>Advertisers</strong>, where a paper carries advertising. "
             "Ads are served into the page like any other website's; the ad "
             "provider sees the ordinary request information every web server "

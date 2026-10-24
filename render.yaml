@@ -47,6 +47,8 @@ services:
         sync: false        # where the weekly job reports its failures
       - key: SENTRY_DSN
         sync: false        # optional; unset means no error tracking
+      - key: CF_BEACON_TOKEN
+        sync: false        # Cloudflare Web Analytics; unset means no beacon. See web/analytics.py
       - key: PROMO_CODE
         sync: false        # your referral code; turns on the box on every
                            # paper's back page. Unset = no box. The graphic is

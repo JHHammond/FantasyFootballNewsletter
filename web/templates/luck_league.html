@@ -349,6 +349,7 @@
         root.querySelector(".lr-copy").addEventListener("click", copy);
         root.querySelector(".lr-share-btn").addEventListener("click", function () {
             var size = this.getAttribute("data-size");
+            if (window.cdEvent) cdEvent("card_shared", "luck");
             if (!navigator.share) { window.location.href = card + "?size=" + size; return; }
             fetch(card + "?size=" + size).then(function (r) { return r.blob(); }).then(function (blob) {
                 var file = new File([blob], "luck-report.png", {type: "image/png"});

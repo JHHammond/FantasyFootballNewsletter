@@ -231,6 +231,43 @@ def record_view(league_id: str, season: int, week: int) -> None:
             paper["last_viewed_at"] = _now()
 
 
+# ---------------------------------------------------------------------------
+# Events — same contract as db.log_event / db.events_weekly, in a list.
+# Synchronous here, so a test can assert on what was logged.
+# ---------------------------------------------------------------------------
+
+_EVENTS: list[dict[str, Any]] = []
+
+
+def log_event(name: str, league_id: Optional[str] = None,
+              props: Optional[dict[str, Any]] = None) -> None:
+    with _lock:
+        _EVENTS.append({"name": str(name)[:64], "league_id": league_id,
+                        "props": props or {}, "occurred_at": _now()})
+
+
+def events_weekly(weeks: int = 8) -> list[dict[str, Any]]:
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    eastern = ZoneInfo("America/New_York")
+    today = datetime.now(eastern).date()
+    first = today - timedelta(days=today.weekday()) - timedelta(weeks=max(weeks, 1) - 1)
+    counts: dict[tuple, dict] = {}
+    for e in list(_EVENTS):
+        day = datetime.fromisoformat(str(e["occurred_at"]).replace("Z", "+00:00")).astimezone(eastern).date()
+        start = day - timedelta(days=day.weekday())
+        if start < first:
+            continue
+        c = counts.setdefault((start, e["name"]), {"events": 0, "leagues": set()})
+        c["events"] += 1
+        if e.get("league_id"):
+            c["leagues"].add(e["league_id"])
+    return [{"week_start": start.isoformat(), "name": name, "events": c["events"],
+             "leagues": len(c["leagues"])}
+            for (start, name), c in sorted(counts.items(), key=lambda kv: (kv[0][0], kv[0][1]),
+                                           reverse=True)]
+
+
 def health_check() -> None:
     """Always healthy — the store is this process's own memory."""
     return None

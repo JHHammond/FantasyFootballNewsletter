@@ -435,6 +435,43 @@ def record_view(league_id: str, season: int, week: int) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Events (migration 060). See web/analytics.py for what gets logged and why.
+# ---------------------------------------------------------------------------
+
+_event_pool = None
+
+
+def log_event(name: str, league_id: Optional[str] = None,
+              props: Optional[dict[str, Any]] = None) -> None:
+    """Record one funnel step. Fire-and-forget, never raises.
+
+    Handed to a background thread because it sits on the paper-read path,
+    where a reader should never wait on a counter.
+    """
+    global _event_pool
+    row = {"name": str(name)[:64], "league_id": league_id, "props": props or {}}
+
+    def _write():
+        try:
+            client().table("events").insert(row).execute()
+        except Exception as exc:  # noqa: BLE001 — 060 not run yet, or a blip
+            print(f"[events] {row['name']}: {type(exc).__name__}: {exc}", flush=True)
+
+    try:
+        if _event_pool is None:
+            from concurrent.futures import ThreadPoolExecutor
+            _event_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="events")
+        _event_pool.submit(_write)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def events_weekly(weeks: int = 8) -> list[dict[str, Any]]:
+    """Counts per event per week (Monday start, Eastern), newest first."""
+    return client().rpc("events_weekly", {"p_weeks": int(weeks)}).execute().data or []
+
+
 def health_check() -> None:
     """Is the database reachable, with a key that can actually use it?
 

@@ -58,6 +58,7 @@
 <script>
 document.getElementById('copy-btn').addEventListener('click', async function () {
     const link = this.dataset.link;
+    if (window.cdEvent) cdEvent('link_copied', 'published');
     const original = this.textContent;
     try {
         await navigator.clipboard.writeText(link);

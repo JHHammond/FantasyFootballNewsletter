@@ -130,6 +130,14 @@
             }
         });
     })();
+    // A funnel step the server can't see for itself (web/analytics.py).
+    // sendBeacon so it survives the page changing; silent if it can't.
+    window.cdEvent = function (n, where) {
+        try {
+            if (navigator.sendBeacon) navigator.sendBeacon("/e", new URLSearchParams({n: n, where: where}));
+        } catch (e) {}
+    };
     </script>
+    {{ analytics_beacon(request) }}
 </body>
 </html>
