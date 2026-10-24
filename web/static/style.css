@@ -4477,3 +4477,60 @@ th.mk-c-rk { text-align: center; }
 .mk-inj-d, .mk-inj-out, .mk-inj-ir, .mk-inj-pup, .mk-inj-sus { background: #fbe3e2; color: var(--accent); }
 .pp-kicker .mk-inj { font-size: 12px; vertical-align: 1px; }
 .mk-injured a { color: var(--ink); }
+
+/* ---- the market chart's players, as rows under it (24 Oct) ----
+   After Kalshi's outcome rows: one line per player on the chart, his price
+   large on the right of his name, and a button that says where it goes. The
+   chips these replaced looked like filters, and nobody could tell a player
+   opened anything. */
+.at-pc-rows { margin: 14px 0 4px; border-top: 1px solid var(--ink); }
+.at-pc-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 84px 104px 72px auto; align-items: center; gap: 0 10px; border-bottom: 1px solid var(--line); }
+.at-pc-row-head { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); padding: 7px 0; }
+.at-pc-row-head .at-pc-c-0 { padding-left: 4px; }
+.at-pc-c { font: 500 14px "Barlow", sans-serif; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.at-pc-c small { display: none; }
+.at-pc-row-head .at-pc-c { font: inherit; color: inherit; }
+.at-pc-row:not(.at-pc-row-head):hover { background: #f8f3e8; }
+.at-pc-row-on, .at-pc-row-on:hover { background: #f4eee2; box-shadow: inset 3px 0 0 var(--ink); }
+.at-pc-row-main { display: flex; align-items: center; gap: 10px; min-width: 0; background: none; border: 0; padding: 9px 4px; cursor: pointer; text-align: left; color: var(--ink); }
+.at-pc-row-main:focus-visible, .at-pc-row-go:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.at-pc-row-face { width: 34px; height: 34px; flex: none; }
+.at-pc-row-who { display: flex; flex-direction: column; min-width: 0; }
+.at-pc-row-name { font: 700 15px "Barlow", sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-pc-row-who small { font: 500 12px "Barlow", sans-serif; color: var(--muted); }
+.at-pc-row-price b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 22px; color: var(--ink); }
+.at-pc-row-on .at-pc-row-price b { font-size: 24px; }
+.at-pc-row-acts { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.at-pc-row-go { display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border: 1px solid var(--ink); border-radius: 999px; font: 600 13px "Barlow", sans-serif; color: var(--ink); text-decoration: none; white-space: nowrap; background: var(--paper); }
+.at-pc-row-go:hover { background: var(--ink); color: var(--paper); }
+.at-pc-row-go span { font-size: 16px; line-height: 1; }
+.at-pc-row-head .at-pc-c-5 { min-width: 1px; }
+
+/* The focused player's own way out, beside his stats. */
+.at-pc-stats .at-pc-go { margin-left: auto; font: 600 13px "Barlow", sans-serif; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.at-pc-stats .at-pc-go:hover { text-decoration: underline; }
+
+/* The board: every row is a door. */
+.mk-row { cursor: pointer; }
+.mk-row:hover td { background: #f8f3e8; }
+.mk-row.mine:hover td { background: #f7d6d4; }
+.mk-open { margin-left: 6px; font-size: 20px; line-height: 1; color: var(--muted); transition: transform .12s, color .12s; }
+.mk-row:hover .mk-open { color: var(--accent); transform: translateX(3px); }
+
+@media (max-width: 640px) {
+    /* Two lines a player: who and his price, then the details and the button. */
+    .at-pc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0; padding: 0 0 8px; }
+    .at-pc-row-head { display: none; }
+    .at-pc-c-0 { flex: 0 0 calc(100% - 76px); }
+    .at-pc-c-1 { flex: 0 0 76px; text-align: right; padding-right: 6px; box-sizing: border-box; }
+    .at-pc-c-2, .at-pc-c-3, .at-pc-c-4 { font-size: 12px; margin-right: 12px; }
+    .at-pc-c-2 { margin-left: 52px; }
+    .at-pc-c-5 { margin-left: auto; }
+    .at-pc-c small { display: inline; color: var(--muted); font: inherit; }
+    .at-pc-c-3 .at-pc-chg { font-size: 12px; }
+    .at-pc-row-go { padding: 5px 10px; font-size: 12px; }
+    .at-pc-stats .at-pc-go { margin-left: 0; flex-basis: 100%; }
+}
+@media (max-width: 400px) {
+    .at-pc-c-4 { display: none; }
+}

@@ -81,7 +81,6 @@
         <label for="at-pc-set">Show</label>
         <select id="at-pc-set" class="at-pc-set"></select>
     </div>
-    <div class="at-pc-legend" id="at-pc-legend"></div>
     {% if not user %}
     <p class="mk-nudge" id="at-pc-nudge" hidden>Free accounts compare up to 6 players and put their own team on the chart.
         <a class="mk-nudge-go" href="/signup?next={{ '/market?welcome=1'|urlencode }}">Sign up free</a>
@@ -97,6 +96,13 @@
         <figcaption class="at-pc-note">His place in the market (#1 is the most expensive) at each day&rsquo;s
             close, starting from where he was drafted. Higher is more expensive.</figcaption>
     </figure>
+    {#
+        On the chart, as a list under it (John, 24 Oct, after Kalshi's
+        outcome rows): one row per line, with his price, his place at his
+        position, the week's move, his trades and a button to his page.
+        The chips it replaced didn't say a player could be opened.
+    #}
+    <div class="at-pc-rows" id="at-pc-legend" role="list" aria-label="Players on the chart"></div>
     <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'mine': mine, 'signed_in': user is not none}|tojson }}</script>
 </section>
 <script>
@@ -108,6 +114,14 @@
     var LINES = DATA.lines || {}, PLAYERS = DATA.players || [];
     if (!PLAYERS.length || !DATA.base) return;
     var BY = {}; PLAYERS.forEach(function (p) { BY[p.k] = p; });
+    // His place at his position (RB12), counted the same way as the board.
+    var POSRANK = {}, seenPos = {};
+    PLAYERS.slice().sort(function (a, b) { return a.rank - b.rank; }).forEach(function (p) {
+        if (!p.pos) return;
+        seenPos[p.pos] = (seenPos[p.pos] || 0) + 1;
+        POSRANK[p.k] = p.pos + seenPos[p.pos];
+    });
+    function playerUrl(k) { return "/market/player/" + encodeURIComponent(k); }
     var MINE = DATA.mine || null;
     if (MINE && MINE.lines) Object.keys(MINE.lines).forEach(function (k) { LINES[k] = MINE.lines[k]; });
     var LAST = Math.max(1, DATA.last || 1), MAX = DATA.signed_in ? 6 : 4;  // signed out: four lines, then the sign-up nudge
@@ -378,7 +392,7 @@
         var txt = document.createElement("div"); txt.className = "at-pc-head-text";
         var nm = document.createElement("div"); nm.className = "at-pc-name";
         var link = document.createElement("a");
-        link.href = "/market/player/" + encodeURIComponent(focus);
+        link.href = playerUrl(focus);
         link.textContent = p.name;
         nm.appendChild(link);
         nm.appendChild(document.createTextNode((p.pos ? " \u00b7 " + p.pos : "") + (p.team ? " \u00b7 " + p.team : "")));
@@ -410,6 +424,10 @@
             span.appendChild(b);
             stats.appendChild(span);
         });
+        var go = document.createElement("a");
+        go.className = "at-pc-go"; go.href = playerUrl(focus);
+        go.textContent = "See all " + (p.trades ? p.trades.toLocaleString() + " " : "") + "trades \u203a";
+        stats.appendChild(go);
     }
 
     function draw() {
@@ -513,23 +531,61 @@
         toUrl();
     }
 
-    // ---- chips: the name focuses him, the x takes him off ----
+    // ---- rows under the chart: tap to focus, the button opens his page ----
+    function cell(cls, text, label) {
+        var c_ = document.createElement("span"); c_.className = cls;
+        if (label) { var l = document.createElement("small"); l.textContent = label; c_.appendChild(l); }
+        if (text !== undefined) c_.appendChild(document.createTextNode(text));
+        return c_;
+    }
     function drawLegend() {
         legend.textContent = "";
+        var headRow = document.createElement("div");
+        headRow.className = "at-pc-row at-pc-row-head"; headRow.setAttribute("aria-hidden", "true");
+        ["Player", "Price", "Position", "This week", "Trades", ""].forEach(function (t, i) {
+            headRow.appendChild(cell("at-pc-c at-pc-c-" + i, t));
+        });
+        legend.appendChild(headRow);
         chosen.forEach(function (c) {
-            var p = BY[c.k];
-            var chip = document.createElement("span");
-            chip.className = "at-pc-chip at-mk-" + c.c + (c.k === focus ? " at-pc-chip-on" : "");
-            var b = document.createElement("button");
-            b.type = "button"; b.className = "at-pc-chip-main";
-            b.setAttribute("aria-pressed", c.k === focus ? "true" : "false");
-            b.title = "Show " + p.name + " in focus";
+            var p = BY[c.k], on = c.k === focus, pts = LINES[c.k];
+            var row = document.createElement("div");
+            row.className = "at-pc-row at-mk-" + c.c + (on ? " at-pc-row-on" : "");
+            row.setAttribute("role", "listitem");
+
+            var main = document.createElement("button");
+            main.type = "button"; main.className = "at-pc-c at-pc-c-0 at-pc-row-main";
+            main.setAttribute("aria-pressed", on ? "true" : "false");
+            main.title = "Show " + p.name + " in focus on the chart";
             var sw = document.createElement("i"); sw.className = "at-pc-swatch";
-            var nm = document.createElement("span"); nm.className = "at-pc-chip-name"; nm.textContent = p.name;
+            var who = document.createElement("span"); who.className = "at-pc-row-who";
+            var nm = document.createElement("span"); nm.className = "at-pc-row-name"; nm.textContent = p.name;
+            var meta = document.createElement("small");
+            meta.textContent = [p.pos, p.team].filter(Boolean).join(" \u00b7 ");
+            who.appendChild(nm); who.appendChild(meta);
+            main.appendChild(sw); main.appendChild(face(p, "at-pc-row-face")); main.appendChild(who);
+            main.addEventListener("click", function () { focus = c.k; draw(); });
+            row.appendChild(main);
+
+            var price = cell("at-pc-c at-pc-c-1 at-pc-row-price");
             var v = document.createElement("b"); v.setAttribute("data-value", "");
-            v.textContent = LINES[c.k] ? p.costs : "\u2026";
-            b.appendChild(sw); b.appendChild(nm); b.appendChild(v);
-            b.addEventListener("click", function () { focus = c.k; draw(); });
+            v.textContent = pts ? p.costs : "\u2026";
+            price.appendChild(v);
+            row.appendChild(price);
+
+            row.appendChild(cell("at-pc-c at-pc-c-2", POSRANK[c.k] || "\u2013", "Pos "));
+            var wk = cell("at-pc-c at-pc-c-3", undefined, "Week ");
+            if (pts && pts.length > 1) {
+                var now = pts[pts.length - 1], then = at(c.k, Math.max(0, now[0] - 7)) || pts[0];
+                wk.appendChild(change(moved(then[1], now[1]), ""));
+            } else { wk.appendChild(document.createTextNode("\u2013")); }
+            row.appendChild(wk);
+            row.appendChild(cell("at-pc-c at-pc-c-4", (p.trades || 0).toLocaleString(), "Trades "));
+
+            var acts = cell("at-pc-c at-pc-c-5 at-pc-row-acts");
+            var go = document.createElement("a");
+            go.className = "at-pc-row-go"; go.href = playerUrl(c.k);
+            go.innerHTML = "See trades <span aria-hidden=\"true\">\u203a</span>";
+            go.setAttribute("aria-label", "See all of " + p.name + "\u2019s trades");
             var x_ = document.createElement("button");
             x_.type = "button"; x_.className = "at-pc-x"; x_.textContent = "\u00d7";
             x_.setAttribute("aria-label", "Remove " + p.name + " from the chart");
@@ -539,8 +595,9 @@
                 if (!chosen.length) add(PLAYERS[0].k);   // never an empty frame
                 draw();
             });
-            chip.appendChild(b); chip.appendChild(x_);
-            legend.appendChild(chip);
+            acts.appendChild(go); acts.appendChild(x_);
+            row.appendChild(acts);
+            legend.appendChild(row);
         });
     }
 
@@ -710,7 +767,7 @@
 <section class="card mk-board" id="at-pl">
     <h2 class="card-title">The board</h2>
     <p class="card-sub">Every traded player, numbered by what he costs today.{% if mine %} Your players are highlighted.{% endif %}
-        Tap a player for his page, or the chart button to draw him above.</p>
+        Tap a player to see every trade of him, or the chart button to draw him above.</p>
     {% set my_keys = [] %}
     {% for t in (mine.known if mine and mine.known else []) %}{% for k in (t.all or t['keys']) %}{% set _ = my_keys.append(k) %}{% endfor %}{% endfor %}
     <div class="mk-tabs" role="tablist" aria-label="Position">
@@ -729,7 +786,7 @@
             <td class="mk-c-rk">{{ p.rank }}</td>
             <td><a class="mk-who" href="/market/player/{{ p.k|urlencode }}">
                 <span class="at-face mk-face{{ ' at-face-def' if p.pos == 'DEF' }}">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
-                <span class="mk-name">{{ p.name }}{% if p.team %} <small>({{ p.team }})</small>{% endif %}</span>{% if p.inj %}<span class="mk-inj mk-inj-{{ p.inj|lower }}" title="Injury status from Sleeper">{{ p.inj }}</span>{% endif %}</a></td>
+                <span class="mk-name">{{ p.name }}{% if p.team %} <small>({{ p.team }})</small>{% endif %}</span>{% if p.inj %}<span class="mk-inj mk-inj-{{ p.inj|lower }}" title="Injury status from Sleeper">{{ p.inj }}</span>{% endif %}<span class="mk-open" aria-hidden="true">&rsaquo;</span></a></td>
             <td class="mk-c-pos">{{ p.pos }}{{ n }}</td>
             {% set pmoved = (pos_drafted[p.k] - n) if pos_drafted and p.k in pos_drafted else none %}
             <td class="mk-c-chg">{% for mv, cls in ((moved, 'mk-chg-all'), (pmoved, 'mk-chg-pos')) %}<span class="{{ cls }}">{% if mv is not none and mv|abs >= 1 %}<span class="{{ 'at-pc-up' if mv > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if mv > 0 else '&#9660;'|safe }} {{ '%.0f'|format(mv|abs) }}</span>{% else %}<span class="mk-flat">&ndash;</span>{% endif %}</span>{% endfor %}</td>
@@ -770,6 +827,15 @@
         });
     });
     more.addEventListener("click", function () { all = true; show(); });
+    // Anywhere on a row opens his page, not just the name. The chart
+    // button keeps its own job.
+    rows.forEach(function (r) {
+        r.addEventListener("click", function (e) {
+            if (e.target.closest("a, button")) return;
+            var a = r.querySelector(".mk-who");
+            if (a) window.location.href = a.href;
+        });
+    });
     // The chart's "Show" menu calls this when a team is chosen.
     window.mkMark = function (keys) {
         var set = {}; (keys || []).forEach(function (k) { set[k] = 1; });
