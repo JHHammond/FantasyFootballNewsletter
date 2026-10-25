@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% from "_macros.html" import upgrade_buttons %}
+{% block title %}Your account{% endblock %}
+{% block wrapclass %}home{% endblock %}
+
+{% block content %}
+<section class="me-head">
+    <span class="me-avatar" aria-hidden="true">{{ (user.email or '?')[:1]|upper }}</span>
+    <div>
+        <p class="mk-kicker">Your account</p>
+        <h1 class="me-email">{{ user.email }}</h1>
+        <p class="me-plan-pill me-plan-{{ plan.key }}">{{ plan.label }}</p>
+    </div>
+</section>
+
+<section class="card" id="plan">
+    <h2 class="card-title">Your plan</h2>
+    {% if viewer_paid %}
+    <p class="card-sub">{{ plan.label }}: every league on the trade market, every offer in Get him / Sell him, every trade of every player, and the full paper for every league you run.
+        {% if user.plan_renews_at %}Renews {{ user.plan_renews_at[:10] }}.{% endif %}</p>
+    {% if billing_enabled() and plan.key != 'staff' %}
+    <form method="post" action="/billing/portal"><button type="submit" class="btn btn-quiet">Manage billing</button></form>
+    {% endif %}
+    {% else %}
+    <p class="card-sub">You&rsquo;re on the free plan. The season pass unlocks:</p>
+    <ul class="me-perks">
+        <li>Every one of your teams on the trade market, not just one</li>
+        <li>All five fair offers for any player, built from your roster</li>
+        <li>Every riser and faller in &ldquo;Moving this week&rdquo;</li>
+        <li>Every trade of every player, with filters</li>
+        <li>The full weekly paper for every league you run, sent itself every Tuesday</li>
+    </ul>
+    {% if billing_enabled() %}{{ upgrade_buttons() }}{% else %}<p class="field-help">Paid plans aren&rsquo;t switched on yet.</p>{% endif %}
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2 class="card-title">Your leagues and teams</h2>
+    {% if rows %}
+    <ul class="me-leagues">
+        {% for r in rows %}
+        <li>
+            <div class="me-league">
+                <b>{{ r.name }}</b>
+                <small>{{ r.provider }}{% if r.league and r.league != r.name %} &middot; {{ r.league }}{% endif %}{% if not r.team_known %} &middot; team not picked yet{% endif %}</small>
+            </div>
+            <span class="me-kind me-kind-{{ r.kind }}">{{ {'paper': 'Paper', 'market': 'Trade market', 'follow': 'Following'}[r.kind] }}</span>
+            {% if r.manage %}<a class="me-open" href="{{ r.manage }}">{{ 'Open paper' if r.kind == 'paper' else 'Settings' }}</a>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="card-sub">No leagues yet.</p>
+    {% endif %}
+    <p class="me-actions">
+        <a class="mk-addleague" href="/market/my-team?add=1">+ Add a league to the trade market</a>
+        <a class="btn btn-quiet" href="/connect">Make a paper</a>
+    </p>
+</section>
+
+<section class="card me-out">
+    <form method="post" action="/logout"><button type="submit" class="btn btn-quiet">Sign out</button></form>
+</section>
+{% endblock %}

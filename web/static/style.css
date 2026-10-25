@@ -4645,3 +4645,64 @@ th.mk-c-rk { text-align: center; }
     .cmp-price { font-size: 32px; }
     .cmp-row-meta { display: none; }
 }
+
+/* ---- the main nav (24 Oct): dropdown, account, red Upgrade ---- */
+.nav-main { color: var(--ink-2); text-decoration: none; cursor: pointer; padding: 6px 2px; border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 6px; }
+.masthead-nav a.nav-main:hover { color: var(--ink); border-bottom-color: transparent; }
+.masthead-nav .nav-main.nav-here, .masthead-nav .nav-here-drop > .nav-main { color: var(--ink); border-bottom-color: var(--accent); }
+.nav-drop { position: relative; }
+.nav-chev { width: 10px; height: 7px; fill: none; stroke: currentColor; stroke-width: 1.8; transition: transform .2s; }
+.nav-drop.open .nav-chev { transform: rotate(180deg); }
+.nav-drop-menu { display: none; position: absolute; top: calc(100% + 6px); left: -12px; z-index: 60; min-width: 290px; padding: 6px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 40px -18px rgba(40, 30, 10, .45); text-transform: none; letter-spacing: 0; }
+.nav-drop.open .nav-drop-menu { display: block; }
+@media (hover: hover) and (min-width: 761px) {
+    .nav-drop:hover .nav-drop-menu, .nav-drop:focus-within .nav-drop-menu { display: block; }
+    .nav-drop:hover .nav-chev { transform: rotate(180deg); }
+    .nav-drop-menu::before { content: ""; position: absolute; left: 0; right: 0; top: -10px; height: 10px; }
+}
+.masthead-nav a.nav-drop-item { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 8px; border: 0; color: var(--ink); text-decoration: none; }
+.masthead-nav a.nav-drop-item:hover, .masthead-nav a.nav-drop-item.on { background: #f6f1e6; border: 0; }
+.nav-drop-item b { font: 700 15px "Barlow", sans-serif; }
+.nav-drop-item span { font: 500 13px "Barlow", sans-serif; color: var(--muted); }
+.nav-right { display: inline-flex; align-items: center; gap: 12px; margin-left: 8px; }
+.masthead-nav a.nav-acct { display: inline-flex; align-items: center; gap: 8px; border: 0; color: var(--ink); text-decoration: none; }
+.nav-acct svg { width: 40px; height: 40px; padding: 7px; border: 1px solid var(--line); border-radius: 50%; fill: none; stroke: var(--ink); stroke-width: 1.6; background: var(--paper); transition: border-color .15s; }
+.masthead-nav a.nav-acct:hover svg, .nav-acct-here svg { border-color: var(--ink); }
+.nav-acct-word { display: none; }
+.masthead-nav a.nav-upgrade-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; text-decoration: none; font: 700 15px "Barlow", sans-serif; text-transform: none; letter-spacing: .2px; box-shadow: 0 8px 18px -10px rgba(179, 20, 28, .8); }
+.masthead-nav a.nav-upgrade-btn:hover { background: #8f0f16; color: #fff; border: 0; }
+.nav-upgrade-btn svg { width: 15px; height: 15px; fill: #fff; stroke: #fff; stroke-width: 1.4; }
+.nav-upgrade-btn svg path { fill: none; }
+@media (max-width: 760px) {
+    .nav-items > .nav-drop { display: block; }
+    .nav-items > .nav-right { display: flex; }
+    .nav-main { display: flex; padding: 12px 16px; border-bottom: 0; }
+    .masthead-nav .nav-main.nav-here, .masthead-nav .nav-here-drop > .nav-main { border-bottom: 0; color: var(--accent); }
+    .nav-drop-menu { position: static; display: none; min-width: 0; margin: 0 10px 6px; box-shadow: none; border-radius: 10px; }
+    .nav-right { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 6px 0 0; padding: 10px 14px 6px; border-top: 1px solid var(--line); }
+    .nav-acct svg { width: 32px; height: 32px; padding: 5px; }
+    .nav-acct-word { display: inline; font: 600 15px "Barlow", sans-serif; text-transform: none; letter-spacing: 0; }
+    .masthead-nav a.nav-upgrade-btn { justify-content: center; }
+}
+
+/* ---- account page (24 Oct) ---- */
+.me-head { display: flex; align-items: center; gap: 18px; padding: 26px 0 16px; }
+.me-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--ink); color: var(--paper); display: inline-flex; align-items: center; justify-content: center; font: 400 30px "Anton", sans-serif; flex: none; }
+.me-email { margin: 2px 0 6px; font-family: "Playfair Display", Georgia, serif; font-weight: 900; font-size: clamp(22px, 4vw, 32px); word-break: break-all; }
+.me-plan-pill { display: inline-block; margin: 0; padding: 3px 12px; border-radius: 999px; font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; background: #f2ecdf; color: var(--ink-2); }
+.me-plan-paid, .me-plan-staff { background: #e4efdc; color: #2d6a1f; }
+.me-perks { margin: 0 0 14px; padding-left: 20px; font: 500 15px "Barlow", sans-serif; line-height: 1.7; }
+.me-leagues { list-style: none; margin: 0 0 14px; padding: 0; }
+.me-leagues li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.me-league { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.me-league b { font: 700 16px "Barlow", sans-serif; }
+.me-league small { font: 500 13px "Barlow", sans-serif; color: var(--muted); }
+.me-kind { padding: 2px 10px; border-radius: 999px; font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; background: #f2ecdf; color: var(--ink-2); white-space: nowrap; }
+.me-kind-paper { background: #fbe3e2; color: var(--accent); }
+.me-kind-market { background: #e7ecf6; color: #4a5b8c; }
+.me-open { font: 700 14px "Barlow", sans-serif; color: var(--accent); white-space: nowrap; }
+.me-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0; }
+.me-out { text-align: right; }
+.masthead { position: relative; z-index: 70; }   /* the nav dropdown sits over the page */
+
+a.mk-addleague, a.mk-addleague:visited, a.mk-addleague:hover { color: #fffdf8 !important; text-decoration: none; }

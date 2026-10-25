@@ -3049,6 +3049,29 @@ def logout():
     return response
 
 
+@app.get("/me", response_class=HTMLResponse)
+def me_page(request: Request):
+    """The account page (John, 24 Oct): who you are, your plan, and every
+    league and team the site knows is yours: papers, trade-market-only
+    leagues and leagues you follow."""
+    import nfl_week
+    user = _require_user(request)
+    season = nfl_week.current_season()
+    try:
+        leagues = [l for l in db.market_leagues_for_user(user["id"])
+                   if int(l.get("season") or 0) == season]
+    except Exception:  # noqa: BLE001
+        leagues = []
+    rows = []
+    for l in leagues:
+        kind = ("follow" if l.get("followed") else "market" if l.get("market_only") else "paper")
+        rows.append({"name": l.get("paper_name") or l.get("league_name") or "Your league",
+                     "league": l.get("league_name") or "", "provider": (l.get("provider") or "").title(),
+                     "kind": kind, "team_known": bool(l.get("my_team_id")),
+                     "manage": f"/l/{l['admin_token']}" if kind != "follow" and l.get("admin_token") else None})
+    return _render(request, "me.html", rows=rows, season=season)
+
+
 @app.get("/account", response_class=HTMLResponse)
 def account(request: Request, welcome: int = 0, notice: str = "",
             error: str = ""):

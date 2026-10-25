@@ -567,7 +567,8 @@ def test_around_carries_no_trade_market_any_more(web, monkeypatch):
     monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
     _staff(web)
     for path in ("/around", "/staff/around"):
-        text = web.get(path).text
+        # The page itself, not the site nav (which links the market on every page).
+        text = web.get(path).text.split("<main", 1)[-1].split("</main>", 1)[0]
         for fragment in ("at-draftmkt", "at-trades", "at-mkt-board",
                          "What a player costs"):
             assert fragment not in text, (path, fragment)
@@ -780,4 +781,5 @@ def test_the_masthead_menu_works_without_javascript(web, monkeypatch):
     # The links are in the document whether the menu is open or shut —
     # CSS decides, so a reader with no CSS still has a nav.
     assert ">Around the Leagues<" in page
-    assert "Create account" in page
+    # 24 Oct nav: signed out, the account icon reads "Sign in" and Upgrade leads to sign-up.
+    assert "Sign in" in page and 'class="nav-upgrade-btn"' in page

@@ -56,24 +56,33 @@
                    Hidden until AROUND_PUBLIC=1, the same switch the page
                    itself reads, so the link can never arrive before the
                    page does. #}
+                {# The main nav (John, 24 Oct): Around the Leagues, the trade
+                   market (a dropdown: the market and Compare players), Papers,
+                   then the account and, for anybody not paying, Upgrade. On a
+                   computer the dropdown opens on hover or keyboard focus (CSS);
+                   on a phone a tap opens it (the script below). Without the
+                   script "Trade market" is still a plain link to the market. #}
+                {% set here = request.url.path if request else '' %}
                 {% if around_open() %}
-                <a href="/around"{{ ' class="nav-here"'|safe if request and request.url.path == '/around' else '' }}>Around the Leagues</a>
+                <a href="/around" class="nav-main{{ ' nav-here' if here == '/around' }}">Around the Leagues</a>
                 {% endif %}
-                <a href="/market"{{ ' class="nav-here"'|safe if request and request.url.path.startswith('/market') else '' }}>Trade market</a>
-                {% if user %}
-                <a href="/account">Your papers</a>
-                {% if viewer_paid %}
-                <a href="/account#plan">Your plan</a>
-                {% else %}
-                <a class="nav-upgrade" href="/account#plan">Upgrade</a>
-                {% endif %}
-                <form method="post" action="/logout" class="nav-form">
-                    <button type="submit" class="nav-link">Sign out</button>
-                </form>
-                {% else %}
-                <a href="/login">Sign in</a>
-                <a class="btn btn-sm btn-primary" href="/signup">Create account</a>
-                {% endif %}
+                <div class="nav-drop{{ ' nav-here-drop' if here.startswith('/market') }}">
+                    <a href="/market" class="nav-main nav-drop-btn" aria-haspopup="true" aria-expanded="false">Trade market<svg class="nav-chev" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" /></svg></a>
+                    <div class="nav-drop-menu">
+                        <a href="/market" class="nav-drop-item{{ ' on' if here == '/market' }}"><b>The trade market</b><span>What every player costs, from real trades</span></a>
+                        <a href="/market/compare" class="nav-drop-item{{ ' on' if here == '/market/compare' }}"><b>Compare players</b><span>Up to four, side by side, with their price lines</span></a>
+                    </div>
+                </div>
+                <a href="{{ '/account' if user else '/' }}" class="nav-main{{ ' nav-here' if here == '/account' }}">Papers</a>
+                <span class="nav-right">
+                    <a href="{{ '/me' if user else '/login' }}" class="nav-acct{{ ' nav-acct-here' if here == '/me' }}" title="{{ 'Your account' if user else 'Sign in' }}" aria-label="{{ 'Your account' if user else 'Sign in' }}">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" /><circle cx="12" cy="10" r="3.6" /><path d="M5.6 19.2c1.4-2.6 3.8-4 6.4-4s5 1.4 6.4 4" /></svg>
+                        <span class="nav-acct-word">{{ 'Account' if user else 'Sign in' }}</span></a>
+                    {% if not viewer_paid %}
+                    <a class="nav-upgrade-btn" href="{{ '/me#plan' if user else '/signup?next=%2Fme%23plan' }}">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7.5" rx="1.6" /><path d="M5.3 7V5.2a2.7 2.7 0 0 1 5.4 0V7" /></svg>Upgrade</a>
+                    {% endif %}
+                </span>
             </div>
         </nav>
     </header>
@@ -128,6 +137,23 @@
                 box.checked = false;
                 sync();
             }
+        });
+    })();
+    // The Trade market dropdown on touch screens: the first tap opens it, a
+    // tap elsewhere closes it. With a mouse, CSS hover does the work.
+    (function () {
+        var drop = document.querySelector(".nav-drop"), btn = drop && drop.querySelector(".nav-drop-btn");
+        if (!btn) return;
+        var touch = window.matchMedia("(hover: none), (max-width: 760px)");
+        btn.addEventListener("click", function (e) {
+            if (!touch.matches) return;                 // a mouse click on it just opens the market
+            e.preventDefault();
+            var open = !drop.classList.contains("open");
+            drop.classList.toggle("open", open);
+            btn.setAttribute("aria-expanded", open ? "true" : "false");
+        });
+        document.addEventListener("click", function (e) {
+            if (!drop.contains(e.target)) { drop.classList.remove("open"); btn.setAttribute("aria-expanded", "false"); }
         });
     })();
     // A funnel step the server can't see for itself (web/analytics.py).

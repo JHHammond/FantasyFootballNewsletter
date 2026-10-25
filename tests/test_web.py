@@ -5107,12 +5107,13 @@ def test_no_offer_to_somebody_already_paying(client, monkeypatch):
 def test_the_header_says_upgrade_to_free_accounts_and_plan_to_paid(client):
     _signup(client)
     html = client.get("/account").text
-    assert 'class="nav-upgrade" href="/account#plan"' in html
+    assert 'class="nav-upgrade-btn" href="/me#plan"' in html
     demo_db.set_plan(demo_db.user_by_email("john@example.com")["id"],
                      plan="paid", status="active")
     html = client.get("/account").text
-    assert "nav-upgrade" not in html
-    assert '<a href="/account#plan">Your plan</a>' in html
+    assert "nav-upgrade-btn" not in html
+    assert 'href="/me"' in html          # the account page, with the plan on it
+    assert 'id="plan"' in client.get("/me").text
 
 
 def test_the_plan_card_is_at_the_bottom_of_the_account_page(client):
@@ -5139,7 +5140,7 @@ def test_the_header_is_about_the_viewer_not_the_leagues_owner(client, league, mo
     monkeypatch.setattr(webapp, "get_provider", _verify_ok())
     _signup(client)
     html = client.get("/l/secret-admin-token").text
-    assert 'class="nav-upgrade"' in html
+    assert 'class="nav-upgrade-btn"' in html
 
 
 def test_the_500_log_line_names_the_actual_error(league, monkeypatch, capsys):
