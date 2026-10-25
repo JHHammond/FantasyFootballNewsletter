@@ -61,6 +61,7 @@ def public_pages() -> list[tuple[str, str, bool]]:
     if os.getenv("AROUND_PUBLIC", "").strip() == "1":
         pages.append(("/around", "weekly", True))
     pages.append(("/market", "daily", True))
+    pages.append(("/market/compare", "daily", True))
     pages += [("/privacy", "yearly", False), ("/terms", "yearly", False)]
     return pages
 

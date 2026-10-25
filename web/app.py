@@ -1956,6 +1956,40 @@ def market_page(request: Request):
                    job=league_stats.job_status() if staff else None)
 
 
+#: Players side by side on the compare page.
+COMPARE_SLOTS = 4
+
+
+@app.get("/market/compare", response_class=HTMLResponse)
+def market_compare(request: Request, p: str = ""):
+    """Player value comparison (John, 24 Oct, after FantasyPros' "Who should
+    I start"): pick up to four players and their price lines appear under
+    them. A page of its own, shareable as /market/compare?p=key,key."""
+    import nfl_week
+    season = nfl_week.current_season()
+    latest = max(nfl_week.completed_week(), 1)
+    rating = _trade_rating(season, latest) or {}
+    daily = rating.get("daily") or {}
+    lines, last = daily.get("lines") or {}, daily.get("last")
+    posn: dict = {}
+    players = []
+    for pl in sorted(rating.get("pickable") or [], key=lambda x: x["rank"]):
+        posn[pl.get("pos")] = posn.get(pl.get("pos"), 0) + 1
+        line = lines.get(pl["k"]) or []
+        then = next((pt[1] for pt in reversed(line) if last and pt[0] <= last - 7), None)
+        players.append({"k": pl["k"], "name": pl.get("name"), "pos": pl.get("pos"),
+                        "team": pl.get("team"), "rank": pl["rank"], "costs": pl.get("costs"),
+                        "prank": posn[pl.get("pos")], "photo": pl.get("photo"),
+                        "trades": pl.get("trades"), "inj": pl.get("inj"),
+                        "wk": round(then - line[-1][1]) if then is not None and line else None,
+                        "drafted": (pl["dp"] - pl["rank"]) if pl.get("dp") else None})
+    keys = {x["k"] for x in players}
+    start = [k for k in clean_text(p, max_length=200).split(",") if k in keys][:COMPARE_SLOTS]
+    return _render(request, "compare.html", offer_kind="market", players=players,
+                   start=start, slots=COMPARE_SLOTS, base=daily.get("base"), last=last,
+                   initial_lines={k: lines[k] for k in start if k in lines})
+
+
 @app.get("/market/line.json")
 def market_line(request: Request, k: str = ""):
     """One player's daily price line, for the chart's "add a player". The

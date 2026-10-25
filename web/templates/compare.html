@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}Compare players · The trade market{% endblock %}
+{% block description %}Pick up to four fantasy football players and compare what they cost in real trades, side by side, with their price over the season.{% endblock %}
+{% block wrapclass %}home around{% endblock %}
+
+{#
+    Player value comparison (John, 24 Oct 2026), after FantasyPros' "Who
+    should I start": choose up to four players, see them side by side, and
+    their price lines appear underneath. Prices are the trade market's: #1
+    is the most expensive player. Shareable as /market/compare?p=key,key.
+#}
+
+{% block content %}
+<section class="front at-front mk-front cmp-front">
+    <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; Trade market</p>
+    <h1 class="mk-title">Compare players</h1>
+    <p class="mk-dek">Pick up to {{ slots }} players. See what each one costs in real trades, and how that&rsquo;s moved all season.</p>
+</section>
+
+<section class="card cmp" id="cmp">
+    <div class="at-pc cmp-search">
+        <label for="cmp-q" class="at-pc-sr">Add a player</label>
+        <div class="at-pc-search">
+            <svg class="at-pc-mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8l4.2 4.2" /></svg>
+            <input type="search" id="cmp-q" class="at-pc-q" placeholder="Add a player: name, position or team" autocomplete="off" spellcheck="false" aria-controls="cmp-hits" />
+        </div>
+        <ul class="at-pc-hits" id="cmp-hits" role="listbox" hidden></ul>
+    </div>
+
+    <div class="cmp-slots" id="cmp-slots" aria-live="polite"></div>
+    <p class="cmp-verdict" id="cmp-verdict" hidden></p>
+
+    <figure class="ar-chart at-pc-chart cmp-chart" id="cmp-chart" hidden>
+        <div class="ar-chart-box at-pc-box"><svg viewBox="0 0 760 300" class="ar-line" id="cmp-svg" role="img" aria-label="Each chosen player's place in the market by day"></svg>
+            <div class="at-pc-tip" id="cmp-tip" hidden></div></div>
+        <figcaption class="at-pc-note">Each player&rsquo;s place in the market at each day&rsquo;s close, starting from where he was drafted. #1 is the most expensive; higher on the chart costs more.</figcaption>
+    </figure>
+</section>
+
+<section class="card cmp-pick">
+    <div class="mk-tabs" role="tablist" aria-label="Position">
+        {% for t in ['QB', 'RB', 'WR', 'TE', 'FLEX'] %}<button type="button" role="tab" class="mk-tab{{ ' on' if t == 'FLEX' }}" data-pos="{{ t }}">{{ t }}</button>{% endfor %}
+    </div>
+    <ol class="cmp-list" id="cmp-list"></ol>
+</section>
+
+<script type="application/json" id="cmp-data">{{ {'players': players, 'start': start, 'slots': slots, 'base': base, 'last': last, 'lines': initial_lines, 'url': '/market/line.json'}|tojson }}</script>
+<script>
+(function () {
+    var D; try { D = JSON.parse(document.getElementById("cmp-data").textContent); } catch (e) { return; }
+    if (!D.players || !D.players.length) return;
+    var BY = {}; D.players.forEach(function (p) { BY[p.k] = p; });
+    var LINES = D.lines || {}, chosen = [], MAX = D.slots || 4, pending = {};
+    var slotsEl = document.getElementById("cmp-slots"), verdict = document.getElementById("cmp-verdict"),
+        chartFig = document.getElementById("cmp-chart"), svg = document.getElementById("cmp-svg"),
+        tip = document.getElementById("cmp-tip"), list = document.getElementById("cmp-list"),
+        q = document.getElementById("cmp-q"), hits = document.getElementById("cmp-hits");
+    var NS = "http://www.w3.org/2000/svg", POS_TAB = "FLEX";
+    var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    var b0 = (D.base || "2026-09-01").split("-").map(Number), LAST = Math.max(1, D.last || 1);
+    function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
+    function dayLabel(d) { var t = dateOf(d); return MONTHS[t.getUTCMonth()] + " " + t.getUTCDate(); }
+    function num(s) { return "#" + Math.max(1, Math.round(s)); }
+    function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+    function face(p, cls) {
+        return '<span class="at-face ' + (cls || "") + '">' + (p.photo ? '<img src="' + esc(p.photo) + '" alt="" loading="lazy" onerror="this.remove()" />' : "") +
+            "<span>" + esc((p.name || "?").charAt(0)) + "</span></span>";
+    }
+    function colourOf(k) { var i = chosen.indexOf(k); return i < 0 ? -1 : i; }
+    function chg(n, unit) {
+        if (n == null) return "";
+        if (!n) return '<span class="mk-flat">level ' + unit + "</span>";
+        return '<span class="' + (n > 0 ? "at-pc-up" : "at-pc-down") + '">' + (n > 0 ? "&#9650; " : "&#9660; ") + Math.abs(n) + " " + unit + "</span>";
+    }
+
+    // ---- the address keeps the comparison, for sharing ----
+    function remember() {
+        try {
+            var u = new URL(location.href);
+            if (chosen.length) u.searchParams.set("p", chosen.join(",")); else u.searchParams.delete("p");
+            history.replaceState(null, "", u.toString().replace(/%2C/gi, ","));
+        } catch (e) {}
+    }
+
+    function add(k) {
+        if (!BY[k] || chosen.indexOf(k) >= 0) return;
+        if (chosen.length >= MAX) chosen.shift();        // full: the first one makes room
+        chosen.push(k);
+        remember(); render();
+        if (LINES[k] || pending[k]) return;
+        pending[k] = true;
+        fetch(D.url + "?k=" + encodeURIComponent(k), {credentials: "same-origin"})
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) { delete pending[k]; if (j && j.line) LINES[k] = j.line; render(); })
+            .catch(function () { delete pending[k]; render(); });
+    }
+    function drop(k) { chosen = chosen.filter(function (x) { return x !== k; }); remember(); render(); }
+
+    function renderSlots() {
+        var html = "";
+        for (var i = 0; i < MAX; i++) {
+            var k = chosen[i], p = k && BY[k];
+            if (!p) {
+                html += '<div class="cmp-slot cmp-empty"><svg viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="22" r="11"/><path d="M8 58c0-13 10-21 22-21s22 8 22 21"/></svg><span>Add a player</span></div>';
+                continue;
+            }
+            html += '<div class="cmp-slot at-mk-' + i + '">' +
+                '<button type="button" class="cmp-x" data-k="' + esc(k) + '" aria-label="Remove ' + esc(p.name) + '">&times;</button>' +
+                '<span class="cmp-swatch at-pc-swatch"></span>' + face(p, "cmp-face") +
+                '<a class="cmp-name" href="/market/player/' + encodeURIComponent(k) + '">' + esc(p.name) + "</a>" +
+                '<span class="cmp-meta">' + esc(p.pos || "") + (p.team ? " &middot; " + esc(p.team) : "") + (p.inj ? ' <span class="mk-inj mk-inj-' + esc(p.inj.toLowerCase()) + '">' + esc(p.inj) + "</span>" : "") + "</span>" +
+                '<b class="cmp-price">' + esc(p.costs) + "</b>" +
+                '<span class="cmp-prank">' + esc(p.pos || "") + p.prank + "</span>" +
+                '<span class="cmp-moves">' + chg(p.wk, "this week") + chg(p.drafted, "since the draft") + "</span>" +
+                "</div>";
+        }
+        slotsEl.innerHTML = html;
+        slotsEl.querySelectorAll(".cmp-x").forEach(function (b) { b.addEventListener("click", function () { drop(b.getAttribute("data-k")); }); });
+    }
+
+    function renderVerdict() {
+        if (chosen.length < 2) { verdict.hidden = true; return; }
+        var ps = chosen.map(function (k) { return BY[k]; }).sort(function (a, b) { return a.rank - b.rank; });
+        var top = ps[0], parts = ps.slice(1).map(function (p) {
+            var gap = p.rank - top.rank;
+            return "<b>" + esc(p.name) + "</b> by " + gap + " spot" + (gap === 1 ? "" : "s");
+        });
+        verdict.innerHTML = "<b>" + esc(top.name) + "</b> costs the most: ahead of " + parts.join(", ") + ".";
+        verdict.hidden = false;
+    }
+
+    function renderList() {
+        var rows = D.players.filter(function (p) {
+            return POS_TAB === "FLEX" ? ["RB", "WR", "TE"].indexOf(p.pos) >= 0 : p.pos === POS_TAB;
+        }).slice(0, 30);
+        list.innerHTML = rows.map(function (p, i) {
+            var on = chosen.indexOf(p.k) >= 0;
+            return '<li><button type="button" class="cmp-row' + (on ? " on" : "") + '" data-k="' + esc(p.k) + '">' +
+                '<span class="cmp-row-n">' + (i + 1) + ".</span>" + face(p, "cmp-row-face") +
+                '<span class="cmp-row-name">' + esc(p.name) + "</span>" +
+                '<span class="cmp-row-meta">' + esc(p.pos) + "</span>" +
+                '<span class="cmp-row-price">' + esc(p.costs) + "</span>" +
+                '<span class="cmp-row-check" aria-hidden="true">' + (on ? "&#10003;" : "+") + "</span></button></li>";
+        }).join("");
+        list.querySelectorAll(".cmp-row").forEach(function (b) {
+            b.addEventListener("click", function () { var k = b.getAttribute("data-k"); if (chosen.indexOf(k) >= 0) drop(k); else add(k); });
+        });
+    }
+
+    // ---- the chart ----
+    var W, H, L, R, T, B, lo, hi;
+    function el(n, a, p) { var e = document.createElementNS(NS, n); for (var k in a) e.setAttribute(k, a[k]); if (p) p.appendChild(e); return e; }
+    function frame() {
+        var small = (svg.getBoundingClientRect().width || 760) < 520;
+        if (small) { W = 400; H = 440; L = 40; R = 388; T = 14; B = 402; }
+        else { W = 760; H = 300; L = 54; R = 744; T = 16; B = 262; }
+        svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    }
+    function x(d) { return L + (R - L) * d / LAST; }
+    function y(s) { s = Math.min(Math.max(s, lo), hi); return T + (B - T) * Math.log(s / lo) / Math.log(hi / lo); }
+    function smooth(Q) {
+        var n = Q.length;
+        if (n < 3) return Q.map(function (q, i) { return (i ? "L" : "M") + q[0].toFixed(1) + "," + q[1].toFixed(1); }).join("");
+        var dx = [], m = [], t = [], i;
+        for (i = 0; i < n - 1; i++) { dx[i] = Q[i + 1][0] - Q[i][0]; m[i] = dx[i] ? (Q[i + 1][1] - Q[i][1]) / dx[i] : 0; }
+        t[0] = m[0]; t[n - 1] = m[n - 2];
+        for (i = 1; i < n - 1; i++) t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
+        for (i = 0; i < n - 1; i++) {
+            if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+            var a = t[i] / m[i], b = t[i + 1] / m[i], s = a * a + b * b;
+            if (s > 9) { var tau = 3 / Math.sqrt(s); t[i] = tau * a * m[i]; t[i + 1] = tau * b * m[i]; }
+        }
+        var d = "M" + Q[0][0].toFixed(1) + "," + Q[0][1].toFixed(1);
+        for (i = 0; i < n - 1; i++) {
+            var h = dx[i] / 3;
+            d += "C" + (Q[i][0] + h).toFixed(1) + "," + (Q[i][1] + t[i] * h).toFixed(1) + " " + (Q[i + 1][0] - h).toFixed(1) + "," + (Q[i + 1][1] - t[i + 1] * h).toFixed(1) + " " + Q[i + 1][0].toFixed(1) + "," + Q[i + 1][1].toFixed(1);
+        }
+        return d;
+    }
+    function at(line, d) { var p = null; line.forEach(function (q) { if (q[0] <= d) p = q; }); return p; }
+    function drawChart() {
+        var drawn = chosen.filter(function (k) { return LINES[k]; });
+        chartFig.hidden = !drawn.length;
+        if (!drawn.length) return;
+        frame();
+        var all = []; drawn.forEach(function (k) { LINES[k].forEach(function (p) { all.push(p[1]); }); });
+        lo = Math.max(1, Math.min.apply(null, all) / 1.1); hi = Math.max(lo + 1, Math.max.apply(null, all) * 1.08);
+        if (hi / lo < 1.6) { var mid = Math.sqrt(lo * hi); lo = Math.max(1, mid / Math.sqrt(1.6)); hi = lo * 1.6; }
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        var last = -99;
+        [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300].forEach(function (n) {
+            if (n < lo || n > hi) return;
+            var yy = y(n); if (yy - last < 18) return; last = yy;
+            el("line", {x1: L, x2: R, y1: yy, y2: yy, "class": "ar-grid at-pc-grid"}, svg);
+            el("text", {x: L - 8, y: yy + 4, "class": "ar-tick at-pc-ytick", "text-anchor": "end"}, svg).textContent = "#" + n;
+        });
+        el("text", {x: x(0), y: B + 20, "class": "ar-tick at-pc-xtick", "text-anchor": "start"}, svg).textContent = "Draft";
+        var first = 1; while (first <= LAST && dateOf(first).getUTCDay() !== 0) first++;
+        var gap = 58, weeks = Math.max(1, Math.ceil(gap / ((R - L) * 7 / LAST)));
+        for (var d = first; d <= LAST; d += 7 * weeks) {
+            if (x(d) - x(0) < gap || R - x(d) < 18) continue;
+            el("line", {x1: x(d), x2: x(d), y1: B, y2: B + 5, "class": "at-pc-xmark"}, svg);
+            el("text", {x: x(d), y: B + 20, "class": "ar-tick at-pc-xtick", "text-anchor": "middle"}, svg).textContent = dayLabel(d);
+        }
+        var groups = {};
+        drawn.slice().reverse().forEach(function (k) {
+            var c = colourOf(k), Q = LINES[k].map(function (p) { return [x(p[0]), y(p[1])]; });
+            var g = el("g", {"class": "at-mk at-mk-" + c + " at-pc-on"}, svg);
+            el("path", {"class": "at-mk-path", d: smooth(Q)}, g);
+            el("circle", {"class": "at-mk-dot", r: 5, cx: Q[Q.length - 1][0], cy: Q[Q.length - 1][1]}, g);
+            groups[k] = el("circle", {"class": "at-mk-cursor", r: 5, style: "display:none"}, g);
+        });
+        var rule = el("line", {"class": "at-pc-rule", x1: 0, x2: 0, y1: T, y2: B, style: "display:none"}, svg);
+        svg.insertBefore(rule, svg.querySelector(".at-mk"));
+        var hit = el("rect", {x: L, y: T, width: R - L, height: B - T, fill: "transparent", style: "touch-action:pan-y"}, svg), drag = false;
+        function show(e) {
+            var t = e.touches ? e.touches[0] : e, box = svg.getBoundingClientRect();
+            var d = Math.max(0, Math.min(LAST, Math.round(((t.clientX - box.left) * W / box.width - L) / (R - L) * LAST)));
+            rule.setAttribute("x1", x(d)); rule.setAttribute("x2", x(d)); rule.style.display = "";
+            var rows = drawn.map(function (k) { return {k: k, p: at(LINES[k], d)}; }).filter(function (r) { return r.p; })
+                .sort(function (a, b) { return a.p[1] - b.p[1]; });
+            tip.innerHTML = '<div class="at-pc-tip-date">' + (d === 0 ? "At the draft" : dayLabel(d)) + "</div>" + rows.map(function (r) {
+                groups[r.k].setAttribute("cx", x(d)); groups[r.k].setAttribute("cy", y(r.p[1])); groups[r.k].style.display = "";
+                return '<div class="at-pc-tip-row at-mk-' + colourOf(r.k) + '"><i class="at-pc-swatch"></i><span class="at-pc-tip-name">' + esc(BY[r.k].name) + "</span><b>" + num(r.p[1]) + "</b><span></span></div>";
+            }).join("");
+            tip.hidden = false;
+            var sc = box.width / W, px = x(d) * sc, tw = tip.offsetWidth;
+            tip.style.left = (px + 14 + tw > box.width ? Math.max(0, px - 14 - tw) : px + 14) + "px";
+            tip.style.top = (T * sc + 4) + "px";
+        }
+        function clear() { rule.style.display = "none"; tip.hidden = true; Object.keys(groups).forEach(function (k) { groups[k].style.display = "none"; }); }
+        hit.addEventListener("pointerdown", function (e) { drag = true; if (hit.setPointerCapture) hit.setPointerCapture(e.pointerId); show(e); });
+        hit.addEventListener("pointermove", function (e) { if (drag || e.pointerType === "mouse") show(e); });
+        hit.addEventListener("pointerup", function (e) { drag = false; if (e.pointerType !== "mouse") clear(); });
+        hit.addEventListener("pointerleave", function () { if (!drag) clear(); });
+        hit.addEventListener("pointercancel", function () { drag = false; clear(); });
+    }
+
+    function render() { renderSlots(); renderVerdict(); renderList(); drawChart(); }
+
+    // ---- tabs and search ----
+    document.querySelectorAll(".cmp-pick .mk-tab").forEach(function (b) {
+        b.addEventListener("click", function () {
+            POS_TAB = b.getAttribute("data-pos");
+            document.querySelectorAll(".cmp-pick .mk-tab").forEach(function (x_) { x_.classList.toggle("on", x_ === b); });
+            renderList();
+        });
+    });
+    var found = [], active = -1;
+    function norm(s) { return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+    function search() {
+        var s = norm(q.value.trim()); hits.innerHTML = ""; found = []; active = -1;
+        if (!s) { hits.hidden = true; return; }
+        var words = s.split(/\s+/);
+        found = D.players.filter(function (p) {
+            var n = norm(p.name);
+            return words.every(function (w_) { return n.indexOf(w_) >= 0 || norm(p.pos) === w_ || norm(p.team) === w_; });
+        }).slice(0, 8);
+        hits.innerHTML = found.length ? found.map(function (p, i) {
+            return '<li class="at-pc-hit" role="option" id="cmp-hit-' + i + '" data-i="' + i + '">' + face(p, "at-pc-hit-face") +
+                '<span class="at-pc-hit-who"><span class="at-pc-hit-name">' + esc(p.name) + "</span><small>" + esc([p.pos, p.team].filter(Boolean).join(" · ")) + "</small></span>" +
+                '<span class="at-pc-hit-val"><b>' + esc(p.costs) + "</b><small>" + esc(p.pos) + p.prank + "</small></span></li>";
+        }).join("") : '<li class="at-pc-none">No priced player matches.</li>';
+        hits.querySelectorAll(".at-pc-hit").forEach(function (li) {
+            li.addEventListener("mousedown", function (e) { e.preventDefault(); choose(+li.getAttribute("data-i")); });
+        });
+        hits.hidden = false;
+    }
+    function choose(i) { var p = found[i]; if (!p) return; add(p.k); q.value = ""; hits.hidden = true; found = []; q.focus(); }
+    q.addEventListener("input", search);
+    q.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowDown" && found.length) { e.preventDefault(); active = Math.min(found.length - 1, active + 1); }
+        else if (e.key === "ArrowUp" && found.length) { e.preventDefault(); active = Math.max(0, active - 1); }
+        else if (e.key === "Enter") { e.preventDefault(); choose(active >= 0 ? active : 0); return; }
+        else if (e.key === "Escape") { hits.hidden = true; return; } else return;
+        hits.querySelectorAll(".at-pc-hit").forEach(function (it, j) { it.classList.toggle("at-pc-active", j === active); });
+    });
+    q.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; }, 120); });
+
+    (D.start || []).forEach(function (k) { if (chosen.indexOf(k) < 0 && BY[k]) chosen.push(k); });
+    render();
+    chosen.forEach(function (k) { if (!LINES[k]) { chosen = chosen.filter(function (x_) { return x_ !== k; }); add(k); } });
+    var rt; window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(drawChart, 150); });
+})();
+</script>
+{% endblock %}

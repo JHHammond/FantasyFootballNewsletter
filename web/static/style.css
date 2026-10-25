@@ -4600,3 +4600,48 @@ th.mk-c-rk { text-align: center; }
     .mk-lock-txt { flex-basis: calc(100% - 52px); }
     .mk-lock-cta { flex-direction: row; gap: 10px; margin-left: 52px; }
 }
+
+/* ---- compare players page (24 Oct) ---- */
+.mk-front-links { margin: 10px 0 0; }
+.mk-front-links a { font: 700 15px "Barlow", sans-serif; color: var(--accent); }
+.cmp-search { position: relative; margin: 0 0 16px; }
+.cmp-slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.cmp-slot { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 3px; padding: 18px 12px 14px; border-radius: 14px; background: #f6f1e6; border-top: 4px solid transparent; min-height: 230px; }
+.cmp-slot.at-mk-0 { border-top-color: var(--accent); } .cmp-slot.at-mk-1 { border-top-color: var(--ink); }
+.cmp-slot.at-mk-2 { border-top-color: #2d6a1f; } .cmp-slot.at-mk-3 { border-top-color: #8a6d1f; }
+.cmp-swatch { position: absolute; left: 12px; top: 12px; }
+.cmp-empty { justify-content: center; border: 2px dashed #d8cfbd; background: transparent; color: var(--muted); font: 600 14px "Barlow", sans-serif; }
+.cmp-empty svg { width: 64px; height: 64px; fill: #ddd4c2; margin-bottom: 6px; }
+.cmp-face { width: 84px; height: 84px; margin-bottom: 6px; }
+.cmp-face > span { font-size: 30px; }
+.cmp-name { font: 700 17px "Barlow", sans-serif; color: var(--ink); text-decoration: none; }
+.cmp-name:hover { color: var(--accent); }
+.cmp-meta { font: 600 12px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+.cmp-price { font: 400 40px/1 "Anton", sans-serif; color: var(--ink); margin-top: 6px; }
+.cmp-slot.at-mk-0 .cmp-price { color: var(--accent); }
+.cmp-prank { font: 700 13px "Barlow", sans-serif; color: var(--ink-2); }
+.cmp-moves { display: flex; flex-direction: column; gap: 1px; font: 600 12.5px "Barlow", sans-serif; margin-top: 4px; }
+.cmp-x { position: absolute; right: 8px; top: 6px; border: 0; background: none; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; }
+.cmp-x:hover { color: var(--accent); }
+.cmp-verdict { margin: 14px 0 0; padding: 10px 14px; border-left: 3px solid var(--accent); background: #fbf7ef; font: 500 15px Georgia, serif; }
+.cmp-chart { margin-top: 18px; }
+.cmp-chart[hidden], .cmp-verdict[hidden] { display: none; }
+.cmp-list { list-style: none; margin: 8px 0 0; padding: 0; columns: 3 240px; column-gap: 16px; }
+.cmp-list li { break-inside: avoid; }
+.cmp-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 8px; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; color: var(--ink); font: 500 15px "Barlow", sans-serif; }
+.cmp-row:hover { background: #f6f1e6; }
+.cmp-row.on { background: #fbe3e2; }
+.cmp-row-n { width: 26px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cmp-row-face { width: 28px; height: 28px; flex: none; }
+.cmp-row-name { flex: 1; min-width: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmp-row-meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.cmp-row-price { font: 400 15px "Anton", sans-serif; min-width: 38px; text-align: right; }
+.cmp-row-check { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; color: var(--muted); flex: none; }
+.cmp-row.on .cmp-row-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (max-width: 760px) {
+    .cmp-slots { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .cmp-slot { min-height: 200px; padding: 14px 8px 12px; }
+    .cmp-face { width: 64px; height: 64px; }
+    .cmp-price { font-size: 32px; }
+    .cmp-row-meta { display: none; }
+}
