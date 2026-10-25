@@ -113,7 +113,7 @@
     {% endif %}
     {% if not user %}
     <p class="mk-nudge" id="at-pc-nudge" hidden>Free accounts compare up to 6 players and put their own team on the chart.
-        <a class="mk-nudge-go" href="/signup?next={{ '/market?welcome=1'|urlencode }}">Sign up free</a>
+        <a class="mk-nudge-go" href="/signup?next={{ '/market/my-team'|urlencode }}">Sign up free</a>
         <a href="/login?next=/market">Sign in</a></p>
     {% endif %}
     <div class="at-pc-stats" id="at-pc-stats"></div>
@@ -811,7 +811,7 @@
     {% if not paid %}
     <div class="mk-week-unlock">
         <p><b>See every riser and faller this week</b>, plus fair offers built from your own roster for any player.</p>
-        {% if not user %}<a class="btn btn-primary" href="/signup?next={{ '/market?welcome=1'|urlencode }}">Sign up free</a>
+        {% if not user %}<a class="btn btn-primary" href="/signup?next={{ '/market/my-team'|urlencode }}">Sign up free</a>
         {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
     </div>
     {% endif %}

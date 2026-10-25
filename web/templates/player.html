@@ -127,7 +127,7 @@
     <div class="at-pc-legend pp-legend" id="pp-legend"></div>
     {% if not user %}
     <p class="mk-nudge" id="pp-nudge" hidden>Free accounts compare up to 5 players and see who has him in their league.
-        <a class="mk-nudge-go" href="/signup?next={{ (request.url.path ~ '?welcome=1')|urlencode }}">Sign up free</a>
+        <a class="mk-nudge-go" href="/signup?next={{ request.url.path|urlencode }}">Sign up free</a>
         <a href="/login?next={{ request.url.path|urlencode }}">Sign in</a></p>
     {% endif %}
     <figure class="ar-chart at-pc-chart">
@@ -179,7 +179,7 @@
 
     {% if not options %}
     <p class="pp-empty">Connect a league and this tells you who has {{ who.name }}, what they&rsquo;re short at, and the fair offers on your roster, backed by real trades.
-        {% if user %}<a href="/connect"><b>Connect your league &rarr;</b></a>{% else %}<a href="/signup?next={{ (request.url.path ~ '?welcome=1#desk')|urlencode }}"><b>Sign up free &rarr;</b></a>{% endif %}</p>
+        {% if user %}<a href="/connect"><b>Connect your league &rarr;</b></a>{% else %}<a href="/signup?next={{ (request.url.path ~ '#desk')|urlencode }}"><b>Sign up free &rarr;</b></a>{% endif %}</p>
     {% elif not desk %}
     <p class="pp-empty">He has no market price yet, so there&rsquo;s nothing to weigh an offer against.</p>
     {% else %}
@@ -296,7 +296,7 @@
     {% if trades|length > 3 %}
     <div class="pp-unlock">
         <p><b>{{ '{:,}'.format(trades|length - 3) }} more trade{{ '' if trades|length - 3 == 1 else 's' }}</b> of {{ who.name }} this season, with filters for straight-up deals and packages.</p>
-        {% if not user %}<a class="btn btn-primary" href="/signup?next={{ (request.url.path ~ '?welcome=1')|urlencode }}">Sign up free</a>
+        {% if not user %}<a class="btn btn-primary" href="/signup?next={{ request.url.path|urlencode }}">Sign up free</a>
         {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
     </div>
     {% endif %}

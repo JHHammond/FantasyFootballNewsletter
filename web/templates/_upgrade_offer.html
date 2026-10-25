@@ -9,32 +9,29 @@
 {% from "_macros.html" import upgrade_buttons %}
 <dialog class="offer" id="upgrade-offer" aria-labelledby="offer-title">
   <div id="offer-main">
+    {# Shown once the new account's first league is connected, not at sign-up
+       (John, 24 Oct: "It should be like 'One last thing!'"). #}
+    <div class="offer-eyebrow">One last thing!</div>
     {% if offer_kind == 'market' %}
-    <div class="offer-eyebrow">Welcome to the Desk</div>
-    <h2 class="offer-title" id="offer-title">Win every trade for {{ season_price_text if season_pass_enabled() else price_text }}</h2>
-    <p class="offer-sub">Prices are free for everybody. Upgrading puts your league to work:</p>
-    <ul class="offer-list">
-        <li>Fair offers for any player, built from your own roster</li>
-        <li>Who has him in your league, and what they&rsquo;re short at</li>
-        <li>Proof from real trades, and a pitch you can copy and send</li>
-        <li>Sell mode: what your leaguemates would give for your guys</li>
-        <li>Plus the whole weekly paper for every league you run</li>
-    </ul>
+    <h2 class="offer-title" id="offer-title">Your team&rsquo;s on the board. Want the whole market?</h2>
+    <p class="offer-sub">{% if season_pass_enabled() %}The season pass is {{ season_price_text }}{% else %}Upgrading is {{ price_text }}{% endif %}. Here&rsquo;s everything it adds:</p>
     {% else %}
-    <div class="offer-eyebrow">Welcome to the Desk</div>
-    <h2 class="offer-title" id="offer-title">Get the whole paper for {{ season_price_text if season_pass_enabled() else price_text }}</h2>
-    <p class="offer-sub">
-        Free gets you three papers for one league, in the tabloid look. Upgrading gets you:
-    </p>
-    <ul class="offer-list">
-        <li>Broadsheet and Gameday looks, not just the tabloid</li>
-        <li>As many leagues as you run</li>
-        <li>A paper every week, all season &mdash; not just three</li>
-        <li>Five redos a week on every paper instead of two</li>
-        <li>Your own photos in the paper</li>
-        <li>It writes and emails itself to the league every Tuesday</li>
-    </ul>
+    <h2 class="offer-title" id="offer-title">Your league&rsquo;s connected. Make it the whole season?</h2>
+    <p class="offer-sub">Free covers three papers for one league. {% if season_pass_enabled() %}The season pass is {{ season_price_text }}{% else %}Upgrading is {{ price_text }}{% endif %} and adds:</p>
     {% endif %}
+    <ul class="offer-perks">
+        {% if offer_kind != 'market' %}
+        <li><b>A paper every week, all season</b><span>Not just three. It writes and emails itself to the league every Tuesday.</span></li>
+        <li><b>Every look and your own photos</b><span>Broadsheet and Gameday as well as the tabloid, and five redos a week.</span></li>
+        {% endif %}
+        <li><b>Fair offers for any player</b><span>Built from your own roster, with who owns him and what they&rsquo;re short at.</span></li>
+        <li><b>Every riser and faller</b><span>&ldquo;Moving this week&rdquo; in full: who to buy before he costs more.</span></li>
+        <li><b>Live trades, every filter</b><span>Straight up, lopsided deals, and trades with your players in them.</span></li>
+        <li><b>Every team you have</b><span>All your leagues on the chart and the board, and four players side by side.</span></li>
+        {% if offer_kind == 'market' %}
+        <li><b>The weekly paper</b><span>For every league you run, all season, sent itself every Tuesday.</span></li>
+        {% endif %}
+    </ul>
     {{ upgrade_buttons("offer-cta") }}
     <p class="offer-fine">
         {% if season_pass_enabled() %}The pass renews once a year. {% endif %}Cancel any time from your account page.

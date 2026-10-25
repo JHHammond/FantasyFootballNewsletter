@@ -440,7 +440,8 @@ def test_adding_a_league_makes_a_paper(web, monkeypatch, tmp_path):
     user = _connected(client, db, monkeypatch, tmp_path)
     r = client.post("/connect/yahoo/add", data={"league_id": KEY},
                     follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].endswith("/setup")
+    # A brand-new account's first league: setup, with the "one last thing" offer.
+    assert r.status_code == 303 and r.headers["location"].endswith("/setup?welcome=1")
     league = db.find_existing_league("yahoo", KEY, 2026)
     assert league["user_id"] == user["id"]
     assert league["league_name"] == "Dirty South Dynasty"

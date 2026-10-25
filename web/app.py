@@ -354,7 +354,30 @@ async def market_funnel(request: Request, call_next):
     else:
         # Connected the normal way: they want the paper after all.
         _set_market_only(token, False)
+    _then_offer(request, response)
     return response
+
+
+#: Set at sign-up; the upgrade offer is shown once the new account's first
+#: league is connected, not the moment they sign up (John, 24 Oct: "kinda
+#: abrupt and in your face").
+OFFER_COOKIE = "cd_offer"
+
+
+def _offer_after_connect(response) -> None:
+    kw = auth.cookie_kwargs()
+    response.set_cookie(OFFER_COOKIE, "1", max_age=2 * 86400, path="/",
+                        httponly=True, samesite="lax", secure=bool(kw.get("secure")))
+
+
+def _then_offer(request: Request, response) -> None:
+    """A brand-new account's league is in: now the "one last thing" offer."""
+    if request.cookies.get(OFFER_COOKIE) != "1":
+        return
+    base, _, frag = response.headers["location"].partition("#")
+    response.headers["location"] = (base + ("&" if "?" in base else "?") + "welcome=1"
+                                    + (("#" + frag) if frag else ""))
+    response.delete_cookie(OFFER_COOKIE, path="/")
 
 
 def _log_league_connected(request: Request, admin_token: str, new: bool) -> None:
@@ -935,6 +958,7 @@ def _follow_instead(request: Request, user: dict, league: dict, platform: str,
     if request.cookies.get(FUNNEL_COOKIE) == "market":
         response = RedirectResponse("/market?show=k%3A0", status_code=303)
         response.delete_cookie(FUNNEL_COOKIE, path="/")
+        _then_offer(request, response)
         return response
     # Came to make a paper: say why there isn't one, and what they got instead.
     return RedirectResponse(
@@ -2081,9 +2105,9 @@ def market_my_team(request: Request):
         # No league yet. First the offer (the market pop-up, about trades),
         # unless they've seen it (?go=connect), already pay, or we can't take
         # money; then connecting.
-        offer = (request.query_params.get("go") != "connect"
-                 and plans.billing_enabled() and not plans.is_paid(user))
-        response = RedirectResponse("/market?welcome=1" if offer else "/connect", status_code=303)
+        # No league yet: straight to connecting. The offer waits until the
+        # league is in (John, 24 Oct: "kinda abrupt and in your face").
+        response = RedirectResponse("/connect", status_code=303)
     else:
         response = RedirectResponse("/signup?next=/market/my-team", status_code=303)
     kw = auth.cookie_kwargs()
@@ -2893,8 +2917,9 @@ def signup(request: Request, email: str = Form(...), password: str = Form(...),
     # because for everyone arriving the usual way it is the next step.
     from_market = request.cookies.get(FUNNEL_COOKIE) == "market"
     response = RedirectResponse(_local(next) or ("/market/my-team" if from_market
-                                                 else "/connect?welcome=1"),
+                                                 else "/connect"),
                                 status_code=303)
+    _offer_after_connect(response)
     return _set_session(response, user["id"])
 
 
@@ -3039,8 +3064,10 @@ def google_callback(request: Request, code: str = "", state: str = "",
     if request.cookies.get(FUNNEL_COOKIE) == "market":
         response = RedirectResponse("/market/my-team", status_code=303)
     else:
-        response = RedirectResponse("/connect?welcome=1" if is_new else "/account",
+        response = RedirectResponse("/connect" if is_new else "/account",
                                     status_code=303)
+    if is_new:
+        _offer_after_connect(response)
     response.delete_cookie(oauth.STATE_COOKIE, path="/")
     return _set_session(response, user["id"])
 

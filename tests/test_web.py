@@ -2998,7 +2998,8 @@ def test_signing_up_signs_you_in(client):
     r = _signup(client)
     assert r.status_code == 303
     # Straight to connecting a league. Signing up was never the goal.
-    assert r.headers["location"] == "/connect?welcome=1"
+    # 24 Oct: the offer waits until the first league is connected.
+    assert r.headers["location"] == "/connect"
     assert client.get("/account").status_code == 200
 
 
@@ -4839,7 +4840,8 @@ def test_a_new_person_gets_an_account_with_no_password(client, google_on,
     r = _complete(client, monkeypatch, email="brand-new@example.com")
 
     assert r.status_code == 303
-    assert r.headers["location"] == "/connect?welcome=1"
+    # 24 Oct: the offer waits until the first league is connected.
+    assert r.headers["location"] == "/connect"
 
     user = demo_db.user_by_email("brand-new@example.com")
     assert user is not None

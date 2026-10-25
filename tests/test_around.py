@@ -722,7 +722,7 @@ def test_signup_will_not_bounce_you_off_the_site(web):
                                       "password": "correct horse battery 9",
                                       "confirm": "correct horse battery 9",
                                       "next": bad}, follow_redirects=False)
-        assert r.headers.get("location") == "/connect?welcome=1", bad
+        assert r.headers.get("location") == "/connect", bad
 
 
 def _seed_players(n_teams: int = 14, n_players: int = 20) -> None:
