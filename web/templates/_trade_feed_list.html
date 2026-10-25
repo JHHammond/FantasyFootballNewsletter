@@ -27,7 +27,7 @@
             {%- elif r.picks %}<small>Picks or FAAB in it</small>{% endif -%}
             </span>
         </div>
-        <div class="tf-sides">
+        <div class="tf-sides tf-sides-{{ r.sides|length }}">
             {% for s in r.sides %}
             {% if not loop.first %}<span class="tf-swap" aria-hidden="true">&#8644;</span>{% endif %}
             <div class="tf-side{{ ' tf-won' if v and not v.fair and v.winner == loop.index0 }}">

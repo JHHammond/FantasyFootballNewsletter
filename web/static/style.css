@@ -4759,3 +4759,10 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
     .tf-f-player input[type=text] { width: 100%; }
     .tf-f, .tf-f-player { flex: 1 1 45%; }
 }
+
+/* Three- and four-team trades (24 Oct): one column per team, no arrows. */
+.tf-sides-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tf-sides-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tf-sides-3 .tf-swap, .tf-sides-4 .tf-swap { display: none; }
+.tf-sides-3 .pp-tiles, .tf-sides-4 .pp-tiles { flex-direction: column; align-items: flex-start; }
+@media (max-width: 760px) { .tf-sides-3, .tf-sides-4 { grid-template-columns: 1fr; } }
