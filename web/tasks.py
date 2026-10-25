@@ -384,6 +384,17 @@ def main() -> int:
         print("Refusing to run the weekly job in DEMO_MODE — there's no real data.")
         return 1
 
+    # The live trade feed: `python -m web.tasks --live-trades` (every 30 min).
+    if "--live-trades" in sys.argv:
+        import nfl_week
+        from . import db, live_trades
+        if not nfl_week.is_in_season():
+            print("Out of season: no live trades to poll.")
+            return 0
+        season = nfl_week.current_season()
+        report = live_trades.poll(db, season, nfl_week.current_week(season=season))
+        return 1 if report["asked"] == 0 and report["leagues"] else 0
+
     # Around the Leagues on its own: `python -m web.tasks --collect 1 2 3`.
     # Stats only — no Claude, no email — so it needs no Resend key. With no
     # weeks given, the latest finished week.

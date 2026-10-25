@@ -212,3 +212,26 @@ services:
         sync: false        # the job mails its errors here
       - key: SENTRY_DSN
         sync: false
+
+  # The live trade feed (24 Oct 2026): every half hour, ask every Sleeper
+  # league for this week's trades so /market/trades shows them as they
+  # happen. ~5,500 leagues at ~500 calls a minute is about 10 minutes a run.
+  # Never writes trade_scans, so the Tuesday collector still sweeps up the
+  # week in full. Skips itself out of season.
+  - type: cron
+    name: live-trades
+    runtime: python
+    plan: starter
+    region: oregon
+    schedule: "*/30 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m web.tasks --live-trades
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false

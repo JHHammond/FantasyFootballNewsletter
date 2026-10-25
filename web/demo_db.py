@@ -1410,6 +1410,34 @@ def lineup_for_league(league_id: str, season: int, week: int) -> list[dict[str, 
             and int(l["week"]) == int(week)]
 
 
+def recent_trades(season: int, limit: int = 400) -> list[dict[str, Any]]:
+    """The SQL function's twin (migration 060)."""
+    import hashlib
+    season = int(season)
+    heads = sorted((h for h in _TRADES.values() if int(h["season"]) == season and h.get("traded_at")),
+                   key=lambda h: h["traded_at"], reverse=True)[:limit]
+    out = []
+    for h in heads:
+        sides = []
+        for team in h.get("teams") or []:
+            sides.append({
+                "players": [{"player_key": r["player_key"], "name": r.get("name"), "position": r.get("position")}
+                            for r in sorted(_TRADE_PLAYERS.values(), key=lambda r: r["player_key"])
+                            if r["league_id"] == h["league_id"] and r["trade_key"] == h["trade_key"]
+                            and int(r["season"]) == season and r.get("to_team") == team],
+                "picks": [p[1] for p in h.get("picks") or [] if p and p[0] == team and len(p) > 1],
+                "faab": sum(float(f[2]) for f in h.get("faab") or [] if len(f) > 2 and f[1] == team)})
+        out.append({"key": hashlib.md5(f"{h['league_id']}:{h['trade_key']}".encode()).hexdigest(),
+                    "week": h["week"], "at": h["traded_at"], "provider": h.get("provider"),
+                    "team_count": h.get("team_count"), "scoring_type": h.get("scoring_type"),
+                    "format": (_LEAGUES.get(h["league_id"]) or {}).get("format"), "sides": sides})
+    return out
+
+
+def sleeper_leagues(season: int) -> list[dict[str, Any]]:
+    return [l for l in all_leagues(season) if l.get("provider") == "sleeper"]
+
+
 def player_trades(season: int, player_key: str) -> dict[str, Any]:
     """The SQL function's twin (migration 056)."""
     import hashlib

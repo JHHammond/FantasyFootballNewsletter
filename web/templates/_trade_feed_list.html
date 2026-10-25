@@ -1,0 +1,54 @@
+{# The live trade feed's list (web/trade_feed.py). Rendered inside
+   trades.html, and on its own (?partial=1) for the page's refresh. #}
+{% from "_macros.html" import upgrade_buttons %}
+{% macro tile(it) -%}
+{%- if it.kind == 'player' -%}
+<a class="pp-tile" href="/market/player/{{ (it.key or '')|urlencode }}">
+    <span class="at-face pp-tile-face">{% if it.photo %}<img src="{{ it.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (it.label or '?')[:1] }}</span></span>
+    <span class="pp-tile-txt"><b>{{ it.label }}</b><small>{{ it.position or '' }}{% if it.costs %} &middot; {{ it.costs }}{% endif %}</small></span></a>
+{%- else -%}
+<span class="pp-tile pp-tile-{{ it.kind }}"><span class="pp-tile-txt"><b>{{ it.label }}</b></span></span>
+{%- endif -%}
+{%- endmacro %}
+<div id="tf-list-inner" data-newest="{{ newest or '' }}" data-count="{{ total }}">
+{% if rows %}
+<ol class="tf-list">
+    {% for r in rows %}
+    {% set v = r.verdict %}
+    <li class="tf-card{{ ' tf-lop' if v and v.lopsided }}">
+        <div class="tf-top">
+            <span class="tf-ago">{{ r.ago }}</span>
+            <span class="tf-league">{{ r.league }}</span>
+            {% if r.fmt == 'dynasty' %}<span class="tf-tag">Dynasty</span>{% endif %}
+            {% if r.three_way %}<span class="tf-tag">Three-way</span>{% endif %}
+            <span class="tf-verdict">
+            {%- if v and v.fair %}<b class="pp-v-fair">Fair deal</b>
+            {%- elif v %}<b class="{{ 'pp-v-paid' if v.lopsided else 'pp-v-won' }}">Team {{ 'ABCD'[v.winner] }} wins by {{ v.edge }}%</b>{% if v.lopsided %}<span class="tf-tag tf-tag-red">Lopsided</span>{% endif %}
+            {%- elif r.picks %}<small>Picks or FAAB in it</small>{% endif -%}
+            </span>
+        </div>
+        <div class="tf-sides">
+            {% for s in r.sides %}
+            {% if not loop.first %}<span class="tf-swap" aria-hidden="true">&#8644;</span>{% endif %}
+            <div class="tf-side{{ ' tf-won' if v and not v.fair and v.winner == loop.index0 }}">
+                <span class="tf-label">Team {{ 'ABCD'[loop.index0] }} gets</span>
+                <div class="pp-tiles">{% for it in s['items'] %}{{ tile(it) }}{% endfor %}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </li>
+    {% endfor %}
+</ol>
+{% if hidden and not paid %}
+<div class="mk-week-unlock tf-unlock">
+    <p><b>{{ '{:,}'.format(hidden) }} more trade{{ '' if hidden == 1 else 's' }}</b> in the feed, plus every filter: player, straight up or packages, league size, scoring, platform, lopsided deals, and trades with your players in them.</p>
+    {% if not user %}<a class="btn btn-primary" href="/signup?next={{ '/me#plan'|urlencode }}">Get the season pass</a>
+    {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/me#plan">See the plan</a>{% endif %}
+</div>
+{% elif hidden %}
+<p class="tf-more">Showing the newest {{ rows|length }}. Narrow the filters to see further back.</p>
+{% endif %}
+{% else %}
+<p class="pp-empty tf-empty">No trades match{% if f.pos or f.player %} those filters{% endif %} yet. New ones arrive every half hour.</p>
+{% endif %}
+</div>

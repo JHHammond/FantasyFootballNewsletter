@@ -1910,6 +1910,17 @@ def trade_partners(season: int, player_key: str, limit: int = 8) -> dict[str, An
                                         "p_limit": int(limit)}) or {}
 
 
+def recent_trades(season: int, limit: int = 400) -> list[dict[str, Any]]:
+    """See migration 060: the newest trades across every league, sides
+    anonymous. The live feed's source."""
+    return _rpc_json("recent_trades", {"p_season": int(season), "p_limit": int(limit)}) or []
+
+
+def sleeper_leagues(season: int) -> list[dict[str, Any]]:
+    """Every Sleeper league this season, for the live trade poller."""
+    return [l for l in all_leagues(season) if l.get("provider") == "sleeper"]
+
+
 def player_trades(season: int, player_key: str) -> dict[str, Any]:
     """See migration 056: every trade of one player this season, newest
     first, his side against the other. Players, pick labels and FAAB only."""

@@ -4716,3 +4716,46 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 .cmp-shake { animation: cmp-shake .45s ease-in-out; }
 @keyframes cmp-shake { 0%, 100% { transform: none; } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 .cmp-locked .mk-lock-ico svg { width: 18px; height: 18px; fill: none; margin: 0; stroke: #fff; }
+
+/* ---- live trade feed (24 Oct) ---- */
+.tf-live-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); margin-right: 4px; vertical-align: 1px; animation: tf-pulse 1.6s ease-in-out infinite; }
+@keyframes tf-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(179, 20, 28, .45); } 50% { box-shadow: 0 0 0 6px rgba(179, 20, 28, 0); } }
+.tf-pos input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.tf-pos-tab { cursor: pointer; }
+.tf-more-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin-top: 6px; }
+.tf-f { display: flex; flex-direction: column; gap: 4px; }
+.tf-f span { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+.tf-f .at-pc-set { padding: 7px 34px 7px 12px; font: 600 14px "Barlow", sans-serif; color: var(--ink); background-color: #faf6ee; border: 1px solid var(--line); border-radius: 999px; -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236b6050' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; }
+.tf-f-player input[type=text] { padding: 7px 14px; font: 600 14px "Barlow", sans-serif; border: 1px solid var(--line); border-radius: 999px; background: #faf6ee; width: 200px; }
+.tf-check { display: inline-flex; align-items: center; gap: 6px; font: 600 14px "Barlow", sans-serif; padding-bottom: 7px; cursor: pointer; }
+.tf-locked .tf-f, .tf-locked .tf-check { opacity: .45; }
+.tf-lock-note { display: inline-flex; align-items: center; gap: 8px; font: 700 14px "Barlow", sans-serif; color: var(--accent); text-decoration: none; padding-bottom: 4px; }
+.tf-lock-note .mk-lock-ico { width: 28px; height: 28px; }
+.tf-lock-note .mk-lock-ico svg { width: 14px; height: 14px; }
+.tf-status { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font: 500 13px "Barlow", sans-serif; color: var(--muted); }
+.tf-new { padding: 3px 10px; border-radius: 999px; background: var(--accent); color: #fff; font-weight: 700; }
+.tf-new[hidden] { display: none; }
+.tf-list { list-style: none; margin: 0; padding: 0; }
+.tf-card { padding: 14px 0 16px; border-bottom: 1px solid var(--line); }
+.tf-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 10px; }
+.tf-ago { font: 400 16px "Anton", sans-serif; letter-spacing: .3px; color: var(--ink); }
+.tf-league { font: 500 13px "Barlow", sans-serif; color: var(--muted); }
+.tf-tag { padding: 1px 8px; border-radius: 999px; background: #f2ecdf; color: var(--ink-2); font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; }
+.tf-tag-red { background: #fbe3e2; color: var(--accent); margin-left: 6px; }
+.tf-verdict { margin-left: auto; display: inline-flex; align-items: center; font: 600 14px "Barlow", sans-serif; }
+.tf-verdict small { color: var(--muted); font-size: 12.5px; }
+.tf-sides { display: grid; grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr); align-items: start; gap: 10px; }
+.tf-side { padding: 10px 12px; border-radius: 12px; background: #fbf8f1; border: 1px solid transparent; display: flex; flex-direction: column; gap: 6px; }
+.tf-won { border-color: #bcd9b0; background: #f1f7ec; }
+.tf-lop .tf-won { border-color: #e9b9b5; background: #fdf0ee; }
+.tf-label { font: 700 11px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+.tf-swap { align-self: center; color: var(--muted); font-size: 18px; text-align: center; }
+.tf-unlock { margin-top: 16px; }
+.tf-more, .tf-empty { margin: 14px 0 0; font: 500 14px "Barlow", sans-serif; color: var(--muted); }
+@media (max-width: 760px) {
+    .tf-sides { grid-template-columns: 1fr; }
+    .tf-swap { display: none; }
+    .tf-verdict { margin-left: 0; flex-basis: 100%; }
+    .tf-f-player input[type=text] { width: 100%; }
+    .tf-f, .tf-f-player { flex: 1 1 45%; }
+}

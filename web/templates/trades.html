@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Live trades · The trade market{% endblock %}
+{% block description %}Every fantasy football trade as it happens, across thousands of real leagues: who went for whom, and who won it by today's prices.{% endblock %}
+{% block wrapclass %}home around{% endblock %}
+
+{#
+    The live trade feed (John, 24 Oct 2026). Every trade across the connected
+    leagues, newest first. New ones arrive every half hour (web/live_trades.py)
+    and the page refreshes its list every minute while it's open. Leagues are
+    described, never named.
+#}
+
+{% block content %}
+<section class="front at-front mk-front">
+    <p class="mk-kicker"><span class="tf-live-dot" aria-hidden="true"></span> Live &middot; Trade market</p>
+    <h1 class="mk-title">Every trade, as it happens</h1>
+    <p class="mk-dek">Real trades from thousands of fantasy leagues, newest first, with who won each one by today&rsquo;s prices. Leagues are described, never named.</p>
+</section>
+
+<section class="card tf-filters">
+    <form method="get" action="/market/trades" id="tf-form">
+        <div class="mk-tabs tf-pos" role="group" aria-label="Position">
+            {% for p in ['', 'QB', 'RB', 'WR', 'TE'] %}
+            <label class="mk-tab tf-pos-tab{{ ' on' if f.pos == p }}"><input type="radio" name="pos" value="{{ p }}"{{ ' checked' if f.pos == p }} />{{ p or 'All' }}</label>
+            {% endfor %}
+        </div>
+        <div class="tf-more-filters{{ ' tf-locked' if not paid }}">
+            <label class="tf-f tf-f-player"><span>Player</span>
+                <input type="text" id="tf-player-name" list="tf-players" placeholder="Any player" value="{{ player_name or '' }}" autocomplete="off"{{ ' disabled' if not paid }} />
+                <input type="hidden" name="player" id="tf-player" value="{{ f.player }}" /></label>
+            <datalist id="tf-players">{% for p in players %}<option value="{{ p.name }}" data-k="{{ p.k }}">{{ p.pos }}</option>{% endfor %}</datalist>
+            {% for name, label, opts in [
+                ('shape', 'Deal', [('', 'Any'), ('straight', 'Straight up'), ('package', 'Packages'), ('picks', 'With picks / FAAB')]),
+                ('size', 'League size', [('', 'Any'), ('8', '8 teams'), ('10', '10 teams'), ('12', '12 teams'), ('14', '14+ teams')]),
+                ('scoring', 'Scoring', [('', 'Any'), ('ppr', 'PPR'), ('half_ppr', 'Half-PPR'), ('std', 'Standard')]),
+                ('platform', 'Platform', [('', 'Any'), ('sleeper', 'Sleeper'), ('espn', 'ESPN'), ('yahoo', 'Yahoo')]),
+                ('fmt', 'Format', [('', 'Any'), ('redraft', 'Redraft'), ('dynasty', 'Dynasty')])] %}
+            <label class="tf-f"><span>{{ label }}</span>
+                <select name="{{ name }}" class="at-pc-set"{{ ' disabled' if not paid }}>{% for v, t in opts %}<option value="{{ v }}"{{ ' selected' if f[name] == v }}>{{ t }}</option>{% endfor %}</select></label>
+            {% endfor %}
+            <label class="tf-check"><input type="checkbox" name="lopsided" value="1"{{ ' checked' if f.lopsided }}{{ ' disabled' if not paid }} /> Lopsided only</label>
+            <label class="tf-check"><input type="checkbox" name="mine" value="1"{{ ' checked' if f.mine }}{{ ' disabled' if not paid }} /> With my players</label>
+            {% if not paid %}
+            <a class="tf-lock-note" href="{{ '/me#plan' if user else '/signup?next=%2Fme%23plan' }}"><span class="mk-lock-ico" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span>Every filter comes with the season pass</a>
+            {% endif %}
+        </div>
+        <noscript><button type="submit" class="btn">Filter</button></noscript>
+    </form>
+</section>
+
+<section class="card tf-feed">
+    <p class="tf-status"><span id="tf-new" class="tf-new" hidden></span><span>Updates every minute &middot; new trades arrive every half hour</span></p>
+    <div id="tf-list">{% include "_trade_feed_list.html" %}</div>
+</section>
+
+<script>
+(function () {
+    var form = document.getElementById("tf-form");
+    // Filters apply as soon as they change.
+    form.querySelectorAll("input[type=radio], input[type=checkbox], select").forEach(function (el) {
+        el.addEventListener("change", function () { form.submit(); });
+    });
+    var nameIn = document.getElementById("tf-player-name"), keyIn = document.getElementById("tf-player");
+    if (nameIn) nameIn.addEventListener("change", function () {
+        var v = nameIn.value.trim(), opt = Array.prototype.find.call(document.querySelectorAll("#tf-players option"), function (o) { return o.value === v; });
+        keyIn.value = opt ? opt.getAttribute("data-k") : "";
+        form.submit();
+    });
+    // The list refreshes itself while the page is open.
+    var list = document.getElementById("tf-list"), badge = document.getElementById("tf-new");
+    function refresh() {
+        if (document.hidden) return;
+        var u = new URL(location.href); u.searchParams.set("partial", "1");
+        fetch(u.toString(), {credentials: "same-origin"}).then(function (r) { return r.ok ? r.text() : null; }).then(function (html) {
+            if (!html) return;
+            var box = document.createElement("div"); box.innerHTML = html;
+            var fresh = box.querySelector("#tf-list-inner"), old = list.querySelector("#tf-list-inner");
+            if (!fresh || !old || fresh.getAttribute("data-newest") === old.getAttribute("data-newest")) return;
+            var n = (+fresh.getAttribute("data-count") || 0) - (+old.getAttribute("data-count") || 0);
+            list.innerHTML = box.innerHTML;
+            badge.textContent = n > 0 ? n + " new trade" + (n === 1 ? "" : "s") : "Updated";
+            badge.hidden = false;
+            setTimeout(function () { badge.hidden = true; }, 6000);
+        }).catch(function () {});
+    }
+    setInterval(refresh, 60000);
+})();
+</script>
+{% endblock %}

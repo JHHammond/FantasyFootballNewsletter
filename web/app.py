@@ -1956,6 +1956,43 @@ def market_page(request: Request):
                    job=league_stats.job_status() if staff else None)
 
 
+@app.get("/market/trades", response_class=HTMLResponse)
+def market_trades(request: Request, partial: int = 0):
+    """The live trade feed (John, 24 Oct): every trade as it comes in,
+    newest first, filterable. ?partial=1 returns just the list, for the
+    page's own refresh every minute."""
+    import nfl_week
+    from . import around, trade_feed
+    from .luck import photo_url
+    user = current_user(request)
+    paid = plans.is_paid(user)
+    season = nfl_week.current_season()
+    rating = _trade_rating(season, max(nfl_week.completed_week(), 1)) or {}
+    prices = {p["k"]: p for p in rating.get("pickable") or []}
+    try:
+        raw = around.swr(around._cache, ("recent-trades", season),
+                         lambda: db.recent_trades(season, 400) or [], ttl=90) or []
+    except Exception as exc:  # noqa: BLE001 — before 060, an empty feed
+        print(f"[feed] no recent trades: {type(exc).__name__}: {exc}", flush=True)
+        raw = []
+    rows = trade_feed.shape(raw, prices, float(rating.get("spot") or 0), photo_url)
+    f = trade_feed.clean_filters(dict(request.query_params), paid)
+    mine = None
+    if f["mine"] and user:
+        m = _market_mine(user, season, max(nfl_week.completed_week(), 1), rating) or {}
+        mine = {k for t in m.get("known") or [] for k in (t.get("all") or t.get("keys") or [])}
+    shown = trade_feed.apply(rows, f, mine)
+    limit = trade_feed.PAID_ROWS if paid else trade_feed.FREE_ROWS
+    ctx = dict(rows=shown[:limit], hidden=max(0, len(shown) - limit), total=len(rows),
+               f=f, paid=paid, newest=rows[0]["at"] if rows else None,
+               players=sorted(({"k": p["k"], "name": p.get("name"), "pos": p.get("pos")} for p in prices.values()),
+                              key=lambda p: p["name"] or ""),
+               player_name=(prices.get(f["player"]) or {}).get("name"))
+    if partial:
+        return _render(request, "_trade_feed_list.html", **ctx)
+    return _render(request, "trades.html", offer_kind="market", **ctx)
+
+
 #: Players side by side on the compare page, and how many of them are free.
 COMPARE_SLOTS = 4
 COMPARE_FREE = 2
