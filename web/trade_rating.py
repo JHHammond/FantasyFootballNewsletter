@@ -149,9 +149,52 @@ LOPSIDED_KNOWN = 3
 #: Below this many drafts a player's ADP is one room's opinion, not a
 #: consensus, and he starts as undrafted instead.
 MIN_DRAFTS = 20
-#: How many players the price chart draws before the reader picks any.
-#: Five of the six colours, so there is always room to add one.
-CHART_DEFAULT = 5
+#: How many players the price chart draws before the reader picks any:
+#: #1 and the week's biggest movers (John, 25 Oct: the top five bunched
+#: up at the top of the chart). Four, the signed-out limit, so nobody
+#: opens on a sign-up nudge.
+CHART_DEFAULT = 4
+#: Movers for that default come from the top this many, have at least
+#: this many trades, and are measured over this many days.
+CHART_MOVER_POOL = 100
+CHART_MOVER_MIN_TRADES = 15
+CHART_MOVER_DAYS = 7
+
+
+def chart_default(rated: list, day_lines: dict, trades: dict) -> list:
+    """The chart's opening lines: the most expensive player, then the
+    biggest riser, the biggest faller, the next riser... over the last
+    week. Filled from the top of the market if the week was quiet."""
+    lines, last = day_lines.get("lines") or {}, day_lines.get("last")
+    drawn = [k for k in rated if k in lines]
+    if not drawn:
+        return []
+    out = [drawn[0]]
+    up, down = [], []
+    for k in drawn[1:CHART_MOVER_POOL]:
+        line = lines[k]
+        if trades.get(k, 0) < CHART_MOVER_MIN_TRADES or not line or last is None:
+            continue
+        then = next((pt[1] for pt in reversed(line) if pt[0] <= last - CHART_MOVER_DAYS), None)
+        if then is None or not line[-1][1]:
+            continue
+        # By share of his place, so #40 to #25 counts for more than #140 to #125.
+        moved = math.log(then / line[-1][1]) if then > 0 and line[-1][1] > 0 else 0
+        if moved > 0.05:
+            up.append((-moved, k))
+        elif moved < -0.05:
+            down.append((moved, k))
+    up, down = [k for _, k in sorted(up)], [k for _, k in sorted(down)]
+    while len(out) < CHART_DEFAULT and (up or down):
+        for side in (up, down):
+            if side and len(out) < CHART_DEFAULT:
+                out.append(side.pop(0))
+    for k in drawn:
+        if len(out) >= CHART_DEFAULT:
+            break
+        if k not in out:
+            out.append(k)
+    return out
 
 #: The movers boards: how many each way, and the trades a player needs
 #: before his move counts.
@@ -680,6 +723,7 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
             "v": round(market.v[k], 6),
             "trades": market.n.get(k, 0),
             "photo": photo_url(k, meta.get("position"))})
+    opening = chart_default(rated, day_lines, market.n)
     return {
         "rows": rows,
         "held": held,
@@ -688,9 +732,8 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
         #: What the page embeds: the default lines only (the top few by
         #: price). Everybody else is fetched when the reader adds him.
         "chart": {"base": day_lines["base"], "last": day_lines["last"],
-                  "default": [k for k in rated if k in day_lines["lines"]][:CHART_DEFAULT],
-                  "lines": {k: day_lines["lines"][k]
-                            for k in [k for k in rated if k in day_lines["lines"]][:CHART_DEFAULT]}},
+                  "default": opening,
+                  "lines": {k: day_lines["lines"][k] for k in opening}},
         "pickable": pickable,
         "up": [r for r in movers if r["moved"] > 0][:MOVERS],
         "down": [r for r in reversed(movers) if r["moved"] < 0][:MOVERS],
@@ -890,6 +933,14 @@ def apply_injuries(r: Optional[dict], status: dict) -> Optional[dict]:
         return out
 
     r["pickable"] = keep
+    # The chart's opening lines again without them: a season-ending injury
+    # is the week's biggest faller, and he's off the board.
+    daily = r.get("daily") or {}
+    if r.get("chart") and daily.get("lines"):
+        opening = chart_default([p["k"] for p in keep], daily,
+                                {p["k"]: p.get("trades") or 0 for p in keep})
+        r["chart"] = dict(r["chart"], default=opening,
+                          lines={k: daily["lines"][k] for k in opening})
     r["rows"], r["up"], r["down"] = fix(r.get("rows")), fix(r.get("up")), fix(r.get("down"))
     r["injured"] = [{"k": p["k"], "name": p.get("name"), "pos": p.get("pos"), "team": p.get("team"),
                      "inj": p["inj"], "was": p["costs"], "photo": p.get("photo")}

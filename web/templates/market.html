@@ -263,7 +263,7 @@
         (MINE.known || []).forEach(function (t, i) {
             opt(setSel, "k:" + i, "My team: " + t.team + " (" + t.league + ")");
         });
-        opt(setSel, "top", "Most expensive");
+        opt(setSel, "top", "#1 and this week\u2019s movers");
         (MINE.pick || []).forEach(function (lg) {
             var g = document.createElement("optgroup");
             g.label = "Which team is yours in " + lg.league + "?";
