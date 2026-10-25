@@ -1995,18 +1995,33 @@ def market_trades(request: Request, partial: int = 0):
     prices = {p["k"]: p for p in rating.get("pickable") or []}
     try:
         raw = around.swr(around._cache, ("recent-trades", season),
-                         lambda: db.recent_trades(season, 400) or [], ttl=90) or []
+                         lambda: db.recent_trades(season, 1000) or [], ttl=90) or []
     except Exception as exc:  # noqa: BLE001 — before 060, an empty feed
         print(f"[feed] no recent trades: {type(exc).__name__}: {exc}", flush=True)
         raw = []
-    rows = trade_feed.shape(raw, prices, float(rating.get("spot") or 0), photo_url)
     f = trade_feed.clean_filters(dict(request.query_params), paid)
+    if f["player"]:
+        # One player: his whole season, not just the newest few hundred
+        # trades of everybody (John, 25 Oct).
+        try:
+            names = around.swr(around._cache, ("pnames", season),
+                               lambda: db.trade_player_names(season) or {}, ttl=900) or {}
+            his = around.swr(around._cache, ("ptrades", season, f["player"]),
+                             lambda: (db.player_trades(season, f["player"]) or {}).get("trades") or [],
+                             ttl=600) or []
+            raw = trade_feed.from_player_trades(f["player"], his, prices, names)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[feed] no trades for {f['player']}: {type(exc).__name__}: {exc}", flush=True)
+            raw = []
+    rows = trade_feed.shape(raw, prices, float(rating.get("spot") or 0), photo_url)
     mine = None
     if f["mine"] and user:
         m = _market_mine(user, season, max(nfl_week.completed_week(), 1), rating) or {}
         mine = {k for t in m.get("known") or [] for k in (t.get("all") or t.get("keys") or [])}
     shown = trade_feed.apply(rows, f, mine)
     limit = trade_feed.PAID_ROWS if paid else trade_feed.FREE_ROWS
+    if paid and f["player"]:
+        limit = max(limit, len(shown))  # one player: show every trade he's in
     ctx = dict(rows=shown[:limit], hidden=max(0, len(shown) - limit), total=len(rows),
                f=f, paid=paid, newest=rows[0]["at"] if rows else None,
                players=sorted(({"k": p["k"], "name": p.get("name"), "pos": p.get("pos")} for p in prices.values()),

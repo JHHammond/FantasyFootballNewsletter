@@ -86,6 +86,30 @@ def shape(raw: list[dict], prices: dict, spot: float, photo=None,
     return out
 
 
+def from_player_trades(key: str, trades: list[dict], prices: dict, names: dict) -> list[dict]:
+    """One player's whole season (player_trades, migration 056) in the feed's
+    raw shape, for the player filter: filtering the newest few hundred
+    trades of everybody missed most of his (John, 25 Oct). His side is
+    first; the other side is everything that went the other way."""
+    me = prices.get(key) or {}
+    meta = names.get(key) or {}
+    him = {"player_key": key, "name": me.get("name") or meta.get("name") or key,
+           "position": me.get("pos") or meta.get("position")}
+    out = []
+    for t in trades or []:
+        out.append({
+            "key": t.get("key"), "week": t.get("week"),
+            "at": f"{t['day']}T12:00:00+00:00" if t.get("day") else None,
+            "provider": t.get("provider"), "team_count": t.get("team_count"),
+            "scoring_type": t.get("scoring_type"), "format": None,
+            "sides": [{"players": [him] + list(t.get("with") or []),
+                       "picks": t.get("got_picks") or [], "faab": t.get("got_faab") or 0},
+                      {"players": list(t.get("gave") or []),
+                       "picks": t.get("gave_picks") or [], "faab": t.get("gave_faab") or 0}],
+        })
+    return out
+
+
 def clean_filters(q: dict, paid: bool) -> dict:
     f = {k: (q.get(k) or "").strip()[:40] for k in FILTERS}
     if f["pos"] not in ("QB", "RB", "WR", "TE"):

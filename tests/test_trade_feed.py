@@ -76,3 +76,15 @@ def test_the_poller_never_records_a_scan(monkeypatch):
     monkeypatch.setattr(live_trades, "PACE", 0)
     report = live_trades.poll(DB(), 2026, 8, log=lambda *a: None)
     assert report["trades"] == 1 and calls["upserts"] == 1 and calls["scans"] == 0
+
+
+def test_the_player_filter_reads_his_whole_season():
+    """John, 25 Oct: filtering the newest trades missed most of a player's."""
+    raw = trade_feed.from_player_trades("a", [
+        {"key": "k1", "week": 2, "day": "2026-09-14", "provider": "sleeper", "team_count": 12,
+         "scoring_type": "ppr", "with": [], "gave": [{"player_key": "b", "name": "B", "position": "WR"}],
+         "got_picks": [], "gave_picks": ["2027 2nd"], "got_faab": 0, "gave_faab": 0}],
+        PRICES, {})
+    rows = trade_feed.shape(raw, PRICES, 0.0)
+    assert rows[0]["keys"] == ["a", "b"] and rows[0]["picks"]
+    assert trade_feed.apply(rows, dict(trade_feed.clean_filters({}, True), player="a"))
