@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import upgrade_buttons %}
 {% block title %}Compare players · The trade market{% endblock %}
 {% block description %}Pick up to four fantasy football players and compare what they cost in real trades, side by side, with their price over the season.{% endblock %}
 {% block wrapclass %}home around{% endblock %}
@@ -14,7 +15,7 @@
 <section class="front at-front mk-front cmp-front">
     <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; Trade market</p>
     <h1 class="mk-title">Compare players</h1>
-    <p class="mk-dek">Pick up to {{ slots }} players. See what each one costs in real trades, and how that&rsquo;s moved all season.</p>
+    <p class="mk-dek">Pick {% if open_slots < slots %}two players ({{ slots }} with the season pass){% else %}up to {{ slots }} players{% endif %}. See what each one costs in real trades, and how that&rsquo;s moved all season.</p>
 </section>
 
 <section class="card cmp" id="cmp">
@@ -44,13 +45,13 @@
     <ol class="cmp-list" id="cmp-list"></ol>
 </section>
 
-<script type="application/json" id="cmp-data">{{ {'players': players, 'start': start, 'slots': slots, 'base': base, 'last': last, 'lines': initial_lines, 'url': '/market/line.json'}|tojson }}</script>
+<script type="application/json" id="cmp-data">{{ {'players': players, 'start': start, 'slots': slots, 'open': open_slots, 'signed_in': user is not none, 'base': base, 'last': last, 'lines': initial_lines, 'url': '/market/line.json'}|tojson }}</script>
 <script>
 (function () {
     var D; try { D = JSON.parse(document.getElementById("cmp-data").textContent); } catch (e) { return; }
     if (!D.players || !D.players.length) return;
     var BY = {}; D.players.forEach(function (p) { BY[p.k] = p; });
-    var LINES = D.lines || {}, chosen = [], MAX = D.slots || 4, pending = {};
+    var LINES = D.lines || {}, chosen = [], SLOTS = D.slots || 4, MAX = D.open || SLOTS, pending = {};
     var slotsEl = document.getElementById("cmp-slots"), verdict = document.getElementById("cmp-verdict"),
         chartFig = document.getElementById("cmp-chart"), svg = document.getElementById("cmp-svg"),
         tip = document.getElementById("cmp-tip"), list = document.getElementById("cmp-list"),
@@ -84,7 +85,10 @@
 
     function add(k) {
         if (!BY[k] || chosen.indexOf(k) >= 0) return;
-        if (chosen.length >= MAX) chosen.shift();        // full: the first one makes room
+        if (chosen.length >= MAX) {
+            if (MAX < SLOTS) { nudge(); return; }         // free: the third and fourth are locked
+            chosen.shift();                               // full: the first one makes room
+        }
         chosen.push(k);
         remember(); render();
         if (LINES[k] || pending[k]) return;
@@ -94,12 +98,24 @@
             .then(function (j) { delete pending[k]; if (j && j.line) LINES[k] = j.line; render(); })
             .catch(function () { delete pending[k]; render(); });
     }
+    function nudge() {
+        var lock = slotsEl.querySelector(".cmp-locked");
+        if (lock) { lock.classList.remove("cmp-shake"); void lock.offsetWidth; lock.classList.add("cmp-shake"); lock.scrollIntoView({block: "nearest", behavior: "smooth"}); }
+    }
     function drop(k) { chosen = chosen.filter(function (x) { return x !== k; }); remember(); render(); }
 
     function renderSlots() {
         var html = "";
-        for (var i = 0; i < MAX; i++) {
+        for (var i = 0; i < SLOTS; i++) {
             var k = chosen[i], p = k && BY[k];
+            if (i >= MAX) {
+                html += '<div class="cmp-slot cmp-empty cmp-locked">' +
+                    '<span class="mk-lock-ico" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span>' +
+                    '<b>Player ' + (i + 1) + '</b><span>Compare up to four with the season pass</span>' +
+                    (i === MAX ? '<a class="cmp-unlock" href="' + (D.signed_in ? "/me#plan" : "/signup?next=" + encodeURIComponent("/me#plan")) + '">Get the season pass</a>" : "") +
+                    "</div>";
+                continue;
+            }
             if (!p) {
                 html += '<div class="cmp-slot cmp-empty"><svg viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="22" r="11"/><path d="M8 58c0-13 10-21 22-21s22 8 22 21"/></svg><span>Add a player</span></div>';
                 continue;
@@ -278,7 +294,7 @@
     q.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; }, 120); });
 
     (D.start || []).forEach(function (k) { if (chosen.indexOf(k) < 0 && BY[k]) chosen.push(k); });
-    render();
+    render(); remember();
     chosen.forEach(function (k) { if (!LINES[k]) { chosen = chosen.filter(function (x_) { return x_ !== k; }); add(k); } });
     var rt; window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(drawChart, 150); });
 })();

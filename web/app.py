@@ -1956,8 +1956,9 @@ def market_page(request: Request):
                    job=league_stats.job_status() if staff else None)
 
 
-#: Players side by side on the compare page.
+#: Players side by side on the compare page, and how many of them are free.
 COMPARE_SLOTS = 4
+COMPARE_FREE = 2
 
 
 @app.get("/market/compare", response_class=HTMLResponse)
@@ -1984,9 +1985,13 @@ def market_compare(request: Request, p: str = ""):
                         "wk": round(then - line[-1][1]) if then is not None and line else None,
                         "drafted": (pl["dp"] - pl["rank"]) if pl.get("dp") else None})
     keys = {x["k"] for x in players}
-    start = [k for k in clean_text(p, max_length=200).split(",") if k in keys][:COMPARE_SLOTS]
-    return _render(request, "compare.html", offer_kind="market", players=players,
-                   start=start, slots=COMPARE_SLOTS, base=daily.get("base"), last=last,
+    # Two players free; the third and fourth are part of the pass (John, 24 Oct).
+    paid = plans.is_paid(current_user(request))
+    open_slots = COMPARE_SLOTS if paid else COMPARE_FREE
+    start = [k for k in clean_text(p, max_length=200).split(",") if k in keys][:open_slots]
+    return _render(request, "compare.html", offer_kind="market", players=players, paid=paid,
+                   start=start, slots=COMPARE_SLOTS, open_slots=open_slots,
+                   base=daily.get("base"), last=last,
                    initial_lines={k: lines[k] for k in start if k in lines})
 
 

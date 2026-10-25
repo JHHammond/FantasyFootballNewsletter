@@ -4706,3 +4706,13 @@ th.mk-c-rk { text-align: center; }
 .masthead { position: relative; z-index: 70; }   /* the nav dropdown sits over the page */
 
 a.mk-addleague, a.mk-addleague:visited, a.mk-addleague:hover { color: #fffdf8 !important; text-decoration: none; }
+
+/* ---- compare: slots 3 and 4 locked on free (24 Oct) ---- */
+.cmp-locked { gap: 6px; border-color: #ecd2cf; background: linear-gradient(180deg, #fdf0ee, #fbf7ef); color: var(--ink-2); }
+.cmp-locked b { font: 700 15px "Barlow", sans-serif; color: var(--ink); }
+.cmp-locked span:not(.mk-lock-ico) { font: 500 13px "Barlow", sans-serif; max-width: 18ch; }
+a.cmp-unlock { margin-top: 6px; padding: 8px 16px; border-radius: 999px; background: var(--accent); color: #fff; text-decoration: none; font: 700 13px "Barlow", sans-serif; }
+a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
+.cmp-shake { animation: cmp-shake .45s ease-in-out; }
+@keyframes cmp-shake { 0%, 100% { transform: none; } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+.cmp-locked .mk-lock-ico svg { width: 18px; height: 18px; fill: none; margin: 0; stroke: #fff; }
