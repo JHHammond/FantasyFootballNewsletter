@@ -118,6 +118,13 @@ class FantasyProvider(ABC):
         """
         return {}
 
+    def league_type(self, league_id: str) -> str | None:
+        """"redraft", "keeper" or "dynasty", if the platform says (062).
+
+        None where it doesn't, which is most of them: only Sleeper stores
+        the league's type as a setting. Never raises."""
+        return None
+
     def get_transactions(self, league_id: str, season: int, week: int) -> list:
         """Roster moves that happened in this week. Empty if unsupported.
 

@@ -2209,3 +2209,38 @@ def player_positions(keys: list[str]) -> dict[str, str]:
                .in_("player_key", keys[i:i + 200]).execute())
         out.update({r["player_key"]: r.get("position") for r in res.data or [] if r.get("position")})
     return out
+
+
+# ---------------------------------------------------------------------------
+# Dynasty and redraft (062)
+# ---------------------------------------------------------------------------
+
+def dynasty_league_ids(season: int) -> set[str]:
+    """Every league whose market is dynasty: the platform's own setting
+    first, then the commissioner's, then a rookie-sized draft."""
+    data = client().rpc("dynasty_league_ids", {"p_season": int(season)}).execute().data or []
+    return {str(r if not isinstance(r, dict) else next(iter(r.values()))) for r in data}
+
+
+def dynasty_adp(season: int, min_drafts: int = 5) -> dict[str, Any]:
+    """ADP from dynasty STARTUP drafts only: what a career costs."""
+    return _rpc_json("dynasty_adp", {"p_season": int(season), "p_min_drafts": int(min_drafts)}) or {}
+
+
+def dynasty_trade_exchanges(season: int, from_week: int = 1,
+                            to_week: int = 18) -> list[dict[str, Any]]:
+    """trade_exchanges, from dynasty leagues only."""
+    return _rpc_json("dynasty_trade_exchanges", {"p_season": int(season),
+                                                 "p_from_week": int(from_week),
+                                                 "p_to_week": int(to_week)}) or []
+
+
+def set_league_type(league_id: str, league_type: Optional[str]) -> bool:
+    """Store what the platform says the league is. False before 062."""
+    if league_type not in ("redraft", "keeper", "dynasty"):
+        return False
+    try:
+        client().table("leagues").update({"league_type": league_type}).eq("id", league_id).execute()
+        return True
+    except Exception:  # noqa: BLE001 — before 062 the column isn't there
+        return False

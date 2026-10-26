@@ -91,9 +91,10 @@ def test_hexagon_puts_first_on_the_rim_and_last_off_the_centre():
 
 # ---- the whole page, on a tiny league ------------------------------------
 
-def _league():
+def _league(rookie=False):
     """Two teams, five weeks. Mine (t0) drafted d1, kept k1 from week 1,
-    traded w1 away for r1 in week 3, and picked up p1 in week 4."""
+    traded w1 away for r1 in week 3, and picked up p1 in week 4. The draft
+    is a full one (fifteen rounds) unless `rookie`."""
     players = [("d1", "Drafted", "RB", 3), ("k1", "Kept", "QB", 8), ("w1", "Sold", "WR", 10),
                ("r1", "Bought", "RB", 6), ("p1", "Pickup", "WR", 20), ("o1", "Other", "WR", 2),
                ("o2", "Other2", "QB", 4), ("o3", "Other3", "TE", 30), ("m3", "MyTE", "TE", 50)]
@@ -111,6 +112,9 @@ def _league():
               {"trade_key": "x", "week": 3, "player_key": "r1", "from_team": "Theirs", "to_team": "Mine", "traded_at": when}]
     draft = [{"player_key": "d1", "overall": 2, "round": 1, "team_id": "t0", "team_count": 12},
              {"player_key": "w1", "overall": 30, "round": 3, "team_id": "t0", "team_count": 12}]
+    if not rookie:   # the rest of a full twelve-team draft, nobody we track
+        draft += [{"player_key": f"x{i}", "overall": 100 + i, "round": 9, "team_id": "t9", "team_count": 12}
+                  for i in range(12 * 15)]
     prices = tm.Prices(rating, adp={k: float(r) for k, _, _, r in players})
     return tm.assemble(my_team="t0", lineups=lineups, team_weeks=tw, trades=trades, draft=draft,
                        positions=pos, prices=prices, pickable={p["k"]: p for p in rating["pickable"]},
@@ -131,6 +135,15 @@ def test_portfolio_cost_basis_for_each_way_a_player_arrives():
     assert set(sold) == {"w1"}
     assert sold["w1"]["basis"] == round(prices.draft_value(30 - 1 + 1.0), 1)   # his draft pick
     assert len(f["line"]) == len(v["chart"]["days"])
+
+
+def test_a_rookie_draft_pick_costs_his_draft_day_value_not_the_overall_pick():
+    """In a dynasty rookie draft the 1.02 is the second-best rookie, not
+    the second-best player in football (062)."""
+    v, prices = _league(rookie=True)
+    d1 = {h["k"]: h for h in v["portfolio"]["holdings"]}["d1"]
+    assert d1["label"] == "Rookie draft, round 1"
+    assert d1["basis"] == prices.on("d1", 0) != prices.draft_value(2.0)
 
 
 def test_team_header_ranks_and_chart():
@@ -188,3 +201,9 @@ def test_picking_your_team_only_works_in_your_own_league(app, monkeypatch):
     assert r.status_code == 303
     assert demo_db._LEAGUES[mine["id"]]["my_team_id"] == "3"
     assert c.get("/team").status_code == 200
+
+
+def test_ticker_names_skip_the_suffix():
+    assert tm.ticker("Marvin Harrison Jr.") == "HARRISON"
+    assert tm.ticker("Kenneth Walker III") == "WALKER"
+    assert tm.ticker("Puka Nacua") == "NACUA"

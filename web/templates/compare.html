@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import upgrade_buttons %}
+{% from "_macros.html" import upgrade_buttons, market_switch %}
 {% block title %}Compare players · The trade market{% endblock %}
 {% block description %}Pick up to four fantasy football players and compare what they cost in real trades, side by side, with their price over the season.{% endblock %}
 {% block wrapclass %}home around{% endblock %}
@@ -15,6 +15,7 @@
 <section class="front at-front mk-front cmp-front">
     <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; Trade market</p>
     <h1 class="mk-title">Compare players</h1>
+    {{ market_switch(market, '/market/compare') }}
     <p class="mk-dek">Pick {% if open_slots < slots %}two players ({{ slots }} with the season pass){% else %}up to {{ slots }} players{% endif %}. See what each one costs in real trades, and how that&rsquo;s moved all season.</p>
 </section>
 
@@ -45,7 +46,7 @@
     <ol class="cmp-list" id="cmp-list"></ol>
 </section>
 
-<script type="application/json" id="cmp-data">{{ {'players': players, 'start': start, 'slots': slots, 'open': open_slots, 'signed_in': user is not none, 'base': base, 'last': last, 'lines': initial_lines, 'url': '/market/line.json'}|tojson }}</script>
+<script type="application/json" id="cmp-data">{{ {'players': players, 'start': start, 'slots': slots, 'open': open_slots, 'signed_in': user is not none, 'base': base, 'last': last, 'lines': initial_lines, 'url': '/market/line.json', 'm': market}|tojson }}</script>
 <script>
 (function () {
     var D; try { D = JSON.parse(document.getElementById("cmp-data").textContent); } catch (e) { return; }
@@ -93,7 +94,7 @@
         remember(); render();
         if (LINES[k] || pending[k]) return;
         pending[k] = true;
-        fetch(D.url + "?k=" + encodeURIComponent(k), {credentials: "same-origin"})
+        fetch(D.url + "?k=" + encodeURIComponent(k) + "&m=" + encodeURIComponent(D.m || "redraft"), {credentials: "same-origin"})
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (j) { delete pending[k]; if (j && j.line) LINES[k] = j.line; render(); })
             .catch(function () { delete pending[k]; render(); });

@@ -1316,6 +1316,18 @@ def _resolved(key: str) -> bool:
 
 def trade_exchanges(season: int, from_week: int = 1,
                     to_week: int = 18) -> list[dict[str, Any]]:
+    """Redraft leagues' trades (059, 062). See _exchanges."""
+    gone = dynasty_league_ids(season)
+    return _exchanges(season, from_week, to_week, lambda lid: str(lid) not in gone)
+
+
+def dynasty_trade_exchanges(season: int, from_week: int = 1,
+                            to_week: int = 18) -> list[dict[str, Any]]:
+    keep = dynasty_league_ids(season)
+    return _exchanges(season, from_week, to_week, lambda lid: str(lid) in keep)
+
+
+def _exchanges(season: int, from_week: int, to_week: int, keep) -> list[dict[str, Any]]:
     """The SQL function's twin (migrations 046 and 047): player-only,
     two-sided, each with the DAY it happened.
 
@@ -1328,7 +1340,7 @@ def trade_exchanges(season: int, from_week: int = 1,
     pure = {(r["league_id"], r["trade_key"]): r for r in _TRADES.values()
             if int(r["season"]) == season
             and int(from_week) <= int(r["week"]) <= int(to_week)
-            and not r.get("picks") and not r.get("faab")}
+            and not r.get("picks") and not r.get("faab") and keep(r["league_id"])}
     sides: dict = {}
     for r in _TRADE_PLAYERS.values():
         key = (r["league_id"], r["trade_key"])
@@ -1414,6 +1426,7 @@ def recent_trades(season: int, limit: int = 400) -> list[dict[str, Any]]:
     """The SQL function's twin (migration 060)."""
     import hashlib
     season = int(season)
+    dyn = dynasty_league_ids(season)
     heads = sorted((h for h in _TRADES.values() if int(h["season"]) == season and h.get("traded_at")),
                    key=lambda h: h["traded_at"], reverse=True)[:limit]
     out = []
@@ -1430,7 +1443,7 @@ def recent_trades(season: int, limit: int = 400) -> list[dict[str, Any]]:
         out.append({"key": hashlib.md5(f"{h['league_id']}:{h['trade_key']}".encode()).hexdigest(),
                     "week": h["week"], "at": h["traded_at"], "provider": h.get("provider"),
                     "team_count": h.get("team_count"), "scoring_type": h.get("scoring_type"),
-                    "format": (_LEAGUES.get(h["league_id"]) or {}).get("format"), "sides": sides})
+                    "format": "dynasty" if str(h["league_id"]) in dyn else "redraft", "sides": sides})
     return out
 
 
@@ -1542,6 +1555,20 @@ def draft_scan_league_ids(season: int) -> set:
 
 
 def adp(season: int, min_drafts: int = 20) -> dict[str, Any]:
+    """Redraft ADP: every league's draft except dynasty leagues' (059, 062)."""
+    gone = dynasty_league_ids(season)
+    return _adp(season, min_drafts, lambda lid: str(lid) not in gone)
+
+
+def dynasty_adp(season: int, min_drafts: int = 5) -> dict[str, Any]:
+    """The twin of 062: dynasty STARTUP drafts only."""
+    keep = _dynasty_startups(season)
+    out = _adp(season, min_drafts, lambda lid: str(lid) in keep)
+    out["drafts"] = len(keep)
+    return out
+
+
+def _adp(season: int, min_drafts: int, keep) -> dict[str, Any]:
     """The twin of migration 050.
 
     Slots are normalised to a twelve-team league before anything else:
@@ -1553,7 +1580,8 @@ def adp(season: int, min_drafts: int = 20) -> dict[str, Any]:
     slots: dict[str, list] = {}
     meta: dict[str, dict] = {}
     for r in _DRAFT_PICKS.values():
-        if int(r["season"]) != season or int(r.get("overall") or 0) <= 0:
+        if int(r["season"]) != season or int(r.get("overall") or 0) <= 0 \
+                or not keep(r["league_id"]):
             continue
         size = int(r.get("team_count") or 12) or 12
         slots.setdefault(r["player_key"], []).append(
@@ -1791,3 +1819,43 @@ def league_draft(league_id: str, season: int) -> list[dict[str, Any]]:
 def player_positions(keys: list[str]) -> dict[str, str]:
     return {k: (_NFL_PLAYERS.get(k) or {}).get("position") for k in keys or []
             if (_NFL_PLAYERS.get(k) or {}).get("position")}
+
+
+# Dynasty and redraft (062): the twins.
+
+def _draft_per_team(season: int) -> dict[str, float]:
+    count: dict[str, int] = {}
+    size: dict[str, int] = {}
+    for r in _DRAFT_PICKS.values():
+        if int(r["season"]) != int(season):
+            continue
+        lid = str(r["league_id"])
+        count[lid] = count.get(lid, 0) + 1
+        size[lid] = max(size.get(lid, 0), int(r.get("team_count") or 12) or 12)
+    return {lid: count[lid] / size[lid] for lid in count}
+
+
+def dynasty_league_ids(season: int) -> set[str]:
+    out = set()
+    for lid, l in _LEAGUES.items():
+        lt = l.get("league_type")
+        if lt == "dynasty" or (lt is None and l.get("format") == "dynasty"):
+            out.add(str(lid))
+    for lid, per in _draft_per_team(season).items():
+        if (_LEAGUES.get(lid) or {}).get("league_type") is None and per <= 6:
+            out.add(lid)
+    return out
+
+
+def _dynasty_startups(season: int) -> set[str]:
+    dyn = dynasty_league_ids(season)
+    return {lid for lid, per in _draft_per_team(season).items() if lid in dyn and per >= 10}
+
+
+def set_league_type(league_id: str, league_type: Optional[str]) -> bool:
+    if league_type not in ("redraft", "keeper", "dynasty"):
+        return False
+    with _lock:
+        if league_id in _LEAGUES:
+            _LEAGUES[league_id]["league_type"] = league_type
+    return True

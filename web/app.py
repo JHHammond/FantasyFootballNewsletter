@@ -207,7 +207,8 @@ async def lifespan(_app: FastAPI):
     def warm():
         try:
             import nfl_week
-            _trade_rating(nfl_week.current_season(), max(nfl_week.completed_week(), 1))
+            for m in ("redraft", "dynasty"):
+                _trade_rating(nfl_week.current_season(), max(nfl_week.completed_week(), 1), m)
         except Exception as exc:  # noqa: BLE001
             print(f"[market] warm-up skipped: {type(exc).__name__}: {exc}", flush=True)
     if not os.getenv("DEMO_MODE"):
@@ -973,6 +974,11 @@ def _remember_sleeper_team(league: dict, sleeper_user_id: str) -> None:
     """Save which team in this league belongs to the Sleeper account that
     connected it (migration 034), so /rankings knows who you are. Best effort:
     a missing column or a Sleeper hiccup just leaves the question to the page."""
+    if league and not league.get("league_type"):
+        # While we're asking Sleeper: what kind of league is it (062)? The
+        # setup form defaults to redraft, and dynasty leagues leave it there.
+        from . import drafts
+        drafts.remember_type(db, league)
     if not league or not sleeper_user_id or league.get("my_team_id"):
         return
     try:
@@ -1372,18 +1378,22 @@ def _around_page(request: Request, week: int, season: int, *, public: bool,
                    job=league_stats.job_status() if staff else {})
 
 
-def _trade_rating(season: int, latest: int) -> Optional[dict]:
+def _trade_rating(season: int, latest: int, market: str = "redraft") -> Optional[dict]:
     """The draft-anchored market: a price per player expressed as the pick
     it is worth. None until the drafts are collected (migration 050), in
-    which case the page falls back to the older batch market."""
+    which case the page falls back to the older batch market.
+
+    `market` is "redraft" or "dynasty" (062): two markets, cached apart."""
     from . import around, trade_rating
-    key = ("rating", season, latest)
+    market = "dynasty" if market == "dynasty" else "redraft"
+    tag = "rating" if market == "redraft" else "rating-dynasty"
+    key = (tag, season, latest)
 
     def refresh():
         return around.swr(
             around._cache, key,
             lambda: trade_rating.apply_injuries(
-                trade_rating.build(db, season, list(range(1, max(latest, 1) + 1))),
+                trade_rating.build(db, season, list(range(1, max(latest, 1) + 1)), market=market),
                 _injury_status()),
             ttl=RATING_TTL) or None
 
@@ -1397,7 +1407,7 @@ def _trade_rating(season: int, latest: int) -> Optional[dict]:
     hit = around._cache.get(key)
     if hit is None:
         older = [k for k in around._cache
-                 if isinstance(k, tuple) and len(k) == 3 and k[:2] == ("rating", season)]
+                 if isinstance(k, tuple) and len(k) == 3 and k[:2] == (tag, season)]
         if older:
             hit = around._cache[max(older, key=lambda k: k[2])]
             hit = (0.0, hit[1])            # stale by definition: rebuild for this week
@@ -1441,6 +1451,50 @@ def _injury_status() -> dict:
 #: How long a built price list is served before a background rebuild.
 RATING_TTL = 900
 _REBUILDING: set = set()
+
+
+MARKET_COOKIE = "cd_market"
+
+
+def _dynasty_ids(season: int) -> set:
+    """SQL's answer to "which leagues are dynasty" (062), cached. Empty
+    before 062, which makes every league redraft, as it was."""
+    from . import around
+    try:
+        return around.swr(around._cache, ("dynasty-ids", season),
+                          lambda: db.dynasty_league_ids(season) or set(), ttl=900) or set()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[market] no dynasty ids: {type(exc).__name__}: {exc}", flush=True)
+        return set()
+
+
+def _viewer_market(request: Request, user: Optional[dict], season: int) -> str:
+    """Which market a page opens on: ?m= if the address says, then the
+    reader's last choice (a cookie set by the toggle), then the kind of
+    league they play in, then redraft."""
+    from .league_kind import clean_market, league_market
+    asked = clean_market(request.query_params.get("m")) or clean_market(request.cookies.get(MARKET_COOKIE))
+    if asked:
+        return asked
+    if user:
+        try:
+            mine = [l for l in db.market_leagues_for_user(user["id"])
+                    if int(l.get("season") or 0) == season]
+        except Exception:  # noqa: BLE001
+            mine = []
+        if mine:
+            return league_market(mine[0], _dynasty_ids(season))
+    return "redraft"
+
+
+def _remember_market(request: Request, response):
+    """Keep an explicit ?m= for the next page, so a dynasty reader who
+    switched once isn't switched back by every link."""
+    from .league_kind import clean_market
+    m = clean_market(request.query_params.get("m"))
+    if m:
+        response.set_cookie(MARKET_COOKIE, m, max_age=365 * 86400, path="/", samesite="lax")
+    return response
 
 
 def _rebuild_soon(key, refresh) -> None:
@@ -1739,7 +1793,7 @@ def _movers_this_week(rating: Optional[dict]) -> Optional[dict]:
 
 
 def _market_mine(user: Optional[dict], season: int, week: int,
-                 rating: Optional[dict]) -> Optional[dict]:
+                 rating: Optional[dict], market: str = "redraft") -> Optional[dict]:
     """The viewer's own teams for the chart's "Show" menu (John, 23 Oct:
     "can we have it autofill my team").
 
@@ -1758,6 +1812,10 @@ def _market_mine(user: Optional[dict], season: int, week: int,
     except Exception as exc:  # noqa: BLE001
         print(f"[market] no teams for the viewer: {type(exc).__name__}: {exc}", flush=True)
         return None
+    # Only the viewer's leagues of THIS market (062): a dynasty roster on
+    # the redraft chart is priced in the wrong currency.
+    dyn = _dynasty_ids(season)
+    leagues = [lg for lg in leagues if (str(lg["id"]) in dyn) == (market == "dynasty")]
     known, pick, need = [], [], set()
     for lg in leagues:
         me = next((t for t in lg["teams"] if t.get("mine")), None)
@@ -1814,7 +1872,10 @@ def market_roster(request: Request, league: str = "", team: str = ""):
         owned = set()
     if not lid or not tid or lid not in owned:
         raise HTTPException(status_code=404)
-    rating = _trade_rating(season, latest) or {}
+    from .league_kind import clean_market
+    market = clean_market(request.query_params.get("m")) or \
+        ("dynasty" if lid in _dynasty_ids(season) else "redraft")
+    rating = _trade_rating(season, latest, market) or {}
     try:
         roster = _market_roster(lid, tid, season, latest, rating)
         keys = _my_lineup(roster, rating)
@@ -1850,7 +1911,8 @@ def market_player(request: Request, player_key: str, team: str = "",
         raise HTTPException(status_code=404)
     season = nfl_week.current_season()
     latest = max(nfl_week.completed_week(), 1)
-    rating = _trade_rating(season, latest)
+    market = _viewer_market(request, user, season)
+    rating = _trade_rating(season, latest, market)
     try:
         names = around.swr(around._cache, ("pnames", season),
                            lambda: db.trade_player_names(season) or {}, ttl=900) or {}
@@ -1929,7 +1991,7 @@ def market_player(request: Request, player_key: str, team: str = "",
     pp.dress_trades(trades, prices, key, float((rating or {}).get("spot") or 0), photo_url)
 
     tf = pp.traded_for(trades, prices)
-    return _render(request, "player.html", offer_kind="market", season=season, latest=latest,
+    return _remember_market(request, _render(request, "player.html", offer_kind="market", season=season, latest=latest, market=market,
                    who=who, chart=ch, usage=use, trend=pp.trend(ch),
                    compare=pp.compare_picks(key, prices, tf) if ch else [],
                    players=pp.compare_players(prices) if ch else [],
@@ -1940,7 +2002,7 @@ def market_player(request: Request, player_key: str, team: str = "",
                    paid=paid, options=[{k: v for k, v in o.items() if k != "lg"} for o in options],
                    chosen=chosen and {"value": chosen["value"], "label": chosen["label"],
                                       "league": chosen["league"]},
-                   roster_size=roster_size, staff=staff)
+                   roster_size=roster_size, staff=staff))
 
 
 @app.get("/market", response_class=HTMLResponse)
@@ -1964,21 +2026,22 @@ def market_page(request: Request):
     season = nfl_week.current_season()
     latest = max(nfl_week.completed_week(), 1)
     week = latest
-    rating = _trade_rating(season, latest)
+    market = _viewer_market(request, user, season)
+    rating = _trade_rating(season, latest, market)
     movers7 = _movers_this_week(rating)
     pos_drafted: dict = {}
     for pos in {p.get("pos") for p in (rating or {}).get("pickable") or []}:
         drafted = sorted((p for p in rating["pickable"] if p.get("pos") == pos and p.get("dp")),
                          key=lambda p: p["dp"])
         pos_drafted.update({p["k"]: i + 1 for i, p in enumerate(drafted)})
-    return _render(request, "market.html", offer_kind="market", pos_drafted=pos_drafted,
+    return _remember_market(request, _render(request, "market.html", offer_kind="market", pos_drafted=pos_drafted, market=market,
                    movers7=movers7, paid=plans.is_paid(user), season=season, week=week, latest=latest,
                    staff=staff, photo=around.photo,
                    trade_volume=_trade_volume(season) if staff else None,
                    backfill=_trade_backfill(season) if staff else None,
                    rating=rating,
-                   mine=_market_mine(user, season, latest, rating),
-                   job=league_stats.job_status() if staff else None)
+                   mine=_market_mine(user, season, latest, rating, market),
+                   job=league_stats.job_status() if staff else None))
 
 
 @app.get("/market/trades", response_class=HTMLResponse)
@@ -1994,6 +2057,10 @@ def market_trades(request: Request, partial: int = 0):
     season = nfl_week.current_season()
     rating = _trade_rating(season, max(nfl_week.completed_week(), 1)) or {}
     prices = {p["k"]: p for p in rating.get("pickable") or []}
+    # A dynasty league's trade is priced in the dynasty market (062).
+    drating = _trade_rating(season, max(nfl_week.completed_week(), 1), "dynasty") or {}
+    dynasty = ({p["k"]: p for p in drating.get("pickable") or []}, float(drating.get("spot") or 0)) \
+        if drating.get("pickable") else None
     try:
         raw = around.swr(around._cache, ("recent-trades", season),
                          lambda: db.recent_trades(season, 1000) or [], ttl=90) or []
@@ -2014,11 +2081,13 @@ def market_trades(request: Request, partial: int = 0):
         except Exception as exc:  # noqa: BLE001
             print(f"[feed] no trades for {f['player']}: {type(exc).__name__}: {exc}", flush=True)
             raw = []
-    rows = trade_feed.shape(raw, prices, float(rating.get("spot") or 0), photo_url)
+    rows = trade_feed.shape(raw, prices, float(rating.get("spot") or 0), photo_url, dynasty=dynasty)
     mine = None
     if f["mine"] and user:
-        m = _market_mine(user, season, max(nfl_week.completed_week(), 1), rating) or {}
-        mine = {k for t in m.get("known") or [] for k in (t.get("all") or t.get("keys") or [])}
+        mine = set()
+        for mk, r in (("redraft", rating), ("dynasty", drating)):
+            m = _market_mine(user, season, max(nfl_week.completed_week(), 1), r, mk) or {}
+            mine |= {k for t in m.get("known") or [] for k in (t.get("all") or t.get("keys") or [])}
     shown = trade_feed.apply(rows, f, mine)
     limit = trade_feed.PAID_ROWS if paid else trade_feed.FREE_ROWS
     if paid and f["player"]:
@@ -2046,7 +2115,8 @@ def market_compare(request: Request, p: str = ""):
     import nfl_week
     season = nfl_week.current_season()
     latest = max(nfl_week.completed_week(), 1)
-    rating = _trade_rating(season, latest) or {}
+    market = _viewer_market(request, current_user(request), season)
+    rating = _trade_rating(season, latest, market) or {}
     daily = rating.get("daily") or {}
     lines, last = daily.get("lines") or {}, daily.get("last")
     posn: dict = {}
@@ -2066,10 +2136,10 @@ def market_compare(request: Request, p: str = ""):
     paid = plans.is_paid(current_user(request))
     open_slots = COMPARE_SLOTS if paid else COMPARE_FREE
     start = [k for k in clean_text(p, max_length=200).split(",") if k in keys][:open_slots]
-    return _render(request, "compare.html", offer_kind="market", players=players, paid=paid,
+    return _remember_market(request, _render(request, "compare.html", offer_kind="market", players=players, paid=paid, market=market,
                    start=start, slots=COMPARE_SLOTS, open_slots=open_slots,
                    base=daily.get("base"), last=last,
-                   initial_lines={k: lines[k] for k in start if k in lines})
+                   initial_lines={k: lines[k] for k in start if k in lines}))
 
 
 @app.get("/market/line.json")
@@ -2079,9 +2149,11 @@ def market_line(request: Request, k: str = ""):
     too heavy to send to everybody who opens it. Read from the same cached
     build the page used, so it costs nothing to serve."""
     import nfl_week
+    from .league_kind import clean_market
     key = clean_text(k, max_length=40).strip()
     season = nfl_week.current_season()
-    rating = _trade_rating(season, max(nfl_week.completed_week(), 1)) or {}
+    market = clean_market(request.query_params.get("m")) or "redraft"
+    rating = _trade_rating(season, max(nfl_week.completed_week(), 1), market) or {}
     line = ((rating.get("daily") or {}).get("lines") or {}).get(key)
     if not line:
         raise HTTPException(status_code=404)
@@ -2320,13 +2392,16 @@ def team_open() -> bool:
     return os.getenv("TEAM_PUBLIC", "").strip() == "1"
 
 
-def _team_adp(season: int) -> dict:
+def _team_adp(season: int, market: str = "redraft") -> dict:
+    """The ADP a market is anchored on, for reading a team's draft picks on
+    that market's scale: redraft ADP, or the dynasty board (062)."""
     from . import around, trade_rating
     def load():
-        board = db.adp(season, trade_rating.MIN_DRAFTS) or {}
+        board = (trade_rating.dynasty_board(db, season) if market == "dynasty"
+                 else db.adp(season, trade_rating.MIN_DRAFTS)) or {}
         return {p["player_key"]: float(p["adp"]) for p in board.get("players") or [] if p.get("adp")}
     try:
-        return around.swr(around._cache, ("adp", season), load, ttl=RATING_TTL) or {}
+        return around.swr(around._cache, ("adp", season, market), load, ttl=RATING_TTL) or {}
     except Exception as exc:  # noqa: BLE001
         print(f"[team] no adp: {type(exc).__name__}: {exc}", flush=True)
         return {}
@@ -2371,7 +2446,11 @@ def team_page(request: Request, league: str = "", tab: str = ""):
             lg = None
         ctx["pick"] = [{"id": t["id"], "name": t["name"]} for t in (lg or {}).get("teams") or []]
         return _render(request, "team.html", **ctx)
-    rating = _trade_rating(season, latest) or {}
+    # The league's own market (062): a dynasty team is priced in dynasty.
+    from .league_kind import league_market
+    market = league_market(chosen, _dynasty_ids(season))
+    ctx["market"] = market
+    rating = _trade_rating(season, latest, market) or {}
     if not rating.get("pickable"):
         return _render(request, "team.html", **ctx)
     try:
@@ -2379,11 +2458,11 @@ def team_page(request: Request, league: str = "", tab: str = ""):
                            lambda: db.trade_player_names(season) or {}, ttl=900) or {}
     except Exception:  # noqa: BLE001
         names = {}
-    adp = _team_adp(season)
+    adp = _team_adp(season, market)
     stamp = (rating.get("daily") or {}).get("last")
     try:
         view = around.swr(
-            around._cache, ("team", str(chosen["id"]), me, season, latest, stamp),
+            around._cache, ("team", str(chosen["id"]), me, season, latest, market, stamp),
             lambda: tm.build(db, league=chosen, team_id=me, season=season, latest=latest,
                              rating=rating, names=names, adp=adp),
             ttl=600)

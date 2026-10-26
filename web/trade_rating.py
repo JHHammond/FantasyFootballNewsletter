@@ -608,9 +608,43 @@ def run(exchanges: Iterable[dict], adp: dict[str, float], *,
             "fit": fit, "used": len(deals) - market.ignored, "ignored": market.ignored}
 
 
+#: A dynasty startup is rarer than a redraft draft, so a player's startup
+#: ADP counts from fewer rooms (062). Below it he is anchored on redraft ADP.
+DYNASTY_MIN_DRAFTS = 5
+
+
+def dynasty_board(db, season: int) -> dict[str, Any]:
+    """The dynasty market's anchor (062): where dynasty STARTUP drafts took
+    each player, and redraft ADP for anybody the startups can't price yet.
+
+    Both are slots in a normalised twelve-team draft, so they share a scale.
+    The difference between them is the whole point: a startup takes the
+    22-year-old receiver years ahead of the 29-year-old back, and a redraft
+    room does the opposite. Where startups are thin (most dynasty leagues
+    drafted years ago), the anchor is mostly redraft and the dynasty
+    league's own trades do the moving, which is still dynasty's market."""
+    try:
+        startup = db.dynasty_adp(season, DYNASTY_MIN_DRAFTS) or {}
+    except Exception as exc:  # noqa: BLE001 — before 062, redraft anchors alone
+        print(f"[rating] no dynasty ADP: {type(exc).__name__}: {exc}", flush=True)
+        startup = {}
+    redraft = db.adp(season, MIN_DRAFTS) or {}
+    merged = {p["player_key"]: dict(p, anchor="redraft") for p in redraft.get("players") or []}
+    for p in startup.get("players") or []:
+        merged[p["player_key"]] = dict(p, anchor="dynasty")
+    players = sorted(merged.values(), key=lambda p: (float(p.get("adp") or 999), p["player_key"]))
+    return {"players": players, "drafts": startup.get("drafts") or 0,
+            "picks": startup.get("picks") or 0,
+            "startup_players": sum(1 for p in players if p["anchor"] == "dynasty")}
+
+
 def build(db, season: int, weeks: list[int], *, limit: int = 40,
-          lines: int = 6) -> dict[str, Any]:
+          lines: int = 6, market: str = "redraft") -> dict[str, Any]:
     """The panel, priced from the draft. {} when there is nothing to draw.
+
+    `market` is "redraft" (every league that isn't dynasty) or "dynasty"
+    (only dynasty leagues' trades, anchored on startup drafts): two
+    separate markets, never one blended board (062).
 
     Returns {} rather than raising if the drafts have not been collected
     or migration 050 has not been run, so the caller can fall back to the
@@ -618,12 +652,17 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
     """
     from web import trade_market, trade_prior
 
+    dynasty = market == "dynasty"
     try:
-        raw = db.trade_exchanges(season, 1, max(weeks or [1]))
+        if dynasty:
+            raw = db.dynasty_trade_exchanges(season, 1, max(weeks or [1]))
+            board = dynasty_board(db, season)
+        else:
+            raw = db.trade_exchanges(season, 1, max(weeks or [1]))
+            board = db.adp(season, MIN_DRAFTS) or {}
         names = db.trade_player_names(season)
-        board = db.adp(season, MIN_DRAFTS) or {}
     except Exception as exc:  # noqa: BLE001
-        print(f"[rating] no data: {type(exc).__name__}: {exc}", flush=True)
+        print(f"[rating] no {market} data: {type(exc).__name__}: {exc}", flush=True)
         return {}
     players = board.get("players") or []
     if not raw or len(players) < 50:
@@ -725,6 +764,11 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
             "photo": photo_url(k, meta.get("position"))})
     opening = chart_default(rated, day_lines, market.n)
     return {
+        "market": "dynasty" if dynasty else "redraft",
+        #: Dynasty only: how many players are anchored on startup drafts
+        #: rather than redraft ADP, and from how many startups.
+        "startups": board.get("drafts") if dynasty else None,
+        "startup_players": board.get("startup_players") if dynasty else None,
         "rows": rows,
         "held": held,
         "weekly": weekly_lines,

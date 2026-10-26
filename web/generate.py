@@ -266,7 +266,10 @@ def build_league_context(league: dict[str, Any], lore_entries: list,
     """
     parts: list[str] = []
 
-    fmt = (league.get("format") or "redraft").lower()
+    # The platform's own answer first (062): the setup form defaults to
+    # redraft, and 349 dynasty leagues left it there.
+    from .league_kind import kind as league_kind
+    fmt = league_kind(league)
     parts.append(FORMAT_NOTES.get(fmt, FORMAT_NOTES["redraft"]))
 
     founded = league.get("founded_year")
@@ -572,7 +575,8 @@ def _draft_picks(league: dict[str, Any]) -> dict:
     rookie draft, or a pick from three years ago, and would be wrong in
     print. Empty on any failure: this is seasoning, not substance.
     """
-    if (league.get("format") or "redraft") != "redraft":
+    from .league_kind import kind as league_kind
+    if league_kind(league) != "redraft":
         return {}
     try:
         from providers import get_provider

@@ -25,6 +25,7 @@ def seed_account(season: int, leagues: int = 1) -> dict:
     is known in the first and must be picked in the rest (ESPN-style)."""
     from web import auth, demo_db
     user = demo_db.create_user(EMAIL, auth.hash_password(PASSWORD)) or demo_db.user_by_email(EMAIL)
+    make_dynasty(season)
     for i in range(leagues):
         lid = f"demo-{i}"
         demo_db._LEAGUES[lid] = {
@@ -33,9 +34,30 @@ def seed_account(season: int, leagues: int = 1) -> dict:
             "league_name": ["The Gridiron Gazette League", "Office League"][i % 2],
             "public_slug": lid, "my_team_id": "t0" if i == 0 else None,
             "format": "redraft", "setup_complete": True,
+            # The second league is dynasty, and says so the way Sleeper
+            # would, while its setup form still reads "redraft" (062).
+            "league_type": "dynasty" if i % 3 == 1 else "redraft",
         }
     give_team_a_history(season)
     return user
+
+
+def make_dynasty(season: int, every: int = 3) -> int:
+    """A third of the invented leagues are dynasty, so there are two
+    markets to look at (062). Their full drafts count as dynasty startups,
+    their trades as dynasty trades. Only leagues with stored rows."""
+    from web import demo_db
+    ids = sorted({r["league_id"] for r in demo_db._DRAFT_PICKS.values() if int(r["season"]) == season})
+    n = 0
+    for lid in ids:
+        if not lid.startswith("demo-") or int(lid.split("-")[1]) % every != 1:
+            continue
+        row = demo_db._LEAGUES.setdefault(lid, {"id": lid, "season": season, "provider": "sleeper",
+                                               "league_name": f"Dynasty {lid}", "format": "redraft",
+                                               "created_at": "2026-08-01T00:00:00+00:00"})
+        row["league_type"] = "dynasty"
+        n += 1
+    return n
 
 
 def give_team_a_history(season: int, lid: str = "demo-0", me: str = "t0") -> None:

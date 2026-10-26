@@ -37,12 +37,18 @@ def _ago(at: Optional[str], now: datetime) -> str:
 
 
 def shape(raw: list[dict], prices: dict, spot: float, photo=None,
-          now: Optional[datetime] = None) -> list[dict]:
+          now: Optional[datetime] = None, dynasty: Optional[tuple] = None) -> list[dict]:
     """Feed rows the template draws: each side's players with photo and
-    today's price, plus a verdict when the deal can be weighed."""
+    today's price, plus a verdict when the deal can be weighed.
+
+    `prices`/`spot` are the redraft market; `dynasty` is (prices, spot) for
+    the dynasty one (062). A dynasty league's trade is priced and judged in
+    its own market, never the redraft one."""
     now = now or datetime.now(timezone.utc)
     out = []
+    redraft = (prices, spot)
     for t in raw or []:
+        prices, spot = dynasty if (dynasty and t.get("format") == "dynasty") else redraft
         sides = []
         for s in t.get("sides") or []:
             players = []

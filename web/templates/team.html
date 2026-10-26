@@ -60,7 +60,7 @@
 
 {% block content %}
 <section class="front at-front mk-front tm-front">
-    <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; My team</p>
+    <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; My team{% if view and market %} &middot; {{ 'Dynasty' if market == 'dynasty' else 'Redraft' }}{% endif %}</p>
     <h1 class="mk-title">{{ view.team if view else 'My team' }}</h1>
     {% if leagues|length > 1 %}
     <form class="tm-league" method="get" action="/team">
@@ -126,7 +126,7 @@
         <div><dt>League rank</dt><dd>{{ H.rank }}<small>{{ sfx(H.rank) }} of {{ H.teams }}</small></dd></div>
         <div><dt>League average</dt><dd>{{ '{:,.0f}'.format(H.league_avg) }}</dd></div>
     </dl>
-    <p class="tm-note">Every player&rsquo;s price on the trade market, added up. The #1 player in fantasy is worth 100, the #12 about {{ '%.0f'|format(view.scale12) if view.scale12 else 'half that' }}. Kickers and defenses aren&rsquo;t priced.{% if H.unpriced %} {{ H.unpriced|length }} of your players {{ 'hasn’t' if H.unpriced|length == 1 else 'haven’t' }} been traded enough to price yet.{% endif %}</p>
+    <p class="tm-note">Every player&rsquo;s price on the <a href="/market?m={{ market or 'redraft' }}">{{ 'dynasty' if market == 'dynasty' else 'redraft' }} trade market</a>, added up{% if market == 'dynasty' %}: dynasty leagues&rsquo; own trades, so a player is priced on his career, not this season{% endif %}. The #1 player in fantasy is worth 100, the #12 about {{ '%.0f'|format(view.scale12) if view.scale12 else 'half that' }}. Kickers and defenses aren&rsquo;t priced.{% if H.unpriced %} {{ H.unpriced|length }} of your players {{ 'hasn’t' if H.unpriced|length == 1 else 'haven’t' }} been traded enough to price yet.{% endif %}</p>
 </section>
 
 <section class="card tm-chart-card">
@@ -204,7 +204,7 @@
     <div class="tm-tape-run">
     {% for pass in [1, 2] %}
         <span class="tm-tape-set"{% if pass == 2 %} aria-hidden="true"{% endif %}>
-        {% for h in F.tape %}<a class="tm-tick" href="/market/player/{{ h.k|urlencode }}"{% if pass == 2 %} tabindex="-1"{% endif %}><b>{{ (h.name.split(' ')[-1])|upper }}</b> {{ '%.1f'|format(h.value) }} {{ chg(h.week) }}</a>{% endfor %}
+        {% for h in F.tape %}<a class="tm-tick" href="/market/player/{{ h.k|urlencode }}"{% if pass == 2 %} tabindex="-1"{% endif %}><b>{{ h.ticker }}</b> {{ '%.1f'|format(h.value) }} {{ chg(h.week) }}</a>{% endfor %}
         </span>
     {% endfor %}
     </div>
@@ -272,7 +272,7 @@
         </tbody>
     </table>
     </div>
-    <p class="tm-note"><b>What you paid:</b> a drafted player costs the pick you spent on him, read on the market&rsquo;s scale; a player you traded for costs what he was worth that day; a waiver pickup was free (FAAB isn&rsquo;t counted yet). A player on your roster since week 1 that you didn&rsquo;t draft costs what he was worth on draft day.</p>
+    <p class="tm-note">{% if market == 'dynasty' %}<b>Dynasty:</b> this season only. A player on your roster since week 1 is valued from where the dynasty market had him on draft day, not from what you paid in an earlier season, which we can&rsquo;t see. Rookie-draft picks count as drafted. {% endif %}<b>What you paid:</b> a drafted player costs the pick you spent on him, read on the market&rsquo;s scale; a player you traded for costs what he was worth that day; a waiver pickup was free (FAAB isn&rsquo;t counted yet). A player on your roster since week 1 that you didn&rsquo;t draft costs what he was worth on draft day.</p>
 </section>
 
 {% if F.sold %}

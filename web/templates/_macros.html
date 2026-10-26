@@ -95,3 +95,17 @@
 </form>
 {% endif %}
 {% endmacro %}
+
+
+{#
+    Redraft or dynasty (062). Two markets, never one blended board. The link
+    carries ?m=, which the server remembers in a cookie, so the next page
+    opens on the same one.
+#}
+{% macro market_switch(market, path, extra='') -%}
+<nav class="mk-switch" aria-label="Which market">
+    {%- for m, label in [('redraft', 'Redraft'), ('dynasty', 'Dynasty')] %}
+    <a href="{{ path }}?m={{ m }}{{ extra }}" class="mk-switch-opt{{ ' on' if market == m }}"{% if market == m %} aria-current="true"{% endif %}>{{ label }}</a>
+    {%- endfor %}
+</nav>
+{%- endmacro %}

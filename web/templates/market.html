@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import upgrade_buttons %}
+{% from "_macros.html" import upgrade_buttons, market_switch %}
 {% block title %}The trade market, week {{ week }}{% endblock %}
 {% block description %}What the field pays for a player, read off every trade across the connected leagues.{% endblock %}
 {% block wrapclass %}home around{% endblock %}
@@ -33,7 +33,12 @@
 <section class="front at-front mk-front">
     <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; Trade market</p>
     <h1 class="mk-title">What every player costs</h1>
-    <p class="mk-dek">Priced from real fantasy trades across thousands of leagues, ranked by what he costs today. #1 is the most expensive player in fantasy.</p>
+    {{ market_switch(market, '/market') }}
+    {% if market == 'dynasty' %}
+    <p class="mk-dek">Priced from real trades in dynasty leagues only, starting from where dynasty startups drafted him. A career, not a season. #1 is the most expensive player in dynasty.</p>
+    {% else %}
+    <p class="mk-dek">Priced from real fantasy trades across thousands of redraft leagues, ranked by what he costs today. #1 is the most expensive player in fantasy.</p>
+    {% endif %}
     <p class="mk-front-links"><a href="/market/compare">Compare players side by side &rarr;</a></p>
 </section>
 
@@ -53,6 +58,13 @@
     rounds is not, and a linear axis would spend its height on the second.
 #}
 {% set R = rating %}
+{% if not (R and R.pickable) %}
+<section class="card mk-empty">
+    <h2 class="card-title">{{ 'Dynasty' if market == 'dynasty' else 'Redraft' }} market</h2>
+    <p>{% if market == 'dynasty' %}Not enough dynasty trades yet to price players fairly. Most dynasty trades include draft picks, which the market doesn&rsquo;t value yet; player-for-player deals are what it reads.{% else %}Prices appear once enough trades have been collected.{% endif %}</p>
+    <p><a href="/market?m={{ 'redraft' if market == 'dynasty' else 'dynasty' }}">See the {{ 'redraft' if market == 'dynasty' else 'dynasty' }} market &rarr;</a></p>
+</section>
+{% endif %}
 {% if R and R.chart and R.chart.lines and R.pickable %}
 {#
     The going rate, day by day (John, 23 Oct). After a portfolio-chart
@@ -133,7 +145,7 @@
         The chips it replaced didn't say a player could be opened.
     #}
     <div class="at-pc-rows" id="at-pc-legend" role="list" aria-label="Players on the chart"></div>
-    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'mine': mine, 'signed_in': user is not none}|tojson }}</script>
+    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'm': market, 'mine': mine, 'signed_in': user is not none}|tojson }}</script>
 </section>
 <script>
 (function () {
@@ -230,7 +242,7 @@
         if (LINES[k] || pending[k]) return;
         // Not carried by the page: fetch it, draw when it lands.
         pending[k] = true;
-        fetch(DATA.url + "?k=" + encodeURIComponent(k), {credentials: "same-origin"})
+        fetch(DATA.url + "?k=" + encodeURIComponent(k) + "&m=" + encodeURIComponent(DATA.m || "redraft"), {credentials: "same-origin"})
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (d) {
                 delete pending[k];
@@ -279,7 +291,7 @@
         m = /^p:([^:]+):(.+)$/.exec(v);
         if (!m) return done();
         // A team we didn't know was his: fetch its roster, checked server-side.
-        fetch(MINE.url + "?league=" + encodeURIComponent(m[1]) + "&team=" + encodeURIComponent(m[2]),
+        fetch(MINE.url + "?league=" + encodeURIComponent(m[1]) + "&team=" + encodeURIComponent(m[2]) + "&m=" + encodeURIComponent(DATA.m || "redraft"),
               {credentials: "same-origin"})
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (d) {

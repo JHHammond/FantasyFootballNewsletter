@@ -44,7 +44,18 @@ sys.path.insert(0, str(ROOT))
 SEASON = 2026
 #: Which functions are checked, and how to call each one in SQL.
 CHECKS = ("trade_exchanges", "trade_player_names", "trade_prior",
-          "trade_backfill", "adp", "trade_partners")
+          "trade_backfill", "adp", "trade_partners",
+          "dynasty_adp", "dynasty_trade_exchanges")
+#: Functions the checked ones call (059, 062). Loaded first, not compared
+#: on their own: they return a set of ids, which the checks above exercise.
+HELPERS = ("dynasty_league_ids", "dynasty_startup_league_ids")
+#: What the platform says each invented league is, by n % 4 (062): a
+#: dynasty league (with a startup-sized draft), an explicit redraft league,
+#: and two that say nothing and are judged by their draft's shape (a few
+#: picks a team: rookie-sized, so dynasty). Every branch of
+#: dynasty_league_ids() gets a league.
+def _kind(n: int):
+    return {1: "dynasty", 2: "redraft"}.get(n % 4)
 
 
 def _sql(dsn: str, statement: str) -> str:
@@ -68,7 +79,8 @@ def _sql(dsn: str, statement: str) -> str:
 def _ddl() -> str:
     """Tables and functions, read out of the migrations themselves."""
     parts = ["create table if not exists public.leagues ("
-             " id uuid primary key, provider text not null default 'sleeper');",
+             " id uuid primary key, provider text not null default 'sleeper',"
+             " format text, league_type text);",
              "create table if not exists public.nfl_players ("
              " player_key text primary key, name text not null default '',"
              " position text, nfl_team text);",
@@ -93,13 +105,16 @@ def _ddl() -> str:
             raise SystemExit(f"no CREATE TABLE for {name} in 045")
         # The real tables reference leagues; the stub above satisfies that.
         parts.append(m.group(0) + ";")
-    # Functions: last definition wins, exactly as the migrations land.
-    for path in sorted((ROOT / "migrations").glob("*.sql")):
-        text = path.read_text()
-        for fn in CHECKS:
-            i = text.find(f"create or replace function public.{fn}(")
-            if i >= 0:
-                parts.append(text[i:text.index("$$;", i) + 3])
+    # Functions: last definition wins, exactly as the migrations land. The
+    # helpers go first, because a SQL function's body is checked when it
+    # is created and the checked functions call them.
+    for group in (HELPERS, CHECKS):
+        for path in sorted((ROOT / "migrations").glob("*.sql")):
+            text = path.read_text()
+            for fn in group:
+                i = text.find(f"create or replace function public.{fn}(")
+                if i >= 0:
+                    parts.append(text[i:text.index("$$;", i) + 3])
     return "\n".join(parts)
 
 
@@ -140,7 +155,8 @@ def _season(rng: random.Random):
     # normalisation is actually exercised rather than assumed.
     drafts = []
     for n, (lid, provider) in enumerate(leagues):
-        size = (10, 12, 14)[n % 3]
+        # A dynasty league's draft is a startup: ten-plus picks a team.
+        size = 3 if _kind(n) == "dynasty" else (10, 12, 14)[n % 3]
         order = players[:]
         rng.shuffle(order)
         for overall, (key, pos) in enumerate(order, 1):
@@ -152,8 +168,9 @@ def _season(rng: random.Random):
 def _fill_sql(dsn: str, data) -> None:
     leagues, lineups, heads, moves, scans, players, drafts = data
     q = []
-    for lid, provider in leagues:
-        q.append(f"insert into public.leagues values ('{lid}', '{provider}');")
+    for n, (lid, provider) in enumerate(leagues):
+        kind = f"'{_kind(n)}'" if _kind(n) else "null"
+        q.append(f"insert into public.leagues (id, provider, league_type) values ('{lid}', '{provider}', {kind});")
     for key, pos in players:
         q.append("insert into public.nfl_players (player_key, name, position, nfl_team)"
                  f" values ('{key}', '{key.upper()}', '{pos}', 'CIN');")
@@ -201,8 +218,9 @@ def _fill_sql(dsn: str, data) -> None:
 def _fill_demo(data) -> None:
     from web import demo_db
     leagues, lineups, heads, moves, scans, players, drafts = data
-    for lid, provider in leagues:
-        demo_db._LEAGUES[lid] = {"id": lid, "provider": provider}
+    for n, (lid, provider) in enumerate(leagues):
+        demo_db._LEAGUES[lid] = {"id": lid, "provider": provider,
+                                 "league_type": _kind(n)}
     demo_db.upsert_nfl_players([{"player_key": k, "name": k.upper(),
                                  "position": p, "nfl_team": "CIN"} for k, p in players])
     demo_db.upsert_lineups([
@@ -279,6 +297,9 @@ def main() -> int:
         "trade_backfill": (f"select trade_backfill({SEASON})",
                            lambda: demo_db.trade_backfill(SEASON)),
         "adp": (f"select adp({SEASON}, 2)", lambda: demo_db.adp(SEASON, 2)),
+        "dynasty_adp": (f"select dynasty_adp({SEASON}, 1)", lambda: demo_db.dynasty_adp(SEASON, 1)),
+        "dynasty_trade_exchanges": (f"select dynasty_trade_exchanges({SEASON}, 1, 18)",
+                                    lambda: demo_db.dynasty_trade_exchanges(SEASON, 1, 18)),
         # One real player, picked from the data so the call is never empty.
         "trade_partners": (f"select trade_partners({SEASON}, '{_someone()}')",
                            lambda: demo_db.trade_partners(SEASON, _someone())),

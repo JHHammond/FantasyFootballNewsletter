@@ -39,6 +39,9 @@ def _league(pid="a", provider="sleeper", size=12, fmt="redraft"):
                                league_name="A League", paper_name="The A Times",
                                commissioner_name="", season=SEASON,
                                public_slug=f"slug-{pid}", admin_token="t" * 20)
+    # These tests store one or two picks a league, which the market would
+    # otherwise read as a rookie draft (059). The platform's word wins (062).
+    demo_db.set_league_type(lg["id"], "dynasty" if fmt == "dynasty" else "redraft")
     lg = dict(lg)
     lg["team_count"] = size
     lg["format"] = fmt

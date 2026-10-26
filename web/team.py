@@ -489,6 +489,12 @@ def portfolio(me: str, my_names: set, weeks: dict[int, dict[str, set]], last_wee
       * PICKED UP LATER: free. FAAB isn't counted yet.
     """
     first_week = min(weeks)
+    # A ROOKIE draft (a dynasty league's, six picks a team or fewer) is not
+    # a draft of the whole league: its 1.01 is the best rookie, not the best
+    # player in football. A rookie's basis is what the market had him at on
+    # draft day, not that pick read on the overall scale.
+    teams_n = max((int(d.get("team_count") or 12) or 12 for d in draft), default=12)
+    rookie_draft = bool(draft) and len(draft) / teams_n <= 6
     drafted_by_me = {}
     for d in draft:
         if str(d.get("team_id")) == me and d.get("overall"):
@@ -517,6 +523,9 @@ def portfolio(me: str, my_names: set, weeks: dict[int, dict[str, set]], last_wee
         seen = first_seen(k, before_day)
         if k in drafted_by_me and (seen is None or seen == first_week):
             slot, rnd, overall = drafted_by_me[k]
+            if rookie_draft:
+                return {"how": "draft", "label": f"Rookie draft, round {rnd}" if rnd else "Rookie draft",
+                        "day": prices.base, "basis": prices.on(k, 0)}
             return {"how": "draft", "label": f"Drafted, round {rnd}" if rnd else f"Drafted, pick {overall}",
                     "day": prices.base, "basis": prices.draft_value(slot)}
         if seen is None or seen == first_week:
@@ -546,7 +555,8 @@ def portfolio(me: str, my_names: set, weeks: dict[int, dict[str, set]], last_wee
         gain = round(cur - b["basis"], 1)
         week_ago = prices.on(k, prices.last - WEEK_DAYS)
         holdings.append({
-            "k": k, "name": row.get("name") or k, "pos": pos.get(k), "team": row.get("team"),
+            "k": k, "name": row.get("name") or k, "ticker": ticker(row.get("name") or k),
+            "pos": pos.get(k), "team": row.get("team"),
             "photo": row.get("photo"), "costs": row.get("costs"), "inj": row.get("inj"),
             "priced": prices.priced(k), "how": b["how"], "label": b["label"],
             "basis": round(b["basis"], 1), "value": cur, "gain": gain,
@@ -588,6 +598,16 @@ def portfolio(me: str, my_names: set, weeks: dict[int, dict[str, set]], last_wee
         "tape": tape[:12],
         "sold_best": max(sold, key=lambda s: s["since"], default=None),
     }
+
+
+SUFFIXES = {"jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"}
+
+
+def ticker(name: str) -> str:
+    """A stock symbol's worth of name: the surname, upper case, without
+    the Jr. ("Marvin Harrison Jr." is HARRISON, not JR.)."""
+    words = [w for w in (name or "").split() if w.lower() not in SUFFIXES]
+    return (words[-1] if words else (name or "?")).upper()
 
 
 def _md(day: int) -> str:

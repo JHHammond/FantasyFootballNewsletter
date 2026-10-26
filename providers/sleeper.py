@@ -492,6 +492,22 @@ class SleeperProvider(FantasyProvider):
             f"Weeks with results: {listed}."
         )
 
+    #: Sleeper's league.settings.type.
+    TYPES = {0: "redraft", 1: "keeper", 2: "dynasty"}
+
+    def league_type(self, league_id: str) -> str | None:
+        """Sleeper's own answer (settings.type), from the same cached league
+        fetch as get_league. The setup form's answer is wrong for hundreds
+        of leagues, because "redraft" is its default (062)."""
+        try:
+            data = self.cache.get_or_fetch(
+                f"league:{league_id}", TTL_LEAGUE_META,
+                lambda: self._get(f"{BASE_URL}/league/{league_id}"))
+            raw = ((data or {}).get("settings") or {}).get("type")
+            return self.TYPES.get(int(raw)) if raw is not None else None
+        except Exception:  # noqa: BLE001 — a hint, never a blocker
+            return None
+
     def draft_picks(self, league_id: str, season: int) -> dict:
         """The league's completed draft for this season, by player.
 

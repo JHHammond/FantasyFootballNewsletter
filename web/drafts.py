@@ -14,10 +14,13 @@ makes him worth two mid-tier players by construction. Draft position has
 none of that problem — the first pick is visibly the first pick — and it
 exists before a single game.
 
-WHAT THIS DOES NOT DO. It does not touch dynasty leagues' startup drafts.
-A dynasty startup is a different question (it prices a career, not a
-season) and mixing the two would corrupt both. generate._draft_picks
-already skips dynasty for the same reason.
+DYNASTY (25 Oct, migration 062). A dynasty startup prices a career, not a
+season, so mixing the two would corrupt both — which is why dynasty drafts
+used to be skipped here. They are collected now and kept apart in SQL
+instead: adp() reads every league that is NOT dynasty, dynasty_adp() reads
+only dynasty startups, and dynasty_league_ids() decides which is which.
+That decision starts from the platform's own answer, which this collector
+stores as leagues.league_type when the platform gives one (Sleeper does).
 
 Player ids are resolved through the same PPR matcher lineup_players and
 trade_players use, so a drafted player joins to what he was traded for.
@@ -100,20 +103,19 @@ def collect_league(db, league: dict, season: int, ctx=None) -> int:
     in draft_picks, and telling them apart is what makes the skip logic and
     the coverage numbers mean anything.
 
-    Dynasty leagues are skipped and recorded as scanned with no picks. A
-    startup draft prices a career rather than a season, and averaging the
-    two would make both meaningless.
+    Dynasty leagues' drafts are collected too (062); SQL keeps them out of
+    the redraft ADP. While the platform is open, its own word on what the
+    league is gets stored, because the setup form's is often wrong.
     """
     from providers import get_provider
 
     picks: dict = {}
-    fmt = str(league.get("format") or "").lower()
-    if fmt != "dynasty":
-        try:
-            picks = get_provider(league["provider"]).draft_picks(
-                league["platform_league_id"], int(season)) or {}
-        except Exception:  # noqa: BLE001 — a draft is a bonus, never a blocker
-            picks = {}
+    provider = get_provider(league["provider"])
+    remember_type(db, league, provider)
+    try:
+        picks = provider.draft_picks(league["platform_league_id"], int(season)) or {}
+    except Exception:  # noqa: BLE001 — a draft is a bonus, never a blocker
+        picks = {}
 
     made = rows(league, picks, season, ctx)
     if made:
@@ -121,3 +123,18 @@ def collect_league(db, league: dict, season: int, ctx=None) -> int:
     db.upsert_draft_scan({"league_id": league["id"], "season": int(season),
                           "picks": len(made)})
     return len(made)
+
+
+def remember_type(db, league: dict, provider=None) -> Optional[str]:
+    """Ask the platform what kind of league this is and store it (062).
+    Returns the answer, or None if the platform doesn't say. Never raises."""
+    try:
+        if provider is None:
+            from providers import get_provider
+            provider = get_provider(league["provider"])
+        kind = provider.league_type(str(league["platform_league_id"]))
+    except Exception:  # noqa: BLE001
+        return None
+    if kind and kind != league.get("league_type"):
+        db.set_league_type(league["id"], kind)
+    return kind
