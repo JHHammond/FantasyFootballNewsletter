@@ -161,17 +161,23 @@ CHART_MOVER_MIN_TRADES = 15
 CHART_MOVER_DAYS = 7
 
 
-def chart_default(rated: list, day_lines: dict, trades: dict) -> list:
+def chart_default(rated: list, day_lines: dict, trades: dict,
+                  lead_with_top: bool = True) -> list:
     """The chart's opening lines: the most expensive player, then the
     biggest riser, the biggest faller, the next riser... over the last
-    week. Filled from the top of the market if the week was quiet."""
+    week. Filled from the top of the market if the week was quiet.
+
+    `lead_with_top=False` is the dynasty market (John, 25 Oct: "we dont
+    need to show number 1 automatically, lets just do four big movers. It
+    seems like number 1 has been bijan all year"): four movers, and #1 only
+    if he is one of them."""
     lines, last = day_lines.get("lines") or {}, day_lines.get("last")
     drawn = [k for k in rated if k in lines]
     if not drawn:
         return []
-    out = [drawn[0]]
+    out = [drawn[0]] if lead_with_top else []
     up, down = [], []
-    for k in drawn[1:CHART_MOVER_POOL]:
+    for k in drawn[(1 if lead_with_top else 0):CHART_MOVER_POOL]:
         line = lines[k]
         if trades.get(k, 0) < CHART_MOVER_MIN_TRADES or not line or last is None:
             continue
@@ -762,7 +768,7 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
             "v": round(market.v[k], 6),
             "trades": market.n.get(k, 0),
             "photo": photo_url(k, meta.get("position"))})
-    opening = chart_default(rated, day_lines, market.n)
+    opening = chart_default(rated, day_lines, market.n, lead_with_top=not dynasty)
     return {
         "market": "dynasty" if dynasty else "redraft",
         #: Dynasty only: how many players are anchored on startup drafts
@@ -982,7 +988,8 @@ def apply_injuries(r: Optional[dict], status: dict) -> Optional[dict]:
     daily = r.get("daily") or {}
     if r.get("chart") and daily.get("lines"):
         opening = chart_default([p["k"] for p in keep], daily,
-                                {p["k"]: p.get("trades") or 0 for p in keep})
+                                {p["k"]: p.get("trades") or 0 for p in keep},
+                                lead_with_top=r.get("market") != "dynasty")
         r["chart"] = dict(r["chart"], default=opening,
                           lines={k: daily["lines"][k] for k in opening})
     r["rows"], r["up"], r["down"] = fix(r.get("rows")), fix(r.get("up")), fix(r.get("down"))

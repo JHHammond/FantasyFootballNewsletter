@@ -121,3 +121,20 @@ def test_the_market_page_remembers_the_switch(monkeypatch):
     assert c.cookies.get(webapp.MARKET_COOKIE) == "dynasty"
     assert 'aria-current="true">Dynasty' in c.get("/market").text            # remembered
     assert 'aria-current="true">Redraft' in c.get("/market?m=redraft").text
+
+
+def test_the_dynasty_chart_opens_on_four_movers_not_number_one():
+    """John, 25 Oct: #1 has been Bijan all year in dynasty."""
+    from web import trade_rating as tr
+    rated = [f"p{i}" for i in range(30)]
+    last = 40
+    # Everybody flat except four who moved this week; #1 never moves.
+    lines = {k: [[0, i + 1], [last - 8, i + 1], [last, i + 1]] for i, k in enumerate(rated)}
+    for k, then, now in (("p10", 20, 11), ("p12", 12, 25), ("p15", 30, 16), ("p20", 15, 21)):
+        lines[k] = [[0, then], [last - 8, then], [last, now]]
+    trades = {k: 50 for k in rated}
+    day = {"lines": lines, "last": last}
+    red = tr.chart_default(rated, day, trades)
+    dyn = tr.chart_default(rated, day, trades, lead_with_top=False)
+    assert red[0] == "p0" and len(red) == tr.CHART_DEFAULT
+    assert "p0" not in dyn and set(dyn) == {"p10", "p12", "p15", "p20"}

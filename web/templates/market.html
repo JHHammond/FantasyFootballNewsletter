@@ -30,17 +30,13 @@
 {%- endmacro %}
 
 {% block content %}
-<section class="front at-front mk-front">
-    <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; Trade market</p>
-    <h1 class="mk-title">What every player costs</h1>
-    {{ market_switch(market, '/market') }}
-    {% if market == 'dynasty' %}
-    <p class="mk-dek">Priced from real trades in dynasty leagues only, starting from where dynasty startups drafted him. A career, not a season. #1 is the most expensive player in dynasty.</p>
-    {% else %}
-    <p class="mk-dek">Priced from real fantasy trades across thousands of redraft leagues, ranked by what he costs today. #1 is the most expensive player in fantasy.</p>
-    {% endif %}
-    <p class="mk-front-links"><a href="/market/compare">Compare players side by side &rarr;</a></p>
-</section>
+{#
+    No front-page header (John, 25 Oct: "clicking the page should
+    immediately show you the market"). The page opens on the chart; the
+    market switch, the Show menu and Compare live in the chart's own
+    controls. The heading stays for screen readers and search.
+#}
+<h1 class="at-pc-sr">The trade market: what every {{ 'dynasty ' if market == 'dynasty' else '' }}player costs</h1>
 
 
 
@@ -61,6 +57,7 @@
 {% if not (R and R.pickable) %}
 <section class="card mk-empty">
     <h2 class="card-title">{{ 'Dynasty' if market == 'dynasty' else 'Redraft' }} market</h2>
+    {{ market_switch(market, '/market') }}
     <p>{% if market == 'dynasty' %}Not enough dynasty trades yet to price players fairly. Most dynasty trades include draft picks, which the market doesn&rsquo;t value yet; player-for-player deals are what it reads.{% else %}Prices appear once enough trades have been collected.{% endif %}</p>
     <p><a href="/market?m={{ 'redraft' if market == 'dynasty' else 'dynasty' }}">See the {{ 'redraft' if market == 'dynasty' else 'dynasty' }} market &rarr;</a></p>
 </section>
@@ -93,9 +90,13 @@
             <ul class="at-pc-hits" id="at-pc-hits" role="listbox" hidden></ul>
         </div>
     </div>
-    <div class="at-pc-show" id="at-pc-show" hidden>
-        <label for="at-pc-set">Show</label>
-        <select id="at-pc-set" class="at-pc-set"></select>
+    <div class="at-pc-show" id="at-pc-show">
+        <span class="at-pc-pick" id="at-pc-pick" hidden>
+            <label for="at-pc-set">Show</label>
+            <select id="at-pc-set" class="at-pc-set"></select>
+        </span>
+        {{ market_switch(market, '/market') }}
+        <a class="at-pc-compare" href="/market/compare">Compare<span class="at-pc-wide"> players</span> &rarr;</a>
     </div>
     {% if mine and mine.paid %}
     <p class="mk-teams-note mk-teams-add"><a class="mk-addleague" href="/market/my-team?add=1">+ Add another league</a>
@@ -135,8 +136,8 @@
                  role="img" aria-label="Each chosen player's place in the market by day"></svg>
             <div class="at-pc-tip" id="at-pc-tip" hidden></div>
         </div>
-        <figcaption class="at-pc-note">His place in the market (#1 is the most expensive) at each day&rsquo;s
-            close, starting from where he was drafted. Higher is more expensive.</figcaption>
+        <figcaption class="at-pc-note">His place in the {{ 'dynasty ' if market == 'dynasty' else '' }}market (#1 is the most expensive) at each day&rsquo;s
+            close, starting from where he was drafted. Higher is more expensive. {% if market == 'dynasty' %}Priced from dynasty leagues&rsquo; own trades, starting from dynasty startup drafts: a career, not a season.{% else %}Priced from real trades across thousands of redraft leagues.{% endif %}</figcaption>
     </figure>
     {#
         On the chart, as a list under it (John, 24 Oct, after Kalshi's
@@ -265,27 +266,58 @@
     var REMEMBER = "atpc-show";
     function remembered() { try { return localStorage.getItem(REMEMBER) || ""; } catch (e) { return ""; } }
     function remember(v) { try { localStorage.setItem(REMEMBER, v); } catch (e) {} }
+    // The Show menu, for everybody (John, 25 Oct: signed out, it showed
+    // nothing at all). Your own teams when we know them; the opening view;
+    // a way to add your team; and every NFL team, which draws that team's
+    // most expensive players.
+    var NFL = {ARI: "Arizona Cardinals", ATL: "Atlanta Falcons", BAL: "Baltimore Ravens", BUF: "Buffalo Bills",
+        CAR: "Carolina Panthers", CHI: "Chicago Bears", CIN: "Cincinnati Bengals", CLE: "Cleveland Browns",
+        DAL: "Dallas Cowboys", DEN: "Denver Broncos", DET: "Detroit Lions", GB: "Green Bay Packers",
+        HOU: "Houston Texans", IND: "Indianapolis Colts", JAX: "Jacksonville Jaguars", KC: "Kansas City Chiefs",
+        LV: "Las Vegas Raiders", LAC: "Los Angeles Chargers", LAR: "Los Angeles Rams", MIA: "Miami Dolphins",
+        MIN: "Minnesota Vikings", NE: "New England Patriots", NO: "New Orleans Saints", NYG: "New York Giants",
+        NYJ: "New York Jets", PHI: "Philadelphia Eagles", PIT: "Pittsburgh Steelers", SF: "San Francisco 49ers",
+        SEA: "Seattle Seahawks", TB: "Tampa Bay Buccaneers", TEN: "Tennessee Titans", WAS: "Washington Commanders"};
+    var NFL_ALIAS = {JAC: "JAX", LA: "LAR", OAK: "LV", WSH: "WAS", SD: "LAC", STL: "LAR"};
+    function nflOf(p) { var t = (p.team || "").toUpperCase(); return NFL_ALIAS[t] || t; }
+    function teamKeys(code) {
+        return PLAYERS.filter(function (p) { return nflOf(p) === code; })
+            .sort(function (a, b) { return a.rank - b.rank; })
+            .slice(0, MAX).map(function (p) { return p.k; });
+    }
+    var ADD_URL = (MINE && (MINE.known || []).length) ? "/market/my-team?add=1" : "/market/my-team";
     function buildMenu() {
-        if (!MINE || (!(MINE.known || []).length && !(MINE.pick || []).length)) return;
-        document.getElementById("at-pc-show").hidden = false;
+        document.getElementById("at-pc-pick").hidden = false;
         function opt(parent, value, text) {
             var o = document.createElement("option"); o.value = value; o.textContent = text;
             parent.appendChild(o); return o;
         }
-        (MINE.known || []).forEach(function (t, i) {
+        ((MINE && MINE.known) || []).forEach(function (t, i) {
             opt(setSel, "k:" + i, "My team: " + t.team + " (" + t.league + ")");
         });
-        opt(setSel, "top", "#1 and this week\u2019s movers");
-        (MINE.pick || []).forEach(function (lg) {
+        opt(setSel, "top", DATA.m === "dynasty" ? "This week\u2019s biggest movers" : "#1 and this week\u2019s movers");
+        ((MINE && MINE.pick) || []).forEach(function (lg) {
             var g = document.createElement("optgroup");
             g.label = "Which team is yours in " + lg.league + "?";
             lg.teams.forEach(function (t) { opt(g, "p:" + lg.league_id + ":" + t.id, t.name); });
             setSel.appendChild(g);
         });
+        opt(setSel, "add", (MINE && (MINE.known || []).length) ? "+ Add another league" : "+ Add your team");
+        var have = {};
+        PLAYERS.forEach(function (p) { if (NFL[nflOf(p)]) have[nflOf(p)] = true; });
+        var codes = Object.keys(have).sort(function (a, b) { return NFL[a] < NFL[b] ? -1 : 1; });
+        if (codes.length) {
+            var g = document.createElement("optgroup");
+            g.label = "NFL teams";
+            codes.forEach(function (c) { opt(g, "nfl:" + c, NFL[c]); });
+            setSel.appendChild(g);
+        }
         opt(setSel, "custom", "Your picks").hidden = true;
     }
     function showChoice(v, done) {
         if (v === "top") { useSet(DATA["default"]); return done(); }
+        var t = /^nfl:([A-Z]{2,3})$/.exec(v);
+        if (t) { var ks = teamKeys(t[1]); if (ks.length) useSet(ks); return done(); }
         var m = /^k:(\d+)$/.exec(v);
         if (m && MINE.known[+m[1]]) { useSet(MINE.known[+m[1]].keys); if (window.mkMark) window.mkMark(MINE.known[+m[1]].all || MINE.known[+m[1]].keys); return done(); }
         m = /^p:([^:]+):(.+)$/.exec(v);
@@ -322,9 +354,18 @@
             if (first !== "top") showChoice(first, function () { draw(); });
         }
     }
+    var lastChoice = setSel.value;
     setSel.addEventListener("change", function () {
         var v = setSel.value;
         if (v === "custom") return;
+        if (v === "add") {
+            // Signed out: sign up, connect, and back here with the team on
+            // the chart. Signed in: straight to connecting a league.
+            setSel.value = lastChoice;
+            window.location.href = ADD_URL;
+            return;
+        }
+        lastChoice = v;
         remember(v);
         showChoice(v, function () { draw(); });
     });
