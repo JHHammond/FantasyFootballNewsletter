@@ -1292,6 +1292,8 @@ def staff_stats(fresh: bool = False) -> dict:
         "optouts": safe(lambda: len(db.email_optouts())),
         "by_week": [by_week[w] for w in sorted(by_week)],
         "funnel": safe(lambda: analytics.weekly_table(db.events_weekly(8)), []),
+        "paywall": safe(lambda: analytics.gate_table(db.gate_report(28)), {"rows": [], "paid": 0, "cancelled": 0}),
+        "paywall_steps": analytics.PAYWALL_STEPS,
         "funnel_steps": analytics.FUNNEL,
         "as_of": _t.strftime("%-I:%M %p UTC", _t.gmtime()),
     }
@@ -3439,8 +3441,11 @@ def delete_custom_award(token: str, award_id: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/billing/checkout")
-def billing_checkout(request: Request, term: str = Form(plans.MONTHLY)):
+def billing_checkout(request: Request, term: str = Form(plans.MONTHLY), gate: str = Form("")):
     user = _require_user(request)
+    # Which lock sent them (migration 063), before anything can turn them away.
+    _log(request, "checkout_started", where=gate if gate in analytics.GATES else "",
+         term=term if term in plans.TERMS else "")
 
     if term not in plans.TERMS or (
             term == plans.SEASON and not plans.season_pass_enabled()):

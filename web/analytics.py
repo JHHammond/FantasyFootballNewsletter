@@ -116,12 +116,57 @@ FUNNEL = [
     ("card_shared", "Cards shared"),
 ]
 
+#: Every lock on the site, by the name its events carry (migration 063). John,
+#: 26 Oct: "tons of people are signing up. Very few are paying" - so which
+#: paid feature does anybody actually reach for?
+GATES = {
+    "chart_team": "Chart: add your team",
+    "chart_more": "Chart: more than five players",
+    "board": "Market board past the top 20",
+    "movers": "Moving this week",
+    "lockbar": "Market: more of your leagues",
+    "getsell": "Player page: Get him / Sell him",
+    "player_trades": "Player page: every trade",
+    "feed": "Live trades: the rest of the feed",
+    "feed_filters": "Live trades: filters",
+    "offer": "Upgrade pop-up",
+    "account": "Account and plan pages",
+}
+#: The steps, in order, with how /staff/stats labels them.
+PAYWALL_STEPS = [("gate_seen", "Seen"), ("gate_hit", "Hit"), ("upgrade_clicked", "Clicked"),
+                 ("checkout_started", "Checkout")]
+
 #: What a browser may report through POST /e, and from where. Anything else is
 #: dropped, so the endpoint can't be used to write arbitrary rows.
 CLIENT_EVENTS = {
     "link_copied": {"manage", "published"},
     "card_shared": {"around", "luck"},
+    "gate_seen": set(GATES),
+    "gate_hit": set(GATES),
+    "upgrade_clicked": set(GATES),
 }
+
+
+def gate_table(rows: list[dict]) -> dict:
+    """gate_report rows → {rows: one per lock, most clicked first; paid: n; cancelled: n}."""
+    by: dict[str, dict] = {}
+    paid = cancelled = 0
+    for r in rows or []:
+        n, g, c = r.get("name"), r.get("gate"), int(r.get("events") or 0)
+        if n == "subscribed":
+            paid += c
+            continue
+        if n == "cancelled":
+            cancelled += c
+            continue
+        row = by.setdefault(g, {"gate": g, "label": GATES.get(g, g)})
+        row[n] = row.get(n, 0) + c
+    out = sorted(by.values(), key=lambda r: (-r.get("checkout_started", 0), -r.get("upgrade_clicked", 0),
+                                             -r.get("gate_seen", 0), r["gate"]))
+    for r in out:
+        seen = r.get("gate_seen", 0) + r.get("gate_hit", 0)
+        r["click_rate"] = round(100 * r.get("upgrade_clicked", 0) / seen, 1) if seen else None
+    return {"rows": out, "paid": paid, "cancelled": cancelled}
 
 
 def weekly_table(rows: list[dict], weeks: int = 8) -> list[dict]:

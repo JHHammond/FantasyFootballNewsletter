@@ -353,6 +353,7 @@ def apply_subscription(db, subscription,
 
     status = str(_field(subscription, "status", "")).lower()
     paid = status in plans.ACTIVE_STATUSES
+    was_paid = (user.get("plan") or "").strip().lower() == plans.PAID
 
     db.set_plan(
         user["id"],
@@ -361,6 +362,13 @@ def apply_subscription(db, subscription,
         subscription_id=_field(subscription, "id"),
         renews_at=_period_end(subscription),
     )
+    # The end of the paywall funnel (migration 063): only on a change, since
+    # Stripe repeats itself for renewals and card updates.
+    if paid != was_paid:
+        try:
+            db.log_event("subscribed" if paid else "cancelled", None, {"status": status})
+        except Exception:  # noqa: BLE001 — a counter never fails a webhook
+            pass
     return f"{user['id']} -> {plans.PAID if paid else plans.FREE} ({status})"
 
 

@@ -30,7 +30,7 @@
         <li>Every trade of every player, with filters</li>
         <li>The full weekly paper for every league you run, sent itself every Tuesday</li>
     </ul>
-    {% if billing_enabled() %}{{ upgrade_buttons() }}{% else %}<p class="field-help">Paid plans aren&rsquo;t switched on yet.</p>{% endif %}
+    {% if billing_enabled() %}{{ upgrade_buttons(gate='account') }}{% else %}<p class="field-help">Paid plans aren&rsquo;t switched on yet.</p>{% endif %}
     {% endif %}
 </section>
 

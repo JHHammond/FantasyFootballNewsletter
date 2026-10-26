@@ -7,7 +7,7 @@
    free plan, signed in, and Stripe configured, or it never renders at all.
 #}
 {% from "_macros.html" import upgrade_buttons %}
-<dialog class="offer" id="upgrade-offer" aria-labelledby="offer-title">
+<dialog class="offer" id="upgrade-offer" aria-labelledby="offer-title" data-gate-seen="offer">
   <div id="offer-main">
     {# Shown once the new account's first league is connected, not at sign-up
        (John, 24 Oct: "It should be like 'One last thing!'"). #}
@@ -32,7 +32,7 @@
         <li><b>The weekly paper</b><span>For every league you run, all season, sent itself every Tuesday.</span></li>
         {% endif %}
     </ul>
-    {{ upgrade_buttons("offer-cta") }}
+    {{ upgrade_buttons("offer-cta", "offer") }}
     <p class="offer-fine">
         Cancel any time from your account page.
     </p>

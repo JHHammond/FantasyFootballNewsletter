@@ -67,6 +67,21 @@
 </section>
 <p class="card-sub" style="margin-top:12px;">Weeks start Monday, Eastern. Counted on the server, with link previews and bots left out; no visitor is identified. &ldquo;lg&rdquo; is how many different leagues. Connect &rarr; league is leagues connected per 100 views of the connect page. Page traffic is in Cloudflare Web Analytics.</p>
 
+<div class="stat-section">Paywall, last 28 days</div>
+<section class="card" style="padding:0; overflow-x:auto;">
+    <table class="stat-table">
+        <tr><th>Lock</th>{% for key, label in s.paywall_steps %}<th>{{ label }}</th>{% endfor %}<th>Clicked / seen</th></tr>
+        {% for r in s.paywall.rows %}
+        <tr><td>{{ r.label }}</td>
+            {% for key, label in s.paywall_steps %}<td>{{ "{:,}".format(r.get(key, 0)) }}</td>{% endfor %}
+            <td>{{ (r.click_rate|string ~ "%") if r.click_rate is not none else "—" }}</td></tr>
+        {% else %}
+        <tr><td colspan="{{ s.paywall_steps|length + 2 }}">Nothing yet. Counting starts once migration 063 has run.</td></tr>
+        {% endfor %}
+    </table>
+</section>
+<p class="card-sub" style="margin-top:12px;">{{ "{:,}".format(s.paywall.paid) }} subscribed and {{ "{:,}".format(s.paywall.cancelled) }} cancelled in the same 28 days. <b>Seen</b> is a lock scrolled into view (once a page view); <b>Hit</b> is somebody running into a limit, like a seventh player on the chart; <b>Clicked</b> is a press on the button or sign-up link by that lock; <b>Checkout</b> is the trip to Stripe it started. Signed-out clicks go to sign-up, so Clicked can run ahead of Checkout.</p>
+
 <div class="stat-section">By week, this season</div>
 <section class="card" style="padding:0;">
     <table class="stat-table">

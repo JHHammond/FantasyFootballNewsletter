@@ -164,7 +164,7 @@
 </li>
 {%- endmacro %}
 
-<section class="card pp-desk{{ ' pp-locked' if not paid }}" id="desk">
+<section class="card pp-desk{{ ' pp-locked' if not paid }}" id="desk"{% if not paid %} data-gate-seen="getsell"{% endif %}>
     <h2 class="card-title">{{ 'Sell him' if desk and desk.mode == 'sell' else 'Get him' }}</h2>
     {% if options %}
     <form method="get" class="pp-team" action="#desk">
@@ -180,7 +180,7 @@
 
     {% if not options %}
     <p class="pp-empty">Connect a league and this tells you who has {{ who.name }}, what they&rsquo;re short at, and the fair offers on your roster, backed by real trades.
-        {% if user %}<a href="/connect"><b>Connect your league &rarr;</b></a>{% else %}<a href="/signup?next={{ (request.url.path ~ '#desk')|urlencode }}"><b>Sign up free &rarr;</b></a>{% endif %}</p>
+        {% if user %}<a href="/connect" data-gate="getsell"><b>Connect your league &rarr;</b></a>{% else %}<a data-gate="getsell" href="/signup?next={{ (request.url.path ~ '#desk')|urlencode }}"><b>Sign up free &rarr;</b></a>{% endif %}</p>
     {% elif not desk %}
     <p class="pp-empty">He has no market price yet, so there&rsquo;s nothing to weigh an offer against.</p>
     {% else %}
@@ -219,7 +219,7 @@
     </ol>
     <div class="pp-unlock">
         <p>{{ desk.offers|length - 1 }} more fair offer{{ '' if desk.offers|length == 2 else 's' }} for {{ who.name }}, each backed by real trades.</p>
-        {% if billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
+        {% if billing_enabled() %}{{ upgrade_buttons(gate='getsell') }}{% else %}<a href="/account">See the plan</a>{% endif %}
     </div>
     {% endif %}
     {% endif %}
@@ -295,10 +295,10 @@
     {# Free: the three newest only. The rest never leave the server. #}
     <ol class="pp-deals" id="pp-all">{% for t in trades[:3] %}{{ deal(t) }}{% endfor %}</ol>
     {% if trades|length > 3 %}
-    <div class="pp-unlock">
+    <div class="pp-unlock" data-gate-seen="player_trades">
         <p><b>{{ '{:,}'.format(trades|length - 3) }} more trade{{ '' if trades|length - 3 == 1 else 's' }}</b> of {{ who.name }} this season, with filters for straight-up deals and packages.</p>
-        {% if not user %}<a class="btn btn-primary" href="/signup?next={{ request.url.path|urlencode }}">Sign up free</a>
-        {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
+        {% if not user %}<a class="btn btn-primary" data-gate="player_trades" href="/signup?next={{ request.url.path|urlencode }}">Sign up free</a>
+        {% elif billing_enabled() %}{{ upgrade_buttons(gate='player_trades') }}{% else %}<a href="/account">See the plan</a>{% endif %}
     </div>
     {% endif %}
     {% endif %}

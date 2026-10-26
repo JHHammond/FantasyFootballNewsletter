@@ -467,6 +467,11 @@ def log_event(name: str, league_id: Optional[str] = None,
         pass
 
 
+def gate_report(days: int = 28) -> list[dict[str, Any]]:
+    """Paywall events per lock over the last `days` (migration 063)."""
+    return client().rpc("gate_report", {"p_days": int(days)}).execute().data or []
+
+
 def events_weekly(weeks: int = 8) -> list[dict[str, Any]]:
     """Counts per event per week (Monday start, Eastern), newest first."""
     return client().rpc("events_weekly", {"p_weeks": int(weeks)}).execute().data or []

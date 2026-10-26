@@ -41,7 +41,7 @@
             <label class="tf-check"><input type="checkbox" name="lopsided" value="1"{{ ' checked' if f.lopsided }}{{ ' disabled' if not paid }} /> Lopsided only</label>
             <label class="tf-check"><input type="checkbox" name="mine" value="1"{{ ' checked' if f.mine }}{{ ' disabled' if not paid }} /> With my players</label>
             {% if not paid %}
-            <a class="tf-lock-note" href="{{ '/me#plan' if user else '/signup?next=%2Fme%23plan' }}"><span class="mk-lock-ico" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span>Every filter comes with the season pass</a>
+            <a class="tf-lock-note" data-gate="feed_filters" data-gate-seen="feed_filters" href="{{ '/me#plan' if user else '/signup?next=%2Fme%23plan' }}"><span class="mk-lock-ico" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span>Every filter comes with the season pass</a>
             {% endif %}
         </div>
         <noscript><button type="submit" class="btn">Filter</button></noscript>

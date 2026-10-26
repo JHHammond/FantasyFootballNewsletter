@@ -165,14 +165,14 @@
         {% if paid %}
         <p class="mk2-more"><button type="button" id="mk2-more">Show all</button></p>
         {% else %}
-        <div class="mk2-locked" id="mk2-locked" data-totals='{{ totals|tojson }}' data-free-all="{{ FREE_ALL }}" data-free-pos="{{ FREE_POS }}">
+        <div class="mk2-locked" id="mk2-locked" data-gate-seen="board" data-totals='{{ totals|tojson }}' data-free-all="{{ FREE_ALL }}" data-free-pos="{{ FREE_POS }}">
             <ol class="mk2-list mk2-ghost" aria-hidden="true">
                 {% for i in range(3) %}<li class="mk2-row"><span class="mk2-rk">00</span><span class="mk2-who"><span class="at-face mk2-face"><span>?</span></span><span class="mk2-who-txt"><span class="mk2-who-name">Locked player</span><small>WR00 &middot; XXX</small></span></span><span class="mk2-mv">&#9650; 0</span></li>{% endfor %}
             </ol>
             <div class="mk2-unlock">
                 <p><b id="mk2-unlock-n">See every priced player</b><span>The full board, every position, all season.</span></p>
-                {% if not user %}<a class="btn btn-primary" href="/signup?next={{ '/market'|urlencode }}">Sign up free</a>
-                {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
+                {% if not user %}<a class="btn btn-primary" data-gate="board" href="/signup?next={{ '/market'|urlencode }}">Sign up free</a>
+                {% elif billing_enabled() %}{{ upgrade_buttons(gate='board') }}{% else %}<a href="/account">See the plan</a>{% endif %}
             </div>
         </div>
         {% endif %}
@@ -180,20 +180,20 @@
     <div class="mk3-toast" id="mk3-toast-team" role="status" aria-live="polite" hidden>
         <button type="button" class="mk3-toast-x" aria-label="Close">&times;</button>
         <p><b>Put your own team on the chart</b><span>Connect your league free: your players drawn here and marked on the board.</span></p>
-        <div class="mk3-toast-cta"><a class="mk3-buy" href="/market/my-team">Add your team</a></div>
+        <div class="mk3-toast-cta"><a class="mk3-buy" data-gate="chart_team" href="/market/my-team">Add your team</a></div>
     </div>
     <div class="mk3-toast" id="mk3-toast" role="status" aria-live="polite" hidden>
         <button type="button" class="mk3-toast-x" aria-label="Close">&times;</button>
         <p><b>Upgrade to add up to 9 players</b><span>Plus the full board, every riser and faller, and all your leagues.</span></p>
         <div class="mk3-toast-cta">
         {% if not user %}
-            <a class="mk3-buy" href="/signup?next={{ '/me#plan'|urlencode }}">Sign up &middot; {{ price_text }}</a>
+            <a class="mk3-buy" data-gate="chart_more" href="/signup?next={{ '/me#plan'|urlencode }}">Sign up &middot; {{ price_text }}</a>
             {% if season_pass_enabled() %}<span class="mk3-alt">or {{ season_price_text|replace(' a season', '') }} for the season</span>{% endif %}
         {% elif billing_enabled() %}
-            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" />
-                <button type="submit" class="mk3-buy">Upgrade &middot; {{ price_text }}</button></form>
-            {% if season_pass_enabled() %}<form method="post" action="/billing/checkout"><input type="hidden" name="term" value="season" />
-                <button type="submit" class="mk3-alt">or {{ season_price_text|replace(' a season', '') }} for the season</button></form>{% endif %}
+            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" /><input type="hidden" name="gate" value="chart_more" />
+                <button type="submit" class="mk3-buy" data-gate="chart_more">Upgrade &middot; {{ price_text }}</button></form>
+            {% if season_pass_enabled() %}<form method="post" action="/billing/checkout"><input type="hidden" name="term" value="season" /><input type="hidden" name="gate" value="chart_more" />
+                <button type="submit" class="mk3-alt" data-gate="chart_more">or {{ season_price_text|replace(' a season', '') }} for the season</button></form>{% endif %}
         {% else %}<a class="mk3-buy" href="/account">See the plan</a>{% endif %}
         </div>
     </div>
@@ -202,7 +202,7 @@
         <span>Put a team from any of your other leagues on the chart and the board.</span></p>
     {% endif %}
     {% if mine and not mine.paid %}
-    <div class="mk-lockbar">
+    <div class="mk-lockbar" data-gate-seen="lockbar">
         <span class="mk-lock-ico" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span>
         <div class="mk-lock-txt">
             <b>{% if mine.locked %}{{ mine.locked|length }} more of your team{{ '' if mine.locked|length == 1 else 's' }} locked{% else %}Free accounts show one team{% endif %}</b>
@@ -211,13 +211,13 @@
         {% if billing_enabled() %}
         <div class="mk-lock-cta">
             {% if season_pass_enabled() %}
-            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" />
-                <button type="submit" class="mk-lock-btn">Upgrade &middot; {{ price_text }}</button></form>
-            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="season" />
-                <button type="submit" class="mk-lock-alt">or {{ season_price_text|replace(' a season', '') }} for the season</button></form>
+            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" /><input type="hidden" name="gate" value="lockbar" />
+                <button type="submit" class="mk-lock-btn" data-gate="lockbar">Upgrade &middot; {{ price_text }}</button></form>
+            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="season" /><input type="hidden" name="gate" value="lockbar" />
+                <button type="submit" class="mk-lock-alt" data-gate="lockbar">or {{ season_price_text|replace(' a season', '') }} for the season</button></form>
             {% else %}
-            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" />
-                <button type="submit" class="mk-lock-btn">Upgrade &middot; {{ price_text }}</button></form>
+            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" /><input type="hidden" name="gate" value="lockbar" />
+                <button type="submit" class="mk-lock-btn" data-gate="lockbar">Upgrade &middot; {{ price_text }}</button></form>
             {% endif %}
         </div>
         {% endif %}
@@ -333,6 +333,7 @@
     function nudge() {
         var t = document.getElementById(HAS_TEAM ? "mk3-toast" : "mk3-toast-team");
         if (!t) return;
+        if (window.cdGate) window.cdGate(HAS_TEAM ? "chart_more" : "chart_team");
         if (shownToast && shownToast !== t) shownToast.hidden = true;
         shownToast = t;
         t.hidden = false;
@@ -715,6 +716,7 @@
         // Free, and it ends on the upgrade offer once the team is in.
         var a = document.createElement("a");
         a.className = "mk3-slot mk3-team"; a.href = ADD_URL;
+        a.setAttribute("data-gate", "chart_team");
         a.innerHTML = '<span class="mk3-plus" aria-hidden="true">+</span><span>Add your team</span>';
         return a;
     }
@@ -925,10 +927,10 @@
         {% endfor %}
     </div>
     {% if not paid %}
-    <div class="mk-week-unlock">
+    <div class="mk-week-unlock" data-gate-seen="movers">
         <p><b>See every riser and faller this week</b>, plus fair offers built from your own roster for any player.</p>
-        {% if not user %}<a class="btn btn-primary" href="/signup?next={{ '/market/my-team'|urlencode }}">Sign up free</a>
-        {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
+        {% if not user %}<a class="btn btn-primary" data-gate="movers" href="/signup?next={{ '/market/my-team'|urlencode }}">Sign up free</a>
+        {% elif billing_enabled() %}{{ upgrade_buttons(gate='movers') }}{% else %}<a href="/account">See the plan</a>{% endif %}
     </div>
     {% endif %}
 </section>

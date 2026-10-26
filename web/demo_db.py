@@ -246,6 +246,22 @@ def log_event(name: str, league_id: Optional[str] = None,
                         "props": props or {}, "occurred_at": _now()})
 
 
+def gate_report(days: int = 28) -> list[dict[str, Any]]:
+    """The twin of migration 063."""
+    from datetime import datetime, timedelta, timezone
+    since = datetime.now(timezone.utc) - timedelta(days=max(days, 1))
+    names = {"gate_seen", "gate_hit", "upgrade_clicked", "checkout_started", "subscribed", "cancelled"}
+    counts: dict[tuple, int] = {}
+    for e in list(_EVENTS):
+        if e["name"] not in names:
+            continue
+        if datetime.fromisoformat(str(e["occurred_at"]).replace("Z", "+00:00")) < since:
+            continue
+        key = ((e.get("props") or {}).get("where") or "(none)", e["name"])
+        counts[key] = counts.get(key, 0) + 1
+    return [{"gate": g, "name": n, "events": c} for (g, n), c in sorted(counts.items())]
+
+
 def events_weekly(weeks: int = 8) -> list[dict[str, Any]]:
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo

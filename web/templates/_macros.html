@@ -79,22 +79,24 @@
     see 19.99 first in the trade desk i think they get turned off. 4.99 is
     much more palatable"). Both unlock exactly the same plan.
 #}
-{% macro upgrade_buttons(cta_class="") %}
+{#- `gate` names the lock these buttons sit by (web/analytics.py GATES), so
+    /staff/stats can say which paid feature people reach for (063). -#}
+{% macro upgrade_buttons(cta_class="", gate="") %}
 {% if season_pass_enabled() %}
 <form method="post" action="/billing/checkout">
-    <input type="hidden" name="term" value="monthly" />
-    <button type="submit" class="btn btn-primary {{ cta_class }}">
+    <input type="hidden" name="term" value="monthly" />{% if gate %}<input type="hidden" name="gate" value="{{ gate }}" />{% endif %}
+    <button type="submit" class="btn btn-primary {{ cta_class }}"{% if gate %} data-gate="{{ gate }}"{% endif %}>
         Upgrade &mdash; {{ price_text }}
     </button>
 </form>
 <form method="post" action="/billing/checkout" class="upgrade-alt">
-    <input type="hidden" name="term" value="season" />
-    <button type="submit" class="btn-link">or {{ season_price_text|replace(' a season', '') }} for the whole season</button>
+    <input type="hidden" name="term" value="season" />{% if gate %}<input type="hidden" name="gate" value="{{ gate }}" />{% endif %}
+    <button type="submit" class="btn-link"{% if gate %} data-gate="{{ gate }}"{% endif %}>or {{ season_price_text|replace(' a season', '') }} for the whole season</button>
 </form>
 {% else %}
 <form method="post" action="/billing/checkout">
-    <input type="hidden" name="term" value="monthly" />
-    <button type="submit" class="btn btn-primary {{ cta_class }}">
+    <input type="hidden" name="term" value="monthly" />{% if gate %}<input type="hidden" name="gate" value="{{ gate }}" />{% endif %}
+    <button type="submit" class="btn btn-primary {{ cta_class }}"{% if gate %} data-gate="{{ gate }}"{% endif %}>
         Upgrade &mdash; {{ price_text }}
     </button>
 </form>

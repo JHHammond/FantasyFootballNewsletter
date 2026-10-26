@@ -40,10 +40,10 @@
     {% endfor %}
 </ol>
 {% if hidden and not paid %}
-<div class="mk-week-unlock tf-unlock">
+<div class="mk-week-unlock tf-unlock" data-gate-seen="feed">
     <p><b>{{ '{:,}'.format(hidden) }} more trade{{ '' if hidden == 1 else 's' }}</b> in the feed, plus every filter: player, straight up or packages, league size, scoring, platform, lopsided deals, and trades with your players in them.</p>
-    {% if not user %}<a class="btn btn-primary" href="/signup?next={{ '/me#plan'|urlencode }}">Upgrade &middot; {{ price_text }}</a>
-    {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/me#plan">See the plan</a>{% endif %}
+    {% if not user %}<a class="btn btn-primary" data-gate="feed" href="/signup?next={{ '/me#plan'|urlencode }}">Upgrade &middot; {{ price_text }}</a>
+    {% elif billing_enabled() %}{{ upgrade_buttons(gate='feed') }}{% else %}<a href="/me#plan">See the plan</a>{% endif %}
 </div>
 {% elif hidden %}
 <p class="tf-more">Showing the newest {{ rows|length }}. Narrow the filters to see further back.</p>

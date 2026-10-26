@@ -91,7 +91,7 @@
         <li>{{ lock(lock_reasons.auto_send) }} It writes and sends itself every Tuesday</li>
     </ul>
     {% if billing_enabled() %}
-    {{ upgrade_buttons() }}
+    {{ upgrade_buttons(gate='account') }}
     <p class="field-help" style="margin-top:10px;">
         {% if season_pass_enabled() %}The season pass is billed once a year
         and renews on the day you bought it. {% endif %}Cancel any time, from

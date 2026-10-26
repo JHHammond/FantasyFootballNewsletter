@@ -162,3 +162,84 @@ def test_weekly_counts_and_the_staff_table(client):
     # Signing up lands on /connect, which is one more view: 1 league in 5.
     assert "Funnel, by week" in body and "20%" in body
     assert "cloudflareinsights" not in body
+
+
+# --- the paywall (migration 063) --------------------------------------------
+
+def test_paywall_events_need_a_known_lock(client):
+    for n in ("gate_seen", "gate_hit", "upgrade_clicked"):
+        assert client.post("/e", data={"n": n, "where": "board"}, headers=BROWSER).status_code == 204
+    client.post("/e", data={"n": "gate_seen", "where": "the-moon"}, headers=BROWSER)
+    client.post("/e", data={"n": "gate_seen", "where": ""}, headers=BROWSER)
+    assert names() == ["gate_seen", "gate_hit", "upgrade_clicked"]
+    assert all(e["props"] == {"where": "board"} for e in demo_db._EVENTS)
+
+
+def test_checkout_remembers_which_lock_sent_them(client, monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
+    monkeypatch.setenv("STRIPE_PRICE_ID", "price_test")
+    client.post("/signup", data={"email": "buyer@example.com", "password": "correct horse battery 9",
+                                 "confirm": "correct horse battery 9"}, headers=BROWSER)
+    monkeypatch.setattr(webapp.billing, "checkout_url", lambda *a, **k: "https://stripe.test/c")
+    client.post("/billing/checkout", data={"term": "monthly", "gate": "chart_more"},
+                headers=BROWSER, follow_redirects=False)
+    client.post("/billing/checkout", data={"term": "monthly", "gate": "<script>"},
+                headers=BROWSER, follow_redirects=False)
+    started = [e["props"] for e in demo_db._EVENTS if e["name"] == "checkout_started"]
+    assert started == [{"where": "chart_more", "term": "monthly"}, {"where": "", "term": "monthly"}]
+
+
+def test_gate_table_reads_like_a_funnel():
+    rows = [
+        {"gate": "board", "name": "gate_seen", "events": 200},
+        {"gate": "board", "name": "upgrade_clicked", "events": 10},
+        {"gate": "board", "name": "checkout_started", "events": 4},
+        {"gate": "chart_more", "name": "gate_hit", "events": 50},
+        {"gate": "chart_more", "name": "upgrade_clicked", "events": 5},
+        {"gate": "chart_more", "name": "checkout_started", "events": 5},
+        {"gate": "(none)", "name": "subscribed", "events": 3},
+        {"gate": "(none)", "name": "cancelled", "events": 1},
+    ]
+    t = analytics.gate_table(rows)
+    assert [r["gate"] for r in t["rows"]] == ["chart_more", "board"]
+    assert t["rows"][0]["click_rate"] == 10.0 and t["rows"][1]["click_rate"] == 5.0
+    assert t["rows"][1]["label"] == analytics.GATES["board"]
+    assert t["paid"] == 3 and t["cancelled"] == 1
+    assert analytics.gate_table([]) == {"rows": [], "paid": 0, "cancelled": 0}
+
+
+def test_demo_gate_report_matches_the_table(client):
+    for n in ("gate_seen", "gate_seen", "upgrade_clicked"):
+        client.post("/e", data={"n": n, "where": "feed"}, headers=BROWSER)
+    demo_db.log_event("subscribed", None, {"status": "active"})
+    t = analytics.gate_table(demo_db.gate_report(28))
+    assert t["rows"][0]["gate"] == "feed" and t["rows"][0]["gate_seen"] == 2
+    assert t["rows"][0]["upgrade_clicked"] == 1 and t["paid"] == 1
+
+
+def test_subscribing_is_counted_once_not_every_renewal():
+    from web import billing
+    user = demo_db.create_user("renews@example.com", "x")
+    sub = {"id": "sub_r", "customer": "cus_r", "status": "active",
+           "metadata": {"user_id": user["id"]}, "current_period_end": 1900000000}
+    billing.apply_subscription(demo_db, sub)
+    billing.apply_subscription(demo_db, sub)  # a renewal: same status
+    billing.apply_subscription(demo_db, {**sub, "status": "canceled"})
+    assert [n for n in names() if n in ("subscribed", "cancelled")] == ["subscribed", "cancelled"]
+
+
+def test_the_locks_are_tagged_on_the_market(client):
+    body = client.get("/market", headers=BROWSER).text
+    # Whatever the page shows a signed-out visitor, each lock it shows says which it is.
+    for g in ("data-gate-seen=", "data-gate="):
+        assert g in body or "mk2-locked" not in body
+    assert "window.cdGate" in body
+
+
+def test_staff_sees_the_paywall_table(client):
+    client.post("/e", data={"n": "gate_seen", "where": "board"}, headers=BROWSER)
+    client.post("/signup", data={"email": "staff@example.com", "password": "correct horse battery 9",
+                                 "confirm": "correct horse battery 9"})
+    demo_db.update_user(demo_db.user_by_email("staff@example.com")["id"], {"plan": "staff"})
+    body = client.get("/staff/stats?fresh=1").text
+    assert "Paywall, last 28 days" in body and analytics.GATES["board"] in body
