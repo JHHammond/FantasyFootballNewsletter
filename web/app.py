@@ -2034,7 +2034,19 @@ def market_page(request: Request):
         drafted = sorted((p for p in rating["pickable"] if p.get("pos") == pos and p.get("dp")),
                          key=lambda p: p["dp"])
         pos_drafted.update({p["k"]: i + 1 for i, p in enumerate(drafted)})
+    # Every priced player's move over the last week, for the board and the
+    # chart's cards. The page carries only the default lines, so it can't
+    # work these out itself.
+    daily = (rating or {}).get("daily") or {}
+    week_moves = {}
+    for p in (rating or {}).get("pickable") or []:
+        line = (daily.get("lines") or {}).get(p["k"]) or []
+        last = daily.get("last")
+        then = next((pt[1] for pt in reversed(line) if last is not None and pt[0] <= last - 7), None)
+        if then is not None and line:
+            week_moves[p["k"]] = round(then - line[-1][1])
     return _remember_market(request, _render(request, "market.html", offer_kind="market", pos_drafted=pos_drafted, market=market,
+                   week_moves=week_moves,
                    movers7=movers7, paid=plans.is_paid(user), season=season, week=week, latest=latest,
                    staff=staff, photo=around.photo,
                    trade_volume=_trade_volume(season) if staff else None,

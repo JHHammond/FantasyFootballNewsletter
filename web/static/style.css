@@ -4958,3 +4958,154 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
     .at-pc-compare { margin-left: auto; }
     .at-pc-wide { display: none; }
 }
+
+/* ---------- The market chart, after Kalshi (John, 25 Oct) ----------
+   One line of filters, lines that come in from off the left edge and stop
+   short of the right where each name and price sits, range tabs, and
+   players to add in place of bet buttons. Paper colours, Barlow type. */
+.mk2 { padding-top: 18px; padding-bottom: 18px; }
+.mk2-bar { position: relative; min-height: 40px; }
+.mk2-filters { display: flex; align-items: center; gap: 8px; }
+.mk2-bar.searching .mk2-filters { visibility: hidden; }
+.mk2 .mk-switch { margin: 0; flex: none; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.mk2 .mk-switch-opt { padding: 8px 13px; font-size: 12.5px; letter-spacing: 1.3px; background: #faf6ee; }
+.mk2 .mk-switch-opt + .mk-switch-opt { border-left: 1px solid var(--line); }
+.mk2 .mk-switch-opt.on { background: var(--ink); color: var(--paper); }
+.mk2-pick { flex: 1 1 auto; min-width: 0; display: flex; }
+.mk2-pick[hidden] { display: none; }
+.mk2-set { width: 100%; min-width: 0; padding: 8px 32px 8px 14px; font: 600 14px "Barlow", sans-serif; color: var(--ink);
+           background: #faf6ee url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236b6050' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 12px center;
+           border: 1px solid var(--line); border-radius: 999px; -webkit-appearance: none; appearance: none; cursor: pointer;
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk2-set:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px rgba(179, 20, 28, .14); }
+.mk2-find, .mk2-close { flex: none; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: #faf6ee;
+                        display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: var(--ink); }
+.mk2-find svg, .mk2-mag { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.mk2-find:hover, .mk2-close:hover { border-color: var(--ink); }
+.mk2-close { font-size: 22px; line-height: 1; border: 0; background: none; }
+.mk2-search { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 14px;
+              border: 1px solid var(--ink); border-radius: 999px; background: var(--paper); }
+.mk2-search[hidden] { display: none; }
+.mk2-mag { color: var(--muted); }
+.mk2-q { flex: 1; min-width: 0; border: 0; background: none; font: 500 15px "Barlow", sans-serif; color: var(--ink); outline: none; }
+.mk2-hits { top: calc(100% + 6px); left: 0; right: 0; }
+
+.mk2-chart { position: relative; margin: 14px -26px 0; }
+.mk2-svg { display: block; width: 100%; height: auto; overflow: visible; user-select: none; -webkit-user-select: none; }
+.mk2-line { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+.mk2-end { stroke: var(--paper); stroke-width: 2; }
+.mk2-cur { stroke: var(--paper); stroke-width: 2; }
+.mk2-rule { stroke: #b9b0a0; stroke-width: 1; stroke-dasharray: 3 4; }
+.mk2-lbl { cursor: pointer; text-decoration: none; }
+.mk2-lbl-name { font: 700 13px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; }
+.mk2-lbl-price { font: 800 27px "Barlow Condensed", sans-serif; letter-spacing: -.2px; font-variant-numeric: tabular-nums; }
+.mk2-lbl:hover .mk2-lbl-name { text-decoration: underline; }
+.mk2-date { position: absolute; top: 0; padding: 2px 8px; font: 700 12px "Barlow", sans-serif; color: var(--ink);
+            background: var(--paper); border: 1px solid var(--line); border-radius: 999px; pointer-events: none; white-space: nowrap; }
+
+.mk2-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 0; }
+.mk2-vol { font: 600 14px "Barlow", sans-serif; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mk2-range { display: flex; gap: 2px; }
+.mk2-range button { border: 0; background: none; padding: 8px 12px; font: 700 14px "Barlow Condensed", sans-serif; letter-spacing: 1.6px;
+                    text-transform: uppercase; color: #a39883; cursor: pointer; border-radius: 999px; }
+.mk2-range button:hover { color: var(--ink); }
+.mk2-range button.on { color: var(--ink); background: #efe8db; }
+
+.mk2-pickers { margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
+.mk2-h { margin: 0 0 8px; font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); }
+.mk2-pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }
+.mk2-pill { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+            min-height: 54px; padding: 8px 26px; border: 0; border-radius: 999px; background: #f1ebe0; color: var(--ink);
+            cursor: pointer; text-align: center; transition: background .15s, transform .1s; }
+.mk2-pill:hover { background: #e8dfcf; }
+.mk2-pill:active { transform: scale(.98); }
+.mk2-pill-name { font: 700 15px "Barlow", sans-serif; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk2-pill-sub { font: 600 12.5px "Barlow", sans-serif; color: var(--muted); white-space: nowrap; }
+.mk2-up { color: #2d6a1f; } .mk2-down { color: var(--accent); }
+.mk2-pill.on { background: var(--pill, var(--ink)); color: #fff; }
+.mk2-pill.on .mk2-pill-sub, .mk2-pill.on .mk2-up, .mk2-pill.on .mk2-down { color: rgba(255, 255, 255, .85); }
+.mk2-pill-x { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 18px; opacity: .8; }
+.mk2-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mk2-note { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.mk2-note a { color: var(--accent); font-weight: 700; white-space: nowrap; }
+.mk2 .mk-lockbar, .mk2 .mk-teams-note, .mk2 .mk-nudge { margin: 0 0 12px; }
+
+@media (max-width: 640px) {
+    /* The chart card runs the full width of the phone, as Kalshi's does. */
+    .mk2 { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); padding: 14px 16px 16px; }
+    .mk2-chart { margin: 12px -16px 0; }
+    .mk2 .mk-switch-opt { padding: 8px 10px; font-size: 12px; letter-spacing: 1px; }
+    .mk2-set { font-size: 13.5px; padding-left: 12px; }
+    .mk2-lbl-name { font-size: 12.5px; }
+    .mk2-lbl-price { font-size: 25px; }
+    .mk2-pills { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .mk2-pill { min-height: 52px; }
+    .mk2-range button { padding: 8px 10px; }
+}
+/* The nudge's button is a link inside a paragraph, and ".wrap p a" outranked
+   its colour: red text on a red pill, so it read as an empty button. */
+.wrap .mk-nudge a.mk-nudge-go:not(.btn) { color: #fff; text-decoration: none; }
+/* The search field sits inside its own pill: none of the site's input
+   chrome, and no second clear button from the browser. */
+.mk2 .mk2-search .mk2-q { border: 0; box-shadow: none; padding: 8px 0; margin: 0; border-radius: 0; background: transparent; -webkit-appearance: none; appearance: none; }
+.mk2 .mk2-search .mk2-q:focus { outline: none; border: 0; box-shadow: none; }
+.mk2-q::-webkit-search-cancel-button, .mk2-q::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+.mk2-search:focus-within { box-shadow: 0 0 0 3px rgba(179, 20, 28, .14); }
+
+/* ---- the chart's player cards: photo left, name right (John, 26 Oct) ---- */
+.mk2 .mk2-pill { flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px;
+                 min-height: 56px; padding: 7px 36px 7px 7px; text-align: left; }
+.mk2-pill-face { width: 42px; height: 42px; flex: none; background: rgba(255, 255, 255, .9); border: 0; }
+.mk2-pill-face > span { font-size: 17px; }
+.mk2-pill-txt { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.mk2 .mk2-pill-name { font-size: 15px; }
+.mk2 .mk2-pill-sub b { font-weight: 700; }
+.mk2-pill-x { right: 16px; }
+
+/* ---- the board inside the chart card ---- */
+.mk2-board { margin: 6px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
+.mk2-board-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.mk2-board-head .mk2-h { margin: 0; }
+.mk2-tabs { display: flex; gap: 2px; }
+.mk2-tab { border: 0; background: none; padding: 7px 12px; border-radius: 999px; cursor: pointer;
+           font: 700 13.5px "Barlow Condensed", sans-serif; letter-spacing: 1.4px; color: #a39883; }
+.mk2-tab:hover { color: var(--ink); }
+.mk2-tab.on { background: var(--ink); color: var(--paper); }
+.mk2-list { list-style: none; margin: 0; padding: 0; }
+.mk2-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid #ece5d8; cursor: pointer; }
+.mk2-row[hidden] { display: none; }
+.mk2-row:hover { background: #faf6ee; }
+.mk2-row.mine { box-shadow: inset 3px 0 0 var(--accent); background: #fbf1ef; }
+.mk2-rk { width: 28px; flex: none; text-align: right; font: 800 17px "Barlow Condensed", sans-serif; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mk2-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
+.mk2-face { width: 38px; height: 38px; }
+.mk2-who-txt { display: flex; flex-direction: column; min-width: 0; }
+.mk2-who-name { font: 700 15.5px "Barlow", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk2-who-txt small { font: 500 12.5px "Barlow", sans-serif; color: var(--muted); }
+.mk2-who:hover .mk2-who-name { color: var(--accent); }
+.mk2-mv { flex: none; min-width: 44px; text-align: right; font: 700 14px "Barlow", sans-serif; font-variant-numeric: tabular-nums; }
+.mk2-flat { color: #b9b0a0; }
+.mk2-add { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: #faf6ee;
+           font: 600 20px/1 "Barlow", sans-serif; color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.mk2-add:hover { border-color: var(--ink); }
+.mk2-add.on { background: var(--ink); border-color: var(--ink); color: var(--paper); font-size: 15px; }
+.mk2-more { margin: 10px 0 0; text-align: center; }
+.mk2-more button { border: 1px solid var(--line); background: #faf6ee; border-radius: 999px; padding: 8px 18px; font: 700 14px "Barlow", sans-serif; cursor: pointer; }
+.mk2-locked { position: relative; }
+.mk2-locked[hidden] { display: none; }
+.mk2-ghost { filter: blur(4.5px); opacity: .5; user-select: none; pointer-events: none; }
+.mk2-unlock { margin-top: 10px; padding: 14px 16px; border-radius: 14px; background: #fbe3e2; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.mk2-unlock p { margin: 0; flex: 1 1 220px; display: flex; flex-direction: column; font: 500 14px "Barlow", sans-serif; }
+.mk2-unlock p b { font-size: 16px; }
+.mk2-unlock form { margin: 0; }
+@media (max-width: 640px) {
+    .mk2 .mk2-pill { padding-right: 32px; }
+    .mk2-pill-face { width: 38px; height: 38px; }
+    .mk2 .mk2-pill-name { font-size: 14px; }
+    .mk2-tab { padding: 7px 10px; }
+    .mk2-rk { width: 24px; font-size: 16px; }
+}
+/* The board's + shares .at-pl-chart (for the click handler), whose movers-
+   list style floats it absolutely: keep it in its row. */
+.mk2 .mk2-add.at-pl-chart { position: static; top: auto; right: auto; transform: none; margin: 0; color: var(--ink); background: #faf6ee; }
+.mk2 .mk2-add.at-pl-chart.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }

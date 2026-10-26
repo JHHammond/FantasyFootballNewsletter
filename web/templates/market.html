@@ -71,33 +71,109 @@
     players stay on the chart, lighter. Tap a name to focus him, the x to
     take him off.
 #}
-<section class="card at-pc" id="at-pc">
-    <h2 class="card-title">The going rate, day by day</h2>
-    <div class="at-pc-top">
-        <div class="at-pc-head" id="at-pc-head" aria-live="polite"></div>
-        {% if not mine %}
-        <a class="mk-myteam" href="/market/my-team">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="6.5" r="3.5"/><path d="M3 18c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/></svg>
-            Show my team</a>
-        {% endif %}
-        <div class="at-pc-add">
+<section class="card at-pc mk2" id="at-pc">
+    {#
+        The chart, after Kalshi's market page (John, 25 Oct): one clean
+        line of filters on top; lines that come in from off the left edge
+        and stop short of the right, where each one's name and price sit;
+        range tabs under it; and in place of Kalshi's bet buttons, players
+        to put on the chart. No scoreboard, no axis clutter: a scrub along
+        the chart reads any day.
+    #}
+    <h2 class="at-pc-sr">The going rate, day by day</h2>
+    <div class="mk2-bar" id="mk2-bar">
+        <div class="mk2-filters">
+            {{ market_switch(market, '/market') }}
+            <span class="mk2-pick" id="at-pc-pick" hidden>
+                <label for="at-pc-set" class="at-pc-sr">Show</label>
+                <select id="at-pc-set" class="mk2-set"></select>
+            </span>
+            <button type="button" class="mk2-find" id="mk2-find" aria-label="Add a player to the chart"
+                    aria-expanded="false" aria-controls="mk2-search">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8l4.2 4.2" /></svg></button>
+        </div>
+        <div class="mk2-search" id="mk2-search" hidden>
+            <svg class="mk2-mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8l4.2 4.2" /></svg>
             <label for="at-pc-q" class="at-pc-sr">Add a player to the chart</label>
-            <div class="at-pc-search">
-                <svg class="at-pc-mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8l4.2 4.2" /></svg>
-                <input type="search" id="at-pc-q" class="at-pc-q" placeholder="Add a player: name, position or team"
-                       autocomplete="off" spellcheck="false" aria-controls="at-pc-hits" />
-            </div>
-            <ul class="at-pc-hits" id="at-pc-hits" role="listbox" hidden></ul>
+            <input type="search" id="at-pc-q" class="mk2-q" placeholder="Add a player: name, position or team"
+                   autocomplete="off" spellcheck="false" aria-controls="at-pc-hits" />
+            <button type="button" class="mk2-close" id="mk2-close" aria-label="Close search">&times;</button>
+            <ul class="at-pc-hits mk2-hits" id="at-pc-hits" role="listbox" hidden></ul>
         </div>
     </div>
-    <div class="at-pc-show" id="at-pc-show">
-        <span class="at-pc-pick" id="at-pc-pick" hidden>
-            <label for="at-pc-set">Show</label>
-            <select id="at-pc-set" class="at-pc-set"></select>
-        </span>
-        {{ market_switch(market, '/market') }}
-        <a class="at-pc-compare" href="/market/compare">Compare<span class="at-pc-wide"> players</span> &rarr;</a>
+    <figure class="mk2-chart">
+        <svg viewBox="0 0 760 340" class="mk2-svg" id="at-pc-svg"
+             role="img" aria-label="Each chosen player's place in the {{ 'dynasty ' if market == 'dynasty' else '' }}market by day"></svg>
+        <div class="mk2-date" id="mk2-date" hidden></div>
+    </figure>
+    <div class="mk2-foot">
+        <span class="mk2-vol" id="mk2-vol"></span>
+        <div class="mk2-range" id="mk2-range" role="tablist" aria-label="How far back">
+            <button type="button" role="tab" data-r="1w">1W</button>
+            <button type="button" role="tab" data-r="1m">1M</button>
+            <button type="button" role="tab" data-r="all">All</button>
+        </div>
     </div>
+    <div class="mk2-pickers">
+        <p class="mk2-h">On the chart</p>
+        <div class="mk2-pills" id="mk2-on"></div>
+    </div>
+    {#
+        The board, inside the chart card (John, 25-26 Oct): the top 20 for
+        everybody, the top 8 at a position, and the rest for paying
+        accounts. Locked rows are placeholders: names past the paywall never
+        reach the page.
+    #}
+    {% set FREE_ALL, FREE_POS = 20, 8 %}
+    {% set my_keys = [] %}
+    {% for t in (mine.known if mine and mine.known else []) %}{% for k in (t.all or t['keys']) %}{% set _ = my_keys.append(k) %}{% endfor %}{% endfor %}
+    {% set board = R.pickable|sort(attribute='rank') %}
+    {% set posn = {} %}{% set totals = {'All': board|length} %}
+    <div class="mk2-board" id="mk2-board" data-paid="{{ '1' if paid else '' }}">
+        <div class="mk2-board-head">
+            <p class="mk2-h">The board</p>
+            <div class="mk2-tabs" role="tablist" aria-label="Position">
+                {% for f in ['All', 'QB', 'RB', 'WR', 'TE'] %}<button type="button" role="tab" class="mk2-tab{{ ' on' if loop.first }}" data-pos="{{ f }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ f }}</button>{% endfor %}
+            </div>
+        </div>
+        <ol class="mk2-list" id="mk2-list">
+        {% for p in board %}
+            {% set n = posn.get(p.pos, 0) + 1 %}{% set _ = posn.update({p.pos: n}) %}{% set _ = totals.update({p.pos: n}) %}
+            {% if paid or p.rank <= FREE_ALL or n <= FREE_POS %}
+            {% set mv = (week_moves or {}).get(p.k) %}
+            <li class="mk2-row{{ ' mine' if p.k in my_keys }}" data-pos="{{ p.pos }}" data-k="{{ p.k }}" data-rk="{{ p.rank }}" data-prk="{{ n }}">
+                <span class="mk2-rk">{{ p.rank }}</span>
+                <a class="mk2-who" href="/market/player/{{ p.k|urlencode }}">
+                    <span class="at-face mk2-face{{ ' at-face-def' if p.pos == 'DEF' }}">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
+                    <span class="mk2-who-txt"><span class="mk2-who-name">{{ p.name }}{% if p.inj %} <span class="mk-inj mk-inj-{{ p.inj|lower }}">{{ p.inj }}</span>{% endif %}</span>
+                        <small>{{ p.pos }}{{ n }}{% if p.team %} &middot; {{ p.team }}{% endif %}</small></span>
+                </a>
+                <span class="mk2-mv {{ 'mk2-up' if mv and mv > 0 else ('mk2-down' if mv and mv < 0 else 'mk2-flat') }}">{% if mv and mv > 0 %}&#9650; {{ mv }}{% elif mv and mv < 0 %}&#9660; {{ -mv }}{% else %}&ndash;{% endif %}</span>
+                <button type="button" class="mk2-add at-pl-chart" data-key="{{ p.k }}" aria-label="Put {{ p.name }} on the chart" title="Put him on the chart">+</button>
+            </li>
+            {% endif %}
+        {% endfor %}
+        </ol>
+        {% if paid %}
+        <p class="mk2-more"><button type="button" id="mk2-more">Show all</button></p>
+        {% else %}
+        <div class="mk2-locked" id="mk2-locked" data-totals='{{ totals|tojson }}' data-free-all="{{ FREE_ALL }}" data-free-pos="{{ FREE_POS }}">
+            <ol class="mk2-list mk2-ghost" aria-hidden="true">
+                {% for i in range(3) %}<li class="mk2-row"><span class="mk2-rk">00</span><span class="mk2-who"><span class="at-face mk2-face"><span>?</span></span><span class="mk2-who-txt"><span class="mk2-who-name">Locked player</span><small>WR00 &middot; XXX</small></span></span><span class="mk2-mv">&#9650; 0</span></li>{% endfor %}
+            </ol>
+            <div class="mk2-unlock">
+                <p><b id="mk2-unlock-n">See every priced player</b><span>The full board, every position, all season.</span></p>
+                {% if not user %}<a class="btn btn-primary" href="/signup?next={{ '/market'|urlencode }}">Sign up free</a>
+                {% elif billing_enabled() %}{{ upgrade_buttons() }}{% else %}<a href="/account">See the plan</a>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% if not user %}
+    <p class="mk-nudge" id="at-pc-nudge" hidden>Free accounts compare up to 6 players and put their own team on the chart.
+        <a class="mk-nudge-go" href="/signup?next={{ '/market/my-team'|urlencode }}">Sign up free</a>
+        <a href="/login?next=/market">Sign in</a></p>
+    {% endif %}
     {% if mine and mine.paid %}
     <p class="mk-teams-note mk-teams-add"><a class="mk-addleague" href="/market/my-team?add=1">+ Add another league</a>
         <span>Put a team from any of your other leagues on the chart and the board.</span></p>
@@ -124,29 +200,7 @@
         {% endif %}
     </div>
     {% endif %}
-    {% if not user %}
-    <p class="mk-nudge" id="at-pc-nudge" hidden>Free accounts compare up to 6 players and put their own team on the chart.
-        <a class="mk-nudge-go" href="/signup?next={{ '/market/my-team'|urlencode }}">Sign up free</a>
-        <a href="/login?next=/market">Sign in</a></p>
-    {% endif %}
-    <div class="at-pc-stats" id="at-pc-stats"></div>
-    <figure class="ar-chart at-market-chart at-pc-chart">
-        <div class="ar-chart-box at-pc-box">
-            <svg viewBox="0 0 760 300" class="ar-line at-pc-svg" id="at-pc-svg"
-                 role="img" aria-label="Each chosen player's place in the market by day"></svg>
-            <div class="at-pc-tip" id="at-pc-tip" hidden></div>
-        </div>
-        <figcaption class="at-pc-note">His place in the {{ 'dynasty ' if market == 'dynasty' else '' }}market (#1 is the most expensive) at each day&rsquo;s
-            close, starting from where he was drafted. Higher is more expensive. {% if market == 'dynasty' %}Priced from dynasty leagues&rsquo; own trades, starting from dynasty startup drafts: a career, not a season.{% else %}Priced from real trades across thousands of redraft leagues.{% endif %}</figcaption>
-    </figure>
-    {#
-        On the chart, as a list under it (John, 24 Oct, after Kalshi's
-        outcome rows): one row per line, with his price, his place at his
-        position, the week's move, his trades and a button to his page.
-        The chips it replaced didn't say a player could be opened.
-    #}
-    <div class="at-pc-rows" id="at-pc-legend" role="list" aria-label="Players on the chart"></div>
-    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'm': market, 'mine': mine, 'signed_in': user is not none}|tojson }}</script>
+    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'm': market, 'mine': mine, 'signed_in': user is not none, 'used': R.used, 'wk': week_moves or {}}|tojson }}</script>
 </section>
 <script>
 (function () {
@@ -157,13 +211,6 @@
     var LINES = DATA.lines || {}, PLAYERS = DATA.players || [];
     if (!PLAYERS.length || !DATA.base) return;
     var BY = {}; PLAYERS.forEach(function (p) { BY[p.k] = p; });
-    // His place at his position (RB12), counted the same way as the board.
-    var POSRANK = {}, seenPos = {};
-    PLAYERS.slice().sort(function (a, b) { return a.rank - b.rank; }).forEach(function (p) {
-        if (!p.pos) return;
-        seenPos[p.pos] = (seenPos[p.pos] || 0) + 1;
-        POSRANK[p.k] = p.pos + seenPos[p.pos];
-    });
     function playerUrl(k) { return "/market/player/" + encodeURIComponent(k); }
     var MINE = DATA.mine || null;
     if (MINE && MINE.lines) Object.keys(MINE.lines).forEach(function (k) { LINES[k] = MINE.lines[k]; });
@@ -172,104 +219,130 @@
     var b0 = DATA.base.split("-").map(Number);
     function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
     function dayLabel(d) { var t = dateOf(d); return MONTHS[t.getUTCMonth()] + " " + t.getUTCDate(); }
+    // One colour per line, for the life of the line: the paper's red first.
+    var COLOURS = ["#b3141c", "#111111", "#2d6a1f", "#a07c12", "#3f5ea8", "#8a3f74"];
 
     var svg = document.getElementById("at-pc-svg"),
-        legend = document.getElementById("at-pc-legend"),
-        head = document.getElementById("at-pc-head"),
-        stats = document.getElementById("at-pc-stats"),
-        tip = document.getElementById("at-pc-tip"),
+        dateTag = document.getElementById("mk2-date"),
+        onBox = document.getElementById("mk2-on"),
         q = document.getElementById("at-pc-q"),
         hits = document.getElementById("at-pc-hits");
     var NS = "http://www.w3.org/2000/svg";
+    var vol = document.getElementById("mk2-vol");
+    if (vol && DATA.used) vol.textContent = Number(DATA.used).toLocaleString() + " trades read";
 
-    var W, H, L, R, T, B, narrow = null;
+    // ---- how far back: 1W, 1M, all season ----
+    var SPANS = {"1w": 7, "1m": 30, "all": null}, RKEY = "atpc-range";
+    var range = "all";
+    try { var rr = localStorage.getItem(RKEY); if (rr && rr in SPANS) range = rr; } catch (e) {}
+    function D0() { return SPANS[range] ? Math.max(0, LAST - SPANS[range]) : 0; }
+    var rangeBtns = document.querySelectorAll("#mk2-range [data-r]");
+    function paintRange() {
+        rangeBtns.forEach(function (b) {
+            var on = b.getAttribute("data-r") === range;
+            b.classList.toggle("on", on); b.setAttribute("aria-selected", on ? "true" : "false");
+        });
+    }
+    rangeBtns.forEach(function (b) {
+        b.addEventListener("click", function () {
+            range = b.getAttribute("data-r");
+            try { localStorage.setItem(RKEY, range); } catch (e) {}
+            paintRange(); draw();
+        });
+    });
+    paintRange();
+
+    // ---- the frame. Lines start left of the box (they come in from off the
+    // page) and stop at R; the names and prices live to the right of R. ----
+    var W, H, L, R, T, B, LBL, narrow = null;
     function frame() {
-        // A phone gets its own taller box. The desktop one, scaled down to
-        // a 360px screen, came out 140px tall with its labels touching.
         var small = (svg.getBoundingClientRect().width || 760) < 520;
         if (small === narrow) return false;
         narrow = small;
-        if (small) { W = 400; H = 470; L = 40; R = 390; T = 14; B = 432; }   // taller on phones (24 Oct: too condensed)
-        else { W = 760; H = 300; L = 54; R = 744; T = 16; B = 262; }
+        if (small) { W = 400; H = 340; L = -16; R = 286; T = 22; B = 326; LBL = 47; }
+        else { W = 760; H = 340; L = -20; R = 600; T = 22; B = 324; LBL = 54; }
         svg.setAttribute("viewBox", "0 0 " + W + " " + H);
         return true;
     }
 
-    // ---- who is drawn, and who is in focus ----
+    // ---- who is drawn ----
     var chosen = [];       // [{k, c}] c = colour slot 0..5, kept for the life of the line
-    var focus = null;
     function fromUrl() {
         var m = /[?&]p=([^&]*)/.exec(location.search);
         if (!m) return [];
         return decodeURIComponent(m[1]).split(",").filter(function (k) { return BY[k]; }).slice(0, MAX);
     }
     function toUrl() {
-        // A choice from the Show menu is kept as that choice (?show=), so a
-        // reload or a shared link reopens it by name; only a hand-picked set
-        // is spelled out player by player (?p=).
+        // A Show-menu choice is kept by name (?show=); a hand-picked set
+        // player by player (?p=).
         var sel = document.getElementById("at-pc-set");
         var menu = sel && sel.options.length && sel.value && sel.value !== "custom" ? sel.value : "";
         var keys = chosen.map(function (c) { return c.k; }).join(",");
         var base = location.pathname + location.search
             .replace(/([?&])(p|show)=[^&]*&?/g, "$1").replace(/[?&]$/, "");
         var sep = base.indexOf("?") >= 0 ? "&" : "?";
-        var q = menu ? "show=" + encodeURIComponent(menu) : (keys ? "p=" + encodeURIComponent(keys) : "");
-        try { history.replaceState(null, "", base + (q ? sep + q : "") + location.hash); } catch (e) {}
+        var q_ = menu ? "show=" + encodeURIComponent(menu) : (keys ? "p=" + encodeURIComponent(keys) : "");
+        try { history.replaceState(null, "", base + (q_ ? sep + q_ : "") + location.hash); } catch (e) {}
     }
     function slotFor() {
         var used = chosen.map(function (c) { return c.c; }), c = 0;
         while (used.indexOf(c) >= 0) c++;
         return c;
     }
+    function nudge() {
+        var n = document.getElementById("at-pc-nudge");
+        if (n) { n.hidden = false; n.classList.remove("mk-nudge-on"); void n.offsetWidth; n.classList.add("mk-nudge-on"); }
+    }
     var pending = {};
-    function add(k, andFocus) {
-        if (!BY[k]) return;
+    function add(k, asked) {
+        if (!BY[k]) return false;
         if (!chosen.some(function (c) { return c.k === k; })) {
-            if (chosen.length >= MAX && !DATA.signed_in) {
-                if (andFocus) {
-                    var nudge = document.getElementById("at-pc-nudge");
-                    if (nudge) { nudge.hidden = false; nudge.classList.remove("mk-nudge-on"); void nudge.offsetWidth; nudge.classList.add("mk-nudge-on"); }
-                }
-                return;
-            }
-            if (chosen.length >= MAX) {
-                // Make room by dropping the oldest line that isn't in focus.
-                var drop = chosen.filter(function (c) { return c.k !== focus; })[0];
-                if (drop) remove(drop.k);
-            }
+            if (chosen.length >= MAX && !DATA.signed_in) { if (asked) nudge(); return false; }
+            if (chosen.length >= MAX) remove(chosen[0].k);   // make room: the oldest line goes
             chosen.push({k: k, c: slotFor()});
         }
-        if (andFocus || !focus) focus = k;
-        if (LINES[k] || pending[k]) return;
+        if (LINES[k] || pending[k]) return true;
         // Not carried by the page: fetch it, draw when it lands.
         pending[k] = true;
         fetch(DATA.url + "?k=" + encodeURIComponent(k) + "&m=" + encodeURIComponent(DATA.m || "redraft"), {credentials: "same-origin"})
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (d) {
                 delete pending[k];
-                if (d && d.line && d.line.length) { LINES[k] = d.line; }
-                else { remove(k); }
+                if (d && d.line && d.line.length) LINES[k] = d.line; else remove(k);
                 draw();
             })
             .catch(function () { delete pending[k]; remove(k); draw(); });
+        return true;
     }
-    function remove(k) {
-        chosen = chosen.filter(function (c) { return c.k !== k; });
-        if (focus === k) focus = chosen.length ? chosen[0].k : null;
-    }
+    function remove(k) { chosen = chosen.filter(function (c) { return c.k !== k; }); }
     function useSet(keys) {
-        chosen = []; focus = null;
+        chosen = [];
         (keys || []).filter(function (k) { return BY[k]; }).forEach(function (k) { add(k); });
         if (!chosen.length) (DATA["default"] || [PLAYERS[0].k]).forEach(function (k) { add(k); });
     }
+    function drawn() { return chosen.filter(function (c) { return LINES[c.k]; }); }
+    function at(k, d) {
+        var pt = null;
+        (LINES[k] || []).forEach(function (q_) { if (q_[0] <= d) pt = q_; });
+        return pt;
+    }
+    function pickLabel(slot) { return "#" + Math.max(1, Math.round(slot)); }
+    function lastName(n) {
+        var w = (n || "?").split(" ").filter(function (s) { return !/^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(s); });
+        return w.length > 1 ? w.slice(1).join(" ") : (w[0] || "?");
+    }
+    function weekMove(k) {
+        var pts = LINES[k];
+        if (!pts || pts.length < 2) return (DATA.wk || {})[k] || null;
+        var now = pts[pts.length - 1], then = at(k, Math.max(0, now[0] - 7)) || pts[0];
+        return Math.round(then[1] - now[1]);       // up = a smaller number now
+    }
+
+    // ---- the Show menu (unchanged in what it offers) ----
     var setSel = document.getElementById("at-pc-set");
     var REMEMBER = "atpc-show";
     function remembered() { try { return localStorage.getItem(REMEMBER) || ""; } catch (e) { return ""; } }
     function remember(v) { try { localStorage.setItem(REMEMBER, v); } catch (e) {} }
-    // The Show menu, for everybody (John, 25 Oct: signed out, it showed
-    // nothing at all). Your own teams when we know them; the opening view;
-    // a way to add your team; and every NFL team, which draws that team's
-    // most expensive players.
     var NFL = {ARI: "Arizona Cardinals", ATL: "Atlanta Falcons", BAL: "Baltimore Ravens", BUF: "Buffalo Bills",
         CAR: "Carolina Panthers", CHI: "Chicago Bears", CIN: "Cincinnati Bengals", CLE: "Cleveland Browns",
         DAL: "Dallas Cowboys", DEN: "Denver Broncos", DET: "Detroit Lions", GB: "Green Bay Packers",
@@ -293,9 +366,9 @@
             parent.appendChild(o); return o;
         }
         ((MINE && MINE.known) || []).forEach(function (t, i) {
-            opt(setSel, "k:" + i, "My team: " + t.team + " (" + t.league + ")");
+            opt(setSel, "k:" + i, "My team: " + t.team);
         });
-        opt(setSel, "top", DATA.m === "dynasty" ? "This week\u2019s biggest movers" : "#1 and this week\u2019s movers");
+        opt(setSel, "top", DATA.m === "dynasty" ? "Movers" : "#1 + movers");
         ((MINE && MINE.pick) || []).forEach(function (lg) {
             var g = document.createElement("optgroup");
             g.label = "Which team is yours in " + lg.league + "?";
@@ -336,85 +409,36 @@
             })
             .catch(done);
     }
-    buildMenu();
-    var start = fromUrl();
-    var shown = (/[?&]show=([^&]*)/.exec(location.search) || [])[1];
-    var hasOption = function (v) { return !!setSel.querySelector('option[value="' + v.replace(/["\\]/g, "") + '"]'); };
-    if (start.length) {
-        useSet(start);
-        if (setSel.options.length) setSel.value = "custom";
-    } else {
-        // Just back from "Show my team": open on it, whatever was remembered.
-        var arrived = /[?&]welcome=1/.test(location.search) && MINE && (MINE.known || []).length;
-        var first = shown ? decodeURIComponent(shown) : (arrived ? "k:0" : remembered());
-        if (!hasOption(first)) first = (MINE && (MINE.known || []).length) ? "k:0" : "top";
-        useSet(DATA["default"]);                         // drawn at once; replaced if the choice needs a fetch
-        if (setSel.options.length) {
-            setSel.value = first;
-            if (first !== "top") showChoice(first, function () { draw(); });
-        }
-    }
-    var lastChoice = setSel.value;
-    setSel.addEventListener("change", function () {
-        var v = setSel.value;
-        if (v === "custom") return;
-        if (v === "add") {
-            // Signed out: sign up, connect, and back here with the team on
-            // the chart. Signed in: straight to connecting a league.
-            setSel.value = lastChoice;
-            window.location.href = ADD_URL;
-            return;
-        }
-        lastChoice = v;
-        remember(v);
-        showChoice(v, function () { draw(); });
-    });
+    function custom() { if (setSel.options.length) setSel.value = "custom"; }
 
-    // ---- scales ----
-    function pickLabel(slot) { return "#" + Math.max(1, Math.round(slot)); }
-    function x(d) { return L + (R - L) * d / LAST; }
-    var lo = 1, hi = 24;
+    // ---- scales: log of the place, so #1 to #5 gets the room it deserves ----
+    var lo = 1, hi = 24, d0 = 0;
+    function x(d) { return L + (R - L) * (d - d0) / Math.max(1, LAST - d0); }
     function y(slot) {
         var s = Math.min(Math.max(slot, lo), hi);
         return T + (B - T) * Math.log(s / lo) / Math.log(hi / lo);
     }
-    function drawn() { return chosen.filter(function (c) { return LINES[c.k]; }); }
+    function visible(k) {
+        // The points inside the range, led in by the last one before it so
+        // the line enters from off the left edge rather than starting cold.
+        var pts = LINES[k] || [], out = [], before = null;
+        pts.forEach(function (pt) { if (pt[0] < d0) before = pt; else out.push(pt); });
+        if (before) out.unshift(before);
+        if (out.length === 1) out.push([LAST, out[0][1]]);
+        return out;
+    }
     function rescale() {
-        // Fit the frame to whoever is drawn (John, 23 Oct: "no reason for the
-        // 1st round part to take up so much room when nobody there is a first
-        // rounder"). A little padding either side, and never narrower than
-        // MIN_SPAN, so a two-pick wobble can't fill the frame and read as a
-        // collapse.
         var best = Infinity, worst = 0;
         drawn().forEach(function (c) {
-            LINES[c.k].forEach(function (pt) {
+            visible(c.k).forEach(function (pt) {
                 if (pt[1] < best) best = pt[1];
                 if (pt[1] > worst) worst = pt[1];
             });
         });
         if (!isFinite(best)) { lo = 1; hi = 24; return; }
-        lo = Math.max(1, best / 1.1);
-        hi = Math.max(lo + 1, worst * 1.08);
-        var MIN_SPAN = 1.6;                 // e.g. 3.01 to 4.11 at the narrowest
-        if (hi / lo < MIN_SPAN) {
-            var mid = Math.sqrt(lo * hi);
-            lo = Math.max(1, mid / Math.sqrt(MIN_SPAN));
-            hi = lo * MIN_SPAN;
-        }
-    }
-    function at(k, d) {
-        var pt = null;
-        (LINES[k] || []).forEach(function (q_) { if (q_[0] <= d) pt = q_; });
-        return pt;
-    }
-    // "Up" is a smaller slot: he now costs an earlier pick.
-    function moved(from, to) { return Math.round(from - to); }
-    function change(n, unit) {
-        var s = document.createElement("span");
-        s.className = "at-pc-chg " + (n > 0 ? "at-pc-up" : n < 0 ? "at-pc-down" : "at-pc-flat");
-        s.textContent = n === 0 ? "level" + (unit ? " " + unit : "")
-            : (n > 0 ? "\u25b2 " : "\u25bc ") + Math.abs(n) + " spot" + (Math.abs(n) === 1 ? "" : "s") + (unit ? " " + unit : "");
-        return s;
+        lo = Math.max(1, best / 1.12);
+        hi = Math.max(lo + 1, worst * 1.1);
+        if (hi / lo < 1.6) { var mid = Math.sqrt(lo * hi); lo = Math.max(1, mid / Math.sqrt(1.6)); hi = lo * 1.6; }
     }
 
     // Monotone cubic (Fritsch-Carlson): smooth, and never overshoots a
@@ -423,10 +447,7 @@
         var n = P.length;
         if (n < 3) return P.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1); }).join("");
         var dx = [], m = [], t = [];
-        for (var i = 0; i < n - 1; i++) {
-            dx[i] = P[i + 1][0] - P[i][0];
-            m[i] = dx[i] ? (P[i + 1][1] - P[i][1]) / dx[i] : 0;
-        }
+        for (var i = 0; i < n - 1; i++) { dx[i] = P[i + 1][0] - P[i][0]; m[i] = dx[i] ? (P[i + 1][1] - P[i][1]) / dx[i] : 0; }
         t[0] = m[0]; t[n - 1] = m[n - 2];
         for (i = 1; i < n - 1; i++) t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
         for (i = 0; i < n - 1; i++) {
@@ -443,303 +464,143 @@
         }
         return d;
     }
-
     function el(name, attrs, parent) {
         var e = document.createElementNS(NS, name);
         for (var a in attrs) e.setAttribute(a, attrs[a]);
         if (parent) parent.appendChild(e);
         return e;
     }
-    function face(p, cls) {
-        var f = document.createElement("span");
-        f.className = "at-face " + (cls || "") + (p.pos === "DEF" ? " at-face-def" : "");
-        if (p.photo) {
-            var im = document.createElement("img");
-            im.src = p.photo; im.alt = ""; im.loading = "lazy";
-            im.onerror = function () { this.remove(); };
-            f.appendChild(im);
+
+    // Names and prices at the right, Kalshi-style, nudged apart so they
+    // never sit on top of each other.
+    function placeLabels(items) {
+        items.sort(function (a, b) { return a.want - b.want; });
+        var top = T + 6, bottom = B - LBL + 12;
+        items.forEach(function (it, i) { it.y = Math.max(it.want, i ? items[i - 1].y + LBL : top); });
+        var over = items.length ? items[items.length - 1].y - bottom : 0;
+        if (over > 0) {
+            for (var i = items.length - 1; i >= 0; i--) {
+                items[i].y -= over;
+                if (i && items[i - 1].y > items[i].y - LBL) over = items[i - 1].y - (items[i].y - LBL); else break;
+            }
+            items.forEach(function (it, j) { if (j && it.y < items[j - 1].y + LBL) it.y = items[j - 1].y + LBL; it.y = Math.max(top, it.y); });
         }
-        var ini = document.createElement("span"); ini.textContent = (p.name || "?").charAt(0);
-        f.appendChild(ini);
-        return f;
+        return items;
     }
 
-    // ---- the focused player: price large, change beside it, a stats row ----
-    function drawHead() {
-        head.textContent = ""; stats.textContent = "";
-        var c = chosen.filter(function (c_) { return c_.k === focus; })[0];
-        if (!c) return;
-        var p = BY[focus], pts = LINES[focus];
-        head.className = "at-pc-head at-mk-" + c.c;
-        head.appendChild(face(p, "at-pc-face"));
-        var txt = document.createElement("div"); txt.className = "at-pc-head-text";
-        var nm = document.createElement("div"); nm.className = "at-pc-name";
-        var link = document.createElement("a");
-        link.href = playerUrl(focus);
-        link.textContent = p.name;
-        nm.appendChild(link);
-        nm.appendChild(document.createTextNode((p.pos ? " \u00b7 " + p.pos : "") + (p.team ? " \u00b7 " + p.team : "")));
-        var row = document.createElement("div"); row.className = "at-pc-pricerow";
-        var big = document.createElement("span"); big.className = "at-pc-price";
-        big.textContent = pts ? pickLabel(pts[pts.length - 1][1]) : "\u2026";
-        row.appendChild(big);
-        if (pts && pts.length > 1) {
-            var now = pts[pts.length - 1];
-            var week = at(focus, Math.max(0, now[0] - 7)) || pts[0];
-            row.appendChild(change(moved(week[1], now[1]), "this week"));
-            if (pts[0][0] === 0) row.appendChild(change(moved(pts[0][1], now[1]), "since the draft"));
-        }
-        txt.appendChild(nm); txt.appendChild(row);
-        head.appendChild(txt);
-        if (!pts) return;
-        var market = pts.filter(function (pt) { return pt[0] > 0; });
-        if (!market.length) market = pts;
-        var best = market.reduce(function (a, b) { return b[1] < a[1] ? b : a; });
-        var worst = market.reduce(function (a, b) { return b[1] > a[1] ? b : a; });
-        [["High", pickLabel(best[1]) + " \u00b7 " + dayLabel(best[0]), "at-pc-hi"],
-         ["Low", pickLabel(worst[1]) + " \u00b7 " + dayLabel(worst[0]), "at-pc-lo"],
-         ["Drafted", p.drafted || "undrafted", ""],
-         ["Trades", (p.trades || 0).toLocaleString(), ""]].forEach(function (s) {
-            var span = document.createElement("span");
-            span.appendChild(document.createTextNode(s[0] + " "));
-            var b = document.createElement("b"); b.textContent = s[1];
-            if (s[2]) b.className = s[2];
-            span.appendChild(b);
-            stats.appendChild(span);
-        });
-        var go = document.createElement("a");
-        go.className = "at-pc-go"; go.href = playerUrl(focus);
-        go.textContent = "See all " + (p.trades ? p.trades.toLocaleString() + " " : "") + "trades \u203a";
-        stats.appendChild(go);
-    }
-
+    var labels = {};
     function draw() {
         frame();
+        d0 = D0();
         rescale();
         while (svg.firstChild) svg.removeChild(svg.firstChild);
         var defs = el("defs", {}, svg);
-        // The start of every round inside the frame. When the frame spans
-        // only a round or two, the middle of each round as well (3.07), so a
-        // move within a round still has a line to be read against.
-        var ticks = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300].map(function (n) { return {slot: n, label: "#" + n, major: true}; });
-        var inside = ticks.filter(function (tk) { return tk.slot >= lo && tk.slot <= hi; });
-        if (inside.filter(function (tk) { return tk.major; }).length >= 3) {
-            inside = inside.filter(function (tk) { return tk.major; });
-        }
-        var lastTick = -99;
-        inside.forEach(function (tk) {
-            var yy = y(tk.slot);
-            // The log scale bunches the late rounds; never let labels touch.
-            if (yy - lastTick < 18) return;
-            lastTick = yy;
-            el("line", {x1: L, x2: R, y1: yy, y2: yy,
-                        "class": "ar-grid at-pc-grid" + (tk.major ? "" : " at-pc-grid-minor")}, svg);
-            var t = el("text", {x: L - 8, y: yy + 4, "class": "ar-tick at-pc-ytick", "text-anchor": "end"}, svg);
-            t.textContent = tk.label;
-        });
-        // Dates along the bottom on Sundays, the game days, a week or more
-        // apart and never closer than a label's width.
-        var first = 1;
-        while (first <= LAST && dateOf(first).getUTCDay() !== 0) first++;
-        var gap = 58;
-        var weeks = Math.max(1, Math.ceil(gap / ((R - L) * 7 / LAST)));
-        var t0 = el("text", {x: x(0), y: B + 20, "class": "ar-tick at-pc-xtick", "text-anchor": "start"}, svg);
-        t0.textContent = "Draft";
-        for (var d = first; d <= LAST; d += 7 * weeks) {
-            if (x(d) - x(0) < gap || R - x(d) < 18) continue;
-            el("line", {x1: x(d), x2: x(d), y1: B, y2: B + 5, "class": "at-pc-xmark"}, svg);
-            var tx = el("text", {x: x(d), y: B + 20, "class": "ar-tick at-pc-xtick", "text-anchor": "middle"}, svg);
-            tx.textContent = dayLabel(d);
-        }
-        el("line", {id: "at-pc-rule", "class": "at-pc-rule", x1: 0, x2: 0, y1: T, y2: B, style: "display:none"}, svg);
-
-        // The focused line last, so it draws over the rest.
-        var order = drawn().filter(function (c) { return c.k !== focus; })
-            .concat(drawn().filter(function (c) { return c.k === focus; }));
-        order.forEach(function (c) {
-            var pts = LINES[c.k], p = BY[c.k], on = c.k === focus;
+        var clip = el("clipPath", {id: "mk2-clip"}, defs);
+        el("rect", {x: -60, y: 0, width: R + 60 + 8, height: H}, clip);
+        el("line", {id: "mk2-rule", "class": "mk2-rule", x1: 0, x2: 0, y1: T - 8, y2: B, style: "display:none"}, svg);
+        var lines = el("g", {"clip-path": "url(#mk2-clip)"}, svg);
+        var items = [];
+        drawn().forEach(function (c) {
+            var pts = visible(c.k), col = COLOURS[c.c % COLOURS.length];
             var P = pts.map(function (pt) { return [x(pt[0]), y(pt[1])]; });
-            var g = el("g", {"class": "at-mk at-mk-" + c.c + (on ? " at-pc-on" : " at-pc-off"), "data-key": c.k}, svg);
-            var line = smooth(P);
-            var path = el("path", {"class": "at-mk-path", d: line}, g);
-            if (on) {
-                // A soft fill under the focused line, in its own colour.
-                var colour = getComputedStyle(path).stroke || "#b3141c";
-                var grad = el("linearGradient", {id: "at-pc-fill", x1: 0, y1: 0, x2: 0, y2: 1}, defs);
-                el("stop", {offset: "0%", "stop-color": colour, "stop-opacity": .16}, grad);
-                el("stop", {offset: "100%", "stop-color": colour, "stop-opacity": 0}, grad);
-                el("path", {"class": "at-pc-area", fill: "url(#at-pc-fill)",
-                    d: line + "L" + P[P.length - 1][0].toFixed(1) + "," + B + "L" + P[0][0].toFixed(1) + "," + B + "Z"}, g)
-                    .parentNode.insertBefore(g.lastChild, path);
-                // Dots on his high and low, as the reference marks its extremes.
-                var market = pts.filter(function (pt) { return pt[0] > 0; });
-                if (market.length > 1) {
-                    var best = market.reduce(function (a, b) { return b[1] < a[1] ? b : a; });
-                    var worst = market.reduce(function (a, b) { return b[1] > a[1] ? b : a; });
-                    [best, worst].forEach(function (pt) {
-                        if (pt === market[market.length - 1]) return;
-                        el("circle", {"class": "at-mk-dot at-pc-mark", r: 4.5, cx: x(pt[0]), cy: y(pt[1])}, g);
-                    });
-                }
-            }
-            el("circle", {"class": "at-mk-cursor", r: on ? 5 : 3.5, style: "display:none"}, g);
-            var last = P[P.length - 1];
-            if (!on) {
-                el("circle", {"class": "at-mk-dot at-pc-end", r: 3, cx: last[0], cy: last[1]}, g);
-                return;
-            }
-            var end = el("g", {"class": "at-mk-end", transform: "translate(" + last[0] + "," + last[1] + ")"}, g);
-            el("circle", {r: 13, "class": "at-mk-ring"}, end);
-            var clip = el("clipPath", {id: "at-pc-clip"}, defs);
-            el("circle", {cx: 0, cy: 0, r: 12}, clip);
-            function initial(parent) {
-                var t = el("text", {"class": "at-mk-initial", "text-anchor": "middle", y: 4}, parent);
-                t.textContent = (p.name || "?").charAt(0);
-            }
-            if (p.photo) {
-                var img = el("image", {x: -12, y: -12, width: 24, height: 24,
-                    "clip-path": "url(#at-pc-clip)", preserveAspectRatio: "xMidYMin slice"}, end);
-                img.setAttributeNS("http://www.w3.org/1999/xlink", "href", p.photo);
-                img.setAttribute("href", p.photo);
-                img.addEventListener("error", function () { var par = this.parentNode; this.remove(); initial(par); });
-            } else {
-                initial(end);
-            }
+            el("path", {"class": "mk2-line", d: smooth(P), stroke: col, "data-key": c.k}, lines);
+            var end = P[P.length - 1];
+            el("circle", {"class": "mk2-end", cx: end[0], cy: end[1], r: narrow ? 4.5 : 5, fill: col}, svg);
+            el("circle", {"class": "mk2-cur", r: narrow ? 4.5 : 5, fill: col, style: "display:none", "data-key": c.k}, svg);
+            items.push({c: c, col: col, want: end[1] - 12, slot: pts[pts.length - 1][1]});
         });
-        el("rect", {id: "at-pc-hit", x: L, y: T, width: R - L, height: B - T,
-                    fill: "transparent", style: "touch-action:pan-y"}, svg);
-        drawHead();
-        drawLegend();
+        labels = {};
+        placeLabels(items).forEach(function (it) {
+            var p = BY[it.c.k];
+            var a = el("a", {"class": "mk2-lbl", href: playerUrl(it.c.k)}, svg);
+            a.setAttributeNS("http://www.w3.org/1999/xlink", "href", playerUrl(it.c.k));
+            var nm = el("text", {x: R + (narrow ? 14 : 18), y: it.y, fill: it.col, "class": "mk2-lbl-name"}, a);
+            nm.textContent = lastName(p.name).toUpperCase();
+            var pr = el("text", {x: R + (narrow ? 14 : 18), y: it.y + (narrow ? 25 : 29), fill: it.col, "class": "mk2-lbl-price"}, a);
+            pr.textContent = pickLabel(it.slot);
+            var t = el("title", {}, a); t.textContent = p.name + ": see his trades";
+            labels[it.c.k] = pr;
+        });
+        el("rect", {id: "mk2-hit", x: 0, y: 0, width: R, height: H, fill: "transparent", style: "touch-action:pan-y"}, svg);
+        drawPills();
         bindScrub();
         toUrl();
     }
 
-    // ---- rows under the chart: tap to focus, the button opens his page ----
-    function cell(cls, text, label) {
-        var c_ = document.createElement("span"); c_.className = cls;
-        if (label) { var l = document.createElement("small"); l.textContent = label; c_.appendChild(l); }
-        if (text !== undefined) c_.appendChild(document.createTextNode(text));
-        return c_;
-    }
-    function drawLegend() {
-        legend.textContent = "";
-        var headRow = document.createElement("div");
-        headRow.className = "at-pc-row at-pc-row-head"; headRow.setAttribute("aria-hidden", "true");
-        ["Player", "Price", "Position", "This week", "Trades", ""].forEach(function (t, i) {
-            headRow.appendChild(cell("at-pc-c at-pc-c-" + i, t));
+    // ---- under the chart: who is on it. A card each: his photo, his name,
+    // today's price and the week's move; tap to take him off. ----
+    function pill(p, col) {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "mk2-pill on";
+        b.style.setProperty("--pill", col);
+        var f = document.createElement("span");
+        f.className = "at-face mk2-pill-face" + (p.pos === "DEF" ? " at-face-def" : "");
+        if (p.photo) { var im = document.createElement("img"); im.src = p.photo; im.alt = ""; im.loading = "lazy"; im.onerror = function () { this.remove(); }; f.appendChild(im); }
+        var ini = document.createElement("span"); ini.textContent = (p.name || "?").charAt(0); f.appendChild(ini);
+        var txt = document.createElement("span"); txt.className = "mk2-pill-txt";
+        var nm = document.createElement("span"); nm.className = "mk2-pill-name"; nm.textContent = p.name;
+        var sub = document.createElement("span"); sub.className = "mk2-pill-sub";
+        var mv = weekMove(p.k);
+        sub.appendChild(document.createTextNode(p.costs + (p.pos ? " \u00b7 " + p.pos : "")));
+        if (mv) {
+            var ch = document.createElement("b");
+            ch.textContent = (mv > 0 ? "  \u25b2" : "  \u25bc") + Math.abs(mv);
+            sub.appendChild(ch);
+        }
+        txt.appendChild(nm); txt.appendChild(sub);
+        var x_ = document.createElement("span"); x_.className = "mk2-pill-x"; x_.setAttribute("aria-hidden", "true"); x_.textContent = "\u00d7";
+        b.appendChild(f); b.appendChild(txt); b.appendChild(x_);
+        b.setAttribute("aria-label", "Take " + p.name + " off the chart");
+        b.addEventListener("click", function () {
+            custom(); remove(p.k);
+            if (!chosen.length) add(PLAYERS[0].k);   // never an empty chart
+            draw();
         });
-        legend.appendChild(headRow);
-        chosen.forEach(function (c) {
-            var p = BY[c.k], on = c.k === focus, pts = LINES[c.k];
-            var row = document.createElement("div");
-            row.className = "at-pc-row at-mk-" + c.c + (on ? " at-pc-row-on" : "");
-            row.setAttribute("role", "listitem");
-
-            var main = document.createElement("button");
-            main.type = "button"; main.className = "at-pc-c at-pc-c-0 at-pc-row-main";
-            main.setAttribute("aria-pressed", on ? "true" : "false");
-            main.title = "Show " + p.name + " in focus on the chart";
-            var sw = document.createElement("i"); sw.className = "at-pc-swatch";
-            var who = document.createElement("span"); who.className = "at-pc-row-who";
-            var nm = document.createElement("span"); nm.className = "at-pc-row-name"; nm.textContent = p.name;
-            var meta = document.createElement("small");
-            meta.textContent = [p.pos, p.team].filter(Boolean).join(" \u00b7 ");
-            who.appendChild(nm); who.appendChild(meta);
-            main.appendChild(sw); main.appendChild(face(p, "at-pc-row-face")); main.appendChild(who);
-            main.addEventListener("click", function () { focus = c.k; draw(); });
-            row.appendChild(main);
-
-            var price = cell("at-pc-c at-pc-c-1 at-pc-row-price");
-            var v = document.createElement("b"); v.setAttribute("data-value", "");
-            v.textContent = pts ? p.costs : "\u2026";
-            price.appendChild(v);
-            row.appendChild(price);
-
-            row.appendChild(cell("at-pc-c at-pc-c-2", POSRANK[c.k] || "\u2013", "Pos "));
-            var wk = cell("at-pc-c at-pc-c-3", undefined, "Week ");
-            if (pts && pts.length > 1) {
-                var now = pts[pts.length - 1], then = at(c.k, Math.max(0, now[0] - 7)) || pts[0];
-                wk.appendChild(change(moved(then[1], now[1]), ""));
-            } else { wk.appendChild(document.createTextNode("\u2013")); }
-            row.appendChild(wk);
-            row.appendChild(cell("at-pc-c at-pc-c-4", (p.trades || 0).toLocaleString(), "Trades "));
-
-            var acts = cell("at-pc-c at-pc-c-5 at-pc-row-acts");
-            var go = document.createElement("a");
-            go.className = "at-pc-row-go"; go.href = playerUrl(c.k);
-            go.innerHTML = "See trades <span aria-hidden=\"true\">\u203a</span>";
-            go.setAttribute("aria-label", "See all of " + p.name + "\u2019s trades");
-            var x_ = document.createElement("button");
-            x_.type = "button"; x_.className = "at-pc-x"; x_.textContent = "\u00d7";
-            x_.setAttribute("aria-label", "Remove " + p.name + " from the chart");
-            x_.addEventListener("click", function () {
-                if (setSel.options.length) setSel.value = "custom";
-                remove(c.k);
-                if (!chosen.length) add(PLAYERS[0].k);   // never an empty frame
-                draw();
-            });
-            acts.appendChild(go); acts.appendChild(x_);
-            row.appendChild(acts);
-            legend.appendChild(row);
+        return b;
+    }
+    function drawPills() {
+        onBox.textContent = "";
+        chosen.forEach(function (c) { onBox.appendChild(pill(BY[c.k], COLOURS[c.c % COLOURS.length])); });
+        // The board's + buttons say who is already drawn.
+        var on = {}; chosen.forEach(function (c) { on[c.k] = 1; });
+        document.querySelectorAll(".mk2-add").forEach(function (btn) {
+            var k = btn.getAttribute("data-key"), is = !!on[k];
+            btn.classList.toggle("on", is); btn.textContent = is ? "\u2713" : "+";
         });
     }
 
-    // ---- reading a day: a card that follows the pointer ----
+    // ---- reading a day: drag across the chart ----
     function bindScrub() {
-        var hit = document.getElementById("at-pc-hit"), rule = document.getElementById("at-pc-rule");
+        var hit = document.getElementById("mk2-hit"), rule = document.getElementById("mk2-rule");
         var dragging = false;
         function dayAt(clientX) {
             var box = svg.getBoundingClientRect();
             var vx = (clientX - box.left) * W / box.width;
-            return Math.max(0, Math.min(LAST, Math.round((vx - L) / (R - L) * LAST)));
+            return Math.max(d0, Math.min(LAST, Math.round(d0 + (vx - L) / (R - L) * (LAST - d0))));
         }
         function show(d) {
             rule.setAttribute("x1", x(d)); rule.setAttribute("x2", x(d)); rule.style.display = "";
-            var rows = [];
             drawn().forEach(function (c) {
                 var pt = at(c.k, d);
-                var g = svg.querySelector('.at-mk[data-key="' + c.k.replace(/["\\]/g, "\\$&") + '"]');
-                var cur = g && g.querySelector(".at-mk-cursor");
-                var chip = legend.querySelector(".at-mk-" + c.c + " [data-value]");
+                var cur = svg.querySelector('.mk2-cur[data-key="' + c.k.replace(/["\\]/g, "\\$&") + '"]');
                 if (cur) {
                     if (pt) { cur.setAttribute("cx", x(d)); cur.setAttribute("cy", y(pt[1])); cur.style.display = ""; }
                     else cur.style.display = "none";
                 }
-                if (chip) chip.textContent = pt ? pickLabel(pt[1]) : "\u2013";
-                if (pt) {
-                    var prev = at(c.k, d - 1);
-                    rows.push({c: c, slot: pt[1], day: prev && prev !== pt ? moved(prev[1], pt[1]) : null});
-                }
+                if (labels[c.k]) labels[c.k].textContent = pt ? pickLabel(pt[1]) : "\u2013";
             });
-            rows.sort(function (a, b) { return a.slot - b.slot; });
-            tip.textContent = "";
-            var h = document.createElement("div"); h.className = "at-pc-tip-date";
-            h.textContent = d === 0 ? "At the draft" : dayLabel(d);
-            tip.appendChild(h);
-            rows.forEach(function (r) {
-                var line = document.createElement("div");
-                line.className = "at-pc-tip-row at-mk-" + r.c.c + (r.c.k === focus ? " at-pc-tip-on" : "");
-                var sw = document.createElement("i"); sw.className = "at-pc-swatch";
-                var nm = document.createElement("span"); nm.className = "at-pc-tip-name"; nm.textContent = BY[r.c.k].name;
-                var v = document.createElement("b"); v.textContent = pickLabel(r.slot);
-                line.appendChild(sw); line.appendChild(nm); line.appendChild(v);
-                if (r.day) line.appendChild(change(r.day, ""));
-                tip.appendChild(line);
-            });
-            tip.hidden = false;
-            // Beside the rule, on whichever side has room.
+            dateTag.textContent = d === 0 ? "Draft day" : dayLabel(d);
+            dateTag.hidden = false;
             var box = svg.getBoundingClientRect(), scale = box.width / W;
-            var px = x(d) * scale, tw = tip.offsetWidth;
-            tip.style.left = (px + 14 + tw > box.width ? Math.max(0, px - 14 - tw) : px + 14) + "px";
-            tip.style.top = (T * scale + 4) + "px";
+            var px = x(d) * scale, tw = dateTag.offsetWidth;
+            dateTag.style.left = Math.max(0, Math.min(box.width - tw, px - tw / 2)) + "px";
         }
         function clear() {
-            rule.style.display = "none";
-            tip.hidden = true;
-            svg.querySelectorAll(".at-mk-cursor").forEach(function (c_) { c_.style.display = "none"; });
-            chosen.forEach(function (c) {
-                var chip = legend.querySelector(".at-mk-" + c.c + " [data-value]");
-                if (chip) chip.textContent = LINES[c.k] ? BY[c.k].costs : "\u2026";
+            rule.style.display = "none"; dateTag.hidden = true;
+            svg.querySelectorAll(".mk2-cur").forEach(function (c_) { c_.style.display = "none"; });
+            drawn().forEach(function (c) {
+                var pts = LINES[c.k];
+                if (labels[c.k] && pts) labels[c.k].textContent = pickLabel(pts[pts.length - 1][1]);
             });
         }
         function move(e) { var t = e.touches ? e.touches[0] : e; show(dayAt(t.clientX)); }
@@ -750,9 +611,26 @@
         hit.addEventListener("pointercancel", function () { dragging = false; clear(); });
     }
 
-    // ---- search to add ----
+    // ---- search, behind the magnifier ----
+    var bar = document.getElementById("mk2-bar"), findBtn = document.getElementById("mk2-find"),
+        searchBox = document.getElementById("mk2-search"), closeBtn = document.getElementById("mk2-close");
+    function openSearch(on) {
+        searchBox.hidden = !on;
+        bar.classList.toggle("searching", on);
+        findBtn.setAttribute("aria-expanded", on ? "true" : "false");
+        if (on) { q.focus(); } else { q.value = ""; hits.hidden = true; findBtn.focus(); }
+    }
+    findBtn.addEventListener("click", function () { openSearch(true); });
+    closeBtn.addEventListener("click", function () { openSearch(false); });
     var found = [], active = -1;
     function norm(s) { return (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
+    function face(p) {
+        var f = document.createElement("span");
+        f.className = "at-face at-pc-hit-face" + (p.pos === "DEF" ? " at-face-def" : "");
+        if (p.photo) { var im = document.createElement("img"); im.src = p.photo; im.alt = ""; im.loading = "lazy"; im.onerror = function () { this.remove(); }; f.appendChild(im); }
+        var ini = document.createElement("span"); ini.textContent = (p.name || "?").charAt(0); f.appendChild(ini);
+        return f;
+    }
     function search() {
         var s = norm(q.value.trim());
         hits.textContent = ""; found = []; active = -1;
@@ -760,10 +638,7 @@
         var words = s.split(/\s+/);
         found = PLAYERS.filter(function (p) {
             var name = norm(p.name);
-            return words.every(function (w_) {
-                // A name matches anywhere; a position or team has to be the whole word.
-                return name.indexOf(w_) >= 0 || norm(p.pos) === w_ || norm(p.team) === w_;
-            });
+            return words.every(function (w_) { return name.indexOf(w_) >= 0 || norm(p.pos) === w_ || norm(p.team) === w_; });
         }).slice(0, 8);
         found.forEach(function (p, i) {
             var li = document.createElement("li");
@@ -772,35 +647,25 @@
             li.className = "at-pc-hit" + (on ? " at-pc-on" : "");
             var who = document.createElement("span"); who.className = "at-pc-hit-who";
             var nm = document.createElement("span"); nm.className = "at-pc-hit-name"; nm.textContent = p.name;
-            var meta = document.createElement("small");
-            meta.textContent = [p.pos, p.team].filter(Boolean).join(" \u00b7 ") || "\u00a0";
+            var meta = document.createElement("small"); meta.textContent = [p.pos, p.team].filter(Boolean).join(" \u00b7 ") || "\u00a0";
             who.appendChild(nm); who.appendChild(meta);
             var pr = document.createElement("span"); pr.className = "at-pc-hit-val";
-            var b = document.createElement("b"); b.textContent = p.costs;
-            var rk = document.createElement("small"); rk.textContent = "#" + p.rank;
-            pr.appendChild(b); pr.appendChild(rk);
-            li.appendChild(face(p, "at-pc-hit-face")); li.appendChild(who); li.appendChild(pr);
+            var b = document.createElement("b"); b.textContent = p.costs; pr.appendChild(b);
+            li.appendChild(face(p)); li.appendChild(who); li.appendChild(pr);
             li.addEventListener("mousedown", function (e) { e.preventDefault(); pick(i); });
             hits.appendChild(li);
         });
-        if (!found.length) {
-            var none = document.createElement("li"); none.className = "at-pc-none";
-            none.textContent = "No priced player matches.";
-            hits.appendChild(none);
-        }
+        if (!found.length) { var none = document.createElement("li"); none.className = "at-pc-none"; none.textContent = "No priced player matches."; hits.appendChild(none); }
         hits.hidden = false;
     }
     function pick(i) {
         var p = found[i];
         if (!p) return;
-        if (setSel.options.length) setSel.value = "custom";
-        add(p.k, true); draw();       // somebody you just looked up is who you want to see
-        q.value = ""; hits.hidden = true; found = [];
-        q.focus();
+        if (add(p.k, true)) { custom(); draw(); }
+        openSearch(false);
     }
     function highlight(i) {
-        var items = hits.querySelectorAll(".at-pc-hit");
-        items.forEach(function (it, j) { it.classList.toggle("at-pc-active", j === i); });
+        hits.querySelectorAll(".at-pc-hit").forEach(function (it, j) { it.classList.toggle("at-pc-active", j === i); });
         active = i;
         q.setAttribute("aria-activedescendant", i >= 0 ? "at-pc-hit-" + i : "");
     }
@@ -809,26 +674,52 @@
         if (e.key === "ArrowDown" && found.length) { e.preventDefault(); highlight(Math.min(found.length - 1, active + 1)); }
         else if (e.key === "ArrowUp" && found.length) { e.preventDefault(); highlight(Math.max(0, active - 1)); }
         else if (e.key === "Enter") { e.preventDefault(); pick(active >= 0 ? active : 0); }
-        else if (e.key === "Escape") { hits.hidden = true; }
+        else if (e.key === "Escape") { openSearch(false); }
     });
-    q.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; }, 120); });
+    q.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; if (!q.value) openSearch(false); }, 150); });
 
+    // ---- start ----
+    buildMenu();
+    var start = fromUrl();
+    var shown = (/[?&]show=([^&]*)/.exec(location.search) || [])[1];
+    var hasOption = function (v) { return !!setSel.querySelector('option[value="' + v.replace(/["\\]/g, "") + '"]'); };
+    if (start.length) {
+        useSet(start); custom();
+    } else {
+        // Just back from "Show my team": open on it, whatever was remembered.
+        var arrived = /[?&]welcome=1/.test(location.search) && MINE && (MINE.known || []).length;
+        var first = shown ? decodeURIComponent(shown) : (arrived ? "k:0" : remembered());
+        if (!hasOption(first) || first === "add" || first === "custom") first = (MINE && (MINE.known || []).length) ? "k:0" : "top";
+        useSet(DATA["default"]);                         // drawn at once; replaced if the choice needs a fetch
+        setSel.value = first;
+        if (first !== "top") showChoice(first, function () { draw(); });
+    }
+    var lastChoice = setSel.value;
+    setSel.addEventListener("change", function () {
+        var v = setSel.value;
+        if (v === "custom") return;
+        if (v === "add") {
+            // Signed out: sign up, connect, and back here with the team on
+            // the chart. Signed in: straight to connecting a league.
+            setSel.value = lastChoice;
+            window.location.href = ADD_URL;
+            return;
+        }
+        lastChoice = v;
+        remember(v);
+        showChoice(v, function () { draw(); });
+    });
     draw();
-    window.atPcShow = function (k) {
+    window.atPcShow = function (k, stay) {
         if (!BY[k]) return;
-        if (setSel.options.length) setSel.value = "custom";
-        add(k, true); draw();
-        root.scrollIntoView({behavior: "smooth", block: "start"});
+        custom();
+        if (add(k, true)) draw();
+        if (!stay) root.scrollIntoView({behavior: "smooth", block: "start"});
     };
     var resizing;
     window.addEventListener("resize", function () {
         clearTimeout(resizing);
-        resizing = setTimeout(function () {
-            var was = narrow;
-            narrow = null;
-            frame();
-            if (narrow !== was) draw();
-        }, 150);
+        resizing = setTimeout(function () { var was = narrow; narrow = null; frame(); if (narrow !== was) draw(); }, 150);
     });
 })();
 </script>
@@ -884,76 +775,56 @@
 <button type="button" class="at-pl-chart" data-key="{{ r.player_key }}" title="Add {{ r.name }} to the chart"
         aria-label="Add {{ r.name }} to the chart"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 13l4-5 3 3 6-8" /></svg></button>
 {%- endmacro %}
-<section class="card mk-board" id="at-pl">
-    <h2 class="card-title">The board</h2>
-    <p class="card-sub">Every traded player, numbered by what he costs today.{% if mine %} Your players are highlighted.{% endif %}
-        Tap a player to see every trade of him, or the chart button to draw him above.</p>
-    {% set my_keys = [] %}
-    {% for t in (mine.known if mine and mine.known else []) %}{% for k in (t.all or t['keys']) %}{% set _ = my_keys.append(k) %}{% endfor %}{% endfor %}
-    <div class="mk-tabs" role="tablist" aria-label="Position">
-        {% for p in ['All', 'QB', 'RB', 'WR', 'TE'] %}<button type="button" role="tab" class="mk-tab{{ ' on' if loop.first }}" data-pos="{{ p }}">{{ p }}</button>{% endfor %}
-        {% if not mine %}<a class="mk-myteam mk-myteam-sm" href="/market/my-team">Show my team</a>{% endif %}
-    </div>
-    {% set posn = {} %}
-    <div class="mk-scroll">
-    <table class="mk-table" id="mk-table">
-        <thead><tr><th class="mk-c-rk">#</th><th>Player</th><th class="mk-c-pos">Pos</th><th class="mk-c-chg"><span class="mk-wide">Since draft</span><span class="mk-narrow">+/&minus;</span></th><th class="mk-c-tr">Trades</th><th class="mk-c-conf">Confidence</th><th class="mk-c-btn"></th></tr></thead>
-        <tbody>
-        {% for p in R.pickable|sort(attribute='rank') %}
-        {% set n = posn.get(p.pos, 0) + 1 %}{% set _ = posn.update({p.pos: n}) %}
-        {% set moved = (p.dp - p.rank) if p.dp else none %}
-        <tr class="mk-row{{ ' mine' if p.k in my_keys }}" data-pos="{{ p.pos }}" data-k="{{ p.k }}" data-rk="{{ p.rank }}" data-prk="{{ n }}">
-            <td class="mk-c-rk">{{ p.rank }}</td>
-            <td><a class="mk-who" href="/market/player/{{ p.k|urlencode }}">
-                <span class="at-face mk-face{{ ' at-face-def' if p.pos == 'DEF' }}">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
-                <span class="mk-name">{{ p.name }}{% if p.team %} <small>({{ p.team }})</small>{% endif %}</span>{% if p.inj %}<span class="mk-inj mk-inj-{{ p.inj|lower }}" title="Injury status from Sleeper">{{ p.inj }}</span>{% endif %}<span class="mk-open" aria-hidden="true">&rsaquo;</span></a></td>
-            <td class="mk-c-pos">{{ p.pos }}{{ n }}</td>
-            {% set pmoved = (pos_drafted[p.k] - n) if pos_drafted and p.k in pos_drafted else none %}
-            <td class="mk-c-chg">{% for mv, cls in ((moved, 'mk-chg-all'), (pmoved, 'mk-chg-pos')) %}<span class="{{ cls }}">{% if mv is not none and mv|abs >= 1 %}<span class="{{ 'at-pc-up' if mv > 0 else 'at-pc-down' }}">{{ '&#9650;'|safe if mv > 0 else '&#9660;'|safe }} {{ '%.0f'|format(mv|abs) }}</span>{% else %}<span class="mk-flat">&ndash;</span>{% endif %}</span>{% endfor %}</td>
-            <td class="mk-c-tr">{{ '{:,}'.format(p.trades or 0) }}</td>
-            <td class="mk-c-conf" title="{{ p.firm or '' }}">{% set lit = {'settled': 5, 'firming': 3, 'thin': 1}.get(p.firm, 0) %}<span class="mk-dash mk-dash-{{ p.firm or 'none' }}">{% for i in range(5) %}<i class="{{ 'lit' if i < lit }}"></i>{% endfor %}</span></td>
-            <td class="mk-c-btn">{{ chartbtn({'player_key': p.k, 'name': p.name}) }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-    </div>
-    <p class="mk-more"><button type="button" class="pp-more-btn" id="mk-more">Show all</button></p>
-    <p class="at-pl-held">Players on injured reserve are left off the board until they&rsquo;re back. Prices are for redraft leagues; dynasty trades and rookie drafts are left out.</p>
-</section>
 <script>
 (function () {
-    var table = document.getElementById("mk-table");
-    if (!table) return;
-    var rows = Array.prototype.slice.call(table.querySelectorAll("tbody .mk-row"));
-    var more = document.getElementById("mk-more"), pos = "All", all = false, FIRST = 50;
+    // The board in the chart card: tabs, "Show all" for paying accounts,
+    // the unlock box's wording for free ones, and your players marked.
+    var list = document.getElementById("mk2-list");
+    if (!list) return;
+    var rows = Array.prototype.slice.call(list.querySelectorAll(".mk2-row"));
+    var paid = !!document.getElementById("mk2-board").getAttribute("data-paid");
+    var locked = document.getElementById("mk2-locked"), more = document.getElementById("mk2-more");
+    var totals = {}, freeAll = 20, freePos = 8;
+    if (locked) {
+        try { totals = JSON.parse(locked.getAttribute("data-totals")) || {}; } catch (e) {}
+        freeAll = +locked.getAttribute("data-free-all") || 20; freePos = +locked.getAttribute("data-free-pos") || 8;
+    }
+    var NAMES = {QB: "quarterbacks", RB: "running backs", WR: "receivers", TE: "tight ends"};
+    var pos = "All", all = false, FIRST = 50;
     function show() {
         var n = 0;
         rows.forEach(function (r) {
-            var fits = pos === "All" || r.getAttribute("data-pos") === pos;
+            var rk = +r.getAttribute("data-rk"), prk = +r.getAttribute("data-prk");
+            var fits = pos === "All" ? (paid || rk <= freeAll) : (r.getAttribute("data-pos") === pos && (paid || prk <= freePos));
             if (fits) n++;
-            r.hidden = !fits || (!all && n > FIRST);
-            r.querySelector(".mk-c-rk").textContent = pos === "All" ? r.getAttribute("data-rk") : r.getAttribute("data-prk");
+            r.hidden = !fits || (paid && !all && n > FIRST);
+            r.querySelector(".mk2-rk").textContent = pos === "All" ? rk : prk;
         });
-        more.parentNode.hidden = all || n <= FIRST;
-        more.textContent = "Show all " + n;
+        if (more) { more.parentNode.hidden = all || n <= FIRST; more.textContent = "Show all " + n; }
+        if (locked) {
+            var total = totals[pos] || 0, shown = pos === "All" ? freeAll : freePos;
+            locked.hidden = total <= shown;
+            var lbl = document.getElementById("mk2-unlock-n");
+            if (lbl) lbl.textContent = pos === "All" ? "See all " + total + " priced players"
+                                                     : "See all " + total + " " + NAMES[pos];
+        }
     }
-    document.querySelectorAll(".mk-tab").forEach(function (b) {
+    document.querySelectorAll(".mk2-tab").forEach(function (b) {
         b.addEventListener("click", function () {
             pos = b.getAttribute("data-pos"); all = false;
-            table.classList.toggle("mk-by-pos", pos !== "All");   // since-draft counts within the position
-            document.querySelectorAll(".mk-tab").forEach(function (x) { x.classList.toggle("on", x === b); });
+            document.querySelectorAll(".mk2-tab").forEach(function (x) {
+                x.classList.toggle("on", x === b); x.setAttribute("aria-selected", x === b ? "true" : "false");
+            });
             show();
         });
     });
-    more.addEventListener("click", function () { all = true; show(); });
-    // Anywhere on a row opens his page, not just the name. The chart
-    // button keeps its own job.
+    if (more) more.addEventListener("click", function () { all = true; show(); });
+    // Anywhere on a row opens his page; the + keeps its own job.
     rows.forEach(function (r) {
         r.addEventListener("click", function (e) {
             if (e.target.closest("a, button")) return;
-            var a = r.querySelector(".mk-who");
-            if (a) window.location.href = a.href;
+            var a = r.querySelector(".mk2-who");
+            if (a && a.href) window.location.href = a.href;
         });
     });
     // The chart's "Show" menu calls this when a team is chosen.
@@ -1008,7 +879,9 @@
     // A row opens the player's page; the small button beside it charts him.
     document.querySelectorAll(".at-pl-chart").forEach(function (b) {
         b.addEventListener("click", function () {
-            if (window.atPcShow) window.atPcShow(b.getAttribute("data-key"));
+            // From the board inside the chart card, stay put: the card's
+            // "On the chart" row shows he was added.
+            if (window.atPcShow) window.atPcShow(b.getAttribute("data-key"), !!b.closest("#at-pc"));
         });
     });
 })();
