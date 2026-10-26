@@ -5186,3 +5186,13 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 .mk3-team .mk3-plus { background: var(--accent); color: #fff; border-color: var(--accent); }
 .mk3-more { border-color: #e7cfca; }
 .mk3-more small { font: 600 11.5px "Barlow", sans-serif; color: var(--muted); margin-top: -4px; }
+/* The line in focus (26 Oct): drawn on top, a soft shade under it; the
+   others step back a little. Its box fills with a tint of its colour. */
+.mk2-line-on { stroke-width: 3; }
+.mk2-line-off { opacity: .55; }
+.mk2-area { pointer-events: none; }
+.mk3-who { cursor: pointer; }
+.mk3-who:focus-visible { outline: 2px solid var(--slot, var(--accent)); outline-offset: -4px; border-radius: 14px; }
+.mk3-focus { background: color-mix(in srgb, var(--slot) 9%, #fffdf8); box-shadow: 0 6px 16px -10px var(--slot); }
+.mk3-photo { display: inline-block; border-radius: 50%; }
+.mk3-photo:hover .mk3-face { box-shadow: 0 0 0 3px color-mix(in srgb, var(--slot) 25%, transparent); }

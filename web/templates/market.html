@@ -296,7 +296,10 @@
     }
 
     // ---- who is drawn ----
-    var chosen = [];       // [{k, c}] c = colour slot 0..5, kept for the life of the line
+    var chosen = [];       // [{k, c}] c = colour slot, kept for the life of the line
+    // The line in focus: drawn on top, with a soft shade under it (John, 26
+    // Oct: "it looked good"). Tap a player's box to focus him.
+    var focus = null;
     function fromUrl() {
         var m = /[?&]p=([^&]*)/.exec(location.search);
         if (!m) return [];
@@ -580,10 +583,22 @@
         el("line", {id: "mk2-rule", "class": "mk2-rule", x1: 0, x2: 0, y1: T - 8, y2: B, style: "display:none"}, svg);
         var lines = el("g", {"clip-path": "url(#mk2-clip)"}, svg);
         var items = [];
-        drawn().forEach(function (c) {
-            var pts = visible(c.k), col = COLOURS[c.c % COLOURS.length];
+        if (!chosen.some(function (c) { return c.k === focus; })) focus = chosen.length ? chosen[0].k : null;
+        // The focused line last, so it draws over the rest.
+        var order = drawn().filter(function (c) { return c.k !== focus; })
+            .concat(drawn().filter(function (c) { return c.k === focus; }));
+        order.forEach(function (c) {
+            var pts = visible(c.k), col = COLOURS[c.c % COLOURS.length], on = c.k === focus;
             var P = pts.map(function (pt) { return [x(pt[0]), y(pt[1])]; });
-            el("path", {"class": "mk2-line", d: smooth(P), stroke: col, "data-key": c.k}, lines);
+            var d = smooth(P);
+            if (on) {
+                var grad = el("linearGradient", {id: "mk2-fill", x1: 0, y1: 0, x2: 0, y2: 1}, defs);
+                el("stop", {offset: "0%", "stop-color": col, "stop-opacity": .2}, grad);
+                el("stop", {offset: "100%", "stop-color": col, "stop-opacity": 0}, grad);
+                el("path", {"class": "mk2-area", fill: "url(#mk2-fill)",
+                    d: d + "L" + P[P.length - 1][0].toFixed(1) + "," + B + "L" + P[0][0].toFixed(1) + "," + B + "Z"}, lines);
+            }
+            el("path", {"class": "mk2-line" + (on ? " mk2-line-on" : focus ? " mk2-line-off" : ""), d: d, stroke: col, "data-key": c.k}, lines);
             var end = P[P.length - 1];
             el("circle", {"class": "mk2-end", cx: end[0], cy: end[1], r: narrow ? 4.5 : 5, fill: col}, svg);
             el("circle", {"class": "mk2-cur", r: narrow ? 4.5 : 5, fill: col, style: "display:none", "data-key": c.k}, svg);
@@ -630,11 +645,24 @@
     }
     function filledBox(c) {
         var p = BY[c.k], col = COLOURS[c.c % COLOURS.length];
+        var on = c.k === focus;
         var box = document.createElement("div");
-        box.className = "mk3-slot mk3-on"; box.style.setProperty("--slot", col);
-        var a = document.createElement("a");
-        a.className = "mk3-who"; a.href = playerUrl(c.k);
-        a.appendChild(faceEl(p, "mk3-face"));
+        box.className = "mk3-slot mk3-on" + (on ? " mk3-focus" : ""); box.style.setProperty("--slot", col);
+        // The box focuses his line; his photo opens his page.
+        var a = document.createElement("div");
+        a.className = "mk3-who"; a.setAttribute("role", "button"); a.tabIndex = 0;
+        a.setAttribute("aria-pressed", on ? "true" : "false");
+        a.setAttribute("aria-label", "Highlight " + p.name + "\u2019s line");
+        function pick_() { if (focus !== c.k) { focus = c.k; draw(); } }
+        a.addEventListener("click", pick_);
+        a.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick_(); } });
+        var photo = document.createElement("a");
+        photo.className = "mk3-photo"; photo.href = playerUrl(c.k);
+        photo.setAttribute("aria-label", "Open " + p.name + "\u2019s page");
+        photo.title = p.name + ": see his trades";
+        photo.appendChild(faceEl(p, "mk3-face"));
+        photo.addEventListener("click", function (e) { e.stopPropagation(); });
+        a.appendChild(photo);
         var nm = document.createElement("span"); nm.className = "mk3-name"; nm.textContent = p.name;
         var sub = document.createElement("span"); sub.className = "mk3-sub";
         var price = document.createElement("b"); price.textContent = p.costs; sub.appendChild(price);
@@ -784,7 +812,7 @@
         var p = found[i];
         if (!p) return;
         closePicker();
-        if (add(p.k, true)) { custom(); draw(); }
+        if (add(p.k, true)) { focus = p.k; custom(); draw(); }
     }
     function highlight(i) {
         hits.querySelectorAll(".at-pc-hit").forEach(function (it, j) { it.classList.toggle("at-pc-active", j === i); });
@@ -835,7 +863,7 @@
     window.atPcShow = function (k, stay) {
         if (!BY[k]) return;
         custom();
-        if (add(k, true)) draw();
+        if (add(k, true)) { focus = k; draw(); }
         if (!stay) root.scrollIntoView({behavior: "smooth", block: "start"});
     };
     var resizing;
