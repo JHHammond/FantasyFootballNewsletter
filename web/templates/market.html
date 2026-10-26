@@ -289,7 +289,9 @@
         narrow = w < 520;
         W = Math.max(320, w);
         H = narrow ? 350 : 400;
-        L = 0; R = W - (narrow ? 112 : 160); T = 24; B = H - 30; LBL = narrow ? 47 : 54;
+        // Labels are a photo and a rank (26 Oct), so the column is narrow and
+        // nine of them fit down the side.
+        L = 0; R = W - (narrow ? 86 : 104); T = 24; B = H - 30; LBL = narrow ? 30 : 34;
         svg.setAttribute("viewBox", "0 0 " + W + " " + H);
         svg.setAttribute("width", W); svg.setAttribute("height", H);
         return true;
@@ -525,7 +527,7 @@
     // never sit on top of each other.
     function placeLabels(items) {
         items.sort(function (a, b) { return a.want - b.want; });
-        var top = T + 6, bottom = B - LBL + 12;
+        var top = T - 12, bottom = B - LBL + 8;
         items.forEach(function (it, i) { it.y = Math.max(it.want, i ? items[i - 1].y + LBL : top); });
         var over = items.length ? items[items.length - 1].y - bottom : 0;
         if (over > 0) {
@@ -602,7 +604,7 @@
             var end = P[P.length - 1];
             el("circle", {"class": "mk2-end", cx: end[0], cy: end[1], r: narrow ? 4.5 : 5, fill: col}, svg);
             el("circle", {"class": "mk2-cur", r: narrow ? 4.5 : 5, fill: col, style: "display:none", "data-key": c.k}, svg);
-            items.push({c: c, col: col, want: end[1] - 12, slot: pts[pts.length - 1][1]});
+            items.push({c: c, col: col, want: end[1] - LBL / 2, endY: end[1], slot: pts[pts.length - 1][1]});
         });
         // Y labels above the lines, with a paper halo so a line passing
         // behind never hides one.
@@ -616,15 +618,32 @@
             t.textContent = "#" + n;
         });
         labels = {};
-        placeLabels(items).forEach(function (it) {
-            var p = BY[it.c.k];
+        // At the end of each line: his photo in a ring of the line's colour
+        // and his place beside it (John, 26 Oct: the names and big numbers
+        // "look a bit cartoonish" and ran off the bottom). A short leader
+        // joins a label nudged away from its line back to it.
+        var r = narrow ? 12 : 14;
+        placeLabels(items).forEach(function (it, i) {
+            var p = BY[it.c.k], cy = it.y + LBL / 2, cx = R + 12 + r;
+            el("path", {"class": "mk2-leader", stroke: it.col,
+                        d: "M" + R + "," + it.endY.toFixed(1) + " C" + (R + 6) + "," + it.endY.toFixed(1) + " " + (R + 6) + "," + cy.toFixed(1) + " " + (cx - r - 2) + "," + cy.toFixed(1)}, svg);
             var a = el("a", {"class": "mk2-lbl", href: playerUrl(it.c.k)}, svg);
             a.setAttributeNS("http://www.w3.org/1999/xlink", "href", playerUrl(it.c.k));
-            var nm = el("text", {x: R + (narrow ? 14 : 20), y: it.y, fill: it.col, "class": "mk2-lbl-name"}, a);
-            nm.textContent = lastName(p.name).toUpperCase();
-            var pr = el("text", {x: R + (narrow ? 14 : 20), y: it.y + (narrow ? 25 : 29), fill: it.col, "class": "mk2-lbl-price"}, a);
-            pr.textContent = pickLabel(it.slot);
             var t = el("title", {}, a); t.textContent = p.name + ": see his trades";
+            el("circle", {cx: cx, cy: cy, r: r + 1.5, fill: "#efe8db", stroke: it.col, "stroke-width": 2}, a);
+            var ini = el("text", {x: cx, y: cy + 4.5, "text-anchor": "middle", "class": "mk2-lbl-ini"}, a);
+            ini.textContent = (p.name || "?").charAt(0);
+            if (p.photo) {
+                var cp = el("clipPath", {id: "mk2-ph-" + i}, defs);
+                el("circle", {cx: cx, cy: cy, r: r}, cp);
+                var img = el("image", {x: cx - r, y: cy - r, width: 2 * r, height: 2 * r,
+                    "clip-path": "url(#mk2-ph-" + i + ")", preserveAspectRatio: "xMidYMin slice"}, a);
+                img.setAttributeNS("http://www.w3.org/1999/xlink", "href", p.photo);
+                img.setAttribute("href", p.photo);
+                img.addEventListener("error", function () { this.remove(); });
+            }
+            var pr = el("text", {x: cx + r + 7, y: cy + 5, fill: it.col, "class": "mk2-lbl-rank"}, a);
+            pr.textContent = pickLabel(it.slot);
             labels[it.c.k] = pr;
         });
         el("rect", {id: "mk2-hit", x: 0, y: 0, width: R, height: B, fill: "transparent", style: "touch-action:pan-y"}, svg);

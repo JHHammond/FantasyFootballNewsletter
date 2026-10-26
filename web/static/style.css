@@ -5196,3 +5196,11 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 .mk3-focus { background: color-mix(in srgb, var(--slot) 9%, #fffdf8); box-shadow: 0 6px 16px -10px var(--slot); }
 .mk3-photo { display: inline-block; border-radius: 50%; }
 .mk3-photo:hover .mk3-face { box-shadow: 0 0 0 3px color-mix(in srgb, var(--slot) 25%, transparent); }
+/* Line-end labels as photo + rank (26 Oct). */
+.mk2-leader { fill: none; stroke-width: 1.2; opacity: .55; }
+.mk2-lbl-ini { font: 700 12px "Playfair Display", Georgia, serif; fill: #8c8270; }
+.mk2-lbl-rank { font: 700 15px "Barlow", sans-serif; font-variant-numeric: tabular-nums; }
+.mk2-lbl:hover .mk2-lbl-rank { text-decoration: underline; }
+.mk2-range button:focus { outline: none; }
+.mk2-range button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) { .mk2-lbl-rank { font-size: 14px; } }
