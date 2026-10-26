@@ -88,17 +88,7 @@
                 <label for="at-pc-set" class="at-pc-sr">Show</label>
                 <select id="at-pc-set" class="mk2-set"></select>
             </span>
-            <button type="button" class="mk2-find" id="mk2-find" aria-label="Add a player to the chart"
-                    aria-expanded="false" aria-controls="mk2-search">
-                <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8l4.2 4.2" /></svg></button>
-        </div>
-        <div class="mk2-search" id="mk2-search" hidden>
-            <svg class="mk2-mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8l4.2 4.2" /></svg>
-            <label for="at-pc-q" class="at-pc-sr">Add a player to the chart</label>
-            <input type="search" id="at-pc-q" class="mk2-q" placeholder="Add a player: name, position or team"
-                   autocomplete="off" spellcheck="false" aria-controls="at-pc-hits" />
-            <button type="button" class="mk2-close" id="mk2-close" aria-label="Close search">&times;</button>
-            <ul class="at-pc-hits mk2-hits" id="at-pc-hits" role="listbox" hidden></ul>
+
         </div>
     </div>
     <figure class="mk2-chart">
@@ -114,9 +104,25 @@
             <button type="button" role="tab" data-r="all">All</button>
         </div>
     </div>
-    <div class="mk2-pickers">
+    {#
+        Who is on the chart (John, 26 Oct): a grid of boxes, three across.
+        The week's three biggest movers fill the first ones; an empty box
+        adds a player; boxes 5 and 6 are for the pass (paying accounts get
+        nine). The search opens right under the grid.
+    #}
+    <div class="mk3" id="mk3">
         <p class="mk2-h">On the chart</p>
-        <div class="mk2-pills" id="mk2-on"></div>
+        <div class="mk3-grid{{ ' mk3-nine' if paid }}" id="mk3-grid"></div>
+        <div class="mk3-picker" id="mk3-picker" hidden>
+            <div class="mk3-field">
+                <svg class="mk2-mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8l4.2 4.2" /></svg>
+                <label for="at-pc-q" class="at-pc-sr">Find a player to add</label>
+                <input type="search" id="at-pc-q" class="mk2-q" placeholder="Find a player: name, position or team"
+                       autocomplete="off" spellcheck="false" aria-controls="at-pc-hits" />
+                <button type="button" class="mk2-close" id="mk3-cancel" aria-label="Close">&times;</button>
+            </div>
+            <ul class="at-pc-hits mk3-hits" id="at-pc-hits" role="listbox" hidden></ul>
+        </div>
     </div>
     {#
         The board, inside the chart card (John, 25-26 Oct): the top 20 for
@@ -169,11 +175,21 @@
         </div>
         {% endif %}
     </div>
-    {% if not user %}
-    <p class="mk-nudge" id="at-pc-nudge" hidden>Free accounts compare up to 6 players and put their own team on the chart.
-        <a class="mk-nudge-go" href="/signup?next={{ '/market/my-team'|urlencode }}">Sign up free</a>
-        <a href="/login?next=/market">Sign in</a></p>
-    {% endif %}
+    <div class="mk3-toast" id="mk3-toast" role="status" aria-live="polite" hidden>
+        <button type="button" class="mk3-toast-x" id="mk3-toast-x" aria-label="Close">&times;</button>
+        <p><b>Upgrade to add up to 9 players</b><span>Plus the full board, every riser and faller, and all your leagues.</span></p>
+        <div class="mk3-toast-cta">
+        {% if not user %}
+            <a class="mk3-buy" href="/signup?next={{ '/me#plan'|urlencode }}">Sign up &middot; {{ price_text }}</a>
+            {% if season_pass_enabled() %}<span class="mk3-alt">or {{ season_price_text|replace(' a season', '') }} for the season</span>{% endif %}
+        {% elif billing_enabled() %}
+            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" />
+                <button type="submit" class="mk3-buy">Upgrade &middot; {{ price_text }}</button></form>
+            {% if season_pass_enabled() %}<form method="post" action="/billing/checkout"><input type="hidden" name="term" value="season" />
+                <button type="submit" class="mk3-alt">or {{ season_price_text|replace(' a season', '') }} for the season</button></form>{% endif %}
+        {% else %}<a class="mk3-buy" href="/account">See the plan</a>{% endif %}
+        </div>
+    </div>
     {% if mine and mine.paid %}
     <p class="mk-teams-note mk-teams-add"><a class="mk-addleague" href="/market/my-team?add=1">+ Add another league</a>
         <span>Put a team from any of your other leagues on the chart and the board.</span></p>
@@ -188,10 +204,10 @@
         {% if billing_enabled() %}
         <div class="mk-lock-cta">
             {% if season_pass_enabled() %}
-            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="season" />
-                <button type="submit" class="mk-lock-btn">Season pass &middot; {{ season_price_text|replace(' a season', '') }}</button></form>
             <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" />
-                <button type="submit" class="mk-lock-alt">or {{ price_text }}</button></form>
+                <button type="submit" class="mk-lock-btn">Upgrade &middot; {{ price_text }}</button></form>
+            <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="season" />
+                <button type="submit" class="mk-lock-alt">or {{ season_price_text|replace(' a season', '') }} for the season</button></form>
             {% else %}
             <form method="post" action="/billing/checkout"><input type="hidden" name="term" value="monthly" />
                 <button type="submit" class="mk-lock-btn">Upgrade &middot; {{ price_text }}</button></form>
@@ -200,7 +216,7 @@
         {% endif %}
     </div>
     {% endif %}
-    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'm': market, 'mine': mine, 'signed_in': user is not none, 'used': R.used, 'wk': week_moves or {}}|tojson }}</script>
+    <script type="application/json" id="at-pc-data">{{ {'base': R.chart.base, 'last': R.chart.last, 'default': R.chart.default, 'lines': R.chart.lines, 'players': R.pickable, 'url': '/market/line.json', 'm': market, 'mine': mine, 'signed_in': user is not none, 'paid': paid, 'used': R.used, 'wk': week_moves or {}}|tojson }}</script>
 </section>
 <script>
 (function () {
@@ -214,17 +230,19 @@
     function playerUrl(k) { return "/market/player/" + encodeURIComponent(k); }
     var MINE = DATA.mine || null;
     if (MINE && MINE.lines) Object.keys(MINE.lines).forEach(function (k) { LINES[k] = MINE.lines[k]; });
-    var LAST = Math.max(1, DATA.last || 1), MAX = DATA.signed_in ? 6 : 4;  // signed out: four lines, then the sign-up nudge
+    // Four lines free, nine with the pass; the grid shows six boxes free
+    // (5 and 6 locked) and nine paid.
+    var LAST = Math.max(1, DATA.last || 1), MAX = DATA.paid ? 9 : 4, SLOTS = DATA.paid ? 9 : 6;
     var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     var b0 = DATA.base.split("-").map(Number);
     function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
     function dayLabel(d) { var t = dateOf(d); return MONTHS[t.getUTCMonth()] + " " + t.getUTCDate(); }
     // One colour per line, for the life of the line: the paper's red first.
-    var COLOURS = ["#b3141c", "#111111", "#2d6a1f", "#a07c12", "#3f5ea8", "#8a3f74"];
+    var COLOURS = ["#b3141c", "#111111", "#2d6a1f", "#a07c12", "#3f5ea8", "#8a3f74", "#c2571a", "#1f7a80", "#6b6050"];
 
     var svg = document.getElementById("at-pc-svg"),
         dateTag = document.getElementById("mk2-date"),
-        onBox = document.getElementById("mk2-on"),
+        grid = document.getElementById("mk3-grid"),
         q = document.getElementById("at-pc-q"),
         hits = document.getElementById("at-pc-hits");
     var NS = "http://www.w3.org/2000/svg";
@@ -294,16 +312,25 @@
         while (used.indexOf(c) >= 0) c++;
         return c;
     }
+    // "Upgrade to add up to 9 players", from the bottom of the screen.
+    var toast = document.getElementById("mk3-toast"), toastTimer;
     function nudge() {
-        var n = document.getElementById("at-pc-nudge");
-        if (n) { n.hidden = false; n.classList.remove("mk-nudge-on"); void n.offsetWidth; n.classList.add("mk-nudge-on"); }
+        if (!toast) return;
+        toast.hidden = false;
+        toast.classList.remove("on"); void toast.offsetWidth; toast.classList.add("on");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { toast.classList.remove("on"); setTimeout(function () { toast.hidden = true; }, 250); }, 9000);
     }
+    var toastX = document.getElementById("mk3-toast-x");
+    if (toastX) toastX.addEventListener("click", function () { clearTimeout(toastTimer); toast.classList.remove("on"); toast.hidden = true; });
     var pending = {};
     function add(k, asked) {
         if (!BY[k]) return false;
         if (!chosen.some(function (c) { return c.k === k; })) {
-            if (chosen.length >= MAX && !DATA.signed_in) { if (asked) nudge(); return false; }
-            if (chosen.length >= MAX) remove(chosen[0].k);   // make room: the oldest line goes
+            if (chosen.length >= MAX) {
+                if (!DATA.paid) { if (asked) nudge(); return false; }
+                remove(chosen[0].k);                   // nine already: the oldest line goes
+            }
             chosen.push({k: k, c: slotFor()});
         }
         if (LINES[k] || pending[k]) return true;
@@ -373,7 +400,7 @@
         ((MINE && MINE.known) || []).forEach(function (t, i) {
             opt(setSel, "k:" + i, "My team: " + t.team);
         });
-        opt(setSel, "top", DATA.m === "dynasty" ? "Movers" : "#1 + movers");
+        opt(setSel, "top", "This week\u2019s movers");
         ((MINE && MINE.pick) || []).forEach(function (lg) {
             var g = document.createElement("optgroup");
             g.label = "Which team is yours in " + lg.league + "?";
@@ -576,40 +603,64 @@
         toUrl();
     }
 
-    // ---- under the chart: who is on it. A card each: his photo, his name,
-    // today's price and the week's move; tap to take him off. ----
-    function pill(p, col) {
-        var b = document.createElement("button");
-        b.type = "button"; b.className = "mk2-pill on";
-        b.style.setProperty("--pill", col);
+    // ---- under the chart: the boxes. Filled ones are outlined in their
+    // line's colour; an empty one adds a player; past the free four, the
+    // boxes are locked and say so. ----
+    function faceEl(p, cls) {
         var f = document.createElement("span");
-        f.className = "at-face mk2-pill-face" + (p.pos === "DEF" ? " at-face-def" : "");
+        f.className = "at-face " + cls + (p.pos === "DEF" ? " at-face-def" : "");
         if (p.photo) { var im = document.createElement("img"); im.src = p.photo; im.alt = ""; im.loading = "lazy"; im.onerror = function () { this.remove(); }; f.appendChild(im); }
         var ini = document.createElement("span"); ini.textContent = (p.name || "?").charAt(0); f.appendChild(ini);
-        var txt = document.createElement("span"); txt.className = "mk2-pill-txt";
-        var nm = document.createElement("span"); nm.className = "mk2-pill-name"; nm.textContent = p.name;
-        var sub = document.createElement("span"); sub.className = "mk2-pill-sub";
+        return f;
+    }
+    function filledBox(c) {
+        var p = BY[c.k], col = COLOURS[c.c % COLOURS.length];
+        var box = document.createElement("div");
+        box.className = "mk3-slot mk3-on"; box.style.setProperty("--slot", col);
+        var a = document.createElement("a");
+        a.className = "mk3-who"; a.href = playerUrl(c.k);
+        a.appendChild(faceEl(p, "mk3-face"));
+        var nm = document.createElement("span"); nm.className = "mk3-name"; nm.textContent = p.name;
+        var sub = document.createElement("span"); sub.className = "mk3-sub";
+        var price = document.createElement("b"); price.textContent = p.costs; sub.appendChild(price);
         var mv = weekMove(p.k);
-        sub.appendChild(document.createTextNode(p.costs + (p.pos ? " \u00b7 " + p.pos : "")));
         if (mv) {
-            var ch = document.createElement("b");
-            ch.textContent = (mv > 0 ? "  \u25b2" : "  \u25bc") + Math.abs(mv);
+            var ch = document.createElement("span");
+            ch.className = mv > 0 ? "mk2-up" : "mk2-down";
+            ch.textContent = (mv > 0 ? " \u25b2" : " \u25bc") + Math.abs(mv);
             sub.appendChild(ch);
         }
-        txt.appendChild(nm); txt.appendChild(sub);
-        var x_ = document.createElement("span"); x_.className = "mk2-pill-x"; x_.setAttribute("aria-hidden", "true"); x_.textContent = "\u00d7";
-        b.appendChild(f); b.appendChild(txt); b.appendChild(x_);
-        b.setAttribute("aria-label", "Take " + p.name + " off the chart");
-        b.addEventListener("click", function () {
-            custom(); remove(p.k);
+        a.appendChild(nm); a.appendChild(sub);
+        var x_ = document.createElement("button");
+        x_.type = "button"; x_.className = "mk3-x"; x_.textContent = "\u00d7";
+        x_.setAttribute("aria-label", "Take " + p.name + " off the chart");
+        x_.addEventListener("click", function () {
+            custom(); remove(c.k);
             if (!chosen.length) add(PLAYERS[0].k);   // never an empty chart
             draw();
         });
+        box.appendChild(a); box.appendChild(x_);
+        return box;
+    }
+    function emptyBox() {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "mk3-slot mk3-empty";
+        b.innerHTML = '<span class="mk3-plus" aria-hidden="true">+</span><span>Add player</span>';
+        b.addEventListener("click", function () { openPicker(b); });
+        return b;
+    }
+    function lockedBox() {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "mk3-slot mk3-locked";
+        b.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg><span>Upgrade</span>';
+        b.setAttribute("aria-label", "Upgrade to add up to 9 players");
+        b.addEventListener("click", nudge);
         return b;
     }
     function drawPills() {
-        onBox.textContent = "";
-        chosen.forEach(function (c) { onBox.appendChild(pill(BY[c.k], COLOURS[c.c % COLOURS.length])); });
+        grid.textContent = "";
+        chosen.slice(0, SLOTS).forEach(function (c) { grid.appendChild(filledBox(c)); });
+        for (var i = chosen.length; i < SLOTS; i++) grid.appendChild(i < MAX ? emptyBox() : lockedBox());
         // The board's + buttons say who is already drawn.
         var on = {}; chosen.forEach(function (c) { on[c.k] = 1; });
         document.querySelectorAll(".mk2-add").forEach(function (btn) {
@@ -660,17 +711,18 @@
         hit.addEventListener("pointercancel", function () { dragging = false; clear(); });
     }
 
-    // ---- search, behind the magnifier ----
-    var bar = document.getElementById("mk2-bar"), findBtn = document.getElementById("mk2-find"),
-        searchBox = document.getElementById("mk2-search"), closeBtn = document.getElementById("mk2-close");
-    function openSearch(on) {
-        searchBox.hidden = !on;
-        bar.classList.toggle("searching", on);
-        findBtn.setAttribute("aria-expanded", on ? "true" : "false");
-        if (on) { q.focus(); } else { q.value = ""; hits.hidden = true; findBtn.focus(); }
+    // ---- search, opened by an empty box ----
+    var picker = document.getElementById("mk3-picker"), cancel = document.getElementById("mk3-cancel"), opener = null;
+    function openPicker(from) {
+        opener = from || null;
+        picker.hidden = false;
+        q.value = ""; hits.hidden = true;
+        q.focus();
     }
-    findBtn.addEventListener("click", function () { openSearch(true); });
-    closeBtn.addEventListener("click", function () { openSearch(false); });
+    function closePicker() {
+        picker.hidden = true; q.value = ""; hits.hidden = true;
+    }
+    cancel.addEventListener("click", closePicker);
     var found = [], active = -1;
     function norm(s) { return (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
     function face(p) {
@@ -710,8 +762,8 @@
     function pick(i) {
         var p = found[i];
         if (!p) return;
+        closePicker();
         if (add(p.k, true)) { custom(); draw(); }
-        openSearch(false);
     }
     function highlight(i) {
         hits.querySelectorAll(".at-pc-hit").forEach(function (it, j) { it.classList.toggle("at-pc-active", j === i); });
@@ -723,9 +775,9 @@
         if (e.key === "ArrowDown" && found.length) { e.preventDefault(); highlight(Math.min(found.length - 1, active + 1)); }
         else if (e.key === "ArrowUp" && found.length) { e.preventDefault(); highlight(Math.max(0, active - 1)); }
         else if (e.key === "Enter") { e.preventDefault(); pick(active >= 0 ? active : 0); }
-        else if (e.key === "Escape") { openSearch(false); }
+        else if (e.key === "Escape") { closePicker(); }
     });
-    q.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; if (!q.value) openSearch(false); }, 150); });
+    q.addEventListener("blur", function () { setTimeout(function () { if (!q.value && document.activeElement !== q) closePicker(); }, 200); });
 
     // ---- start ----
     buildMenu();

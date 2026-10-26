@@ -5118,3 +5118,62 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 .mk2-xmark { stroke: #cfc6b4; stroke-width: 1; }
 .mk2-xtick { font: 500 11.5px "Barlow", sans-serif; fill: #8c8270; }
 .mk2-ytick { font: 600 11px "Barlow", sans-serif; fill: #8c8270; paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; }
+
+/* ---- "On the chart" as boxes (John, 26 Oct): three across, outlined in
+   each line's colour; empty boxes add a player; 5 and 6 locked free. ---- */
+.mk3 { margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
+.mk3-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.mk3-slot { position: relative; min-height: 128px; border-radius: 16px; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; text-align: center; }
+.mk3-on { border: 2px solid var(--slot, var(--ink)); background: #fffdf8; }
+.mk3-who { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: 12px 8px 10px;
+           color: var(--ink); text-decoration: none; }
+.mk3-face { width: 52px; height: 52px; border: 2px solid var(--slot, var(--line)); }
+.mk3-face > span { font-size: 20px; }
+.mk3-name { max-width: 100%; font: 700 14.5px/1.15 "Barlow", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk3-sub { font: 600 12.5px "Barlow", sans-serif; color: var(--muted); }
+.mk3-sub b { color: var(--slot, var(--ink)); font: 800 14px "Barlow Condensed", sans-serif; }
+.mk3-who:hover .mk3-name { color: var(--slot, var(--accent)); }
+.mk3-x { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border: 0; border-radius: 50%; background: none;
+         font-size: 18px; line-height: 1; color: #a39883; cursor: pointer; }
+.mk3-x:hover { background: #f1ebe0; color: var(--ink); }
+.mk3-empty { border: 2px dashed #d6ccb9; background: none; cursor: pointer; gap: 6px; font: 700 13.5px "Barlow", sans-serif; color: var(--muted); }
+.mk3-empty:hover { border-color: var(--ink); color: var(--ink); background: #faf6ee; }
+.mk3-plus { display: inline-flex; width: 36px; height: 36px; border-radius: 50%; align-items: center; justify-content: center;
+            border: 1.5px solid currentColor; font: 500 24px/1 "Barlow", sans-serif; }
+.mk3-locked { border: 2px dashed #ead6d2; background: #fdf6f4; cursor: pointer; gap: 6px; color: var(--accent); font: 700 13px "Barlow", sans-serif; }
+.mk3-locked svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.mk3-locked:hover { background: #fbe9e6; border-color: var(--accent); }
+.mk3-slot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mk3-picker { position: relative; margin: 10px 0 0; }
+.mk3-picker[hidden] { display: none; }
+.mk3-field { display: flex; align-items: center; gap: 8px; padding: 0 4px 0 14px; height: 46px; border: 1.5px solid var(--ink);
+             border-radius: 999px; background: var(--paper); }
+.mk3-field:focus-within { box-shadow: 0 0 0 3px rgba(179, 20, 28, .14); }
+.mk3 .mk3-field .mk2-q { border: 0; box-shadow: none; padding: 8px 0; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; outline: none; }
+.mk3-hits { top: calc(100% + 6px); left: 0; right: 0; z-index: 20; }
+
+.mk3-toast { position: fixed; left: 50%; bottom: 18px; z-index: 60; width: min(560px, calc(100% - 24px));
+             transform: translate(-50%, 30px); opacity: 0; transition: transform .25s ease, opacity .25s ease;
+             display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 44px 14px 18px;
+             background: var(--ink); color: var(--paper); border-radius: 18px; box-shadow: 0 18px 40px -18px rgba(0, 0, 0, .6); }
+.mk3-toast[hidden] { display: none; }
+.mk3-toast.on { transform: translate(-50%, 0); opacity: 1; }
+.mk3-toast p { margin: 0; flex: 1 1 240px; display: flex; flex-direction: column; font: 500 13.5px "Barlow", sans-serif; color: #d9d2c4; }
+.mk3-toast p b { font-size: 16px; color: #fff; }
+.mk3-toast-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.mk3-toast-cta form { margin: 0; }
+.mk3-buy { display: inline-block; border: 0; border-radius: 999px; padding: 10px 18px; background: var(--accent); color: #fff;
+           font: 700 15px "Barlow", sans-serif; text-decoration: none; cursor: pointer; white-space: nowrap; }
+.wrap .mk3-toast a.mk3-buy { color: #fff; text-decoration: none; }
+.mk3-buy:hover { background: var(--accent-d); }
+.mk3-alt { border: 0; background: none; padding: 0; color: #d9d2c4; font: 600 13px "Barlow", sans-serif; text-decoration: underline; cursor: pointer; }
+.mk3-toast-x { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border: 0; background: none; color: #d9d2c4; font-size: 22px; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .mk3-toast { transition: none; } }
+@media (max-width: 640px) {
+    .mk3-grid { gap: 8px; }
+    .mk3-slot { min-height: 118px; border-radius: 14px; }
+    .mk3-face { width: 46px; height: 46px; }
+    .mk3-name { font-size: 13px; }
+    .mk3-sub { font-size: 11.5px; }
+}

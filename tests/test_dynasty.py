@@ -137,4 +137,6 @@ def test_the_dynasty_chart_opens_on_four_movers_not_number_one():
     red = tr.chart_default(rated, day, trades)
     dyn = tr.chart_default(rated, day, trades, lead_with_top=False)
     assert red[0] == "p0" and len(red) == tr.CHART_DEFAULT
-    assert "p0" not in dyn and set(dyn) == {"p10", "p12", "p15", "p20"}
+    # Three movers (John, 26 Oct), the biggest first from each side, never #1.
+    assert "p0" not in dyn and len(dyn) == tr.CHART_DEFAULT
+    assert set(dyn) <= {"p10", "p12", "p15", "p20"}

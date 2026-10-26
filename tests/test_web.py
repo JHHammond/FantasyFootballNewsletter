@@ -5237,14 +5237,16 @@ def test_a_made_up_term_is_refused(client, monkeypatch, fake_stripe):
     assert fake_stripe.calls == []
 
 
-def test_the_season_pass_leads_when_it_exists(client, monkeypatch):
+def test_monthly_leads_and_the_season_pass_follows(client, monkeypatch):
+    """John, 26 Oct: $19.99 first turned people off; $4.99 a month leads,
+    and the season pass is offered beside it."""
     _season_on(monkeypatch)
     _signup(client)
     for path in ("/account", "/connect?welcome=1"):
         html = client.get(path).text
         assert 'name="term" value="season"' in html, path
-        assert html.index('value="season"') < html.index('value="monthly"'), path
-        assert "$19.99" in html
+        assert html.index('value="monthly"') < html.index('value="season"'), path
+        assert "$4.99" in html and "$19.99" in html
 
 
 def test_monthly_only_when_there_is_no_season_price(client, monkeypatch):

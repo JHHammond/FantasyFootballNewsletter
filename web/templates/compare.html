@@ -113,7 +113,7 @@
                 html += '<div class="cmp-slot cmp-empty cmp-locked">' +
                     '<span class="mk-lock-ico" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span>' +
                     '<b>Player ' + (i + 1) + '</b><span>Compare up to four with the season pass</span>' +
-                    (i === MAX ? '<a class="cmp-unlock" href="' + (D.signed_in ? "/me#plan" : "/signup?next=" + encodeURIComponent("/me#plan")) + '">Get the season pass</a>' : "") +
+                    (i === MAX ? '<a class="cmp-unlock" href="' + (D.signed_in ? "/me#plan" : "/signup?next=" + encodeURIComponent("/me#plan")) + '">Upgrade \u00b7 {{ price_text }}</a>' : "") +
                     "</div>";
                 continue;
             }

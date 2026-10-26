@@ -14,10 +14,10 @@
     <div class="offer-eyebrow">One last thing!</div>
     {% if offer_kind == 'market' %}
     <h2 class="offer-title" id="offer-title">Your team&rsquo;s on the board. Want the whole market?</h2>
-    <p class="offer-sub">{% if season_pass_enabled() %}The season pass is {{ season_price_text }}{% else %}Upgrading is {{ price_text }}{% endif %}. Here&rsquo;s everything it adds:</p>
+    <p class="offer-sub">It&rsquo;s {{ price_text }}{% if season_pass_enabled() %} (or {{ season_price_text|replace(' a season', '') }} for the whole season){% endif %}. Here&rsquo;s everything it adds:</p>
     {% else %}
     <h2 class="offer-title" id="offer-title">Your league&rsquo;s connected. Make it the whole season?</h2>
-    <p class="offer-sub">Free covers three papers for one league. {% if season_pass_enabled() %}The season pass is {{ season_price_text }}{% else %}Upgrading is {{ price_text }}{% endif %} and adds:</p>
+    <p class="offer-sub">Free covers three papers for one league. It&rsquo;s {{ price_text }}{% if season_pass_enabled() %} (or {{ season_price_text|replace(' a season', '') }} for the whole season){% endif %} and adds:</p>
     {% endif %}
     <ul class="offer-perks">
         {% if offer_kind != 'market' %}
@@ -34,7 +34,7 @@
     </ul>
     {{ upgrade_buttons("offer-cta") }}
     <p class="offer-fine">
-        {% if season_pass_enabled() %}The pass renews once a year. {% endif %}Cancel any time from your account page.
+        Cancel any time from your account page.
     </p>
     <button type="button" class="offer-later" id="offer-later">Maybe later</button>
   </div>

@@ -13,7 +13,7 @@ def test_the_chart_opens_on_number_one_and_the_movers():
     got = chart_default(["a", "b", "c", "hurt", "down", "up"],
                         {"lines": lines, "last": 9}, trades)
     assert got[0] == "a" and set(got[1:3]) == {"up", "hurt"}
-    assert len(got) == 4
+    assert len(got) == 3            # three lines since 26 Oct
     # Off the board (IR): he isn't in the list, so he isn't drawn.
     got = chart_default(["a", "b", "c", "down", "up"], {"lines": lines, "last": 9}, trades)
     assert got[:3] == ["a", "up", "down"]

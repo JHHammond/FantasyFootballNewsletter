@@ -153,7 +153,9 @@ MIN_DRAFTS = 20
 #: #1 and the week's biggest movers (John, 25 Oct: the top five bunched
 #: up at the top of the chart). Four, the signed-out limit, so nobody
 #: opens on a sign-up nudge.
-CHART_DEFAULT = 4
+#: (John, 26 Oct: the chart's boxes open on "3 big movers", in both
+#: markets; #1 only if he is one of them.)
+CHART_DEFAULT = 3
 #: Movers for that default come from the top this many, have at least
 #: this many trades, and are measured over this many days.
 CHART_MOVER_POOL = 100
@@ -768,7 +770,7 @@ def build(db, season: int, weeks: list[int], *, limit: int = 40,
             "v": round(market.v[k], 6),
             "trades": market.n.get(k, 0),
             "photo": photo_url(k, meta.get("position"))})
-    opening = chart_default(rated, day_lines, market.n, lead_with_top=not dynasty)
+    opening = chart_default(rated, day_lines, market.n, lead_with_top=False)
     return {
         "market": "dynasty" if dynasty else "redraft",
         #: Dynasty only: how many players are anchored on startup drafts
@@ -989,7 +991,7 @@ def apply_injuries(r: Optional[dict], status: dict) -> Optional[dict]:
     if r.get("chart") and daily.get("lines"):
         opening = chart_default([p["k"] for p in keep], daily,
                                 {p["k"]: p.get("trades") or 0 for p in keep},
-                                lead_with_top=r.get("market") != "dynasty")
+                                lead_with_top=False)
         r["chart"] = dict(r["chart"], default=opening,
                           lines={k: daily["lines"][k] for k in opening})
     r["rows"], r["up"], r["down"] = fix(r.get("rows")), fix(r.get("up")), fix(r.get("down"))

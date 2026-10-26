@@ -74,17 +74,22 @@
    is the better deal for anybody playing the whole season; the monthly plan
    sits under it as the smaller choice. Without it, just the monthly button.
 #}
+{#
+    $4.99 a month first, the season pass second (John, 26 Oct: "When people
+    see 19.99 first in the trade desk i think they get turned off. 4.99 is
+    much more palatable"). Both unlock exactly the same plan.
+#}
 {% macro upgrade_buttons(cta_class="") %}
 {% if season_pass_enabled() %}
 <form method="post" action="/billing/checkout">
-    <input type="hidden" name="term" value="season" />
+    <input type="hidden" name="term" value="monthly" />
     <button type="submit" class="btn btn-primary {{ cta_class }}">
-        Season pass &mdash; {{ season_price_text }}
+        Upgrade &mdash; {{ price_text }}
     </button>
 </form>
 <form method="post" action="/billing/checkout" class="upgrade-alt">
-    <input type="hidden" name="term" value="monthly" />
-    <button type="submit" class="btn-link">or {{ price_text }}</button>
+    <input type="hidden" name="term" value="season" />
+    <button type="submit" class="btn-link">or {{ season_price_text|replace(' a season', '') }} for the whole season</button>
 </form>
 {% else %}
 <form method="post" action="/billing/checkout">
