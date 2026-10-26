@@ -230,6 +230,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 templates.env.globals["demo_mode"] = DEMO_MODE
 templates.env.globals["around_open"] = lambda: os.getenv("AROUND_PUBLIC", "").strip() == "1"
+templates.env.globals["team_open"] = lambda: os.getenv("TEAM_PUBLIC", "").strip() == "1"
 
 
 def static_url(name: str) -> str:
@@ -2308,6 +2309,113 @@ def rankings_page(request: Request, league: str = "", team: str = ""):
     return _render(request, "rankings.html", public=public, ready=ready, mine=mine,
                    league=chosen, view=view, season=season,
                    week=nfl_week.completed_week(), weights=rankings.WEIGHTS)
+
+
+# ---------------------------------------------------------------------------
+# My Team and its Portfolio tab (John, 25 Oct). Signed in, your own team
+# only. Behind TEAM_PUBLIC=1 like the rankings page; staff always see it.
+# ---------------------------------------------------------------------------
+
+def team_open() -> bool:
+    return os.getenv("TEAM_PUBLIC", "").strip() == "1"
+
+
+def _team_adp(season: int) -> dict:
+    from . import around, trade_rating
+    def load():
+        board = db.adp(season, trade_rating.MIN_DRAFTS) or {}
+        return {p["player_key"]: float(p["adp"]) for p in board.get("players") or [] if p.get("adp")}
+    try:
+        return around.swr(around._cache, ("adp", season), load, ttl=RATING_TTL) or {}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[team] no adp: {type(exc).__name__}: {exc}", flush=True)
+        return {}
+
+
+@app.get("/team", response_class=HTMLResponse)
+def team_page(request: Request, league: str = "", tab: str = ""):
+    import nfl_week
+
+    from . import around, team as tm
+    user = current_user(request)
+    staff = bool(user and user.get("plan") == plans.STAFF)
+    if not team_open() and not staff:
+        raise HTTPException(status_code=404)
+    if not user:
+        return RedirectResponse("/login?next=/team", status_code=303)
+    season = nfl_week.current_season()
+    latest = max(nfl_week.completed_week(), 1)
+    try:
+        leagues = [l for l in db.market_leagues_for_user(user["id"])
+                   if int(l.get("season") or 0) == season]
+    except Exception:  # noqa: BLE001
+        leagues = []
+    lid = clean_text(league, max_length=64).strip()
+    chosen = next((l for l in leagues if str(l["id"]) == lid), None) \
+        or next((l for l in leagues if l.get("my_team_id")), None) \
+        or (leagues[0] if leagues else None)
+    tab = "portfolio" if tab == "portfolio" else "team"
+    ctx = dict(season=season, latest=latest, leagues=[
+        {"id": str(l["id"]), "name": l.get("paper_name") or l.get("league_name") or "Your league"}
+        for l in leagues], league=chosen and str(chosen["id"]), tab=tab, view=None, pick=None,
+        paid=plans.is_paid(user), staff=staff)
+    if not chosen:
+        return _render(request, "team.html", **ctx)
+    me = str(chosen.get("my_team_id") or "")
+    if not me:
+        # ESPN and Yahoo don't say which team is yours: ask once, then save.
+        try:
+            lg = next((x for x in around.my_teams(db, user, season, latest)
+                       if x["id"] == str(chosen["id"])), None)
+        except Exception:  # noqa: BLE001
+            lg = None
+        ctx["pick"] = [{"id": t["id"], "name": t["name"]} for t in (lg or {}).get("teams") or []]
+        return _render(request, "team.html", **ctx)
+    rating = _trade_rating(season, latest) or {}
+    if not rating.get("pickable"):
+        return _render(request, "team.html", **ctx)
+    try:
+        names = around.swr(around._cache, ("pnames", season),
+                           lambda: db.trade_player_names(season) or {}, ttl=900) or {}
+    except Exception:  # noqa: BLE001
+        names = {}
+    adp = _team_adp(season)
+    stamp = (rating.get("daily") or {}).get("last")
+    try:
+        view = around.swr(
+            around._cache, ("team", str(chosen["id"]), me, season, latest, stamp),
+            lambda: tm.build(db, league=chosen, team_id=me, season=season, latest=latest,
+                             rating=rating, names=names, adp=adp),
+            ttl=600)
+    except Exception as exc:  # noqa: BLE001 — a page, never a 500
+        print(f"[team] {chosen['id']}: {type(exc).__name__}: {exc}", flush=True)
+        view = None
+    ctx["view"] = view or None
+    return _render(request, "team.html", **ctx)
+
+
+@app.post("/team/me")
+def team_pick(request: Request, league: str = Form(""), team: str = Form("")):
+    """"Which one is you?", answered once. Saved on the league for its owner
+    and on the follow for anybody else. Ownership is checked: a team id is
+    guessable and the answer changes what /team shows."""
+    import nfl_week
+    user = _require_user(request)
+    lid = clean_text(league, max_length=64).strip()
+    tid = clean_text(team, max_length=64).strip()
+    season = nfl_week.current_season()
+    try:
+        lg = next((l for l in db.market_leagues_for_user(user["id"])
+                   if str(l["id"]) == lid and int(l.get("season") or 0) == season), None)
+    except Exception:  # noqa: BLE001
+        lg = None
+    if not lg or not tid:
+        raise HTTPException(status_code=404)
+    if lg.get("followed"):
+        db.follow_league(user["id"], lid, tid)
+    else:
+        db.update_league(lid, {"my_team_id": tid})
+    return RedirectResponse(f"/team?league={quote(lid)}", status_code=303)
 
 
 @app.get("/rankings/board")

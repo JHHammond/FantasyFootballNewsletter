@@ -2162,3 +2162,50 @@ def count_trial_papers(season: int) -> int:
     res = (client().table("trial_papers").select("week", count="exact")
            .eq("season", int(season)).limit(1).execute())
     return int(res.count or 0)
+
+
+# ---------------------------------------------------------------------------
+# My Team (/team). Reads only, one league at a time. The caller has already
+# checked the league is the viewer's; these trust nobody and check nothing.
+# ---------------------------------------------------------------------------
+
+def league_lineups(league_id: str, season: int) -> list[dict[str, Any]]:
+    """Every roster in one league, every week so far, with points: the
+    production ranks and the team's value line (which roster held whom)."""
+    return _paged("lineup_players", "team_id, week, player_key, slot, started, points",
+                  league_id=str(league_id), season=int(season))
+
+
+def league_team_weeks(league_id: str, season: int) -> list[dict[str, Any]]:
+    """Every team's name and score, every week: names change, and a trade
+    row names the team as it was called that week."""
+    return _paged("team_weeks", "team_id, week, team_name, points",
+                  league_id=str(league_id), season=int(season))
+
+
+def league_trades(league_id: str, season: int) -> list[dict[str, Any]]:
+    """Every player moved by trade in one league: who gave him up, who got
+    him, and when. One row per player per trade."""
+    heads = _paged("trades", "trade_key, week, traded_at", league_id=str(league_id),
+                   season=int(season))
+    when = {h["trade_key"]: h for h in heads}
+    rows = _paged("trade_players", "trade_key, week, player_key, name, position, from_team, to_team",
+                  league_id=str(league_id), season=int(season))
+    return [dict(r, traded_at=(when.get(r["trade_key"]) or {}).get("traded_at")) for r in rows]
+
+
+def league_draft(league_id: str, season: int) -> list[dict[str, Any]]:
+    """One league's draft: who took whom, at which pick (050)."""
+    return _paged("draft_picks", "player_key, overall, round, team_id, team_count, position",
+                  league_id=str(league_id), season=int(season))
+
+
+def player_positions(keys: list[str]) -> dict[str, str]:
+    """{player_key: position} for a roster's worth of players."""
+    keys = sorted({str(k) for k in keys or [] if k})
+    out: dict[str, str] = {}
+    for i in range(0, len(keys), 200):
+        res = (client().table("nfl_players").select("player_key, position")
+               .in_("player_key", keys[i:i + 200]).execute())
+        out.update({r["player_key"]: r.get("position") for r in res.data or [] if r.get("position")})
+    return out

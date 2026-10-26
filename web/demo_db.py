@@ -1754,3 +1754,40 @@ def count_subscribers() -> int:
 
 def count_trial_papers(season: int) -> int:
     return 0
+
+
+# My Team (/team): the twins of db.py's league_* reads.
+
+def league_lineups(league_id: str, season: int) -> list[dict[str, Any]]:
+    return [{k: l.get(k) for k in ("team_id", "week", "player_key", "slot", "started", "points")}
+            for l in _LINEUPS.values()
+            if str(l["league_id"]) == str(league_id) and int(l["season"]) == int(season)]
+
+
+def league_team_weeks(league_id: str, season: int) -> list[dict[str, Any]]:
+    return [{k: r.get(k) for k in ("team_id", "week", "team_name", "points")}
+            for r in _TEAM_WEEKS.values()
+            if str(r["league_id"]) == str(league_id) and int(r["season"]) == int(season)]
+
+
+def league_trades(league_id: str, season: int) -> list[dict[str, Any]]:
+    out = []
+    for (lid, s, tk, _), r in _TRADE_PLAYERS.items():
+        if str(lid) != str(league_id) or int(s) != int(season):
+            continue
+        head = _TRADES.get((lid, s, tk)) or {}
+        out.append({k: r.get(k) for k in ("trade_key", "week", "player_key", "name", "position",
+                                          "from_team", "to_team")}
+                   | {"traded_at": head.get("traded_at")})
+    return out
+
+
+def league_draft(league_id: str, season: int) -> list[dict[str, Any]]:
+    return [{k: r.get(k) for k in ("player_key", "overall", "round", "team_id", "team_count", "position")}
+            for r in _DRAFT_PICKS.values()
+            if str(r["league_id"]) == str(league_id) and int(r["season"]) == int(season)]
+
+
+def player_positions(keys: list[str]) -> dict[str, str]:
+    return {k: (_NFL_PLAYERS.get(k) or {}).get("position") for k in keys or []
+            if (_NFL_PLAYERS.get(k) or {}).get("position")}

@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+{% block title %}{{ view.team if view else 'My team' }} &middot; My team{% endblock %}
+{% block description %}Your fantasy team's value over the season, where it ranks at every position in your league, and every player as a stock.{% endblock %}
+{% block wrapclass %}home around{% endblock %}
+
+{#
+    My Team and its Portfolio tab (John, 25 Oct 2026). Numbers come from
+    web/team.py; this file only lays them out. The two charts are drawn by
+    the script at the bottom from one JSON block; the hexagon is plain SVG
+    computed server-side, so it shows with scripts off.
+
+    Visual references John picked on 21st.dev: a radar chart for the
+    positions and a "current balance" line chart for the portfolio. Both
+    are rebuilt here in the paper's own type and colours rather than
+    imported, because the site has no React or Tailwind.
+#}
+
+{% macro sfx(n) -%}
+{%- if n % 100 in [11, 12, 13] %}th{% elif n % 10 == 1 %}st{% elif n % 10 == 2 %}nd{% elif n % 10 == 3 %}rd{% else %}th{% endif -%}
+{%- endmacro %}
+
+{% macro face(p) -%}
+<span class="at-face tm-face">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
+{%- endmacro %}
+
+{% macro signed(v, places=1) -%}
+{%- if v is none %}&ndash;{% elif v > 0 %}+{{ ('%.' ~ places ~ 'f')|format(v) }}{% elif v < 0 %}&minus;{{ ('%.' ~ places ~ 'f')|format(-v) }}{% else %}0{% endif -%}
+{%- endmacro %}
+
+{% macro chg(v, places=1) -%}
+<span class="{{ 'at-pc-up' if v and v > 0 else ('at-pc-down' if v and v < 0 else 'tm-flat') }}">{% if v and v > 0 %}&#9650;{% elif v and v < 0 %}&#9660;{% endif %} {{ signed(v, places) }}</span>
+{%- endmacro %}
+
+{% macro spark(vals, w=84, h=22) -%}
+{%- if vals and vals|length > 1 -%}
+{%- set lo = vals|min -%}{%- set hi = vals|max -%}{%- set span = (hi - lo) if hi > lo else 1 -%}
+<svg class="tm-spark {{ 'tm-spark-up' if vals[-1] >= vals[0] else 'tm-spark-down' }}" viewBox="0 0 {{ w }} {{ h }}" width="{{ w }}" height="{{ h }}" aria-hidden="true"><polyline points="{% for v in vals %}{{ '%.1f'|format(loop.index0 * w / (vals|length - 1)) }},{{ '%.1f'|format(h - 2 - (v - lo) / span * (h - 4)) }} {% endfor %}" /></svg>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro hexsvg(g, id='', partner=false) -%}
+<svg class="tm-hex{{ ' tm-hex-mini' if partner }}" {% if id %}id="{{ id }}"{% endif %} viewBox="0 0 {{ g.size }} {{ g.size }}" role="img"
+     aria-label="{% for l in g.labels %}{{ l.pos }}: {{ l.prod }} in points{% if l.value %}, {{ l.value }} in value{% endif %}. {% endfor %}">
+    {% for r in g.rings %}<polygon class="tm-ring{{ ' tm-ring-out' if loop.first }}" points="{{ r.points }}" />{% endfor %}
+    {% for a in g.axes %}<line class="tm-axis" x1="{{ g.c }}" y1="{{ g.c }}" x2="{{ a.x }}" y2="{{ a.y }}" />{% endfor %}
+    <polygon class="tm-shape-prod" points="{{ g.prod }}" />
+    {% if not partner %}
+    <polygon class="tm-shape-partner" points="" hidden />
+    <polyline class="tm-shape-value" points="{{ g.value }}" />
+    {% for d in g.value_dots %}<circle class="tm-dot-value" cx="{{ d.x }}" cy="{{ d.y }}" r="3.5" />{% endfor %}
+    {% endif %}
+    {% if not partner %}{% for r in g.rings %}<text class="tm-ring-lbl" x="{{ r.lx }}" y="{{ r.ly }}">{{ r.label }}</text>{% endfor %}{% endif %}
+    {% for d in g.prod_dots %}<circle class="tm-dot-prod" cx="{{ d.x }}" cy="{{ d.y }}" r="{{ 3 if partner else 4 }}" />{% endfor %}
+    {% if not partner %}{% for l in g.labels %}
+    <text class="tm-hex-pos" x="{{ l.x }}" y="{{ l.y - 6 }}" text-anchor="{{ l.anchor }}">{{ l.pos }}</text>
+    <text class="tm-hex-rank" x="{{ l.x }}" y="{{ l.y + 9 }}" text-anchor="{{ l.anchor }}">{{ l.prod }}{% if l.value %} &middot; {{ l.value }}{% endif %}</text>
+    {% endfor %}{% endif %}
+</svg>
+{%- endmacro %}
+
+{% block content %}
+<section class="front at-front mk-front tm-front">
+    <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; My team</p>
+    <h1 class="mk-title">{{ view.team if view else 'My team' }}</h1>
+    {% if leagues|length > 1 %}
+    <form class="tm-league" method="get" action="/team">
+        <label for="tm-league-pick">League</label>
+        <select id="tm-league-pick" name="league" onchange="this.form.submit()">
+            {% for l in leagues %}<option value="{{ l.id }}"{{ ' selected' if l.id == league }}>{{ l.name }}</option>{% endfor %}
+        </select>
+        {% if tab == 'portfolio' %}<input type="hidden" name="tab" value="portfolio" />{% endif %}
+        <noscript><button type="submit">Go</button></noscript>
+    </form>
+    {% elif leagues %}<p class="mk-dek">{{ leagues[0].name }}</p>{% endif %}
+</section>
+
+{% if not leagues %}
+<section class="card tm-empty">
+    <h2 class="card-title">No league yet</h2>
+    <p>Connect your league and this page fills itself in: what your team is worth, where it ranks at every position, and every player as a stock.</p>
+    <p><a class="btn btn-primary" href="/connect">Connect a league</a></p>
+</section>
+
+{% elif pick is not none %}
+<section class="card tm-pick">
+    <h2 class="card-title">Which one is you?</h2>
+    {% if pick %}
+    <p class="card-sub">Your platform doesn&rsquo;t tell us which team is yours. Pick it once and we&rsquo;ll remember.</p>
+    <form method="post" action="/team/me" class="tm-pick-list">
+        <input type="hidden" name="league" value="{{ league }}" />
+        {% for t in pick %}<button type="submit" name="team" value="{{ t.id }}" class="tm-pick-btn">{{ t.name }}</button>{% endfor %}
+    </form>
+    {% else %}
+    <p class="card-sub">This league&rsquo;s teams appear after its first week is collected.</p>
+    {% endif %}
+</section>
+
+{% elif not view %}
+<section class="card tm-empty">
+    <h2 class="card-title">Not yet</h2>
+    <p>Your team appears here once its rosters and the trade market are in. Rosters are collected after each NFL week.</p>
+</section>
+
+{% else %}
+{% set H = view.header %}
+{% set F = view.portfolio %}
+
+<nav class="tm-tabs" role="tablist" aria-label="My team">
+    <a href="/team?league={{ league|urlencode }}" role="tab" id="tm-tab-team" aria-controls="tm-team"
+       aria-selected="{{ 'true' if tab == 'team' else 'false' }}" class="tm-tab{{ ' on' if tab == 'team' }}" data-tab="team">My team</a>
+    <a href="/team?league={{ league|urlencode }}&amp;tab=portfolio" role="tab" id="tm-tab-portfolio" aria-controls="tm-portfolio"
+       aria-selected="{{ 'true' if tab == 'portfolio' else 'false' }}" class="tm-tab{{ ' on' if tab == 'portfolio' }}" data-tab="portfolio">Portfolio</a>
+</nav>
+
+{# =============================================================== MY TEAM #}
+<div id="tm-team" role="tabpanel" aria-labelledby="tm-tab-team"{% if tab != 'team' %} hidden{% endif %}>
+
+<section class="card tm-head">
+    <div class="tm-head-main">
+        <p class="tm-label">Team value</p>
+        <p class="tm-big">{{ '{:,.0f}'.format(H.value) }}</p>
+        <p class="tm-head-sub">{{ chg(H.week) }} <span class="tm-muted">this week</span>
+           &nbsp;&middot;&nbsp; {{ chg(H.draft) }} <span class="tm-muted">since the draft</span></p>
+    </div>
+    <dl class="tm-head-stats">
+        <div><dt>League rank</dt><dd>{{ H.rank }}<small>{{ sfx(H.rank) }} of {{ H.teams }}</small></dd></div>
+        <div><dt>League average</dt><dd>{{ '{:,.0f}'.format(H.league_avg) }}</dd></div>
+    </dl>
+    <p class="tm-note">Every player&rsquo;s price on the trade market, added up. The #1 player in fantasy is worth 100, the #12 about {{ '%.0f'|format(view.scale12) if view.scale12 else 'half that' }}. Kickers and defenses aren&rsquo;t priced.{% if H.unpriced %} {{ H.unpriced|length }} of your players {{ 'hasn’t' if H.unpriced|length == 1 else 'haven’t' }} been traded enough to price yet.{% endif %}</p>
+</section>
+
+<section class="card tm-chart-card">
+    <h2 class="card-title">Value over the season</h2>
+    <p class="card-sub">Your team in red, each leaguemate in grey, the league average dashed. Each day counts the roster you had that week.</p>
+    <figure class="tm-chart"><svg id="tm-chart-team" viewBox="0 0 760 300" role="img" aria-label="Your team's value by day, against your leaguemates"></svg>
+        <div class="tm-tip" id="tm-tip-team" hidden></div></figure>
+</section>
+
+<section class="card tm-pos">
+    <h2 class="card-title">Where you rank, position by position</h2>
+    {% if view.story %}<p class="tm-story">{{ view.story }}</p>{% endif %}
+    <div class="tm-pos-grid">
+        <div class="tm-hex-wrap">
+            {{ hexsvg(view.hex, 'tm-hex-main') }}
+            <p class="tm-legend"><span><span class="tm-key tm-key-prod"></span>Points from your starters</span>
+               <span><span class="tm-key tm-key-value"></span>Market value</span>
+               <span id="tm-key-partner" hidden><span class="tm-key tm-key-partner"></span><span id="tm-key-partner-name"></span></span></p>
+        </div>
+        <table class="tm-ranks">
+            <thead><tr><th scope="col">Pos</th><th scope="col">Points</th><th scope="col">Value</th></tr></thead>
+            <tbody>
+            {% for r in view.ranks %}
+            <tr><th scope="row">{{ r.pos }}</th>
+                <td><b>{{ r.prod_rank }}<small>{{ sfx(r.prod_rank) }}</small></b><span class="tm-sub">{{ '%.0f'|format(r.points) }} pts</span></td>
+                <td>{% if r.value_rank %}<b>{{ r.value_rank }}<small>{{ sfx(r.value_rank) }}</small></b><span class="tm-sub">{{ '%.0f'|format(r.value) }}</span>{% else %}<span class="tm-muted">not priced</span>{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="tm-note">Out of {{ H.teams }} teams. Points are your starters&rsquo; season total at each position, counted by the player&rsquo;s position, so a receiver in the flex counts as a receiver. Value is what your best lineup is worth today at each position.</p>
+</section>
+
+<section class="card tm-partners">
+    <h2 class="card-title">Who to talk to</h2>
+    {% if view.partners %}
+    <p class="card-sub">Leaguemates who are strong where you&rsquo;re weak, and weak where you&rsquo;re strong. The packages are ones the market rates about even. They&rsquo;re a place to start a conversation, not a verdict.</p>
+    <div class="tm-partner-list">
+    {% for p in view.partners %}
+    <article class="tm-partner">
+        <header class="tm-partner-head">
+            {{ hexsvg(p.hex, partner=true) }}
+            <div>
+                <h3 class="tm-partner-name">{{ p.team }}</h3>
+                <p class="tm-partner-why">You&rsquo;re {{ p.my_need_rank }}{{ sfx(p.my_need_rank) }} in {{ p.need }} value; they&rsquo;re {{ p.their_need_rank }}{{ sfx(p.their_need_rank) }}.
+                   They&rsquo;re {{ p.their_give_rank }}{{ sfx(p.their_give_rank) }} in {{ p.give }}; you&rsquo;re {{ p.my_give_rank }}{{ sfx(p.my_give_rank) }}.</p>
+                <button type="button" class="tm-overlay-btn" data-points="{{ p.hex.prod }}" data-name="{{ p.team }}" aria-pressed="false">Lay their shape over yours</button>
+            </div>
+        </header>
+        <ul class="tm-packs">
+        {% for k in p.packages %}
+            <li class="tm-pack">
+                <span class="tm-pack-side"><small>You get</small>
+                    <a href="/market/player/{{ k.take.k|urlencode }}">{{ face(k.take) }}{{ k.take.name }}</a> <span class="tm-tag">{{ k.take.pos }} {{ k.take.costs }}</span></span>
+                <span class="tm-pack-arrow" aria-hidden="true">&#8644;</span>
+                <span class="tm-pack-side"><small>You give</small>
+                    {% for g in k.give %}<a href="/market/player/{{ g.k|urlencode }}">{{ face(g) }}{{ g.name }}</a> <span class="tm-tag">{{ g.pos }} {{ g.costs }}</span>{% if not loop.last %} <span class="tm-plus">+</span> {% endif %}{% endfor %}</span>
+            </li>
+        {% endfor %}
+        </ul>
+    </article>
+    {% endfor %}
+    </div>
+    {% else %}
+    <p class="card-sub">Nobody in your league lines up with you yet: no team is strong where you&rsquo;re weak and weak where you&rsquo;re strong.</p>
+    {% endif %}
+</section>
+</div>
+
+{# ============================================================= PORTFOLIO #}
+<div id="tm-portfolio" role="tabpanel" aria-labelledby="tm-tab-portfolio"{% if tab != 'portfolio' %} hidden{% endif %}>
+
+{% if F.tape %}
+<div class="tm-tape" aria-label="Your players' moves over the last week">
+    <div class="tm-tape-run">
+    {% for pass in [1, 2] %}
+        <span class="tm-tape-set"{% if pass == 2 %} aria-hidden="true"{% endif %}>
+        {% for h in F.tape %}<a class="tm-tick" href="/market/player/{{ h.k|urlencode }}"{% if pass == 2 %} tabindex="-1"{% endif %}><b>{{ (h.name.split(' ')[-1])|upper }}</b> {{ '%.1f'|format(h.value) }} {{ chg(h.week) }}</a>{% endfor %}
+        </span>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<section class="card tm-head tm-folio-head">
+    <div class="tm-head-main">
+        <p class="tm-label">Portfolio value</p>
+        <p class="tm-big">{{ '%.1f'|format(F.value) }}</p>
+        <p class="tm-head-sub">{{ chg(F.unrealized) }}{% if F.pct is not none %} <span class="{{ 'at-pc-up' if F.pct > 0 else ('at-pc-down' if F.pct < 0 else 'tm-flat') }}">({{ signed(F.pct) }}%)</span>{% endif %} <span class="tm-muted">on what you paid</span></p>
+    </div>
+    <dl class="tm-head-stats">
+        <div><dt>Cost basis</dt><dd>{{ '%.1f'|format(F.cost) }}</dd></div>
+        <div><dt>Realized</dt><dd>{{ chg(F.realized) }}</dd></div>
+        <div><dt>Players</dt><dd>{{ F.holdings|length }}</dd></div>
+    </dl>
+</section>
+
+<section class="card tm-chart-card">
+    <div class="tm-chart-stats" id="tm-folio-stats"></div>
+    <figure class="tm-chart"><svg id="tm-chart-folio" viewBox="0 0 760 300" role="img" aria-label="What the players you hold today have been worth, by day"></svg>
+        <div class="tm-tip" id="tm-tip-folio" hidden></div></figure>
+    <p class="tm-note">What the players you hold today have been worth, day by day, since the draft.</p>
+</section>
+
+{% if F.best and F.worst and F.best.k != F.worst.k %}
+<section class="tm-bestworst">
+    {% for label, h in [('Best investment', F.best), ('Biggest drag', F.worst)] %}
+    <a class="card tm-bw" href="/market/player/{{ h.k|urlencode }}">
+        <p class="tm-label">{{ label }}</p>
+        <p class="tm-bw-name">{{ face(h) }}{{ h.name }} <span class="tm-tag">{{ h.pos }} {{ h.costs or '' }}</span></p>
+        <p class="tm-bw-num">{{ chg(h.gain) }}{% if h.pct is not none %} <span class="tm-muted">({{ signed(h.pct, 0) }}%)</span>{% endif %}</p>
+        <p class="tm-sub">{{ h.label }} &middot; paid {{ '%.1f'|format(h.basis) }}, worth {{ '%.1f'|format(h.value) }}</p>
+    </a>
+    {% endfor %}
+</section>
+{% endif %}
+
+<section class="card tm-hold">
+    <h2 class="card-title">Holdings</h2>
+    <div class="tm-table-wrap">
+    <table class="tm-table" id="tm-holdings">
+        <thead><tr>
+            <th scope="col" data-sort="name">Player</th>
+            <th scope="col" class="tm-hide-sm">Acquired</th>
+            <th scope="col" class="num" data-sort="basis">Paid</th>
+            <th scope="col" class="num" data-sort="value" aria-sort="descending">Worth</th>
+            <th scope="col" class="num" data-sort="week">7 days</th>
+            <th scope="col" class="num" data-sort="gain">Gain</th>
+            <th scope="col" class="tm-hide-sm">Since you got him</th>
+        </tr></thead>
+        <tbody>
+        {% for h in F.holdings %}
+        <tr data-name="{{ h.name }}" data-basis="{{ h.basis }}" data-value="{{ h.value }}" data-week="{{ h.week }}" data-gain="{{ h.gain }}">
+            <th scope="row"><a href="/market/player/{{ h.k|urlencode }}">{{ face(h) }}<span>{{ h.name }}<small>{{ h.pos }}{% if h.costs %} &middot; {{ h.costs }}{% endif %}{% if h.inj %} &middot; <em class="tm-inj">{{ h.inj }}</em>{% endif %}</small></span></a></th>
+            <td class="tm-hide-sm tm-how">{{ h.label }}</td>
+            <td class="num">{{ '%.1f'|format(h.basis) if h.how != 'waiver' else 'free' }}</td>
+            <td class="num"><b>{% if h.priced %}{{ '%.1f'|format(h.value) }}{% else %}<span class="tm-muted" title="{{ 'Off the board while injured' if h.inj else 'Not traded enough to price' }}">&ndash;</span>{% endif %}</b></td>
+            <td class="num">{{ chg(h.week) }}</td>
+            <td class="num">{{ chg(h.gain) }}{% if h.pct is not none %}<small class="tm-pct">{{ signed(h.pct, 0) }}%</small>{% endif %}</td>
+            <td class="tm-hide-sm">{{ spark(h.spark) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <p class="tm-note"><b>What you paid:</b> a drafted player costs the pick you spent on him, read on the market&rsquo;s scale; a player you traded for costs what he was worth that day; a waiver pickup was free (FAAB isn&rsquo;t counted yet). A player on your roster since week 1 that you didn&rsquo;t draft costs what he was worth on draft day.</p>
+</section>
+
+{% if F.sold %}
+<section class="card tm-hold">
+    <h2 class="card-title">Sold</h2>
+    <div class="tm-table-wrap">
+    <table class="tm-table">
+        <thead><tr><th scope="col">Player</th><th scope="col" class="num">Paid</th><th scope="col" class="num">Sold at</th>
+            <th scope="col" class="num">Realized</th><th scope="col" class="num">Worth now</th><th scope="col" class="num">Since</th></tr></thead>
+        <tbody>
+        {% for s in F.sold %}
+        <tr><th scope="row"><a href="/market/player/{{ s.k|urlencode }}">{{ face(s) }}<span>{{ s.name }}<small>{{ s.pos }} &middot; {{ s.label }}</small></span></a></th>
+            <td class="num">{{ '%.1f'|format(s.basis) }}</td><td class="num">{{ '%.1f'|format(s.sold) }}</td>
+            <td class="num">{{ chg(s.gain) }}</td><td class="num">{{ '%.1f'|format(s.now) }}</td><td class="num">{{ chg(s.since) }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if F.sold_best and F.sold_best.since >= 5 %}<p class="tm-story">{{ F.sold_best.name }} is up {{ '%.1f'|format(F.sold_best.since) }} since you sold him.</p>{% endif %}
+</section>
+{% endif %}
+</div>
+
+<script type="application/json" id="tm-data">{{ {'start': view.chart.start, 'days': view.chart.days, 'mine': view.chart.mine, 'others': view.chart.others, 'avg': view.chart.avg, 'folio': F.line}|tojson }}</script>
+<script>
+(function () {
+    var D;
+    try { D = JSON.parse(document.getElementById("tm-data").textContent); } catch (e) { return; }
+    var NS = "http://www.w3.org/2000/svg";
+    var start = D.start ? new Date(D.start + "T12:00:00") : null;
+    function dayOf(off) { if (!start) return ""; var d = new Date(start.getTime() + off * 864e5);
+        return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
+    function el(name, attrs, parent) { var e = document.createElementNS(NS, name);
+        for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+    function fmt(v) { return (Math.round(v * 10) / 10).toFixed(1); }
+    function sign(v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v)); }
+
+    // One line chart, the market's look: dashed grid, ink labels, the line
+    // that matters in the paper's red, a scrub that follows the pointer.
+    function chart(svg, tip, main, others, dashed) {
+        if (!svg || !main || main.length < 2) return null;
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        // A phone gets a narrower, taller drawing rather than the desktop
+        // one shrunk to illegible (the market chart does the same).
+        var narrow = (svg.parentNode.clientWidth || 760) < 520;
+        var W = narrow ? 380 : 760, H = narrow ? 300 : 300, L = narrow ? 40 : 46, R = 10, T = 18, B = 30;
+        svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+        var all = main.slice(); (others || []).forEach(function (o) { all = all.concat(o); });
+        if (dashed) all = all.concat(dashed);
+        var lo = Math.min.apply(null, all), hi = Math.max.apply(null, all);
+        var pad = (hi - lo) * 0.08 || 5; lo = Math.max(0, lo - pad); hi += pad;
+        var n = D.days.length, last = D.days[n - 1] || 1;
+        function x(i) { return L + (W - L - R) * (D.days[i] / last); }
+        function y(v) { return T + (H - T - B) * (1 - (v - lo) / (hi - lo || 1)); }
+        var step = Math.pow(10, Math.floor(Math.log10((hi - lo) / 4 || 1)));
+        while ((hi - lo) / step > 5) step *= 2;
+        for (var g = Math.ceil(lo / step) * step; g <= hi; g += step) {
+            el("line", { x1: L, x2: W - R, y1: y(g), y2: y(g), "class": "tm-grid" }, svg);
+            var t = el("text", { x: L - 8, y: y(g) + 4, "text-anchor": "end", "class": "tm-ytick" }, svg);
+            t.textContent = Math.round(g).toLocaleString();
+        }
+        [0, Math.floor(n / 3), Math.floor(2 * n / 3), n - 1].forEach(function (i, j, a) {
+            if (j && i === a[j - 1]) return;
+            var t = el("text", { x: x(i), y: H - 8, "text-anchor": i === 0 ? "start" : (i === n - 1 ? "end" : "middle"), "class": "tm-xtick" }, svg);
+            t.textContent = i === 0 ? "Draft" : dayOf(D.days[i]);
+        });
+        function path(vals) { return vals.map(function (v, i) { return (i ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" "); }
+        (others || []).forEach(function (o) { el("path", { d: path(o), "class": "tm-line-other" }, svg); });
+        if (dashed) el("path", { d: path(dashed), "class": "tm-line-avg" }, svg);
+        var area = path(main) + " L" + x(n - 1).toFixed(1) + "," + (H - B) + " L" + x(0).toFixed(1) + "," + (H - B) + " Z";
+        if (!others || !others.length) el("path", { d: area, "class": "tm-area" }, svg);
+        el("path", { d: path(main), "class": "tm-line-main" }, svg);
+        var hiI = main.indexOf(Math.max.apply(null, main)), loI = main.indexOf(Math.min.apply(null, main));
+        [hiI, loI].forEach(function (i) { el("circle", { cx: x(i), cy: y(main[i]), r: 4, "class": "tm-dot-mark" }, svg); });
+        el("circle", { cx: x(n - 1), cy: y(main[n - 1]), r: 5, "class": "tm-dot-now" }, svg);
+        var cur = el("line", { y1: T, y2: H - B, "class": "tm-cursor", visibility: "hidden" }, svg);
+        var dot = el("circle", { r: 5, "class": "tm-dot-now", visibility: "hidden" }, svg);
+        function at(evt) {
+            var box = svg.getBoundingClientRect(), p = evt.touches ? evt.touches[0] : evt;
+            var px = (p.clientX - box.left) / box.width * W, best = 0;
+            for (var i = 1; i < n; i++) if (Math.abs(x(i) - px) < Math.abs(x(best) - px)) best = i;
+            cur.setAttribute("x1", x(best)); cur.setAttribute("x2", x(best)); cur.setAttribute("visibility", "visible");
+            dot.setAttribute("cx", x(best)); dot.setAttribute("cy", y(main[best])); dot.setAttribute("visibility", "visible");
+            if (tip) {
+                var d = main[best] - main[0];
+                tip.innerHTML = "<small>" + (best === 0 ? "Draft day" : dayOf(D.days[best])) + "</small><b>" + fmt(main[best]) +
+                    "</b><span class='" + (d > 0 ? "at-pc-up" : d < 0 ? "at-pc-down" : "tm-flat") + "'>" + sign(d) + " since the draft</span>";
+                tip.hidden = false;
+                var left = x(best) / W * box.width;
+                tip.style.left = Math.max(0, Math.min(box.width - tip.offsetWidth, left - tip.offsetWidth / 2)) + "px";
+                tip.style.top = Math.max(0, y(main[best]) / H * box.height - tip.offsetHeight - 12) + "px";
+            }
+        }
+        function off() { cur.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); if (tip) tip.hidden = true; }
+        svg.addEventListener("mousemove", at); svg.addEventListener("touchstart", at, { passive: true });
+        svg.addEventListener("touchmove", at, { passive: true }); svg.addEventListener("mouseleave", off);
+        svg.addEventListener("touchend", off);
+        return { hi: main[hiI], lo: main[loI], hiDay: D.days[hiI], loDay: D.days[loI], change: main[n - 1] - main[0], from: main[0] };
+    }
+
+    var drawn = {};
+    function draw(which) {
+        if (drawn[which]) return;
+        if (which === "team") {
+            drawn.team = chart(document.getElementById("tm-chart-team"), document.getElementById("tm-tip-team"), D.mine, D.others, D.avg);
+        } else {
+            var s = chart(document.getElementById("tm-chart-folio"), document.getElementById("tm-tip-folio"), D.folio, null, null);
+            drawn.portfolio = s;
+            var box = document.getElementById("tm-folio-stats");
+            if (s && box) {
+                var pct = s.from ? " (" + sign(100 * s.change / s.from) + "%)" : "";
+                box.innerHTML = "<span>High <b>" + fmt(s.hi) + "</b> <small>" + (s.hiDay ? dayOf(s.hiDay) : "Draft") + "</small></span>" +
+                    "<span>Low <b>" + fmt(s.lo) + "</b> <small>" + (s.loDay ? dayOf(s.loDay) : "Draft") + "</small></span>" +
+                    "<span>Since the draft <b class='" + (s.change > 0 ? "at-pc-up" : s.change < 0 ? "at-pc-down" : "") + "'>" + sign(s.change) + pct + "</b></span>";
+            }
+        }
+    }
+
+    var wasNarrow = null, timer;
+    window.addEventListener("resize", function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+            var n = (document.querySelector(".tm-chart") || {}).clientWidth < 520;
+            if (wasNarrow !== null && n !== wasNarrow) { drawn = {}; draw(document.getElementById("tm-portfolio").hidden ? "team" : "portfolio"); }
+            wasNarrow = n;
+        }, 150);
+    });
+
+    // Tabs without a reload; the links still work with scripts off.
+    var tabs = document.querySelectorAll(".tm-tab");
+    function show(which, push) {
+        tabs.forEach(function (t) { var on = t.getAttribute("data-tab") === which;
+            t.classList.toggle("on", on); t.setAttribute("aria-selected", on ? "true" : "false"); });
+        document.getElementById("tm-team").hidden = which !== "team";
+        document.getElementById("tm-portfolio").hidden = which !== "portfolio";
+        draw(which);
+        if (push) try { history.replaceState(null, "", tabs[which === "team" ? 0 : 1].getAttribute("href")); } catch (e) {}
+    }
+    tabs.forEach(function (t) { t.addEventListener("click", function (e) {
+        if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+        e.preventDefault(); show(t.getAttribute("data-tab"), true); }); });
+    show(document.getElementById("tm-portfolio").hidden ? "team" : "portfolio", false);
+
+    // A partner's shape over yours.
+    var overlay = document.querySelector("#tm-hex-main .tm-shape-partner");
+    var key = document.getElementById("tm-key-partner"), keyName = document.getElementById("tm-key-partner-name");
+    document.querySelectorAll(".tm-overlay-btn").forEach(function (b) {
+        b.addEventListener("click", function () {
+            var on = b.getAttribute("aria-pressed") !== "true";
+            document.querySelectorAll(".tm-overlay-btn").forEach(function (o) {
+                o.setAttribute("aria-pressed", "false"); o.textContent = "Lay their shape over yours"; });
+            // An SVG shape has no .hidden property: the attribute itself.
+            if (overlay) { if (on) overlay.removeAttribute("hidden"); else overlay.setAttribute("hidden", "");
+                overlay.setAttribute("points", on ? b.getAttribute("data-points") : ""); }
+            if (key) { key.hidden = !on; keyName.textContent = b.getAttribute("data-name"); }
+            if (on) { b.setAttribute("aria-pressed", "true"); b.textContent = "Take their shape off";
+                var hex = document.getElementById("tm-hex-main"); if (hex && hex.scrollIntoView) hex.scrollIntoView({ behavior: "smooth", block: "center" }); }
+        });
+    });
+
+    // Sortable holdings.
+    var table = document.getElementById("tm-holdings");
+    if (table) table.querySelectorAll("th[data-sort]").forEach(function (th) {
+        th.tabIndex = 0;
+        function go() {
+            var k = th.getAttribute("data-sort"), body = table.tBodies[0];
+            var down = th.getAttribute("aria-sort") !== "descending";
+            table.querySelectorAll("th[data-sort]").forEach(function (o) { o.removeAttribute("aria-sort"); });
+            th.setAttribute("aria-sort", down ? "descending" : "ascending");
+            Array.prototype.slice.call(body.rows).sort(function (a, b) {
+                var x = a.getAttribute("data-" + k), y = b.getAttribute("data-" + k);
+                var c = k === "name" ? x.localeCompare(y) : parseFloat(x) - parseFloat(y);
+                return down ? -c : c;
+            }).forEach(function (r) { body.appendChild(r); });
+        }
+        th.addEventListener("click", go);
+        th.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

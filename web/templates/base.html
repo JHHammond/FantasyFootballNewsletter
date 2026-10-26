@@ -66,12 +66,13 @@
                 {% if around_open() %}
                 <a href="/around" class="nav-main{{ ' nav-here' if here == '/around' }}">Around the Leagues</a>
                 {% endif %}
-                <div class="nav-drop{{ ' nav-here-drop' if here.startswith('/market') }}">
+                <div class="nav-drop{{ ' nav-here-drop' if here.startswith('/market') or here == '/team' }}">
                     <a href="/market" class="nav-main nav-drop-btn" aria-haspopup="true" aria-expanded="false">Trade market<svg class="nav-chev" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" /></svg></a>
                     <div class="nav-drop-menu">
                         <a href="/market" class="nav-drop-item{{ ' on' if here == '/market' }}"><b>The trade market</b><span>What every player costs, from real trades</span></a>
                         <a href="/market/compare" class="nav-drop-item{{ ' on' if here == '/market/compare' }}"><b>Compare players</b><span>Up to four, side by side, with their price lines</span></a>
                         <a href="/market/trades" class="nav-drop-item{{ ' on' if here == '/market/trades' }}"><b>Live trades</b><span>Every trade as it comes in, filterable</span></a>
+                        {% if user and (team_open() or user.plan == 'staff') %}<a href="/team" class="nav-drop-item{{ ' on' if here == '/team' }}"><b>My team</b><span>Your team&rsquo;s value, its ranks, and every player as a stock</span></a>{% endif %}
                     </div>
                 </div>
                 <a href="{{ '/account' if user else '/' }}" class="nav-main{{ ' nav-here' if here == '/account' }}">Papers</a>
