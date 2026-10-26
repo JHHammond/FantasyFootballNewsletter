@@ -158,6 +158,9 @@ MIN_DRAFTS = 20
 CHART_DEFAULT = 3
 #: Movers for that default come from the top this many, have at least
 #: this many trades, and are measured over this many days.
+#: The opening chart leaves out the top this many: everybody already knows
+#: where #3 is (John, 26 Oct).
+CHART_SKIP_TOP = 10
 CHART_MOVER_POOL = 100
 CHART_MOVER_MIN_TRADES = 15
 CHART_MOVER_DAYS = 7
@@ -165,38 +168,72 @@ CHART_MOVER_DAYS = 7
 
 def chart_default(rated: list, day_lines: dict, trades: dict,
                   lead_with_top: bool = True) -> list:
-    """The chart's opening lines: the most expensive player, then the
-    biggest riser, the biggest faller, the next riser... over the last
-    week. Filled from the top of the market if the week was quiet.
+    """The chart's opening lines.
 
-    `lead_with_top=False` is the dynasty market (John, 25 Oct: "we dont
-    need to show number 1 automatically, lets just do four big movers. It
-    seems like number 1 has been bijan all year"): four movers, and #1 only
-    if he is one of them."""
+    With `lead_with_top` (no longer used by the market, kept for the
+    validators): the most expensive player, then the biggest riser, the
+    biggest faller... by share of his place.
+
+    Without it, which is the market since 26 Oct (John: "This weeks movers
+    is lame. It should autofill more volatile and interesting people like
+    Omarion Hampton, Jaylen Waddle, Chuba Hubbard, Jaylen Warren, Christian
+    Watson"): the most VOLATILE players outside the top ten. Measured by
+    share of place, a star going #3 to #1 outscores a starter going #40 to
+    #25, so the chart always opened on the same famous names. Now a move is
+    counted in places, among players ranked 11 to 100 with real trading
+    behind them, and scored on the week's net move plus how much he swung
+    over the fortnight. At least one riser and one faller when there are
+    both. Filled from the top of the market if the week was quiet."""
     lines, last = day_lines.get("lines") or {}, day_lines.get("last")
     drawn = [k for k in rated if k in lines]
     if not drawn:
         return []
-    out = [drawn[0]] if lead_with_top else []
-    up, down = [], []
-    for k in drawn[(1 if lead_with_top else 0):CHART_MOVER_POOL]:
-        line = lines[k]
-        if trades.get(k, 0) < CHART_MOVER_MIN_TRADES or not line or last is None:
-            continue
-        then = next((pt[1] for pt in reversed(line) if pt[0] <= last - CHART_MOVER_DAYS), None)
-        if then is None or not line[-1][1]:
-            continue
-        # By share of his place, so #40 to #25 counts for more than #140 to #125.
-        moved = math.log(then / line[-1][1]) if then > 0 and line[-1][1] > 0 else 0
-        if moved > 0.05:
-            up.append((-moved, k))
-        elif moved < -0.05:
-            down.append((moved, k))
-    up, down = [k for _, k in sorted(up)], [k for _, k in sorted(down)]
-    while len(out) < CHART_DEFAULT and (up or down):
-        for side in (up, down):
-            if side and len(out) < CHART_DEFAULT:
-                out.append(side.pop(0))
+    if lead_with_top:
+        out = [drawn[0]]
+        up, down = [], []
+        for k in drawn[1:CHART_MOVER_POOL]:
+            line = lines[k]
+            if trades.get(k, 0) < CHART_MOVER_MIN_TRADES or not line or last is None:
+                continue
+            then = next((pt[1] for pt in reversed(line) if pt[0] <= last - CHART_MOVER_DAYS), None)
+            if then is None or not line[-1][1]:
+                continue
+            # By share of his place, so #40 to #25 counts for more than #140 to #125.
+            moved = math.log(then / line[-1][1]) if then > 0 and line[-1][1] > 0 else 0
+            if moved > 0.05:
+                up.append((-moved, k))
+            elif moved < -0.05:
+                down.append((moved, k))
+        up, down = [k for _, k in sorted(up)], [k for _, k in sorted(down)]
+        while len(out) < CHART_DEFAULT and (up or down):
+            for side in (up, down):
+                if side and len(out) < CHART_DEFAULT:
+                    out.append(side.pop(0))
+    else:
+        scored = []
+        for k in drawn[CHART_SKIP_TOP:CHART_MOVER_POOL]:
+            line = lines[k]
+            if trades.get(k, 0) < CHART_MOVER_MIN_TRADES or len(line) < 2 or last is None:
+                continue
+            now = line[-1][1]
+            then = next((pt[1] for pt in reversed(line) if pt[0] <= last - CHART_MOVER_DAYS), None)
+            if then is None:
+                continue
+            net = then - now                        # up = a smaller place now
+            recent = [pt[1] for pt in line if pt[0] >= last - 2 * CHART_MOVER_DAYS]
+            swing = sum(abs(b - a) for a, b in zip(recent, recent[1:]))
+            score = abs(net) + 0.25 * swing
+            if score >= 2:
+                scored.append((score, net, k))
+        scored.sort(key=lambda r: (-r[0], r[2]))
+        out = [k for _, _, k in scored[:CHART_DEFAULT]]
+        # One of each direction when the week has both.
+        nets = {k: n for _, n, k in scored}
+        for want in (lambda n: n > 0, lambda n: n < 0):
+            if out and not any(want(nets[k]) for k in out):
+                other = next((k for _, n, k in scored if want(n) and k not in out), None)
+                if other:
+                    out[-1] = other
     for k in drawn:
         if len(out) >= CHART_DEFAULT:
             break
