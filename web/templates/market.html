@@ -252,16 +252,21 @@
     });
     paintRange();
 
-    // ---- the frame. Lines start left of the box (they come in from off the
-    // page) and stop at R; the names and prices live to the right of R. ----
-    var W, H, L, R, T, B, LBL, narrow = null;
+    // ---- the frame, drawn at the box's real width (one SVG unit is one
+    // pixel, so type is the same size on every screen). Lines run in from
+    // the left edge of the card and stop at R; the names and prices live to
+    // the right of R. Room at the bottom for the dates. ----
+    var W, H, L, R, T, B, LBL, narrow = null, drawnW = 0;
     function frame() {
-        var small = (svg.getBoundingClientRect().width || 760) < 520;
-        if (small === narrow) return false;
-        narrow = small;
-        if (small) { W = 400; H = 340; L = -16; R = 286; T = 22; B = 326; LBL = 47; }
-        else { W = 760; H = 340; L = -20; R = 600; T = 22; B = 324; LBL = 54; }
+        var w = Math.round(svg.parentNode.getBoundingClientRect().width || 760);
+        if (w === drawnW) return false;
+        drawnW = w;
+        narrow = w < 520;
+        W = Math.max(320, w);
+        H = narrow ? 350 : 400;
+        L = 0; R = W - (narrow ? 112 : 160); T = 24; B = H - 30; LBL = narrow ? 47 : 54;
         svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+        svg.setAttribute("width", W); svg.setAttribute("height", H);
         return true;
     }
 
@@ -496,7 +501,40 @@
         while (svg.firstChild) svg.removeChild(svg.firstChild);
         var defs = el("defs", {}, svg);
         var clip = el("clipPath", {id: "mk2-clip"}, defs);
-        el("rect", {x: -60, y: 0, width: R + 60 + 8, height: H}, clip);
+        el("rect", {x: 0, y: 0, width: R + 8, height: H}, clip);
+        // The Y axis: faint dashed rules at round places, labelled small at
+        // the left. Log scale, so #1 to #5 gets the room it deserves.
+        var lastY = -99, ticks = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 125, 150, 200, 250, 300, 400];
+        var yAxis = el("g", {"class": "mk2-yaxis"}, svg);
+        ticks.forEach(function (n) {
+            if (n < lo || n > hi) return;
+            var yy = y(n);
+            if (yy - lastY < (narrow ? 30 : 36) || yy > B - 12) return;
+            lastY = yy;
+            el("line", {x1: 0, x2: R, y1: yy, y2: yy, "class": "mk2-grid"}, yAxis);
+        });
+        // The X axis: a baseline and dates. Sundays (game day) a week or
+        // two apart over a season or a month; every day over a week.
+        el("line", {x1: 0, x2: R, y1: B, y2: B, "class": "mk2-base"}, svg);
+        var xAxis = el("g", {"class": "mk2-xaxis"}, svg);
+        var minGap = narrow ? 62 : 80, lastX = -999, span = Math.max(1, LAST - d0);
+        var step = span <= 8 ? 1 : 7;
+        while (step < span && (R - L) * step / span < minGap) step += 7;
+        function xtick(d, text, anchor) {
+            var xx = x(d);
+            if (xx - lastX < minGap) return;
+            lastX = xx;
+            el("line", {x1: xx, x2: xx, y1: B, y2: B + 5, "class": "mk2-xmark"}, xAxis);
+            var t = el("text", {x: anchor === "start" ? xx + 2 : xx, y: B + 20, "class": "mk2-xtick", "text-anchor": anchor || "middle"}, xAxis);
+            t.textContent = text;
+        }
+        if (d0 === 0) xtick(0, "Draft", "start");
+        var first = d0 + (d0 === 0 ? 1 : 0);
+        if (step >= 7) while (first <= LAST && dateOf(first).getUTCDay() !== 0) first++;
+        for (var dd = first; dd <= LAST; dd += step) {
+            if (R - x(dd) < 24) break;
+            xtick(dd, dayLabel(dd), d0 > 0 && dd === first && x(dd) < 30 ? "start" : "middle");
+        }
         el("line", {id: "mk2-rule", "class": "mk2-rule", x1: 0, x2: 0, y1: T - 8, y2: B, style: "display:none"}, svg);
         var lines = el("g", {"clip-path": "url(#mk2-clip)"}, svg);
         var items = [];
@@ -509,19 +547,30 @@
             el("circle", {"class": "mk2-cur", r: narrow ? 4.5 : 5, fill: col, style: "display:none", "data-key": c.k}, svg);
             items.push({c: c, col: col, want: end[1] - 12, slot: pts[pts.length - 1][1]});
         });
+        // Y labels above the lines, with a paper halo so a line passing
+        // behind never hides one.
+        lastY = -99;
+        ticks.forEach(function (n) {
+            if (n < lo || n > hi) return;
+            var yy = y(n);
+            if (yy - lastY < (narrow ? 30 : 36) || yy > B - 12) return;
+            lastY = yy;
+            var t = el("text", {x: 6, y: yy - 5, "class": "mk2-ytick"}, yAxis.parentNode);
+            t.textContent = "#" + n;
+        });
         labels = {};
         placeLabels(items).forEach(function (it) {
             var p = BY[it.c.k];
             var a = el("a", {"class": "mk2-lbl", href: playerUrl(it.c.k)}, svg);
             a.setAttributeNS("http://www.w3.org/1999/xlink", "href", playerUrl(it.c.k));
-            var nm = el("text", {x: R + (narrow ? 14 : 18), y: it.y, fill: it.col, "class": "mk2-lbl-name"}, a);
+            var nm = el("text", {x: R + (narrow ? 14 : 20), y: it.y, fill: it.col, "class": "mk2-lbl-name"}, a);
             nm.textContent = lastName(p.name).toUpperCase();
-            var pr = el("text", {x: R + (narrow ? 14 : 18), y: it.y + (narrow ? 25 : 29), fill: it.col, "class": "mk2-lbl-price"}, a);
+            var pr = el("text", {x: R + (narrow ? 14 : 20), y: it.y + (narrow ? 25 : 29), fill: it.col, "class": "mk2-lbl-price"}, a);
             pr.textContent = pickLabel(it.slot);
             var t = el("title", {}, a); t.textContent = p.name + ": see his trades";
             labels[it.c.k] = pr;
         });
-        el("rect", {id: "mk2-hit", x: 0, y: 0, width: R, height: H, fill: "transparent", style: "touch-action:pan-y"}, svg);
+        el("rect", {id: "mk2-hit", x: 0, y: 0, width: R, height: B, fill: "transparent", style: "touch-action:pan-y"}, svg);
         drawPills();
         bindScrub();
         toUrl();
@@ -719,7 +768,10 @@
     var resizing;
     window.addEventListener("resize", function () {
         clearTimeout(resizing);
-        resizing = setTimeout(function () { var was = narrow; narrow = null; frame(); if (narrow !== was) draw(); }, 150);
+        resizing = setTimeout(function () {
+            var w = Math.round(svg.parentNode.getBoundingClientRect().width || 760);
+            if (w !== drawnW) draw();
+        }, 150);
     });
 })();
 </script>

@@ -5109,3 +5109,12 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
    list style floats it absolutely: keep it in its row. */
 .mk2 .mk2-add.at-pl-chart { position: static; top: auto; right: auto; transform: none; margin: 0; color: var(--ink); background: #faf6ee; }
 .mk2 .mk2-add.at-pl-chart.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+/* Axes for the market chart (John, 26 Oct). Drawn one unit to a pixel, and
+   kept inside the card: nothing past its edges on a wide screen. */
+.mk2-svg { overflow: hidden; height: auto; }
+.mk2-grid { stroke: #e3dccd; stroke-width: 1; stroke-dasharray: 3 5; }
+.mk2-base { stroke: #cfc6b4; stroke-width: 1; }
+.mk2-xmark { stroke: #cfc6b4; stroke-width: 1; }
+.mk2-xtick { font: 500 11.5px "Barlow", sans-serif; fill: #8c8270; }
+.mk2-ytick { font: 600 11px "Barlow", sans-serif; fill: #8c8270; paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; }
