@@ -2116,7 +2116,7 @@ def market_trades(request: Request, partial: int = 0):
 
 #: Players side by side on the compare page, and how many of them are free.
 COMPARE_SLOTS = 4
-COMPARE_FREE = 2
+COMPARE_FREE = 4      # all four free since 26 Oct (John: "unblock the 2 slots")
 
 
 @app.get("/market/compare", response_class=HTMLResponse)

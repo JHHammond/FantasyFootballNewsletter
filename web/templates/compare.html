@@ -16,10 +16,17 @@
     <p class="mk-kicker">The Commissioner&rsquo;s Desk &middot; Trade market</p>
     <h1 class="mk-title">Compare players</h1>
     {{ market_switch(market, '/market/compare') }}
-    <p class="mk-dek">Pick {% if open_slots < slots %}two players ({{ slots }} with the season pass){% else %}up to {{ slots }} players{% endif %}. See what each one costs in real trades, and how that&rsquo;s moved all season.</p>
+    <p class="mk-dek">Pick up to {{ open_slots }} players. See what each one costs in real trades, and how that&rsquo;s moved all season.</p>
 </section>
 
 <section class="card cmp" id="cmp">
+    {# The chart first, then who's on it (John, 26 Oct). #}
+    <figure class="ar-chart at-pc-chart cmp-chart" id="cmp-chart" hidden>
+        <div class="ar-chart-box at-pc-box"><svg viewBox="0 0 760 300" class="ar-line" id="cmp-svg" role="img" aria-label="Each chosen player's place in the market by day"></svg>
+            <div class="at-pc-tip" id="cmp-tip" hidden></div></div>
+        <figcaption class="at-pc-note">Each player&rsquo;s place in the market at each day&rsquo;s close, starting from where he was drafted. #1 is the most expensive; higher on the chart costs more.</figcaption>
+    </figure>
+
     <div class="at-pc cmp-search">
         <label for="cmp-q" class="at-pc-sr">Add a player</label>
         <div class="at-pc-search">
@@ -32,11 +39,6 @@
     <div class="cmp-slots" id="cmp-slots" aria-live="polite"></div>
     <p class="cmp-verdict" id="cmp-verdict" hidden></p>
 
-    <figure class="ar-chart at-pc-chart cmp-chart" id="cmp-chart" hidden>
-        <div class="ar-chart-box at-pc-box"><svg viewBox="0 0 760 300" class="ar-line" id="cmp-svg" role="img" aria-label="Each chosen player's place in the market by day"></svg>
-            <div class="at-pc-tip" id="cmp-tip" hidden></div></div>
-        <figcaption class="at-pc-note">Each player&rsquo;s place in the market at each day&rsquo;s close, starting from where he was drafted. #1 is the most expensive; higher on the chart costs more.</figcaption>
-    </figure>
 </section>
 
 <section class="card cmp-pick">
