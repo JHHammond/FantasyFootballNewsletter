@@ -57,38 +57,11 @@ def end_labels(names: list[str]) -> list[str]:
 # Geometry
 # ---------------------------------------------------------------------------
 
-def monotone_path(points: list[tuple[float, float]]) -> str:
-    """A smooth curve through screen points that never overshoots one
-    (Fritsch–Carlson), like the market page's lines: a price that went
-    #20 -> #12 is never drawn dipping to #10 on the way."""
+def line_path(points: list[tuple[float, float]]) -> str:
+    """Straight from close to close, like the market page (John, 26 Oct: the
+    smoothed curves looked "cartoony ... it needs to look serious")."""
     pts = sorted(points)
-    n = len(pts)
-    if n == 0:
-        return ""
-    if n == 1:
-        x, y = pts[0]
-        return f"M{x:.1f},{y:.1f}"
-    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-    d = [(ys[i + 1] - ys[i]) / ((xs[i + 1] - xs[i]) or 1e-9) for i in range(n - 1)]
-    m = [d[0]] + [0.0] * (n - 2) + [d[-1]]
-    for i in range(1, n - 1):
-        m[i] = 0.0 if d[i - 1] * d[i] <= 0 else (d[i - 1] + d[i]) / 2
-    for i in range(n - 1):
-        if d[i] == 0:
-            m[i] = m[i + 1] = 0.0
-            continue
-        a, b = m[i] / d[i], m[i + 1] / d[i]
-        s = a * a + b * b
-        if s > 9:
-            t = 3 / math.sqrt(s)
-            m[i], m[i + 1] = t * a * d[i], t * b * d[i]
-    out = [f"M{xs[0]:.1f},{ys[0]:.1f}"]
-    for i in range(n - 1):
-        h = xs[i + 1] - xs[i]
-        out.append(f"C{xs[i] + h / 3:.1f},{ys[i] + m[i] * h / 3:.1f} "
-                   f"{xs[i + 1] - h / 3:.1f},{ys[i + 1] - m[i + 1] * h / 3:.1f} "
-                   f"{xs[i + 1]:.1f},{ys[i + 1]:.1f}")
-    return " ".join(out)
+    return " ".join(f"{'M' if i == 0 else 'L'}{x:.1f},{y:.1f}" for i, (x, y) in enumerate(pts))
 
 
 def nice_ticks(lo: float, hi: float, most: int = 5) -> list[int]:
@@ -183,12 +156,12 @@ def chart_svg(series: list[dict], *, base: str | None, last: int,
         if not pts:
             continue
         dash = ' stroke-dasharray="7 5"' if s.get("dash") else ""
-        parts.append(f'<path class="pc-line" d="{monotone_path(pts)}" stroke="{col}"{dash}/>')
+        parts.append(f'<path class="pc-line" d="{line_path(pts)}" stroke="{col}"{dash}/>')
         if s["line"][0][0] == 0:
             sx, sy = pts[0]
             parts.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="2.6" class="pc-start" stroke="{col}"/>')
         ex, ey = pts[-1]
-        parts.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="3.6" fill="{col}"/>')
+        parts.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="3" fill="{col}"/>')
         ends.append((ex, ey, col, label, s))
     placed = spread_labels([e[1] for e in ends], font + 3, top, bottom)
     for (ex, ey, col, label, s), ly in zip(ends, placed):
@@ -230,9 +203,9 @@ CSS = """
     .pc-svg-wide { display: none; }
     .pc-svg-mid { display: block; }
 }
-.pc-rule { stroke: currentColor; opacity: .18; stroke-dasharray: 3 4; }
+.pc-rule { stroke: currentColor; opacity: .14; }
 .pc-axis { fill: currentColor; opacity: .6; }
-.pc-line { fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.pc-line { fill: none; stroke-width: 1.8; stroke-linecap: butt; stroke-linejoin: round; }
 .pc-start { fill: #fff; stroke-width: 2; }
 .pc-leader { fill: none; stroke-width: 1; opacity: .6; }
 .pc-end { fill: currentColor; }

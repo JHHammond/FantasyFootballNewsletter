@@ -3726,7 +3726,7 @@ html.nb-lock { overflow: hidden; }
 .at-market-chart { margin: 18px 0 8px; }
 .at-market-boards { margin-top: 18px; }
 .at-market-note { margin-top: 14px; font-size: 14px; }
-.at-mk-path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.at-mk-path { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: butt; }
 .at-mk-dot { stroke: var(--paper); stroke-width: 1.5; }
 .at-mk-label { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: .6px; }
 .at-mk-0 .at-mk-path, .at-mk-0 .at-mk-dot { stroke: var(--accent); fill: var(--accent); }
@@ -4013,15 +4013,15 @@ html.nb-lock { overflow: hidden; }
 
 /* The plot: dotted paper, dashed rules, the focused line over a soft fill. */
 .at-pc-chart { margin-top: 10px; }
-.at-pc-box { position: relative; cursor: crosshair; background-image: radial-gradient(rgba(107, 96, 80, .16) 1px, transparent 1.2px); background-size: 20px 20px; }
-.at-pc-grid { stroke-dasharray: 4 8; }
+.at-pc-box { position: relative; cursor: crosshair; }
+.at-pc-grid { stroke-dasharray: none; opacity: .7; }
 .at-pc-rule { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 4 4; opacity: .5; }
 .at-pc-area { pointer-events: none; }
-.at-pc-on .at-mk-path { stroke-width: 2.75; }
-.at-pc-off .at-mk-path { stroke-width: 1.5; opacity: .45; }
+.at-pc-on .at-mk-path { stroke-width: 2.1; }
+.at-pc-off .at-mk-path { stroke-width: 1.25; opacity: .45; }
 .at-pc-off .at-pc-end { opacity: .6; }
-.at-pc .at-pc-mark { stroke: var(--paper); stroke-width: 2; filter: drop-shadow(0 2px 2.5px rgba(0, 0, 0, .35)); }
-.at-pc .at-mk-ring { stroke-width: 2.5; }
+.at-pc .at-pc-mark { stroke: var(--paper); stroke-width: 1.5; }
+.at-pc .at-mk-ring { stroke-width: 1.5; }
 .at-pc-svg image { pointer-events: none; }
 .ar-chart.at-pc-chart .ar-tick { font-size: 12px; }
 
@@ -4992,8 +4992,8 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 
 .mk2-chart { position: relative; margin: 14px -26px 0; }
 .mk2-svg { display: block; width: 100%; height: auto; overflow: visible; user-select: none; -webkit-user-select: none; }
-.mk2-line { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
-.mk2-end { stroke: var(--paper); stroke-width: 2; }
+.mk2-line { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: butt; }
+.mk2-end { stroke: var(--paper); stroke-width: 1.5; }
 .mk2-cur { stroke: var(--paper); stroke-width: 2; }
 .mk2-rule { stroke: #b9b0a0; stroke-width: 1; stroke-dasharray: 3 4; }
 .mk2-lbl { cursor: pointer; text-decoration: none; }
@@ -5113,7 +5113,7 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 /* Axes for the market chart (John, 26 Oct). Drawn one unit to a pixel, and
    kept inside the card: nothing past its edges on a wide screen. */
 .mk2-svg { overflow: hidden; height: auto; }
-.mk2-grid { stroke: #e3dccd; stroke-width: 1; stroke-dasharray: 3 5; }
+.mk2-grid { stroke: #e6dfd1; stroke-width: 1; }
 .mk2-base { stroke: #cfc6b4; stroke-width: 1; }
 .mk2-xmark { stroke: #cfc6b4; stroke-width: 1; }
 .mk2-xtick { font: 500 11.5px "Barlow", sans-serif; fill: #8c8270; }
@@ -5188,8 +5188,8 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 .mk3-more small { font: 600 11.5px "Barlow", sans-serif; color: var(--muted); margin-top: -4px; }
 /* The line in focus (26 Oct): drawn on top, a soft shade under it; the
    others step back a little. Its box fills with a tint of its colour. */
-.mk2-line-on { stroke-width: 3; }
-.mk2-line-off { opacity: .55; }
+.mk2-line-on { stroke-width: 2.1; }
+.mk2-line-off { opacity: .5; }
 .mk2-area { pointer-events: none; }
 .mk3-who { cursor: pointer; }
 .mk3-who:focus-visible { outline: 2px solid var(--slot, var(--accent)); outline-offset: -4px; border-radius: 14px; }
@@ -5197,9 +5197,9 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 .mk3-photo { display: inline-block; border-radius: 50%; }
 .mk3-photo:hover .mk3-face { box-shadow: 0 0 0 3px color-mix(in srgb, var(--slot) 25%, transparent); }
 /* Line-end labels as photo + rank (26 Oct). */
-.mk2-leader { fill: none; stroke-width: 1.2; opacity: .55; }
+.mk2-leader { fill: none; stroke-width: 1; opacity: .45; }
 .mk2-lbl-ini { font: 700 12px "Playfair Display", Georgia, serif; fill: #8c8270; }
-.mk2-lbl-rank { font: 700 15px "Barlow", sans-serif; font-variant-numeric: tabular-nums; }
+.mk2-lbl-rank { font: 600 14px "Barlow", sans-serif; font-variant-numeric: tabular-nums; }
 .mk2-lbl:hover .mk2-lbl-rank { text-decoration: underline; }
 .mk2-range button:focus { outline: none; }
 .mk2-range button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

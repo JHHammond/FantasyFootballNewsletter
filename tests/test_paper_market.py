@@ -153,10 +153,10 @@ def test_generation_prices_the_regrets_it_freezes():
 # Drawing
 # ---------------------------------------------------------------------------
 
-def test_monotone_curve_never_overshoots_a_close():
-    path = market_chart.monotone_path([(0, 100), (10, 100), (20, 40), (30, 40), (40, 90)])
-    ys = [float(v) for v in re.findall(r"[-\d.]+,([-\d.]+)", path)]
-    assert min(ys) >= 40 - 1e-6 and max(ys) <= 100 + 1e-6
+def test_lines_run_straight_from_close_to_close():
+    """No curves (John, 26 Oct: "too cartoony"): one straight segment per close."""
+    path = market_chart.line_path([(20, 40), (0, 100), (10, 100)])
+    assert path == "M0.0,100.0 L10.0,100.0 L20.0,40.0" and "C" not in path
 
 
 def test_end_labels_dont_overlap_or_leave_the_chart():

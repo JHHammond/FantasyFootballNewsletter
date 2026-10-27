@@ -503,23 +503,10 @@
     function y(s) { s = Math.min(Math.max(s, lo), hi); return T + (B - T) * Math.log(s / lo) / Math.log(hi / lo); }
     function el(n, a, p) { var e = document.createElementNS(NS, n); for (var k in a) e.setAttribute(k, a[k]); if (p) p.appendChild(e); return e; }
     function smooth(Q) {
-        var n = Q.length;
-        if (n < 3) return Q.map(function (q, i) { return (i ? "L" : "M") + q[0].toFixed(1) + "," + q[1].toFixed(1); }).join("");
-        var dx = [], m = [], t = [], i;
-        for (i = 0; i < n - 1; i++) { dx[i] = Q[i + 1][0] - Q[i][0]; m[i] = dx[i] ? (Q[i + 1][1] - Q[i][1]) / dx[i] : 0; }
-        t[0] = m[0]; t[n - 1] = m[n - 2];
-        for (i = 1; i < n - 1; i++) t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
-        for (i = 0; i < n - 1; i++) {
-            if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
-            var a = t[i] / m[i], b = t[i + 1] / m[i], s = a * a + b * b;
-            if (s > 9) { var tau = 3 / Math.sqrt(s); t[i] = tau * a * m[i]; t[i + 1] = tau * b * m[i]; }
-        }
-        var d = "M" + Q[0][0].toFixed(1) + "," + Q[0][1].toFixed(1);
-        for (i = 0; i < n - 1; i++) {
-            var h = dx[i] / 3;
-            d += "C" + (Q[i][0] + h).toFixed(1) + "," + (Q[i][1] + t[i] * h).toFixed(1) + " " + (Q[i + 1][0] - h).toFixed(1) + "," + (Q[i + 1][1] - t[i + 1] * h).toFixed(1) + " " + Q[i + 1][0].toFixed(1) + "," + Q[i + 1][1].toFixed(1);
-        }
-        return d;
+        // Straight from close to close (John, 26 Oct: the curves looked
+        // "cartoony ... it needs to look serious"). A price chart, not a
+        // drawing: every bend is a day somebody traded him.
+        return Q.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1); }).join("");
     }
     function at(line, d) { var p = null; line.forEach(function (q) { if (q[0] <= d) p = q; }); return p; }
 
@@ -551,7 +538,7 @@
             var g = el("g", {"class": "at-mk at-mk-" + c.c + (c.c === 0 ? " at-pc-on" : " pp-cmp")}, svg);
             if (c.c === 0) {
                 var grad = el("linearGradient", {id: "pp-fill", x1: 0, y1: 0, x2: 0, y2: 1}, defs);
-                el("stop", {offset: "0%", "stop-color": "#b3141c", "stop-opacity": many ? .08 : .16}, grad);
+                el("stop", {offset: "0%", "stop-color": "#b3141c", "stop-opacity": many ? .05 : .09}, grad);
                 el("stop", {offset: "100%", "stop-color": "#b3141c", "stop-opacity": 0}, grad);
                 el("path", {"class": "at-pc-area", fill: "url(#pp-fill)", d: line + "L" + Q[Q.length - 1][0].toFixed(1) + "," + B + "L" + Q[0][0].toFixed(1) + "," + B + "Z"}, g);
             }
