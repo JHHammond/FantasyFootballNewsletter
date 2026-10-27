@@ -100,15 +100,17 @@ def spread_labels(ys: list[float], gap: float, top: float, bottom: float) -> lis
 
 def chart_svg(series: list[dict], *, base: str | None, last: int,
               width: int = 520, height: int = 250, label_w: int = 118,
-              font: float = 12, variant: str = "wide", title: str = "") -> str:
+              font: float = 12, variant: str = "wide", title: str = "",
+              names: bool = True) -> str:
     """One chart. `series` is [{"name", "colour", "costs", "dash"?, "line":
     [[day, place], ...]}], days counted from the market's base (day 0 is "the
-    draft"). "" when nothing has a line."""
+    draft"). "" when nothing has a line. `names=False` leaves the names off
+    the line ends (the phone drawing, whose key sits under it)."""
     series = [s for s in series if s.get("line")]
     if not series or last <= 0:
         return ""
     start = 0
-    left, top, bottom = 34, 12, height - 24
+    left, top, bottom = (34 if names else 30), 12, height - 24
     right = width - label_w
     vals = [pt[1] for s in series for pt in s["line"]]
     lo, hi = min(vals), max(vals)
@@ -138,7 +140,7 @@ def chart_svg(series: list[dict], *, base: str | None, last: int,
         day0 = None
     foot = [(0, "Draft", "start"), (last, "Today", "end")]
     if day0 is not None:
-        step = {"phone": 21, "mid": 14}.get(variant, 7)
+        step = {"phone": 14, "mid": 14}.get(variant, 7)
         for d in range(last - step, 0, -step):
             if d < step * 0.6:
                 break
@@ -163,6 +165,9 @@ def chart_svg(series: list[dict], *, base: str | None, last: int,
         ex, ey = pts[-1]
         parts.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="3" fill="{col}"/>')
         ends.append((ex, ey, col, label, s))
+    if not names:
+        parts.append("</svg>")
+        return "".join(parts)
     placed = spread_labels([e[1] for e in ends], font + 3, top, bottom)
     for (ex, ey, col, label, s), ly in zip(ends, placed):
         tx = right + 10
@@ -187,9 +192,28 @@ def chart_pair(series: list[dict], *, base: str | None, last: int, title: str = 
         return ""
     mid = chart_svg(series, base=base, last=last, width=720, height=300,
                     label_w=132, variant="mid", title=title)
-    phone = chart_svg(series, base=base, last=last, width=360, height=270,
-                      label_w=104, font=11.5, variant="phone", title=title)
-    return wide + mid + phone
+    # The phone (John, 27 Oct: "a bit too small ... cramped"): the names at
+    # the line ends took a third of the width, so the lines get all of it
+    # and a taller box, and the names go in a key underneath.
+    phone = chart_svg(series, base=base, last=last, width=360, height=330,
+                      label_w=12, font=11.5, variant="phone", title=title, names=False)
+    return wide + mid + phone + legend(series)
+
+
+def legend(series: list[dict]) -> str:
+    """The phone's key: each line's swatch, name and price, in the order the
+    lines finish, best price first."""
+    drawn = [s for s in series if s.get("line")]
+    drawn.sort(key=lambda s: s["line"][-1][1])
+    labels = end_labels([s.get("name") or "" for s in drawn])
+    items = []
+    for s, label in zip(drawn, labels):
+        col = esc(s.get("colour") or "#555")
+        dash = ' stroke-dasharray="5 3"' if s.get("dash") else ""
+        items.append(f'<li><svg viewBox="0 0 22 6" aria-hidden="true"><line x1="0" y1="3" x2="22" y2="3" '
+                     f'stroke="{col}" stroke-width="2.4"{dash}/></svg>'
+                     f'<b style="color:{col}">{esc(label)}</b> <span>{esc(s.get("costs"))}</span></li>')
+    return f'<ul class="pc-legend">{"".join(items)}</ul>' if items else ""
 
 
 CSS = """
@@ -198,7 +222,13 @@ CSS = """
 .pc-caption { font-size: 10.5px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase;
     opacity: .6; margin-bottom: 2px; }
 .pc-svg { display: block; width: 100%; height: auto; overflow: visible; color: inherit; }
-.pc-svg-mid, .pc-svg-phone { display: none; }
+.pc-svg-mid, .pc-svg-phone, .pc-legend { display: none; }
+.pc-legend { list-style: none; margin: 8px 0 0; padding: 0; grid-template-columns: 1fr 1fr; gap: 6px 14px;
+    font-size: 13.5px; }
+.pc-legend li { display: flex; align-items: center; gap: 7px; min-width: 0; white-space: nowrap; }
+.pc-legend svg { width: 22px; height: 6px; flex: none; }
+.pc-legend b { overflow: hidden; text-overflow: ellipsis; }
+.pc-legend span { opacity: .7; font-weight: 700; }
 @media screen and (max-width: 960px) {
     .pc-svg-wide { display: none; }
     .pc-svg-mid { display: block; }
@@ -213,6 +243,7 @@ CSS = """
 @media screen and (max-width: 600px) {
     .pc-svg-wide, .pc-svg-mid { display: none; }
     .pc-svg-phone { display: block; }
+    .pc-legend { display: grid; }
 }
 @media print {
     .pc-svg-wide, .pc-svg-phone { display: none; }

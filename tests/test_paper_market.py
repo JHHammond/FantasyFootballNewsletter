@@ -208,7 +208,7 @@ def test_priced_section_has_prices_two_charts_and_the_button():
     html = render_draft_regrets_html(_priced(), "https://commissionersdesk.com")
     t = _Tags()
     t.feed(html)
-    assert t.tags.count("svg") == 3                 # one chart: desktop, tablet/paper, phone
+    assert t.tags.count("svg") == 3 + 4             # one chart (desktop, tablet/paper, phone) + the phone key's 4 swatches
     assert "https://commissionersdesk.com/market?m=redraft&p=1,2,4,4866&from=paper" in t.hrefs
     assert "https://commissionersdesk.com/market/player/4866?m=redraft&from=paper" in t.hrefs
     assert html.count("Market <b>") == 4             # the unpriced steal has none
@@ -231,7 +231,7 @@ def test_names_from_platforms_cannot_become_markup(payload):
         p["k"] += payload
     t = _Tags()
     t.feed(render_draft_regrets_html(r, "https://commissionersdesk.com"))
-    assert not t.handlers and "script" not in t.tags and t.tags.count("svg") == 3
+    assert not t.handlers and "script" not in t.tags and t.tags.count("svg") == 7
 
 
 def test_all_six_share_one_chart():
@@ -264,3 +264,15 @@ def test_market_links_leave_any_frame_the_paper_is_shown_in():
     html = render_draft_regrets_html(_priced(), "https://commissionersdesk.com")
     assert 'class="dr-button" href="https://commissionersdesk.com/market?m=redraft&amp;p=1,2,4,4866&amp;from=paper" target="_top"' in html
     assert html.count('class="dr-mkt"') == html.count('target="_top">Market ')
+
+
+def test_the_phone_chart_gives_the_lines_the_width_and_names_them_underneath():
+    """John, 27 Oct: the phone chart was "cramped": the names at the line
+    ends took a third of its width."""
+    html = render_draft_regrets_html(_priced(), "https://commissionersdesk.com")
+    phone = re.search(r'<svg class="pc-svg pc-svg-phone".*?</svg>', html, re.S).group(0)
+    assert 'class="pc-end"' not in phone                      # no names on the lines
+    key = re.search(r'<ul class="pc-legend">.*?</ul>', html, re.S).group(0)
+    names = re.findall(r'<b style="color:[^"]+">([^<]+)</b>', key)
+    assert names == ["Nix", "Purdy", "Nacua", "McBride"]       # in the order they finish
+    assert 'stroke-dasharray' in key                           # regrets keep their dashes
