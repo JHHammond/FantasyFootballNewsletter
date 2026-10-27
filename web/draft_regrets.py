@@ -60,7 +60,7 @@ def _season(weeks: list, through_week: int) -> tuple[dict, dict]:
                 if not pid:
                     continue
                 row = players.setdefault(pid, {
-                    "name": p.name, "pos": (p.position or "").upper(),
+                    "pid": str(p.player_id), "name": p.name, "pos": (p.position or "").upper(),
                     "points": 0.0, "weeks": 0, "holder": None,
                     "last_week": 0, "status": None, "headshot": None})
                 row["points"] += float(p.points or 0)
@@ -130,6 +130,9 @@ def build(weeks: list, picks: dict, through_week: int) -> Optional[dict]:
         pos = p["pos"]
         injured = (str(p.get("status") or "").upper() in ("IR", "OUT", "PUP", "DOUBTFUL"))
         return {
+            # The platform's player id, so the trade market can price him
+            # (web/paper_market.py, 26 Oct).
+            "pid": p.get("pid") or pid,
             "player": p["name"], "pos": pos,
             "round": pk.get("round"), "overall": pk.get("overall"),
             "drafted_as": f"{pos}{drafted_rank[pid]}",

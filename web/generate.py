@@ -1019,6 +1019,10 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     if season_so_far.get("record_book"):
         ai_content["record_book"] = season_so_far["record_book"]
     if regrets:
+        # Priced on the trade market (26 Oct), while PAPER_MARKET is on for
+        # this league. Never raises; without it the section is as before.
+        from . import paper_market
+        paper_market.attach(db, league, season_so_far.get("weeks") or [], regrets)
         ai_content["draft_regrets"] = regrets
 
     # The third free paper says so, on the page every reader sees (25 Sep).

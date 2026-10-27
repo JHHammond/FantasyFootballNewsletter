@@ -515,6 +515,12 @@ thead tr { border-bottom-color: #16f04e !important; }
                          font-weight: 800 !important; }
 
 .image-wrap img, .hero-image-wrap img { border: 1px solid #2b313c !important; }
+/* Draft Regrets on the trade market (26 Oct): dark type on the green
+   button, and the hollow draft-day dot filled with the page. */
+.dr-button { color: #0b0d10 !important; }
+.pc-start { fill: #0b0d10 !important; }
+/* The chart's paper-strength colours are too dim on the dark page. */
+.pc-svg { filter: brightness(1.55) saturate(1.15); }
 """
 
 

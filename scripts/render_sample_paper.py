@@ -35,7 +35,9 @@ BODY = (
     "broken in public. ") * 5
 
 
-def sample_html(theme=None) -> str:
+def sample_html(theme=None, extra=None, canonical_base=None) -> str:
+    """`extra` is merged into the paper's content (scripts/preview_draft_market.py
+    passes priced draft regrets); `canonical_base` makes links absolute."""
     p = SleeperProvider(cache=TTLCache(cache_dir=tempfile.mkdtemp(), namespace="s"))
     p._get = lambda u, params=None: fixtures.fake_get(u, params)
     games = week_to_legacy_games(apply_lineup_gaps(p.get_week("TESTLEAGUE", 2025, 3)))
@@ -94,8 +96,9 @@ def sample_html(theme=None) -> str:
                      "worst": {"team": names[-1], "points": 84.1, "beaten_by_pct": 94}},
         "classifieds": [],
     }
+    ai.update(extra or {})
     edition = build_edition("The Hands Times", 3, summary, games, rankings, ai,
-                            subscribe_slug="sample")
+                            subscribe_slug="sample", canonical_base=canonical_base)
     edition["paper_name"] = "The Hands Times"
     return render_html(edition, theme=theme)
 

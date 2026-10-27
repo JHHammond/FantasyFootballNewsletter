@@ -10,6 +10,7 @@ import markdown
 from ads import (CLASSIFIEDS_CSS, PUBLISHER_PAGE_CSS, SUBSCRIBE_CSS,
                  ads_from_content, render_classifieds, render_publisher_page,
                  render_subscribe_block)
+import market_chart
 import printing
 import themes
 
@@ -1949,7 +1950,10 @@ def get_player_headshot_url(player_id):
 # The draft re-graded with the season so far (web/draft_regrets.py). Frozen
 # into the paper at generation, like the record book.
 
-def _dr_card(r, kind):
+def _dr_tile(r, kind, mkt=None, colour=""):
+    """One steal or regret, as a tile (John, 26 Oct: "giving them their own
+    squares"). `mkt`, when the paper was priced on the trade market:
+    {"costs", "href"}; `colour` is then his line's colour on the chart."""
     name = html_escape(r.get("player") or "")
     face = (f'<img class="dr-face" src="{html_escape(r["headshot"])}" alt="" '
             f'onerror="this.style.visibility=\'hidden\'" />'
@@ -1958,53 +1962,102 @@ def _dr_card(r, kind):
     # Where he is now, in brackets after the team that drafted him (John,
     # 20 Oct: no tags): "champayyy (now on nickarrowood)".
     where = r.get("where") or ""
-    if where.startswith("now on "):
-        note = where
-    elif where in ("cut", "injured"):
+    if where.startswith("now on ") or where in ("cut", "injured"):
         note = where
     elif r.get("injured"):
         note = "injured"
     else:
         note = ""
     team = html_escape(r.get("team") or "")
+    # Team names run long and have no spaces ("CeeDeezBallsOnYourChin"): one
+    # line, cut short, the whole name on hover. The note gets its own line.
+    team_html = (f'<div class="dr-team" title="{team}">{team}</div>' if team else "")
     if note:
-        team += f' <span class="dr-where">({html_escape(note)})</span>'
+        team_html += f'<div class="dr-where">({html_escape(note)})</div>'
+    price = ""
+    if mkt:
+        price = (f'<a class="dr-mkt" href="{html_escape(mkt["href"])}">Market '
+                 f'<b>{html_escape(str(mkt.get("costs") or ""))}</b> &rarr;</a>')
+    style = f' style="--dr-c:{html_escape(colour)}"' if colour else ""
     return f"""
-        <div class="dr-card dr-{kind}">
-            {face}
-            <div class="dr-who">
+            <div class="dr-tile dr-{kind}"{style}>
+                {face}
                 <div class="dr-name">{name}</div>
-                <div class="dr-meta">Round {html_escape(str(r.get("round") or "?"))} &middot; {team}</div>
-            </div>
-            <div class="dr-move">
-                <span class="dr-was">{html_escape(r.get("drafted_as") or "")}</span>
-                <span class="dr-arrow" aria-label="now">&rarr;</span>
-                <span class="dr-now">{html_escape(r.get("now") or "")}</span>
+                <div class="dr-meta">Round {html_escape(str(r.get("round") or "?"))}</div>
+                {team_html}
+                <div class="dr-move">
+                    <span class="dr-was">{html_escape(r.get("drafted_as") or "")}</span><span class="dr-arrow" aria-label="now">&rarr;</span><span class="dr-now">{html_escape(r.get("now") or "")}</span>
+                </div>
                 <div class="dr-pts">{float(r.get("points") or 0):.1f} pts</div>
-            </div>
-        </div>"""
+                {price}
+            </div>"""
 
 
-def render_draft_regrets_html(regrets):
-    """Steals | regrets. "" when the
-    paper has none (before Week 4, keeper and dynasty leagues, no draft)."""
+def render_draft_regrets_html(regrets, base_url=""):
+    """Steals and regrets as tiles. "" when the paper has none (before Week
+    4, keeper and dynasty leagues, no draft).
+
+    When the paper was priced on the trade market (26 Oct, regrets["market"],
+    see web/paper_market.py) each tile carries its market price, all six
+    players' prices since draft day share one chart under the tiles (steals
+    solid, regrets dashed), and the section ends on "See the whole chart"."""
     if not regrets:
         return ""
-    steals = "".join(_dr_card(r, "steal") for r in regrets.get("steals") or [])
-    sorry = "".join(_dr_card(r, "regret") for r in regrets.get("regrets") or [])
-    if not (steals or sorry):
+    from web import paper_market
+    block = regrets.get(paper_market.KEY) or {}
+    priced = block.get("players") or {}
+    market = "dynasty" if block.get("market") == "dynasty" else "redraft"
+    base_url = (base_url or "").rstrip("/")
+    series = []
+
+    def group(kind, rows, colours, label):
+        tiles = []
+        for r in rows:
+            p = priced.get(r.get("pid") or "")
+            if p:
+                colour = colours[sum(1 for s in series if s["kind"] == kind) % len(colours)]
+                series.append({"kind": kind, "name": r.get("player"), "colour": colour,
+                               "costs": p.get("costs"), "line": p.get("line") or [],
+                               "dash": kind == "regret"})
+                tiles.append(_dr_tile(r, kind, {"costs": p.get("costs"),
+                                                "href": paper_market.player_url(p["k"], market, base_url)},
+                                      colour))
+            else:
+                tiles.append(_dr_tile(r, kind))
+        if not tiles:
+            return ""
+        return (f'<div class="dr-group"><div class="dr-label dr-label-{kind}">{label}</div>'
+                f'<div class="dr-tiles">{"".join(tiles)}</div></div>')
+
+    groups = (group("steal", regrets.get("steals") or [], market_chart.STEAL_COLOURS, "Steals")
+              + group("regret", regrets.get("regrets") or [], market_chart.REGRET_COLOURS, "Regrets"))
+    if not groups:
         return ""
-    cols = ""
-    if steals:
-        cols += f'<div class="dr-col"><div class="dr-label dr-label-steal">Steals</div>{steals}</div>'
-    if sorry:
-        cols += f'<div class="dr-col"><div class="dr-label dr-label-regret">Regrets</div>{sorry}</div>'
     through = int(regrets.get("through_week") or 0)
+    note = "where they were drafted, where they rank now."
+    chart = cta = ""
+    if priced:
+        note += (" The chart is each player&rsquo;s price on the trade market since draft day "
+                 "&mdash; #1 is the most expensive player in fantasy.")
+        drawn = market_chart.chart_pair(series, base=block.get("base"),
+                                        last=int(block.get("last") or 0),
+                                        title="Steals and regrets: trade market price since the draft")
+        if drawn:
+            chart = (f'<figure class="pc-chart dr-chart"><figcaption class="pc-caption">'
+                     f'On the trade market <span class="pc-key"><i class="pc-key-solid"></i>Steals'
+                     f'<i class="pc-key-dash"></i>Regrets</span></figcaption>{drawn}</figure>')
+        host = html_escape(base_url.split("://", 1)[-1] or "commissionersdesk.com")
+        cta = f"""
+            <div class="dr-cta">
+                <a class="dr-button" href="{html_escape(paper_market.chart_url(regrets, base_url))}">See the whole chart &rarr;</a>
+                <span class="dr-cta-note">Every player&rsquo;s price, every trade, updated daily. Free.</span>
+                <span class="dr-print-url">The whole chart: {host}/market</span>
+            </div>"""
     return f"""
-        <div class="full-section draft-regrets" id="draft">
+        <div class="full-section draft-regrets{' dr-market' if priced else ''}" id="draft">
             <h2 class="section-title-full">Draft Regrets</h2>
-            <div class="section-note dr-note">Through Week {through}: where they were drafted, where they rank now.</div>
-            {f'<div class="dr-pair">{cols}</div>' if cols else ''}
+            <div class="section-note dr-note">Through Week {through}: {note}</div>
+            <div class="dr-groups">{groups}</div>{chart}{cta}
         </div>"""
 
 
@@ -2695,7 +2748,8 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
             editable=editable,
         ),
         "awards_html": awards_html,
-        "draft_regrets_html": render_draft_regrets_html((ai_content or {}).get("draft_regrets")),
+        "draft_regrets_html": render_draft_regrets_html((ai_content or {}).get("draft_regrets"),
+                                                        canonical_base or ""),
         "back_page_html": render_back_page(
             obituaries=(ai_content or {}).get("obituaries"),
             record_book=(ai_content or {}).get("record_book"),
@@ -2946,6 +3000,7 @@ def _render_html(edition, theme=None):
         {CLASSIFIEDS_CSS}
         {PUBLISHER_PAGE_CSS}
         {SUBSCRIBE_CSS}
+        {market_chart.CSS}
         * {{ box-sizing: border-box; }}
 
         /* The colour the newer sections (the commissioner's letter, the back
@@ -3318,36 +3373,84 @@ def _render_html(edition, theme=None):
             margin: 24px 0 0;
         }}
 
-        /* ── DRAFT REGRETS (20 Oct) ── */
-        .dr-pair {{ display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; margin-top: 6px; }}
+        /* ── DRAFT REGRETS (20 Oct; tiles 26 Oct) ── */
+        .dr-groups {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; margin-top: 6px; }}
         .dr-label {{ font-size: 11px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
-                     padding: 6px 0 5px; border-bottom: 2px solid #111; margin-bottom: 4px; }}
+                     padding: 6px 0 5px; border-bottom: 2px solid #111; margin-bottom: 10px; }}
         .dr-label-steal {{ color: #1f7a3a; border-color: #1f7a3a; }}
         .dr-label-regret {{ color: var(--accent, #c40000); border-color: var(--accent, #c40000); }}
-        .dr-card {{ display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 10px;
-                    align-items: center; padding: 10px 0; border-bottom: 1px solid #ddd; }}
-        .dr-face {{ width: 46px; height: 46px; border-radius: 50%; object-fit: cover; object-position: 50% 15%;
-                    border: 2px solid #16130f; background: #ece6da; display: block; box-sizing: border-box; }}
+        .dr-tiles {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }}
+        .dr-tile {{ --dr-c: #1f7a3a; display: flex; flex-direction: column; align-items: center;
+                    text-align: center; padding: 14px 10px 12px; border: 1px solid rgba(127, 127, 127, .3);
+                    border-top: 5px solid var(--dr-c); border-radius: 4px;
+                    background: rgba(127, 127, 127, .05); min-width: 0; }}
+        .dr-tile.dr-regret {{ --dr-c: var(--accent, #c40000); }}
+        .dr-face {{ width: 64px; height: 64px; border-radius: 50%; object-fit: cover; object-position: 50% 15%;
+                    border: 2px solid #16130f; background: #ece6da; display: block; box-sizing: border-box;
+                    margin-bottom: 8px; flex: none; }}
         .dr-initial {{ display: flex; align-items: center; justify-content: center; font-weight: 900;
-                       font-size: 18px; color: #777; }}
+                       font-size: 24px; color: #777; }}
         .dr-regret .dr-face {{ filter: grayscale(1); }}
         .dr-name {{ font-weight: 800; font-size: 15px; line-height: 1.2; overflow-wrap: anywhere; }}
-        .dr-where {{ font-style: italic; }}
-        .dr-meta {{ font-size: 11.5px; opacity: .7; margin-top: 2px; }}
-        .dr-move {{ text-align: right; white-space: nowrap; font-family: Georgia, serif; font-weight: 900; }}
-        .dr-was {{ font-size: 14px; opacity: .55; }}
-        .dr-arrow {{ font-size: 14px; opacity: .55; margin: 0 2px; }}
-        .dr-now {{ font-size: 22px; }}
+        .dr-meta {{ font-size: 11px; opacity: .7; margin-top: 3px; line-height: 1.3; overflow-wrap: anywhere; }}
+        .dr-team {{ font-size: 11px; opacity: .7; line-height: 1.3; max-width: 100%;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        .dr-where {{ font-size: 11px; font-style: italic; opacity: .7; line-height: 1.3; overflow-wrap: anywhere; }}
+        .dr-move {{ margin-top: 10px; white-space: nowrap; font-family: Georgia, serif; font-weight: 900; }}
+        .dr-was {{ font-size: 13px; opacity: .55; }}
+        .dr-arrow {{ font-size: 13px; opacity: .55; margin: 0 4px; }}
+        .dr-now {{ font-size: 26px; }}
         .dr-steal .dr-now {{ color: #1f7a3a; }}
         .dr-regret .dr-now {{ color: var(--accent, #c40000); }}
-        .dr-pts {{ font-family: inherit; font-size: 11px; font-weight: 700; opacity: .6; }}
-        @media screen and (max-width: 760px) {{
-            .dr-pair {{ grid-template-columns: 1fr; }}
-            .dr-label-regret {{ margin-top: 14px; }}
+        .dr-pts {{ font-size: 11px; font-weight: 700; opacity: .6; margin-top: 2px; }}
+        /* Priced on the trade market (26 Oct): his price, linked to his page,
+           in his line's colour. Pinned to the foot so the tiles line up. */
+        .dr-mkt {{ margin-top: auto; padding-top: 10px; font-size: 11.5px; color: inherit; text-decoration: none; }}
+        .dr-mkt b {{ color: var(--dr-c); }}
+        .dr-mkt:hover {{ text-decoration: underline; }}
+        .dr-chart {{ max-width: 860px; margin: 18px auto 0; }}
+        .pc-key {{ float: right; text-transform: none; letter-spacing: 0; font-weight: 700; }}
+        .pc-key i {{ display: inline-block; width: 22px; height: 0; vertical-align: middle; margin: 0 5px 0 12px;
+                     border-top: 2.5px solid currentColor; }}
+        .pc-key-dash {{ border-top-style: dashed !important; }}
+        .dr-cta {{ display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+                   gap: 8px 16px; margin: 16px 0 4px; }}
+        .dr-button {{ display: inline-block; background: var(--accent, #c40000); color: #fff !important;
+                      font-weight: 800; letter-spacing: .5px; text-transform: uppercase; font-size: 13px;
+                      padding: 11px 18px; border-radius: 3px; text-decoration: none; }}
+        .dr-button:hover {{ filter: brightness(1.1); }}
+        .dr-cta-note {{ font-size: 12.5px; opacity: .7; }}
+        .dr-print-url {{ display: none; }}
+        @media screen and (max-width: 960px) {{
+            .dr-groups {{ grid-template-columns: 1fr; }}
+        }}
+        @media screen and (max-width: 600px) {{
+            .dr-tiles {{ gap: 6px; }}
+            .dr-tile {{ padding: 10px 5px 9px; }}
+            .dr-face {{ width: 46px; height: 46px; margin-bottom: 6px; }}
+            .dr-name {{ font-size: 13px; }}
+            .dr-meta, .dr-team, .dr-where {{ font-size: 10px; }}
+            .dr-was, .dr-arrow {{ font-size: 11px; }}
+            .dr-arrow {{ margin: 0 2px; }}
+            .dr-now {{ font-size: 19px; }}
+            .dr-mkt {{ font-size: 10.5px; }}
+            .pc-key {{ float: none; display: block; margin-top: 2px; }}
+            .pc-key i:first-child {{ margin-left: 0; }}
+            .dr-button {{ display: block; text-align: center; }}
         }}
         @media print {{
-            .dr-card {{ break-inside: avoid; }}
-            .dr-label {{ break-after: avoid; }}
+            .dr-groups {{ grid-template-columns: 1fr; gap: 8px; }}
+            .dr-tile {{ break-inside: avoid; padding: 8px 6px; }}
+            .dr-face {{ width: 44px; height: 44px; }}
+            .dr-label {{ break-after: avoid; margin-bottom: 6px; }}
+            .draft-regrets .section-title-full,
+            .draft-regrets .section-note {{ break-after: avoid; page-break-after: avoid; }}
+            /* Priced, it is one piece: tiles on one sheet and their chart on
+               the next read as two unrelated things. */
+            .dr-market {{ break-inside: avoid; page-break-inside: avoid; }}
+            .dr-chart {{ max-width: none; margin-top: 10px; }}
+            .dr-button, .dr-cta-note {{ display: none !important; }}
+            .dr-print-url {{ display: inline; font-size: 9pt; font-weight: 700; }}
         }}
 
         /* One line under a section heading, for the sections whose name is a
