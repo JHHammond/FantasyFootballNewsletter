@@ -190,24 +190,36 @@ def _send_week(week, teasers):
                           "t.sig")
 
 
-def test_week_four_is_the_redacted_desk(monkeypatch):
+def test_week_four_is_the_front_page(monkeypatch):
+    """John, 27 Oct: the front-page design. Subject is his line; the low
+    score leads the email and the preheader; at most three numbers, names
+    blacked out, nobody named."""
     got = _capture(monkeypatch)
     _send_week(4, {"low": 62.3, "low_win": 88.1, "bench": 38.9, "blowout": 54.2, "top": 41})
-    assert got["subject"] == "Your League's Week 4 Paper Is Ready to Print"
-    t = got["text"]
-    assert "LOWEST SCORE: \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 put up 62.3." in t
-    assert "FRAUD WATCH:" in t and "won with 88.1" in t
-    assert "left 38.9 points sitting on the bench" in t and "won by 54.2." in t
-    assert "Names are redacted until you print it." in t
-    assert "Print the Week 4 paper" in got["body"] and "Alpha" not in got["body"]
-    assert "{" not in got["body"] and "{" not in t
+    assert got["subject"] == "Don't Let Week 4 Go Unreported"
+    t, body = got["text"], got["body"]
+    assert t.startswith("Someone in your league scored 62.3 points.")
+    assert "Someone in your league scored 62.3. Names redacted" in body   # preheader
+    assert "LOWEST SCORE: 62.3 (\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 put up)" in t
+    assert "BENCH OF SHAME: 38.9" in t and "BLOWOUT: +54.2" in t
+    assert "FRAUD WATCH" not in t                    # three numbers, no more
+    assert "The Commissioner&rsquo;s Desk</td>" in body   # the nameplate
+    assert "cd-narrow" in body and "@media" in body  # rows on phones
+    assert "Print the Week 4 paper" in body and "Alpha" not in body
+    assert "{x}" not in body and "{n}" not in body and "{" not in t
+
+
+def test_fraud_watch_fills_in_for_a_missing_number(monkeypatch):
+    got = _capture(monkeypatch)
+    _send_week(6, {"low": 62.3, "low_win": 88.1, "blowout": 54.2})
+    assert "FRAUD WATCH: 88.1" in got["text"] and "BENCH OF SHAME" not in got["text"]
 
 
 def test_missing_numbers_drop_their_lines(monkeypatch):
     got = _capture(monkeypatch)
     _send_week(5, {"low": 62.3})
     assert "LOWEST SCORE" in got["text"] and "FRAUD WATCH" not in got["text"]
-    _send_week(9, {})
+    _send_week(9, {})                       # nothing to lead with: the old desk
     assert got["subject"] == "Your League's Week 9 Paper Is Ready to Print"
     assert "Somebody had a week" in got["text"] and "{" not in got["body"]
 
@@ -292,7 +304,7 @@ def _send_trial(left, week=5):
 def test_the_last_free_paper_says_so(monkeypatch):
     got = _capture(monkeypatch)
     _send_trial(1)
-    assert got["subject"] == "Your League's Week 5 Paper Is Ready to Print"
+    assert got["subject"] == "Don't Let Week 5 Go Unreported"
     assert "This is your last free edition. Make it count." in got["text"]
     assert "Print the Week 5 paper" in got["body"]
 
@@ -302,7 +314,7 @@ def test_a_used_up_trial_gets_the_usual_email_with_no_ask(monkeypatch):
     email says nothing about the trial or the price; the site sells."""
     got = _capture(monkeypatch)
     _send_trial(0)
-    assert got["subject"] == "Your League's Week 5 Paper Is Ready to Print"
+    assert got["subject"] == "Don't Let Week 5 Go Unreported"
     for said in (got["text"], got["body"]):
         assert "$" not in said and "4.99" not in said and "19.99" not in said
         assert "free edition" not in said.lower()
@@ -324,7 +336,7 @@ def test_plenty_left_or_unknown_is_the_usual_email(monkeypatch):
     got = _capture(monkeypatch)
     for left in (3, 2, None):
         _send_trial(left)
-        assert got["subject"] == "Your League's Week 5 Paper Is Ready to Print"
+        assert got["subject"] == "Don't Let Week 5 Go Unreported"
         assert "free edition" not in got["text"]
 
 

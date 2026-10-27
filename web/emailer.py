@@ -456,6 +456,122 @@ def _reminder_copy(week: int, facts: dict):
             pitch, text, f"Print the Week {week} paper")
 
 
+# THE FRONT-PAGE REMINDER (John, 27 Oct). From Week 4 on, whenever the league
+# has a lowest score to lead with: a nameplate masthead, the low score as the
+# headline, and up to three numbers as a box-score strip with the names
+# blacked out. Subject "Don't Let Week N Go Unreported" (John's line), with
+# the low score in the preheader so the inbox still shows a real number.
+# Designed on the "Reminder Email Redesign" canvas; Georgia and Helvetica
+# only, because webfonts don't load in Gmail.
+#: (fact key, strip label, caption under the number, prefix on the number),
+#: in the order they're picked; the first three present are shown.
+_STRIP = [
+    ("low", "Lowest score", "put up", ""),
+    ("bench", "Bench of shame", "left on the bench", ""),
+    ("blowout", "Blowout", "won by", "+"),
+    ("low_win", "Fraud watch", "won with", ""),
+]
+
+#: Phones: the strip becomes rows, the type steps down. Clients that ignore
+#: <style> (a few older webmail apps) keep the desktop layout.
+_FRONT_PAGE_CSS = """<style>
+@media only screen and (max-width:480px){
+  .cd-wide{display:none!important;max-height:0!important;overflow:hidden!important;}
+  .cd-narrow{display:block!important;max-height:none!important;overflow:visible!important;}
+  .cd-nameplate{font-size:29px!important;}
+  .cd-headline{font-size:30px!important;}
+  .cd-pad{padding-left:20px!important;padding-right:20px!important;}
+  .cd-button{display:block!important;}
+}
+</style>"""
+
+
+def _front_page_reminder(w: int, facts: dict, *, base: str, buttons: str,
+                         footer: str, last: bool) -> tuple[str, str, str, list[str]]:
+    """(subject, preheader, html body, text lines) for the front-page reminder."""
+    e = html.escape
+    red = "#b3141c"
+    low = f"{facts['low']:.1f}"
+    subject = f"Don't Let Week {w} Go Unreported"
+    preheader = f"Someone in your league scored {low}. Names redacted until you print it."
+    deck = (f"Week {w} is final and your paper is ready to print. Here’s what’s "
+            f"already on the desk. Names stay redacted until you print it.")
+    picked = [(label, caption, f"{prefix}{facts[key]:.1f}")
+              for key, label, caption, prefix in _STRIP
+              if isinstance(facts.get(key), (int, float))][:3]
+
+    bar = (lambda width: f'<span style="display:inline-block;width:{width}px;height:12px;'
+           f'background:#111;vertical-align:-1px;">&nbsp;</span>')
+    label_css = ("font-family:Helvetica,Arial,sans-serif;font-size:10px;font-weight:700;"
+                 "letter-spacing:2.5px;color:#5a5245;")
+    cells = "".join(
+        f'<td width="{100 // len(picked)}%" align="center" valign="top" '
+        f'style="padding:20px 8px 22px;{"" if i == 0 else "border-left:1px solid #d8d0c0;"}">'
+        f'<div style="{label_css}">{e(label.upper())}</div>'
+        f'<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:44px;line-height:1;'
+        f'font-weight:700;color:{red};padding:10px 0 9px;">{e(value)}</div>'
+        f'<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:14px;color:#3d372e;">'
+        f'{bar(52)}&nbsp;{e(caption)}</div></td>'
+        for i, (label, caption, value) in enumerate(picked))
+    rows = "".join(
+        f'<tr><td style="padding:16px 4px;{"" if i == 0 else "border-top:1px solid #d8d0c0;"}">'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
+        f'<td valign="middle"><div style="{label_css}">{e(label.upper())}</div>'
+        f'<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:15px;color:#3d372e;'
+        f'padding-top:7px;">{bar(48)}&nbsp;{e(caption)}</div></td>'
+        f'<td align="right" valign="middle" style="font-family:Georgia,\'Times New Roman\',serif;'
+        f'font-size:38px;line-height:1;font-weight:700;color:{red};white-space:nowrap;">'
+        f'{e(value)}</td></tr></table></td></tr>'
+        for i, (label, caption, value) in enumerate(picked))
+    strip = (
+        f'<tr><td class="cd-pad" style="padding:30px 40px 0;">'
+        f'<div class="cd-wide"><table role="presentation" width="100%" cellpadding="0" '
+        f'cellspacing="0" border="0" style="border-top:3px double #111;border-bottom:1px solid #111;">'
+        f'<tr>{cells}</tr></table></div>'
+        f'<div class="cd-narrow" style="display:none;max-height:0;overflow:hidden;mso-hide:all;">'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        f'style="border-top:3px double #111;border-bottom:1px solid #111;">{rows}</table></div>'
+        f'</td></tr>') if picked else ""
+    last_box = ("""
+    <tr><td class="cd-pad" align="center" style="padding:24px 40px 0;">
+      <div style="max-width:420px;border:2px solid #b3141c;background:#fff6f4;padding:12px 18px;text-align:center;">
+        <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;color:#b3141c;">LAST FREE EDITION</div>
+        <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;color:#111;margin-top:4px;">This one&rsquo;s on the house. Make it count.</div>
+      </div></td></tr>""" if last else "")
+    serif = "font-family:Georgia,'Times New Roman',serif;"
+    body = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light only">{_FRONT_PAGE_CSS}</head>
+<body style="margin:0;padding:0;background:#e9e4d8;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">{e(preheader)}&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e9e4d8;">
+<tr><td align="center" style="padding:20px 10px;">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#fffdf8;border:1px solid #d8d0c0;">
+    <tr><td style="background:{red};height:6px;line-height:6px;font-size:0;">&nbsp;</td></tr>
+    <tr><td align="center" style="padding:24px 40px 0;"><a href="{base}/"><img src="{base}/static/brand/logo-mark@2x.png" width="72" height="42" alt="" style="display:block;border:0;width:72px;height:42px;"></a></td></tr>
+    <tr><td class="cd-nameplate" align="center" style="padding:10px 30px 12px;{serif}font-size:40px;line-height:1.05;font-weight:700;letter-spacing:-0.5px;color:#111;">The Commissioner&rsquo;s Desk</td></tr>
+    <tr><td class="cd-pad" style="padding:0 40px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:3px double #111;border-bottom:1px solid #111;">
+        <tr><td align="left" style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:2.5px;color:#111;">WEEK {w} EDITION</td>
+            <td align="right" style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:2.5px;color:#111;">FINAL SCORES</td></tr>
+      </table></td></tr>
+    <tr><td class="cd-pad" align="center" style="padding:30px 48px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;color:{red};">FROM YOUR LEAGUE</td></tr>
+    <tr><td class="cd-pad cd-headline" align="center" style="padding:12px 48px 0;{serif}font-size:38px;line-height:1.12;font-weight:700;color:#111;">Someone in your league scored <span style="color:{red};">{low}</span>&nbsp;points.</td></tr>
+    <tr><td class="cd-pad" align="center" style="padding:14px 60px 0;{serif}font-size:18px;line-height:1.5;color:#3d372e;">{e(deck)}</td></tr>{strip}{last_box}
+    <tr><td style="height:22px;line-height:22px;font-size:0;">&nbsp;</td></tr>{buttons}
+    <tr><td class="cd-pad" align="center" style="padding:6px 40px 26px;{serif}font-size:15px;font-style:italic;color:#5a5245;">About 30 seconds to write. Then it goes in the group chat.</td></tr>
+    <tr><td style="padding:0 28px 24px;">{footer}</td></tr>
+  </table>
+</td></tr></table>
+</body></html>"""
+    text = ([f"Someone in your league scored {low} points.", "", deck, ""]
+            + [f"{label.upper()}: {value} ({_REDACT_TEXT} {caption})"
+               for label, caption, value in picked]
+            + (["", "This is your last free edition. Make it count."] if last else [])
+            + ["", "About 30 seconds to write. Then it goes in the group chat."])
+    return subject, preheader, body, text
+
+
 def send_reminder(to: str, week: int, leagues: list[dict],
                   unsubscribe_token: str) -> SendResult:
     """The weekly nudge to a commissioner who isn't on a paid plan: their
@@ -543,10 +659,6 @@ def send_reminder(to: str, week: int, leagues: list[dict],
         return f"Write {l.get('league_name') or 'this league'}"
 
     big_button = _BUTTON.replace("padding:13px 26px", "padding:16px 34px") + "border-radius:3px;"
-    buttons = "".join(f"""
-    <tr><td align="center" style="padding:8px 28px;">
-      <a href="{base}/l/{e(l['admin_token'])}" style="{big_button}">{e(label(l))}</a>
-    </td></tr>""" for l in leagues)
     address_line = (f'<div style="margin-top:6px;">{e(address)}</div>' if address else "")
     footer = f"""
   <div style="margin-top:12px;padding-top:16px;border-top:1px solid #d8d0c0;text-align:center;
@@ -555,6 +667,27 @@ def send_reminder(to: str, week: int, leagues: list[dict],
     <a href="{unsubscribe_url}" style="color:#6b6050;">Unsubscribe</a> from these reminders.
     {address_line}
   </div>"""
+
+    if fresh and isinstance(facts.get("low"), (int, float)):
+        wide = big_button.replace("padding:16px 34px", "padding:18px 24px") + \
+            "min-width:300px;text-align:center;letter-spacing:1.5px;"
+        buttons = "".join(f"""
+    <tr><td class="cd-pad" align="center" style="padding:8px 40px;">
+      <a class="cd-button" href="{base}/l/{e(l['admin_token'])}" style="{wide}">{e(label(l))}</a>
+    </td></tr>""" for l in leagues)
+        subject, preheader, body, text_pitch = _front_page_reminder(
+            w, facts, base=base, buttons=buttons, footer=footer, last=last)
+        text = "\n".join(text_pitch + [""]
+                         + [f"{label(l)}: {base}/l/{l['admin_token']}" for l in leagues]
+                         + ["", f"Unsubscribe: {unsubscribe_url}"]
+                         + ([address] if address else []))
+        return _send(to, subject, body, unsubscribe_url=unsubscribe_url,
+                     text_body=text, from_name="The Commissioner's Desk")
+
+    buttons = "".join(f"""
+    <tr><td align="center" style="padding:8px 28px;">
+      <a href="{base}/l/{e(l['admin_token'])}" style="{big_button}">{e(label(l))}</a>
+    </td></tr>""" for l in leagues)
     body = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light only"></head>
