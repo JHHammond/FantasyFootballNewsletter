@@ -1201,7 +1201,7 @@ textarea { resize: vertical; }
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(242, 237, 227, 0.97);   /* --cream, nearly opaque */
+    background: var(--cream);   /* solid: the page behind showed through and read as clutter */
     text-align: center;
 }
 
@@ -1222,23 +1222,6 @@ html.is-generating, html.is-generating body { overflow: hidden; }
     line-height: 1.15;
 }
 
-.generating-step {
-    margin-top: 10px;
-    min-height: 1.6em;     /* no jump when a longer line replaces a shorter */
-    font-family: "Barlow Condensed", sans-serif;
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--accent);
-    transition: opacity 0.22s ease, transform 0.22s ease;
-}
-
-.generating-step.is-swapping {
-    opacity: 0;
-    transform: translateY(4px);
-}
-
 .generating-note {
     margin-top: 18px;
     font-size: 13px;
@@ -1247,61 +1230,129 @@ html.is-generating, html.is-generating body { overflow: hidden; }
 
 .generating-note.is-slow { color: var(--ink-2); }
 
-/* --- the ball ---------------------------------------------------------- */
+/* --- the front page being set (27 Oct) -------------------------------------
+   A small front page, set line by line: masthead, headline, three columns,
+   each line inking in from the left in reading order. A roller sweeps down
+   when the sheet is full, and it starts again. Seven seconds a sheet. */
 
-.football {
-    overflow: visible;           /* the motion lines sit outside the viewBox */
-    color: var(--muted);
-    animation: football-flight 1.6s ease-in-out infinite;
-    transform-origin: 50% 50%;
+.gen-sheet {
+    position: relative; overflow: hidden;
+    width: 280px; max-width: 100%; margin: 0 auto; padding: 16px 16px 18px;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(40, 30, 10, .06), 0 22px 40px -24px rgba(40, 30, 10, .55);
+    text-align: left;
+}
+.gen-mast {
+    font-family: "Playfair Display", Georgia, serif; font-weight: 900; font-size: 22px;
+    line-height: 1.05; text-align: center; letter-spacing: -.3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    padding-bottom: 7px; border-bottom: 3px double var(--ink);
+}
+.gen-dateline {
+    display: flex; justify-content: space-between; padding: 4px 0 5px; margin-bottom: 9px;
+    border-bottom: 1px solid var(--ink);
+    font-family: "Barlow Condensed", sans-serif; font-size: 9.5px; font-weight: 700;
+    letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted);
+}
+.gen-head { display: flex; flex-direction: column; align-items: center; gap: 5px; margin-bottom: 11px; }
+.gen-head i { display: block; height: 9px; border-radius: 1px; background: var(--ink); }
+.gen-head i:nth-child(1) { width: 92%; }
+.gen-head i:nth-child(2) { width: 64%; }
+.gen-cols { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 9px; }
+.gen-col { display: flex; flex-direction: column; gap: 5px; }
+.gen-col + .gen-col { padding-left: 9px; border-left: 1px solid var(--line); }
+.gen-col i { display: block; height: 4px; border-radius: 1px; background: #8f8676; }
+.gen-col i:nth-child(3n) { width: 82%; }
+.gen-col i:last-child { width: 58%; }
+.gen-col b { display: block; height: 38px; border-radius: 2px; background: #d9d0bf; margin-bottom: 2px; }
+
+/* Every line inks in from the left, in reading order (each one's delay is
+   set below), holds, and the sheet clears for the next. */
+.gen-head i, .gen-col i, .gen-col b {
+    transform-origin: left center;
+    animation: gen-ink 7s cubic-bezier(.3, .7, .3, 1) infinite;
+}
+@keyframes gen-ink {
+    0%   { transform: scaleX(0); opacity: 1; }
+    9%   { transform: scaleX(1); opacity: 1; }
+    88%  { transform: scaleX(1); opacity: 1; }
+    96%, 100% { transform: scaleX(1); opacity: 0; }
+}
+.gen-head i:nth-child(1) { animation-delay: 0s; }
+.gen-head i:nth-child(2) { animation-delay: .35s; }
+.gen-col-photo b        { animation-delay: .7s; }
+.gen-col-photo i:nth-child(2) { animation-delay: 1.1s; }
+.gen-col-photo i:nth-child(3) { animation-delay: 1.35s; }
+.gen-col-photo i:nth-child(4) { animation-delay: 1.6s; }
+.gen-col:nth-child(2) i:nth-child(1) { animation-delay: 1.9s; }
+.gen-col:nth-child(2) i:nth-child(2) { animation-delay: 2.1s; }
+.gen-col:nth-child(2) i:nth-child(3) { animation-delay: 2.3s; }
+.gen-col:nth-child(2) i:nth-child(4) { animation-delay: 2.5s; }
+.gen-col:nth-child(2) i:nth-child(5) { animation-delay: 2.7s; }
+.gen-col:nth-child(2) i:nth-child(6) { animation-delay: 2.9s; }
+.gen-col:nth-child(3) i:nth-child(1) { animation-delay: 3.2s; }
+.gen-col:nth-child(3) i:nth-child(2) { animation-delay: 3.4s; }
+.gen-col:nth-child(3) i:nth-child(3) { animation-delay: 3.6s; }
+.gen-col:nth-child(3) i:nth-child(4) { animation-delay: 3.8s; }
+.gen-col:nth-child(3) i:nth-child(5) { animation-delay: 4.0s; }
+.gen-col:nth-child(3) i:nth-child(6) { animation-delay: 4.2s; }
+/* The delays shift each line's whole cycle, so every line clears at its own
+   moment; a negative start would show a half-set sheet on the first frame.
+   Instead every line starts blank (fill backwards). */
+.gen-head i, .gen-col i, .gen-col b { animation-fill-mode: backwards; }
+
+/* The roller: a band of ink that passes down the sheet once it's full. */
+.gen-roller {
+    position: absolute; left: 0; right: 0; top: -30%; height: 26%;
+    background: linear-gradient(to bottom, rgba(179, 20, 28, 0), rgba(179, 20, 28, .1) 70%, rgba(179, 20, 28, .32) 100%);
+    border-bottom: 2px solid rgba(179, 20, 28, .55);
+    animation: gen-roll 7s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes gen-roll {
+    0%, 62%  { transform: translateY(0); opacity: 0; }
+    64%      { opacity: 1; }
+    80%      { transform: translateY(520%); opacity: 1; }
+    82%, 100% { transform: translateY(520%); opacity: 0; }
 }
 
-/* A thrown ball rises and falls a little and noses up and down with it. Not
-   a rotation — the spin is in the laces. */
-@keyframes football-flight {
-    0%, 100% { transform: translateY(0)    rotate(-14deg); }
-    50%      { transform: translateY(-9px) rotate(-10deg); }
+.gen-progress { height: 4px; margin: 16px auto 0; max-width: 320px; border-radius: 2px;
+                background: rgba(0, 0, 0, .08); overflow: hidden; }
+.gen-progress span { display: block; height: 100%; width: 0; background: var(--accent);
+                     transition: width .3s linear; }
+
+.gen-steps { list-style: none; margin: 16px auto 0; padding: 0; max-width: 320px; text-align: left; }
+.gen-steps li {
+    position: relative; padding: 3px 0 3px 26px; font-size: 14.5px; color: var(--muted);
+    opacity: .55; transition: opacity .25s ease, color .25s ease;
+}
+.gen-steps li::before {
+    content: ""; position: absolute; left: 4px; top: 50%; width: 10px; height: 10px; margin-top: -5px;
+    border-radius: 50%; border: 1.5px solid currentColor; box-sizing: border-box;
+}
+.gen-steps li.is-on { color: var(--ink); opacity: 1; font-weight: 600; }
+.gen-steps li.is-on::before { border-color: var(--accent); border-top-color: transparent;
+                              animation: gen-spin .8s linear infinite; }
+.gen-steps li.is-done { color: var(--ink-2); opacity: .9; }
+.gen-steps li.is-done::before { content: "✓"; border: 0; width: auto; height: auto; margin-top: -.65em;
+                                top: 50%; left: 3px; color: #2d6a1f; font-weight: 700; font-size: 13px; line-height: 1.3; }
+@keyframes gen-spin { to { transform: rotate(360deg); } }
+
+.generating .generating-title { margin-top: 22px; }
+
+@media (max-width: 600px) {
+    .gen-sheet { width: 240px; padding: 13px 13px 15px; }
+    .gen-mast { font-size: 19px; }
+    .gen-steps li { font-size: 14px; }
+    .generating .generating-title { font-size: 23px; }
 }
 
-/* THE SPIRAL. The laces slide across the face of the ball and fade at each
-   edge, so they read as wrapping round the back and coming over the top
-   again. Squashed about their own centre (fill-box), not the SVG's corner,
-   or the squash drags them toward the left tip. */
-.laces {
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: laces-spin 0.62s linear infinite;
-}
-
-@keyframes laces-spin {
-    /* The laces cross the front of the ball in the first half of the turn and
-       spend the second half round the back, out of sight. One set, not two:
-       a real ball never shows you both sides at once. */
-    0%   { transform: translateX(-118px) scaleX(0.4); opacity: 0; }
-    12%  { opacity: 1; }
-    25%  { transform: translateX(0)      scaleX(1);   opacity: 1; }
-    38%  { opacity: 1; }
-    50%  { transform: translateX(118px)  scaleX(0.4); opacity: 0; }
-    100% { transform: translateX(118px)  scaleX(0.4); opacity: 0; }
-}
-
-.football-trail line {
-    animation: trail 0.62s linear infinite;
-}
-.football-trail line:nth-child(2) { animation-delay: -0.2s; }
-.football-trail line:nth-child(3) { animation-delay: -0.4s; }
-
-@keyframes trail {
-    0%   { opacity: 0.1; transform: translateX(10px); }
-    50%  { opacity: 0.7; }
-    100% { opacity: 0.1; transform: translateX(-10px); }
-}
-
-/* Somebody who has asked their system for less motion gets a still ball and
-   the words. The words are the useful part anyway. */
+/* Somebody who has asked their system for less motion gets the sheet
+   already set, and the list. */
 @media (prefers-reduced-motion: reduce) {
-    .football, .laces, .football-trail line { animation: none; }
-    .generating-step { transition: none; }
+    .gen-head i, .gen-col i, .gen-col b, .gen-roller, .gen-steps li.is-on::before { animation: none; }
+    .gen-roller { display: none; }
+    .gen-progress span { transition: none; }
 }
 
 /* ---------- plan: nav link, manage-page note, the signup offer ---------- */

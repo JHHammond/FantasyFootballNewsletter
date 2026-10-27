@@ -5030,8 +5030,11 @@ def test_overlay_is_hidden_until_submit(client, league, monkeypatch):
 
 def test_overlay_cycles_real_steps_and_warns_against_refresh(client, league, monkeypatch):
     html = _manage_with_weeks(client, monkeypatch)
-    assert "Checking the projections" in html
-    assert "don't refresh" in html
+    assert "Pulling the box scores" in html and "Warming up the presses" in html
+    assert "don’t refresh" in html
+    # Posted in the background, so a phone keeps animating (27 Oct).
+    assert "fetch(form.getAttribute(\"action\")" in html
+    assert "The Commissioner&rsquo;s Desk</div>" in html
     # the back-button case: a restored page must not look mid-generation
     assert 'addEventListener("pageshow"' in html
 
@@ -5039,7 +5042,7 @@ def test_overlay_cycles_real_steps_and_warns_against_refresh(client, league, mon
 def test_overlay_respects_reduced_motion():
     css = (Path(__file__).resolve().parent.parent / "web" / "static" / "style.css").read_text()
     blocks = [b[:b.index("}\n}")] for b in css.split("prefers-reduced-motion")[1:]]
-    assert any(".laces" in b and ".football" in b and "animation: none" in b
+    assert any(".gen-head i" in b and ".gen-roller" in b and "animation: none" in b
                for b in blocks)
 
 
@@ -5405,7 +5408,7 @@ def test_setup_is_three_steps_ending_in_generate(client, league, monkeypatch):
     assert 'value="Will"' in html
     assert 'name="week" value="3"' in html
     assert "Generate week 3" in html
-    assert 'data-generating' in html            # the football overlay
+    assert 'data-generating' in html            # the generating overlay
 
 
 def test_setup_before_any_week_is_played_saves_instead(client, league, monkeypatch):
