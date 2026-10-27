@@ -256,3 +256,11 @@ def test_in_the_paper_the_button_points_at_the_site():
                        canonical_base="https://commissionersdesk.com")
     assert 'id="draft"' in html and "See the whole chart" in html
     assert "https://commissionersdesk.com/market?m=redraft&amp;p=1,2,4,4866&amp;from=paper" in html
+
+
+def test_market_links_leave_any_frame_the_paper_is_shown_in():
+    """John, 27 Oct: on the manage page's preview, "See the whole chart"
+    opened the market inside the paper's frame."""
+    html = render_draft_regrets_html(_priced(), "https://commissionersdesk.com")
+    assert 'class="dr-button" href="https://commissionersdesk.com/market?m=redraft&amp;p=1,2,4,4866&amp;from=paper" target="_top"' in html
+    assert html.count('class="dr-mkt"') == html.count('target="_top">Market ')

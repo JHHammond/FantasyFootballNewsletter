@@ -75,6 +75,30 @@ document.getElementById('copy-btn').addEventListener('click', async function () 
     setTimeout(() => { this.textContent = original; }, 1800);
 });
 
+// Links in the paper leave the frame (John, 27 Oct: "See the whole chart"
+// opened the market inside this page's preview). Anything that isn't a jump
+// within the paper opens in the whole window; forms (subscribe, votes that
+// post) do the same. Papers already published are covered too, since this
+// runs on whatever the frame loads. Same origin, so the frame is reachable.
+(function () {
+    const frame = document.querySelector('.paper-frame iframe');
+    if (!frame) return;
+    function freeLinks() {
+        try {
+            const doc = frame.contentDocument;
+            doc.querySelectorAll('a[href]').forEach(function (a) {
+                const href = a.getAttribute('href') || '';
+                if (href.charAt(0) !== '#' && !a.getAttribute('target')) a.setAttribute('target', '_top');
+            });
+            doc.querySelectorAll('form[action]').forEach(function (f) {
+                if (!f.getAttribute('target')) f.setAttribute('target', '_top');
+            });
+        } catch (err) { /* not same-origin: leave it */ }
+    }
+    frame.addEventListener('load', freeLinks);
+    if (frame.contentDocument && frame.contentDocument.readyState === 'complete') freeLinks();
+})();
+
 // The Edit menu is a <details>: close it when the click lands elsewhere.
 (function () {
     const menu = document.querySelector('.edit-menu');

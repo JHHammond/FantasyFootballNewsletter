@@ -1976,7 +1976,7 @@ def _dr_tile(r, kind, mkt=None, colour=""):
         team_html += f'<div class="dr-where">({html_escape(note)})</div>'
     price = ""
     if mkt:
-        price = (f'<a class="dr-mkt" href="{html_escape(mkt["href"])}">Market '
+        price = (f'<a class="dr-mkt" href="{html_escape(mkt["href"])}" target="_top">Market '
                  f'<b>{html_escape(str(mkt.get("costs") or ""))}</b> &rarr;</a>')
     style = f' style="--dr-c:{html_escape(colour)}"' if colour else ""
     return f"""
@@ -2049,7 +2049,7 @@ def render_draft_regrets_html(regrets, base_url=""):
         host = html_escape(base_url.split("://", 1)[-1] or "commissionersdesk.com")
         cta = f"""
             <div class="dr-cta">
-                <a class="dr-button" href="{html_escape(paper_market.chart_url(regrets, base_url))}">See the whole chart &rarr;</a>
+                <a class="dr-button" href="{html_escape(paper_market.chart_url(regrets, base_url))}" target="_top">See the whole chart &rarr;</a>
                 <span class="dr-cta-note">Every player&rsquo;s price, every trade, updated daily. Free.</span>
                 <span class="dr-print-url">The whole chart: {host}/market</span>
             </div>"""
