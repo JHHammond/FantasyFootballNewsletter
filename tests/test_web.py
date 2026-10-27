@@ -4531,7 +4531,7 @@ def test_a_paid_league_sees_no_locks_on_its_own_settings(client, league):
 
 def test_the_account_page_says_what_paying_would_add(client):
     _signup(client)
-    body = client.get("/account").text
+    body = client.get("/me").text
 
     assert "Free" in body
     for word in ("leagues", "photos", "Tuesday"):
@@ -4545,11 +4545,11 @@ def test_the_upgrade_button_only_appears_when_stripe_is_configured(
 
     monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
     monkeypatch.delenv("STRIPE_PRICE_ID", raising=False)
-    assert "/billing/checkout" not in client.get("/account").text
+    assert "/billing/checkout" not in client.get("/me").text
 
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test")
     monkeypatch.setenv("STRIPE_PRICE_ID", "price_test")
-    assert "/billing/checkout" in client.get("/account").text
+    assert "/billing/checkout" in client.get("/me").text
 
 
 def _signed(payload: bytes, secret: str = "whsec_test") -> str:
@@ -4673,25 +4673,43 @@ def test_a_rate_limited_checkout_says_nothing_was_charged(client, monkeypatch):
 def test_the_manage_page_is_in_the_order_somebody_uses_it(client, league):
     """Make it, then look at what you made, then tune it.
 
-    Past editions used to sit near the bottom, below the delete button, which
-    put the thing a commissioner opens the page for behind everything they
-    configure once and never touch again. Pinned here because section order is
-    the kind of thing a later edit reshuffles without noticing.
+    Since 26 Oct the page is four tabs (John: "could flow better ... a bit
+    blocky"): this week (make it, the editions, the link), the people, the
+    lore and awards, settings. Every section is still in the page, inside its
+    tab, in the order somebody uses it; the delete button is last, folded.
     """
     body = client.get("/l/secret-admin-token").text
 
-    # Matched on the heading tag, so a stray mention of "Settings" in some
-    # help text higher up can't satisfy the check by accident. Settings sits
-    # above the two housekeeping cards: it gets used; they are read once.
-    order = ["Send this to your league", "Make this week's paper",
-             "Past editions", "Who's in the league", "The lore", "Settings",
-             "Don't lose this page", "Delete this league"]
-    heads = {t: body.find(f'<h2 class="card-title">{t}</h2>') for t in order}
-    seen = [heads[t] for t in order]
+    tabs = ['data-tab="week"', 'data-tab="people"', 'data-tab="lore"', 'data-tab="settings"']
+    at = [body.find(t) for t in tabs]
+    assert all(i >= 0 for i in at) and at == sorted(at), "the tabs are missing or out of order"
 
-    assert all(i >= 0 for i in seen), (
-        f"a section is missing: {[t for t in order if heads[t] < 0]}")
+    panels = ['data-panel="week"', 'data-panel="people"', 'data-panel="lore"', 'data-panel="settings"']
+    order = [("week", "Make this week's paper"), ("week", "Editions"),
+             ("week", "Send this to your league"), ("people", "Who's in the league"),
+             ("lore", "The lore"), ("lore", "Custom awards"), ("settings", "Settings"),
+             ("settings", "Your manage link"), ("settings", "Delete this league")]
+    starts = {p.split('"')[1]: body.find(p) for p in panels}
+    ends = dict(zip(list(starts), [starts[k] for k in list(starts)[1:]] + [len(body)]))
+    seen = []
+    for panel, title in order:
+        i = body.find(f">{title}</h2>")
+        assert i >= 0, f"missing: {title}"
+        assert starts[panel] < i < ends[panel], f"{title} is not in the {panel} tab"
+        seen.append(i)
     assert seen == sorted(seen), "the manage page sections are out of order"
+    assert '<details class="dk-danger" id="danger">' in body
+
+
+def test_manage_forms_come_back_to_their_own_tab(client, league):
+    """A form posted from a tab lands back on that tab, not on "This week"."""
+    tok = "secret-admin-token"
+    assert client.post(f"/l/{tok}/lore", data={"entry": "Nick owes a drink"},
+                       follow_redirects=False).headers["location"].endswith("#lore")
+    assert client.post(f"/l/{tok}/delete", data={"confirm": "nope"},
+                       follow_redirects=False).headers["location"].endswith("#danger")
+    assert client.post(f"/l/{tok}/email", data={"email": "bad"},
+                       follow_redirects=False).headers["location"].endswith("#link")
 
 
 # ===========================================================================
@@ -5118,17 +5136,22 @@ def test_the_header_says_upgrade_to_free_accounts_and_plan_to_paid(client):
     assert 'id="plan"' in client.get("/me").text
 
 
-def test_the_plan_card_is_at_the_bottom_of_the_account_page(client):
-    """John: the plan has its own tab now; the papers come first."""
+def test_the_papers_page_is_papers_and_the_plan_is_on_the_account_page(client, monkeypatch):
+    """John, 26 Oct: the papers page and the account page each do one job.
+    The papers page only points at the plan; the plan and its buttons live
+    on /me."""
+    _billing_on(monkeypatch)
     _signup(client)
     html = client.get("/account").text
-    assert html.index("Start a new paper") < html.index('id="plan"')
+    assert 'href="/me#plan"' in html and 'id="plan"' not in html
+    assert "/billing/checkout" not in html
+    assert 'id="plan"' in client.get("/me").text
 
 
 def test_free_manage_page_points_at_the_upgrade(client, free_league, monkeypatch):
     monkeypatch.setattr(webapp, "get_provider", _verify_ok())
     html = client.get("/l/free-admin-token").text
-    assert 'class="trial-box' in html and "/account#plan" in html
+    assert 'class="trial-box' in html and "/me#plan" in html
 
 
 def test_paid_manage_page_does_not_nag(client, league, monkeypatch):
@@ -5242,7 +5265,7 @@ def test_monthly_leads_and_the_season_pass_follows(client, monkeypatch):
     and the season pass is offered beside it."""
     _season_on(monkeypatch)
     _signup(client)
-    for path in ("/account", "/connect?welcome=1"):
+    for path in ("/me", "/connect?welcome=1"):
         html = client.get(path).text
         assert 'name="term" value="season"' in html, path
         assert html.index('value="monthly"') < html.index('value="season"'), path
@@ -5253,7 +5276,7 @@ def test_monthly_only_when_there_is_no_season_price(client, monkeypatch):
     _billing_on(monkeypatch)
     monkeypatch.delenv("STRIPE_SEASON_PRICE_ID", raising=False)
     _signup(client)
-    html = client.get("/account").text
+    html = client.get("/me").text
     assert 'value="season"' not in html
     assert 'name="term" value="monthly"' in html
     assert "$19.99" not in html
@@ -6428,3 +6451,35 @@ def test_long_pdf_clips_to_one_page():
     assert "html { overflow: hidden !important; }" in js
     assert 'body { height: " + h + "px !important; overflow: clip !important; }' in js
     assert "root.scrollHeight) + 40" in js
+
+
+# --- the paper pages, 26 Oct ---------------------------------------------------
+
+def test_only_the_owner_sees_the_way_to_manage_from_the_read_page(client, league):
+    """The read page is public; the manage token must never be on it for
+    anybody but the owner, signed in."""
+    slug = league["public_slug"]
+    assert "secret-admin-token" not in client.get(f"/p/{slug}").text     # nobody signed in
+    _signup(client)                                                      # somebody else
+    assert "secret-admin-token" not in client.get(f"/p/{slug}").text
+    owner = demo_db.user_by_email("john@example.com")
+    demo_db.update_league(league["id"], {"user_id": owner["id"]})
+    html = client.get(f"/p/{slug}").text
+    assert 'href="/l/secret-admin-token">Manage this paper' in html
+
+
+def test_editions_are_listed_by_their_headline(client, league):
+    path, url = demo_db.upload_paper(league["public_slug"], 2025, 3, "<html></html>")
+    demo_db.save_paper(league["id"], 3, 2025, path, url, {"headline": "NICK BENCHES HIS BEST GUY AGAIN"})
+    assert "NICK BENCHES HIS BEST GUY AGAIN" in client.get(f"/p/{league['public_slug']}").text
+    assert "NICK BENCHES HIS BEST GUY AGAIN" in client.get("/l/secret-admin-token").text
+
+
+def test_the_papers_page_shows_each_papers_latest_edition(client, league):
+    _signup(client)
+    owner = demo_db.user_by_email("john@example.com")
+    demo_db.update_league(league["id"], {"user_id": owner["id"]})
+    path, url = demo_db.upload_paper(league["public_slug"], 2025, 3, "<html></html>")
+    demo_db.save_paper(league["id"], 3, 2025, path, url, {"headline": "THE WOKE AGENDA FALLS AGAIN"})
+    html = client.get("/account").text
+    assert "THE WOKE AGENDA FALLS AGAIN" in html and 'href="/l/secret-admin-token"' in html

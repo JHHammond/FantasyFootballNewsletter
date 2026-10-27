@@ -293,6 +293,45 @@ def provider_name(provider: str) -> str:
 
 templates.env.filters["provider_name"] = provider_name
 
+
+def edition_date(value) -> str:
+    """"Oct 21" from a stored timestamp, for the edition lists. "" when it
+    can't be read: the list shows the week either way."""
+    try:
+        when = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    return f"{when:%b} {when.day}"
+
+
+templates.env.filters["edition_date"] = edition_date
+
+
+def _paper_summary(league: dict, this_week: int) -> dict:
+    """One paper on the papers page (26 Oct): its newest edition, its reads,
+    and whether this week's edition is out yet. Never raises."""
+    try:
+        papers = db.list_papers(league["id"]) or []
+    except Exception:  # noqa: BLE001
+        papers = []
+    season = int(league.get("season") or 0)
+    this_season = [p for p in papers if int(p.get("season") or 0) == season]
+    latest = papers[0] if papers else None
+    status = None
+    if this_week and season == nfl_week_current_season():
+        # A paper for a later week than the last finished one (a test run on
+        # a week still in progress) counts as this week being out.
+        newest = max((int(p.get("week") or 0) for p in this_season), default=0)
+        status = ({"week": newest, "made": True} if newest >= this_week
+                  else {"week": this_week, "made": False})
+    return {"league": league, "latest": latest, "editions": len(papers),
+            "status": status}
+
+
+def nfl_week_current_season() -> int:
+    import nfl_week
+    return nfl_week.current_season()
+
 # What the paid plan includes, and whether this deployment can sell it. Both
 # are globals so that no route has to remember to pass them and no template
 # has to restate the price.
@@ -3335,7 +3374,7 @@ def logout():
 
 
 @app.get("/me", response_class=HTMLResponse)
-def me_page(request: Request):
+def me_page(request: Request, notice: str = "", error: str = ""):
     """The account page (John, 24 Oct): who you are, your plan, and every
     league and team the site knows is yours: papers, trade-market-only
     leagues and leagues you follow."""
@@ -3354,16 +3393,23 @@ def me_page(request: Request):
                      "league": l.get("league_name") or "", "provider": (l.get("provider") or "").title(),
                      "kind": kind, "team_known": bool(l.get("my_team_id")),
                      "manage": f"/l/{l['admin_token']}" if kind != "follow" and l.get("admin_token") else None})
-    return _render(request, "me.html", rows=rows, season=season)
+    return _render(request, "me.html", rows=rows, season=season,
+                   notice=clean_text(notice, max_length=200),
+                   error=clean_text(error, max_length=200))
 
 
 @app.get("/account", response_class=HTMLResponse)
 def account(request: Request, welcome: int = 0, notice: str = "",
             error: str = ""):
+    """Your papers (26 Oct): one card per paper, with its newest edition and
+    whether this week's is out. The plan and billing live on /me."""
+    import nfl_week
     user = _require_user(request)
     leagues = db.leagues_for_user(user["id"])
+    this_week = nfl_week.completed_week()
     return _render(request, "account.html",
                    leagues=leagues,
+                   cards=[_paper_summary(l, this_week) for l in leagues],
                    welcome=bool(welcome), notice=notice, error=error)
 
 
@@ -3450,11 +3496,11 @@ def billing_checkout(request: Request, term: str = Form(plans.MONTHLY), gate: st
     if term not in plans.TERMS or (
             term == plans.SEASON and not plans.season_pass_enabled()):
         return RedirectResponse(
-            "/account?error=That+plan+isn't+available.+Nothing+was+charged.",
+            "/me?error=That+plan+isn't+available.+Nothing+was+charged.",
             status_code=303)
 
     if plans.is_paid(user):
-        return RedirectResponse("/account?notice=You're+already+subscribed.",
+        return RedirectResponse("/me?notice=You're+already+subscribed.",
                                 status_code=303)
 
     # Two keys, the same reasoning as generation: the IP is a claim, the
@@ -3464,7 +3510,7 @@ def billing_checkout(request: Request, term: str = Form(plans.MONTHLY), gate: st
             or _rate_limited(f"checkout-user:{user['id']}",
                              CHECKOUTS_PER_USER_PER_DAY, window=DAY)):
         return RedirectResponse(
-            "/account?error=That's+a+few+attempts+already.+Give+it+a+few+"
+            "/me?error=That's+a+few+attempts+already.+Give+it+a+few+"
             "minutes,+and+nothing+has+been+charged.", status_code=303)
 
     try:
@@ -3472,7 +3518,7 @@ def billing_checkout(request: Request, term: str = Form(plans.MONTHLY), gate: st
     except billing.BillingError as exc:
         print(f"[billing] checkout failed for {user['id']}: {exc}", flush=True)
         return RedirectResponse(
-            "/account?error=Couldn't+open+the+payment+page.+Nothing+was+"
+            "/me?error=Couldn't+open+the+payment+page.+Nothing+was+"
             "charged.+Try+again+in+a+minute.", status_code=303)
 
     # 303 so the browser follows with GET. Stripe's session URL is single-use
@@ -3489,7 +3535,7 @@ def billing_portal(request: Request):
     except billing.BillingError as exc:
         print(f"[billing] portal failed for {user['id']}: {exc}", flush=True)
         return RedirectResponse(
-            "/account?error=Couldn't+open+the+billing+page.+Try+again+in+a+"
+            "/me?error=Couldn't+open+the+billing+page.+Try+again+in+a+"
             "minute.", status_code=303)
     return RedirectResponse(url, status_code=303)
 
@@ -3933,20 +3979,20 @@ def add_lore(token: str, entry: str = Form(...), always: str = Form("")):
     league = _require_league(token)
     text = entry.strip()
     if not text:
-        return RedirectResponse(f"/l/{token}", status_code=303)
+        return RedirectResponse(f"/l/{token}#lore", status_code=303)
     if len(db.get_lore(league["id"])) >= MAX_LORE_ENTRIES:
         return RedirectResponse(
             f"/l/{token}?error=That's+{MAX_LORE_ENTRIES}+bits+of+lore+-+"
-            f"the+cap.+Remove+one+to+add+another.", status_code=303)
+            f"the+cap.+Remove+one+to+add+another.#lore", status_code=303)
     db.add_lore(league["id"], text[:500], always=bool(always))
-    return RedirectResponse(f"/l/{token}", status_code=303)
+    return RedirectResponse(f"/l/{token}#lore", status_code=303)
 
 
 @app.post("/l/{token}/lore/{lore_id}/remove")
 def remove_lore(token: str, lore_id: str):
     league = _require_league(token)
     db.deactivate_lore(lore_id, league["id"])
-    return RedirectResponse(f"/l/{token}", status_code=303)
+    return RedirectResponse(f"/l/{token}#lore", status_code=303)
 
 
 @app.post("/l/{token}/managers")
@@ -3972,9 +4018,9 @@ def save_managers(token: str,
     if not _save_managers(league, handle, display_name, notes):
         return RedirectResponse(
             f"/l/{token}?error=Something+went+wrong+saving+that.+"
-            f"Try+again.", status_code=303)
+            f"Try+again.#people", status_code=303)
 
-    return RedirectResponse(f"/l/{token}?notice=Saved.", status_code=303)
+    return RedirectResponse(f"/l/{token}?notice=Saved.#people", status_code=303)
 
 
 def _save_name_style(league: dict, value: str) -> None:
@@ -4050,7 +4096,7 @@ def update_settings(
     except Exception:  # noqa: BLE001 — migration 018 not run yet
         fields.pop("auto_send_off", None)
         db.update_league(league["id"], fields)
-    return RedirectResponse(f"/l/{token}?notice=Saved.", status_code=303)
+    return RedirectResponse(f"/l/{token}?notice=Saved.#settings", status_code=303)
 
 
 @app.post("/l/{token}/rotate")
@@ -4073,7 +4119,7 @@ def rotate_admin_token(token: str):
 
     return RedirectResponse(
         f"/l/{fresh}?notice=New+link+created.+The+old+one+no+longer+works+-+"
-        f"bookmark+this+page.", status_code=303)
+        f"bookmark+this+page.#link", status_code=303)
 
 
 @app.post("/l/{token}/delete")
@@ -4096,7 +4142,7 @@ def delete_league(request: Request, token: str, confirm: str = Form("")):
     if confirm.strip().lower() != wanted:
         return RedirectResponse(
             f"/l/{token}?error=That+didn't+match+the+league+name,+so+"
-            f"nothing+was+deleted.", status_code=303)
+            f"nothing+was+deleted.#danger", status_code=303)
 
     db.delete_league(league["id"])
 
@@ -4117,7 +4163,7 @@ def save_owner_email(token: str, email: str = Form(...)):
     league = _require_league(token)
     address = auth.clean_email(email) or ""
     if not address:
-        return RedirectResponse(f"/l/{token}?error=That+doesn't+look+like+an+email.",
+        return RedirectResponse(f"/l/{token}?error=That+doesn't+look+like+an+email.#link",
                                 status_code=303)
 
     db.update_league(league["id"], {"owner_email": address})
@@ -4125,9 +4171,9 @@ def save_owner_email(token: str, email: str = Form(...)):
 
     if not result.ok:
         return RedirectResponse(
-            f"/l/{token}?error=Couldn't+send+that+email.+Try+again+in+a+bit.",
+            f"/l/{token}?error=Couldn't+send+that+email.+Try+again+in+a+bit.#link",
             status_code=303)
-    return RedirectResponse(f"/l/{token}?notice=Sent.+Check+your+inbox.",
+    return RedirectResponse(f"/l/{token}?notice=Sent.+Check+your+inbox.#link",
                             status_code=303)
 
 
@@ -5177,9 +5223,23 @@ def league_papers(request: Request, slug: str, subscribed: int = 0, error: str =
     if not league:
         _paper_miss(request)
         raise HTTPException(status_code=404, detail="No paper at that address.")
+    # The owner, signed in, gets the way back to the manage page (26 Oct).
+    # The public lookup never carries the manage token, so it comes from his
+    # own list of leagues; nobody else's page ever contains it.
+    owner_link = None
+    viewer = current_user(request)
+    if viewer and league.get("user_id") and league.get("user_id") == viewer.get("id"):
+        try:
+            mine = next((l for l in db.leagues_for_user(viewer["id"])
+                         if l.get("id") == league["id"]), None)
+        except Exception:  # noqa: BLE001
+            mine = None
+        if mine and mine.get("admin_token"):
+            owner_link = f"/l/{mine['admin_token']}"
     return _render(request, "archive.html",
                    league=league, paper_name=paper_name_for(league),
                    papers=db.list_papers(league["id"]),
+                   owner_link=owner_link,
                    subscribed=bool(subscribed), error=error)
 
 

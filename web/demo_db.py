@@ -212,7 +212,8 @@ def save_paper(league_id, week, season, storage_path_, public_url, ai_cache,
 
 
 def list_papers(league_id: str) -> list[dict[str, Any]]:
-    papers = [dict(p) for k, p in _PAPERS.items() if k[0] == league_id]
+    papers = [dict(p, headline=(p.get("ai_cache") or {}).get("headline"))
+              for k, p in _PAPERS.items() if k[0] == league_id]
     papers.sort(key=lambda p: (p["season"], p["week"]), reverse=True)
     return papers
 

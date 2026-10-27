@@ -2,11 +2,24 @@
 
 {% block title %}{{ paper_name }}{% endblock %}
 {% block description %}Every weekly edition of {{ paper_name }}, the newspaper for {{ league.league_name }}.{% endblock %}
+{% block wrapclass %}dk{% endblock %}
 
 {% block content %}
-<header class="page-head">
-    <div class="eyebrow">{{ league.league_name }} &middot; {{ league.season }} season</div>
-    <h1 class="page-title">{{ paper_name }}</h1>
+{#
+   The league's paper, as its readers find it (26 Oct): the newest edition
+   up front with its front page, every earlier week by its headline, and the
+   way to get it by email. The owner, signed in, also gets the way back to
+   the manage page; nobody else ever sees that link.
+#}
+<header class="dk-head">
+    <div>
+        <div class="eyebrow">{{ league.league_name }} &middot; {{ league.season }} season</div>
+        <h1 class="page-title">{{ paper_name }}</h1>
+        <div class="dk-head-sub">The league&rsquo;s weekly paper. Free to read, no sign-in.</div>
+    </div>
+    {% if owner_link %}
+    <div class="dk-head-actions"><a class="btn btn-sm" href="{{ owner_link }}">Manage this paper</a></div>
+    {% endif %}
 </header>
 
 {% if subscribed %}
@@ -14,42 +27,74 @@
     Check your email. We sent a link to confirm &mdash; click it and you're in.
 </div>
 {% endif %}
-
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
 {% if papers %}
-<ul class="paper-list paper-list-public">
-    {% for p in papers %}
-    <li class="paper-row">
-        <div>
-            <div class="paper-week">Week {{ p.week }}</div>
-            <div class="paper-meta">{{ p.season }} season</div>
+{% set latest = papers[0] %}
+{% set latest_url = "/p/" ~ league.public_slug ~ "/" ~ latest.season ~ "/week-" ~ latest.week %}
+<section class="dk-feature">
+    <a class="dk-front" href="{{ latest_url }}" aria-label="Read Week {{ latest.week }}">
+        <div class="dk-front-view" id="dk-front-view">
+            <iframe src="{{ latest_url }}?embed=1" title="Front page of Week {{ latest.week }}"
+                    tabindex="-1" scrolling="no" aria-hidden="true" loading="lazy"></iframe>
         </div>
-        <a class="btn" href="/p/{{ league.public_slug }}/{{ p.season }}/week-{{ p.week }}">Read</a>
+        <div class="dk-front-fade"></div>
+    </a>
+    <div>
+        <div class="dk-latest-kicker">Latest &middot; Week {{ latest.week }}</div>
+        <h2 class="dk-latest-headline"><a href="{{ latest_url }}">{{ latest.headline or ("Week " ~ latest.week) }}</a></h2>
+        <div class="dk-latest-meta">{{ latest.season }} season{% if latest.generated_at|edition_date %} &middot; out {{ latest.generated_at|edition_date }}{% endif %}</div>
+        <a class="btn btn-primary" href="{{ latest_url }}">Read Week {{ latest.week }} &rarr;</a>
+
+        <div class="dk-subscribe">
+            <h2>Get it in your inbox</h2>
+            <p>Each new edition, the day it drops. Nothing else, ever.</p>
+            <form method="post" action="/p/{{ league.public_slug }}/subscribe">
+                <label class="sr-only" for="sub-email">Email</label>
+                <input type="email" id="sub-email" name="email" required placeholder="you@email.com" />
+                <button type="submit" class="btn btn-primary">Sign me up</button>
+            </form>
+        </div>
+    </div>
+</section>
+
+{% if papers|length > 1 %}
+<h2 class="dk-section-label">Earlier editions</h2>
+<ul class="dk-editions">
+    {% for p in papers[1:] %}
+    <li class="dk-edition">
+        <span class="dk-edition-no" aria-hidden="true"><small>Week</small><b>{{ p.week }}</b></span>
+        <div class="dk-edition-main">
+            <a class="dk-cover" href="/p/{{ league.public_slug }}/{{ p.season }}/week-{{ p.week }}">
+                <div class="dk-headline">{{ p.headline or ("Week " ~ p.week) }}</div>
+            </a>
+            <div class="dk-paper-meta">{{ p.season }} season{% if p.generated_at|edition_date %} &middot; {{ p.generated_at|edition_date }}{% endif %}</div>
+        </div>
+        <div class="dk-edition-actions"><span class="dk-link dk-link-red" aria-hidden="true">Read &rarr;</span></div>
     </li>
     {% endfor %}
 </ul>
+{% endif %}
 
-<section class="card">
-    <h2 class="card-title">Get it in your inbox</h2>
-    <p class="card-sub">
-        We'll send you each new edition when it drops. Nothing else, ever.
-    </p>
-    <form method="post" action="/p/{{ league.public_slug }}/subscribe" class="inline-form">
-        <label class="field">
-            <span class="field-label">Email</span>
-            <input type="email" name="email" required placeholder="you@email.com" />
-        </label>
-        <button type="submit" class="btn btn-primary">Sign me up</button>
-    </form>
-</section>
+<script>
+// Fit the front page to its frame: the paper is laid out at 1200px wide.
+(function () {
+    var v = document.getElementById("dk-front-view");
+    if (!v) return;
+    function fit() { v.style.setProperty("--s", (v.clientWidth / 1200).toFixed(4)); }
+    fit();
+    window.addEventListener("resize", fit);
+})();
+</script>
 {% else %}
 <p class="empty">Nothing published yet. Check back after Monday night.</p>
 {% endif %}
 
-<section class="cta">
-    <h2 class="section-title">Want one for your league?</h2>
-    <p>It's free and takes about a minute.</p>
+{% if not owner_link %}
+<section class="dk-cta">
+    <h2>Want one for your league?</h2>
+    <p>It&rsquo;s free and takes about a minute.</p>
     <a class="btn btn-primary" href="/">Make a paper</a>
 </section>
+{% endif %}
 {% endblock %}

@@ -2,9 +2,17 @@
 {% from "_macros.html" import lock, upgrade_note %}
 
 {% block title %}{{ paper_name }} — manage{% endblock %}
+{% block wrapclass %}dk{% endblock %}
 
 {% block content %}
-
+{#
+   The manage page (26 Oct, John: "could flow better ... a bit blocky").
+   Four tabs: this week (make it, the editions, the link), the people, the
+   lore and awards, settings. Every section is in the page and every form
+   posts where it always did; the tabs are links to the sections' ids, so a
+   form that redirects to /l/<token>#lore opens on the lore. Without the
+   script, the four panels simply show one under the other.
+#}
 {% if is_new %}
 <div class="alert alert-bookmark">
     <strong>Bookmark this page. For real.</strong>
@@ -40,91 +48,54 @@
 </div>
 {% endif %}
 
-<header class="page-head">
-    <div class="eyebrow">{{ league.league_name }} &middot; {{ league.season }}</div>
-    <h1 class="page-title">{{ paper_name }}</h1>
+<header class="dk-head">
+    <div>
+        <div class="eyebrow">{{ league.league_name }} &middot; {{ league.season }} &middot; {{ league.provider|provider_name }}</div>
+        <h1 class="page-title">{{ paper_name }}</h1>
+    </div>
+    <div class="dk-head-actions">
+        {% if papers %}<a class="dk-link" href="/p/{{ league.public_slug }}">See it as your league does &rarr;</a>{% endif %}
+    </div>
 </header>
 
-<section class="card">
-    <h2 class="card-title">Send this to your league</h2>
-    <p class="card-sub">
-        Anyone with this link can read every edition. No sign-in, no app to download.
-        {% if subscriber_count %}
-        <br /><strong>{{ subscriber_count }}</strong>
-        {{ 'person is' if subscriber_count == 1 else 'people are' }} getting it by email.
-        {% endif %}
-    </p>
-    <div class="copy-row">
-        <input type="text" readonly id="share-link"
-               value="{{ public_base() }}/p/{{ league.public_slug }}"
-               onclick="this.select()" class="copy-input" />
-        <button type="button" class="btn btn-primary" id="share-copy">Copy</button>
-    </div>
-    <script>
-    document.getElementById('share-copy').addEventListener('click', async function () {
-        const input = document.getElementById('share-link');
-        if (window.cdEvent) cdEvent('link_copied', 'manage');
-        const original = this.textContent;
-        try {
-            await navigator.clipboard.writeText(input.value);
-        } catch (err) {
-            input.select();
-            document.execCommand('copy');
-        }
-        this.textContent = 'Copied';
-        setTimeout(() => { this.textContent = original; }, 1800);
-    });
-    </script>
-</section>
+<nav class="dk-tabs" role="tablist" aria-label="Manage {{ paper_name }}">
+    <a href="#week" role="tab" data-tab="week">This week</a>
+    <a href="#people" role="tab" data-tab="people"><span class="dk-tab-more">League &amp; </span>people</a>
+    <a href="#lore" role="tab" data-tab="lore">Lore<span class="dk-tab-more"> &amp; awards</span></a>
+    <a href="#settings" role="tab" data-tab="settings">Settings</a>
+</nav>
 
-<section class="card">
+<div class="dk-panel" data-panel="week" id="week" role="tabpanel">
+<div class="dk-grid">
+<div>
+<section class="card dk-make">
     <h2 class="card-title">Make this week's paper</h2>
     {% if weeks %}
-    <p class="card-sub">Run it once Monday&rsquo;s game is over and the week is final. Takes about 30 seconds.</p>
-    <form method="post" action="/l/{{ league.admin_token }}/generate" class="inline-form"
+    <div class="dk-make-week" id="make-week-label">Week {{ default_week or weeks[-1] }}</div>
+    <p class="card-sub" style="margin-bottom:0;">Run it once Monday&rsquo;s game is over and the week is final. Takes about 30 seconds.</p>
+    <form method="post" action="/l/{{ league.admin_token }}/generate" class="dk-make-form"
           data-generating data-letter-prompt>
-        <label class="field field-narrow">
-            <span class="field-label">Week</span>
+        <label class="dk-make-select"><span class="sr-only">Week</span>
             <select name="week">
                 {% for w in weeks %}
                 <option value="{{ w }}" {% if w == default_week %}selected{% endif %}>Week {{ w }}{% if w in unfinished_weeks %} (in progress){% endif %}{%
                     if w in regenerations %} &mdash; {{ regenerations[w] }} redo{{ '' if regenerations[w] == 1 else 's' }} left{% endif %}</option>
                 {% endfor %}
-            </select>
-        </label>
+            </select></label>
         <button type="submit" class="btn btn-primary">Generate</button>
     </form>
-    <p class="field-help" style="margin-top:10px;">
+    <script>
+    // The big week follows the dropdown.
+    document.querySelector(".dk-make-form select[name=week]").addEventListener("change", function () {
+        document.getElementById("make-week-label").textContent = "Week " + this.value;
+    });
+    </script>
+    <p class="field-help">
         Only weeks with actual results show up here. Once a week&rsquo;s paper
         exists you can regenerate it {{ regenerations_per_week }} more times
         &mdash; after that, edit it by hand instead, which costs nothing and
         changes as much as you like.
     </p>
-    {% if trial %}
-    <div class="trial-box{% if trial.left == 0 %} is-over{% elif trial.left == 1 %} is-last{% endif %}">
-        <div class="trial-count">
-            {% for i in range(trial.total) %}<span class="trial-dot{% if i < trial.total - trial.left %} used{% endif %}"></span>{% endfor %}
-            <strong>
-            {% if trial.left == 0 %}Your {{ trial.total }} free papers are used.
-            {% elif trial.left == 1 %}1 free paper left &mdash; your next new week is the last free edition.
-            {% else %}{{ trial.left }} of {{ trial.total }} free papers left.{% endif %}
-            </strong>
-        </div>
-        <p class="trial-help">
-            {% if trial.left == 0 %}
-            Every paper you&rsquo;ve made stays up for the league to read. Upgrade to
-            keep a new one coming every week &mdash; it writes and emails itself on Tuesdays.
-            {% else %}
-            Each new week&rsquo;s paper uses one; redoing a week doesn&rsquo;t.
-            Free papers are for week {{ earliest_free_week }} onward, and the
-            last one tells the league it&rsquo;s the last.
-            {% endif %}
-        </p>
-        <a class="btn {% if trial.left <= 1 %}btn-primary{% endif %}" href="/account#plan">
-            {% if trial.left == 0 %}Keep the presses running{% else %}Upgrade{% endif %} &rarr;
-        </a>
-    </div>
-    {% endif %}
     {% elif earlier_season %}
     <p class="card-sub">
         Your {{ league.season }} season hasn't been played yet &mdash; if you
@@ -152,52 +123,98 @@
     {% endif %}
 </section>
 
-<section class="card">
-    <h2 class="card-title">Past editions</h2>
+<section class="card" id="editions">
+    <h2 class="card-title">Editions</h2>
     {% if papers %}
-    <p class="card-sub">
-        {% if total_reads %}
-        <strong>{{ total_reads }}</strong> {{ 'read' if total_reads == 1 else 'reads' }}
-        across every edition.
-        {% else %}
-        Read counts appear here once people start opening them.
-        {% endif %}
-    </p>
-    <ul class="paper-list">
+    <ul class="dk-editions">
         {% for p in papers %}
-        <li class="paper-row edition-row">
-            <span class="edition-no" aria-hidden="true">{{ p.week }}</span>
-            <div class="edition-main">
-                <div class="paper-week">Week {{ p.week }}</div>
-                <div class="paper-meta">
-                    {{ p.season }} season
-                    {% if p.view_count %}
-                    &middot; {{ p.view_count }} {{ 'read' if p.view_count == 1 else 'reads' }}
-                    {% endif %}
-                    {% if loop.first and line_voters %}
-                    &middot; {{ line_voters }} {{ 'person' if line_voters == 1 else 'people' }} voted on the lines
-                    {% endif %}
+        <li class="dk-edition">
+            <span class="dk-edition-no" aria-hidden="true"><small>Week</small><b>{{ p.week }}</b></span>
+            <div class="dk-edition-main">
+                <a class="dk-cover" href="/l/{{ league.admin_token }}/published/{{ p.week }}">
+                    <div class="dk-headline">{{ p.headline or ("Week " ~ p.week) }}</div>
+                </a>
+                <div class="dk-paper-meta">
+                    {% if p.generated_at|edition_date %}{{ p.generated_at|edition_date }}{% else %}{{ p.season }} season{% endif %}
+                    {% if p.view_count %}&middot; {{ p.view_count }} {{ 'read' if p.view_count == 1 else 'reads' }}{% endif %}
+                    {% if loop.first and line_voters %}&middot; {{ line_voters }} {{ 'person' if line_voters == 1 else 'people' }} voted on the lines{% endif %}
                     {% set used = [(p.generation_count or 1) - 1, 0]|max %}
-                    {% if used %}
-                    &middot; regenerated {{ used }} of {{ regenerations_per_week }}
-                    {% endif %}
+                    {% if used %}&middot; regenerated {{ used }} of {{ regenerations_per_week }}{% endif %}
                 </div>
             </div>
-            <div class="paper-row-actions">
-                <a class="btn btn-sm"
-                   href="/l/{{ league.admin_token }}/live-edit/{{ p.week }}">Edit</a>
-                <a class="btn btn-sm"
-                   href="/l/{{ league.admin_token }}/published/{{ p.week }}">Read</a>
+            <div class="dk-edition-actions">
+                <a class="dk-link" href="/l/{{ league.admin_token }}/live-edit/{{ p.week }}">Edit</a>
+                <a class="dk-link dk-link-red" href="/l/{{ league.admin_token }}/published/{{ p.week }}">Read</a>
             </div>
         </li>
         {% endfor %}
     </ul>
     {% else %}
-    <p class="empty">Nothing yet. Generate one up top.</p>
+    <p class="empty">Nothing yet. Make the first one above.</p>
     {% endif %}
 </section>
+</div>
 
+<aside class="dk-side">
 <section class="card">
+    <h2 class="card-title">Send this to your league</h2>
+    <p class="card-sub" style="margin-bottom:0;">Anyone with this link can read every edition. No sign-in, no app.</p>
+    <div class="dk-share-row">
+        <input type="text" readonly id="share-link"
+               value="{{ public_base() }}/p/{{ league.public_slug }}"
+               onclick="this.select()" class="copy-input" />
+        <button type="button" class="btn btn-primary" id="share-copy">Copy</button>
+    </div>
+    <script>
+    document.getElementById('share-copy').addEventListener('click', async function () {
+        const input = document.getElementById('share-link');
+        if (window.cdEvent) cdEvent('link_copied', 'manage');
+        const original = this.textContent;
+        try {
+            await navigator.clipboard.writeText(input.value);
+        } catch (err) {
+            input.select();
+            document.execCommand('copy');
+        }
+        this.textContent = 'Copied';
+        setTimeout(() => { this.textContent = original; }, 1800);
+    });
+    </script>
+</section>
+
+    {% if trial %}
+<section class="card">
+    <div class="trial-box{% if trial.left == 0 %} is-over{% elif trial.left == 1 %} is-last{% endif %}">
+        <div class="trial-count">
+            {% for i in range(trial.total) %}<span class="trial-dot{% if i < trial.total - trial.left %} used{% endif %}"></span>{% endfor %}
+            <strong>
+            {% if trial.left == 0 %}Your {{ trial.total }} free papers are used.
+            {% elif trial.left == 1 %}1 free paper left &mdash; your next new week is the last free edition.
+            {% else %}{{ trial.left }} of {{ trial.total }} free papers left.{% endif %}
+            </strong>
+        </div>
+        <p class="trial-help">
+            {% if trial.left == 0 %}
+            Every paper you&rsquo;ve made stays up for the league to read. Upgrade to
+            keep a new one coming every week &mdash; it writes and emails itself on Tuesdays.
+            {% else %}
+            Each new week&rsquo;s paper uses one; redoing a week doesn&rsquo;t.
+            Free papers are for week {{ earliest_free_week }} onward, and the
+            last one tells the league it&rsquo;s the last.
+            {% endif %}
+        </p>
+        <a class="btn {% if trial.left <= 1 %}btn-primary{% endif %}" href="/me#plan">
+            {% if trial.left == 0 %}Keep the presses running{% else %}Upgrade{% endif %} &rarr;
+        </a>
+    </div>
+</section>
+    {% endif %}
+</aside>
+</div>
+</div>
+
+<div class="dk-panel" data-panel="people" role="tabpanel">
+<section class="card" id="people">
     <h2 class="card-title">Who's in the league</h2>
     <p class="card-sub">
         {{ league.provider|provider_name }} only tells us people's usernames, so that's
@@ -256,7 +273,10 @@
     {% endif %}
 </section>
 
-<section class="card">
+</div>
+
+<div class="dk-panel" data-panel="lore" role="tabpanel">
+<section class="card" id="lore">
     <h2 class="card-title">The lore</h2>
     <p class="card-sub">
         The stuff that isn't about one person &mdash; the rivalry everyone's
@@ -299,8 +319,10 @@
 </section>
 
 {% include "_awards_card.html" %}
+</div>
 
-<section class="card">
+<div class="dk-panel" data-panel="settings" role="tabpanel">
+<section class="card" id="settings">
     <h2 class="card-title">Settings</h2>
     <form method="post" action="/l/{{ league.admin_token }}/settings" class="stack">
         <label class="field">
@@ -373,11 +395,11 @@
     </form>
 </section>
 
-<section class="card">
-    <h2 class="card-title">Don't lose this page</h2>
+<section class="card" id="link">
+    <h2 class="card-title">Your manage link</h2>
     <p class="card-sub">
-        We'll email you the link so it's not just sitting in your browser history.
-        That's the only thing we use it for.
+        This page lives at a private link. We'll email it to you so it's not just
+        sitting in your browser history &mdash; that's the only thing we use it for.
     </p>
     <form method="post" action="/l/{{ league.admin_token }}/email" class="inline-form">
         <label class="field">
@@ -400,7 +422,8 @@
 </section>
 
 <section class="card card-danger">
-    <h2 class="card-title">Delete this league</h2>
+    <details class="dk-danger" id="danger">
+    <summary><h2 class="card-title" style="display:inline;">Delete this league</h2></summary>
     <p class="card-sub">
         Every edition, the lore, the people, your subscriber list, this link.
         The published papers come down too &mdash; anyone you've sent one to
@@ -418,7 +441,53 @@
         </label>
         <button type="submit" class="btn btn-quiet">Delete it</button>
     </form>
+    </details>
 </section>
+</div>
+
+<script>
+// The tabs. Each tab is a link to its panel; any id inside a panel (#lore,
+// #awards, #danger...) opens the panel it's in, which is how a form's
+// redirect lands back where it was sent from.
+(function () {
+    var root = document.documentElement;
+    var panels = Array.prototype.slice.call(document.querySelectorAll("[data-panel]"));
+    var tabs = Array.prototype.slice.call(document.querySelectorAll("[data-tab]"));
+    if (!panels.length) return;
+    root.classList.add("dk-js");
+    function panelFor(id) {
+        var el = id && document.getElementById(id);
+        var p = el && el.closest("[data-panel]");
+        return p ? p.getAttribute("data-panel") : "week";
+    }
+    function show(name, target) {
+        panels.forEach(function (p) { p.classList.toggle("is-on", p.getAttribute("data-panel") === name); });
+        tabs.forEach(function (t) { t.setAttribute("aria-selected", t.getAttribute("data-tab") === name ? "true" : "false"); });
+        if (target && target.tagName === "DETAILS") target.open = true;
+    }
+    function fromHash(scroll) {
+        var id = location.hash.slice(1);
+        var el = id && document.getElementById(id);
+        show(panelFor(id), el);
+        // A tab's own section opens at the top; something further down a
+        // panel (#awards, #link, #danger) is scrolled to.
+        var first = el && el.closest("[data-panel]") &&
+            el.closest("[data-panel]").querySelector("section");
+        if (scroll && el && !el.hasAttribute("data-panel") && el !== first) el.scrollIntoView();
+        else if (scroll) window.scrollTo(0, 0);
+    }
+    tabs.forEach(function (t) {
+        t.addEventListener("click", function (e) {
+            e.preventDefault();
+            var name = t.getAttribute("data-tab");
+            show(name);
+            history.replaceState(null, "", location.pathname + location.search + "#" + name);
+        });
+    });
+    window.addEventListener("hashchange", function () { fromHash(true); });
+    fromHash(location.hash && location.hash !== "#week");
+})();
+</script>
 
 {% include "_letter_prompt.html" %}
 {% include "_generating.html" %}

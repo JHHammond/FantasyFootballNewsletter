@@ -405,15 +405,22 @@ def save_paper(
 
 
 def list_papers(league_id: str) -> list[dict[str, Any]]:
-    res = (
-        client().table("newspapers")
-        .select("id, week, season, generated_at, public_url, storage_path, "
-                "view_count, last_viewed_at, generation_count")
-        .eq("league_id", league_id)
-        .order("season", desc=True).order("week", desc=True)
-        .execute()
-    )
-    return res.data or []
+    cols = ("id, week, season, generated_at, public_url, storage_path, "
+            "view_count, last_viewed_at, generation_count")
+
+    def fetch(select: str):
+        return (client().table("newspapers").select(select)
+                .eq("league_id", league_id)
+                .order("season", desc=True).order("week", desc=True)
+                .execute()).data or []
+
+    try:
+        # Only the headline, not the whole stored paper: the papers, manage
+        # and read pages list editions by it (26 Oct).
+        return fetch(cols + ", headline:ai_cache->>headline")
+    except Exception as exc:  # noqa: BLE001 — never lose the list over a headline
+        print(f"[papers] listing without headlines: {type(exc).__name__}: {exc}", flush=True)
+        return fetch(cols)
 
 
 def record_view(league_id: str, season: int, week: int) -> None:

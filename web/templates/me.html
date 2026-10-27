@@ -1,9 +1,16 @@
 {% extends "base.html" %}
 {% from "_macros.html" import upgrade_buttons %}
 {% block title %}Your account{% endblock %}
-{% block wrapclass %}home{% endblock %}
+{% block wrapclass %}dk dk-narrow{% endblock %}
 
 {% block content %}
+{#
+   The account page (24 Oct; 26 Oct: the one place for the plan and billing,
+   so the papers page can be just papers).
+#}
+{% if notice %}<div class="alert alert-success">{{ notice }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
 <section class="me-head">
     <span class="me-avatar" aria-hidden="true">{{ (user.email or '?')[:1]|upper }}</span>
     <div>
@@ -15,22 +22,41 @@
 
 <section class="card" id="plan">
     <h2 class="card-title">Your plan</h2>
-    {% if viewer_paid %}
-    <p class="card-sub">{{ plan.label }}: every league on the trade market, every offer in Get him / Sell him, every trade of every player, and the full paper for every league you run.
+    {% if plan.key == 'staff' %}
+    <p class="card-sub">Everything on, and {{ plan.regenerations_per_week }} redos a week on
+        each paper so you can test as much as you need. Set by hand in the database;
+        nothing is billed.</p>
+    {% elif viewer_paid %}
+    <p class="card-sub">{{ plan.label }}: every look, as many leagues as you like, five redos a
+        week, your own photos in the paper, and it sends itself every Tuesday. On the
+        trade market, every one of your teams and every offer.
         {% if user.plan_renews_at %}Renews {{ user.plan_renews_at[:10] }}.{% endif %}</p>
-    {% if billing_enabled() and plan.key != 'staff' %}
+    {% if billing_enabled() %}
     <form method="post" action="/billing/portal"><button type="submit" class="btn btn-quiet">Manage billing</button></form>
     {% endif %}
     {% else %}
-    <p class="card-sub">You&rsquo;re on the free plan. The season pass unlocks:</p>
-    <ul class="me-perks">
-        <li>Every one of your teams on the trade market, not just one</li>
-        <li>All five fair offers for any player, built from your roster</li>
-        <li>Every riser and faller in &ldquo;Moving this week&rdquo;</li>
-        <li>Every trade of every player, with filters</li>
-        <li>The full weekly paper for every league you run, sent itself every Tuesday</li>
+    <p class="card-sub">You&rsquo;re on the Free plan: one league, the tabloid look and two
+        redos a week. Your league never pays anything to read the paper. The pass adds:</p>
+    <ul class="dk-perks">
+        <li>As many leagues as you run</li>
+        <li>It writes and sends itself every Tuesday</li>
+        <li>Broadsheet and Gameday looks</li>
+        <li>Your own photos in the paper</li>
+        <li>Every one of your teams on the trade market</li>
+        <li>All five fair offers for any player</li>
+        <li>Every riser and faller, every trade, with filters</li>
+        <li>A third redo each week</li>
     </ul>
-    {% if billing_enabled() %}{{ upgrade_buttons(gate='account') }}{% else %}<p class="field-help">Paid plans aren&rsquo;t switched on yet.</p>{% endif %}
+    {% if billing_enabled() %}
+    {{ upgrade_buttons(gate='account') }}
+    <p class="field-help" style="margin-top:10px;">
+        {% if season_pass_enabled() %}The season pass is billed once a year and renews on
+        the day you bought it. {% endif %}Cancel any time, from this page. Nothing you&rsquo;ve
+        already made goes away if you do.
+    </p>
+    {% else %}
+    <p class="field-help">Paid plans aren&rsquo;t switched on yet.</p>
+    {% endif %}
     {% endif %}
 </section>
 
@@ -54,11 +80,9 @@
     {% endif %}
     <p class="me-actions">
         <a class="mk-addleague" href="/market/my-team?add=1">+ Add a league to the trade market</a>
-        <a class="btn btn-quiet" href="/connect">Make a paper</a>
+        <a class="dk-link" href="/account">Your papers &rarr;</a>
     </p>
 </section>
 
-<section class="card me-out">
-    <form method="post" action="/logout"><button type="submit" class="btn btn-quiet">Sign out</button></form>
-</section>
+<form method="post" action="/logout" class="dk-foot-note"><button type="submit" class="btn btn-quiet btn-sm">Sign out</button></form>
 {% endblock %}
