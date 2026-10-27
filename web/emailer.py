@@ -516,38 +516,17 @@ def send_reminder(to: str, week: int, leagues: list[dict],
 
     # THE FREE TRIAL (John, 12 Oct). Each league carries `trial_left` from
     # reminders.audience (None: unknown, so the email says nothing about it).
-    # Used up: say so, and price it, rather than promise a paper and land
-    # them on a paywall. Last one: say that too — it's the paper that sells.
-    import plans as _plans
+    # Last one: say so — it's the paper that sells.
+    #
+    # Used up: the email says NOTHING about paying (John, 27 Oct: "get them
+    # into the site before trying to get them to pay"). They get the same
+    # email as everyone else; the site's own upgrade prompt does the selling
+    # once they're there. This used to carry a "your free editions are used"
+    # box with the price, which asked for money before they'd come back.
     lefts = [l.get("trial_left") for l in leagues]
     out = bool(leagues) and all(isinstance(x, int) and x <= 0 for x in lefts)
     last = not out and any(x == 1 for x in lefts)
-    if out:
-        price = _plans.PRICE_TEXT
-        if _plans.season_pass_enabled():
-            price += f" or {_plans.SEASON_PRICE_TEXT}"
-        n = _plans.FREE_TRIAL_PAPERS
-        subject = f"Don't Let Week {w} Go Unreported"
-        preheader = f"Your free editions are used. Keep it going for {_plans.PRICE_TEXT}."
-        line = (f"Your {n} free editions are used. Keep the presses running "
-                f"for {price}.")
-        season = (f'<div style="font-size:15px;color:#5a5245;margin-top:4px;">'
-                  f'or {e(_plans.SEASON_PRICE_TEXT.replace(" a season", ""))} '
-                  f'for the whole season</div>'
-                  if _plans.season_pass_enabled() else "")
-        pitch += f"""
-<div style="margin:28px auto 0;max-width:420px;background:#f6f1e6;border:1px solid #d8d0c0;
-            border-top:3px solid #111;padding:20px 22px;">
-  <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;
-              letter-spacing:3px;color:#b3141c;">YOUR {n} FREE EDITIONS ARE USED</div>
-  <div style="font-size:17px;color:#222;margin:10px 0 12px;">Keep the presses running.</div>
-  <div style="font-size:34px;font-weight:700;color:#111;line-height:1;">
-    {e(_plans.PRICE_TEXT.replace(" a month", ""))}<span style="font-size:16px;font-weight:400;color:#5a5245;"> a month</span></div>
-  {season}
-</div>"""
-        text_pitch = text_pitch + ["", line]
-        single_label = "Keep the paper coming"
-    elif last:
+    if last:
         line = "This is your last free edition. Make it count."
         pitch += """
 <div style="margin:28px auto 0;max-width:420px;border:2px solid #b3141c;background:#fff6f4;
@@ -561,8 +540,6 @@ def send_reminder(to: str, week: int, leagues: list[dict],
     def label(l):
         if len(leagues) == 1:
             return single_label
-        if isinstance(l.get("trial_left"), int) and l["trial_left"] <= 0:
-            return f"Keep {l.get('league_name') or 'this league'} going"
         return f"Write {l.get('league_name') or 'this league'}"
 
     big_button = _BUTTON.replace("padding:13px 26px", "padding:16px 34px") + "border-radius:3px;"

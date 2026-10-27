@@ -297,14 +297,27 @@ def test_the_last_free_paper_says_so(monkeypatch):
     assert "Print the Week 5 paper" in got["body"]
 
 
-def test_a_used_up_trial_is_priced_not_promised(monkeypatch):
+def test_a_used_up_trial_gets_the_usual_email_with_no_ask(monkeypatch):
+    """John, 27 Oct: get them into the site before asking them to pay. The
+    email says nothing about the trial or the price; the site sells."""
     got = _capture(monkeypatch)
     _send_trial(0)
-    assert got["subject"] == "Don't Let Week 5 Go Unreported"
-    assert "free editions are used" in got["text"] and "$4.99" in got["text"]
-    assert "Keep the paper coming" in got["body"]
-    assert "Print the Week 5 paper" not in got["body"]
-    assert "last free edition" not in got["text"]
+    assert got["subject"] == "Your League's Week 5 Paper Is Ready to Print"
+    for said in (got["text"], got["body"]):
+        assert "$" not in said and "4.99" not in said and "19.99" not in said
+        assert "free edition" not in said.lower()
+        assert "a month" not in said and "Keep the paper coming" not in said
+    assert "/l/tok" in got["body"]
+
+
+def test_a_used_up_trial_among_several_leagues_asks_for_nothing(monkeypatch):
+    got = _capture(monkeypatch)
+    emailer.send_reminder("a@b.com", 5, [
+        {"name": "X", "admin_token": "t1", "league_name": "Alpha", "trial_left": 0},
+        {"name": "Y", "admin_token": "t2", "league_name": "Beta", "trial_left": 0},
+    ], "t.sig")
+    assert "Write Alpha" in got["body"] and "Write Beta" in got["body"]
+    assert " going" not in got["body"] and "4.99" not in got["text"]
 
 
 def test_plenty_left_or_unknown_is_the_usual_email(monkeypatch):
@@ -323,4 +336,4 @@ def test_the_test_send_is_one_copy_of_each_version(monkeypatch, trial_store):
     reminders.send(demo_db, SEASON, 5, test_to="me@x.com", log=lambda *_: None)
     assert len(sent) == 3
     assert "last free edition" in sent[1][1]
-    assert sent[2][0] == "Don't Let Week 5 Go Unreported"
+    assert "4.99" not in sent[2][1] and "free edition" not in sent[2][1]
