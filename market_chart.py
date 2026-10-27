@@ -163,7 +163,7 @@ def chart_svg(series: list[dict], *, base: str | None, last: int,
             sx, sy = pts[0]
             parts.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="2.6" class="pc-start" stroke="{col}"/>')
         ex, ey = pts[-1]
-        parts.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="3" fill="{col}"/>')
+        parts.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="3.8" fill="{col}"/>')
         ends.append((ex, ey, col, label, s))
     if not names:
         parts.append("</svg>")
@@ -235,7 +235,7 @@ CSS = """
 }
 .pc-rule { stroke: currentColor; opacity: .14; }
 .pc-axis { fill: currentColor; opacity: .6; }
-.pc-line { fill: none; stroke-width: 1.8; stroke-linecap: butt; stroke-linejoin: round; }
+.pc-line { fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 .pc-start { fill: #fff; stroke-width: 2; }
 .pc-leader { fill: none; stroke-width: 1; opacity: .6; }
 .pc-end { fill: currentColor; }

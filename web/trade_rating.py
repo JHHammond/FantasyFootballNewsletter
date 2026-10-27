@@ -226,20 +226,59 @@ def chart_default(rated: list, day_lines: dict, trades: dict,
             if score >= 2:
                 scored.append((score, net, k))
         scored.sort(key=lambda r: (-r[0], r[2]))
-        out = [k for _, _, k in scored[:CHART_DEFAULT]]
-        # One of each direction when the week has both.
         nets = {k: n for _, n, k in scored}
-        for want in (lambda n: n > 0, lambda n: n < 0):
-            if out and not any(want(nets[k]) for k in out):
-                other = next((k for _, n, k in scored if want(n) and k not in out), None)
-                if other:
-                    out[-1] = other
+        out = spread_apart([k for _, _, k in scored], {k: lines[k][-1][1] for k in nets},
+                           CHART_DEFAULT, nets)
+    if len(out) < CHART_DEFAULT and not lead_with_top:
+        # A quiet week fills from the top of the market, still apart.
+        rest = [k for k in drawn if k not in out and lines.get(k)]
+        return spread_apart(out + rest, {k: lines[k][-1][1] for k in out + rest}, CHART_DEFAULT)
     for k in drawn:
         if len(out) >= CHART_DEFAULT:
             break
         if k not in out:
             out.append(k)
     return out
+
+#: How far apart, on the chart's log scale, the opening lines must finish
+#: (John, 27 Oct: "defaulting to three guys who end up next to each other
+#: makes it look stranger"). 0.3 is about a third: #60 and #81 are apart,
+#: #94 and #100 are not.
+CHART_APART = 0.3
+
+
+def spread_apart(ranked: list, now: dict, n: int, nets: Optional[dict] = None,
+                 apart: float = CHART_APART) -> list:
+    """The first `n` of `ranked` (best first) whose current places are at
+    least `apart` from each other on a log scale, so their lines finish in
+    different parts of the chart. With `nets` ({key: places gained}), one
+    riser and one faller when both are on offer. The bar is halved and then
+    dropped if too few clear it, so a quiet week still gets its lines."""
+    def far(k, chosen, bar):
+        return all(abs(math.log(max(now[k], 0.5) / max(now[c], 0.5))) >= bar for c in chosen)
+
+    for bar in (apart, apart / 2, 0.0):
+        out: list = []
+        if nets:
+            # The scarcer direction first: with one faller on offer, he goes
+            # in and the risers are chosen around him.
+            sides = [lambda v: v > 0, lambda v: v < 0]
+            sides.sort(key=lambda want: sum(1 for k in ranked if want(nets.get(k, 0))))
+            for want in sides:
+                k = next((k for k in ranked if want(nets.get(k, 0)) and k not in out
+                          and far(k, out, bar)), None)
+                if k and len(out) < n:
+                    out.append(k)
+        for k in ranked:
+            if len(out) >= n:
+                break
+            if k not in out and far(k, out, bar):
+                out.append(k)
+        if len(out) >= min(n, len(ranked)):
+            # In the order they were ranked, the most interesting first.
+            return sorted(out, key=ranked.index)
+    return ranked[:n]
+
 
 #: The movers boards: how many each way, and the trades a player needs
 #: before his move counts.

@@ -579,14 +579,14 @@
             var d = smooth(P);
             if (on) {
                 var grad = el("linearGradient", {id: "mk2-fill", x1: 0, y1: 0, x2: 0, y2: 1}, defs);
-                el("stop", {offset: "0%", "stop-color": col, "stop-opacity": .09}, grad);
+                el("stop", {offset: "0%", "stop-color": col, "stop-opacity": .14}, grad);
                 el("stop", {offset: "100%", "stop-color": col, "stop-opacity": 0}, grad);
                 el("path", {"class": "mk2-area", fill: "url(#mk2-fill)",
                     d: d + "L" + P[P.length - 1][0].toFixed(1) + "," + B + "L" + P[0][0].toFixed(1) + "," + B + "Z"}, lines);
             }
             el("path", {"class": "mk2-line" + (on ? " mk2-line-on" : focus ? " mk2-line-off" : ""), d: d, stroke: col, "data-key": c.k}, lines);
             var end = P[P.length - 1];
-            el("circle", {"class": "mk2-end", cx: end[0], cy: end[1], r: narrow ? 4.5 : 5, fill: col}, svg);
+            el("circle", {"class": "mk2-end", cx: end[0], cy: end[1], r: narrow ? 5 : 5.5, fill: col}, svg);
             el("circle", {"class": "mk2-cur", r: narrow ? 4.5 : 5, fill: col, style: "display:none", "data-key": c.k}, svg);
             items.push({c: c, col: col, want: end[1] - LBL / 2, endY: end[1], slot: pts[pts.length - 1][1]});
         });
