@@ -7,8 +7,8 @@ HTML read in a browser, in an email client's web view and on paper. An
 inline SVG is the one chart that works in all three, and it draws exactly
 the lines frozen into the paper when it was written.
 
-Two drawings of each chart are emitted, one shaped for a wide column and one
-for a phone (and for paper), and CSS shows one. One SVG shrunk onto a 380px
+Three drawings of each chart are emitted, for a desktop, a tablet (and paper)
+and a phone, and CSS shows one. One SVG shrunk onto a 380px
 phone prints its labels at about 7px.
 """
 
@@ -127,7 +127,7 @@ def spread_labels(ys: list[float], gap: float, top: float, bottom: float) -> lis
 
 def chart_svg(series: list[dict], *, base: str | None, last: int,
               width: int = 520, height: int = 250, label_w: int = 118,
-              font: float = 12, phone: bool = False, title: str = "") -> str:
+              font: float = 12, variant: str = "wide", title: str = "") -> str:
     """One chart. `series` is [{"name", "colour", "costs", "dash"?, "line":
     [[day, place], ...]}], days counted from the market's base (day 0 is "the
     draft"). "" when nothing has a line."""
@@ -148,7 +148,7 @@ def chart_svg(series: list[dict], *, base: str | None, last: int,
     def y(place):  # #1 at the top
         return top + (float(place) - lo) / ((hi - lo) or 1) * (bottom - top)
 
-    parts = [f'<svg class="pc-svg{" pc-svg-phone" if phone else " pc-svg-wide"}" '
+    parts = [f'<svg class="pc-svg pc-svg-{variant}" '
              f'viewBox="0 0 {width} {height}" role="img" aria-label="{esc(title)}" '
              f'xmlns="http://www.w3.org/2000/svg" font-size="{font}">']
     for t in nice_ticks(lo, hi, 5):
@@ -165,7 +165,7 @@ def chart_svg(series: list[dict], *, base: str | None, last: int,
         day0 = None
     foot = [(0, "Draft", "start"), (last, "Today", "end")]
     if day0 is not None:
-        step = 21 if phone else 14
+        step = {"phone": 21, "mid": 14}.get(variant, 7)
         for d in range(last - step, 0, -step):
             if d < step * 0.6:
                 break
@@ -204,15 +204,19 @@ def chart_svg(series: list[dict], *, base: str | None, last: int,
 
 
 def chart_pair(series: list[dict], *, base: str | None, last: int, title: str = "") -> str:
-    """The wide drawing and the phone drawing of one chart, or "". Six
-    lines (three steals, three regrets) fit either."""
-    wide = chart_svg(series, base=base, last=last, width=720, height=290,
-                     label_w=132, title=title)
+    """Three drawings of one chart, or "": "wide" for a desktop section
+    (John, 26 Oct: "the chart seems a bit too small on the desktop view"),
+    "mid" for a tablet and for paper, "phone" for a phone. CSS shows one.
+    Each is drawn for its width, so its text is the same size on screen."""
+    wide = chart_svg(series, base=base, last=last, width=1100, height=400,
+                     label_w=160, font=13.5, variant="wide", title=title)
     if not wide:
         return ""
-    narrow = chart_svg(series, base=base, last=last, width=360, height=270,
-                       label_w=104, font=11.5, phone=True, title=title)
-    return wide + narrow
+    mid = chart_svg(series, base=base, last=last, width=720, height=300,
+                    label_w=132, variant="mid", title=title)
+    phone = chart_svg(series, base=base, last=last, width=360, height=270,
+                      label_w=104, font=11.5, variant="phone", title=title)
+    return wide + mid + phone
 
 
 CSS = """
@@ -221,7 +225,11 @@ CSS = """
 .pc-caption { font-size: 10.5px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase;
     opacity: .6; margin-bottom: 2px; }
 .pc-svg { display: block; width: 100%; height: auto; overflow: visible; color: inherit; }
-.pc-svg-phone { display: none; }
+.pc-svg-mid, .pc-svg-phone { display: none; }
+@media screen and (max-width: 960px) {
+    .pc-svg-wide { display: none; }
+    .pc-svg-mid { display: block; }
+}
 .pc-rule { stroke: currentColor; opacity: .18; stroke-dasharray: 3 4; }
 .pc-axis { fill: currentColor; opacity: .6; }
 .pc-line { fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -230,10 +238,12 @@ CSS = """
 .pc-end { fill: currentColor; }
 .pc-end-price { opacity: .7; font-weight: 700; }
 @media screen and (max-width: 600px) {
-    .pc-svg-wide { display: none; }
+    .pc-svg-wide, .pc-svg-mid { display: none; }
     .pc-svg-phone { display: block; }
 }
 @media print {
+    .pc-svg-wide, .pc-svg-phone { display: none; }
+    .pc-svg-mid { display: block; }
     .pc-chart { break-inside: avoid; }
 }
 """

@@ -3408,7 +3408,7 @@ def _render_html(edition, theme=None):
         .dr-mkt {{ margin-top: auto; padding-top: 10px; font-size: 11.5px; color: inherit; text-decoration: none; }}
         .dr-mkt b {{ color: var(--dr-c); }}
         .dr-mkt:hover {{ text-decoration: underline; }}
-        .dr-chart {{ max-width: 860px; margin: 18px auto 0; }}
+        .dr-chart {{ margin: 22px 0 0; }}
         .pc-key {{ float: right; text-transform: none; letter-spacing: 0; font-weight: 700; }}
         .pc-key i {{ display: inline-block; width: 22px; height: 0; vertical-align: middle; margin: 0 5px 0 12px;
                      border-top: 2.5px solid currentColor; }}

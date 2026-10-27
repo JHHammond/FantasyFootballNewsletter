@@ -208,7 +208,7 @@ def test_priced_section_has_prices_two_charts_and_the_button():
     html = render_draft_regrets_html(_priced(), "https://commissionersdesk.com")
     t = _Tags()
     t.feed(html)
-    assert t.tags.count("svg") == 2                 # one chart: wide + phone
+    assert t.tags.count("svg") == 3                 # one chart: desktop, tablet/paper, phone
     assert "https://commissionersdesk.com/market?m=redraft&p=1,2,4,4866&from=paper" in t.hrefs
     assert "https://commissionersdesk.com/market/player/4866?m=redraft&from=paper" in t.hrefs
     assert html.count("Market <b>") == 4             # the unpriced steal has none
@@ -231,7 +231,7 @@ def test_names_from_platforms_cannot_become_markup(payload):
         p["k"] += payload
     t = _Tags()
     t.feed(render_draft_regrets_html(r, "https://commissionersdesk.com"))
-    assert not t.handlers and "script" not in t.tags and t.tags.count("svg") == 2
+    assert not t.handlers and "script" not in t.tags and t.tags.count("svg") == 3
 
 
 def test_all_six_share_one_chart():
