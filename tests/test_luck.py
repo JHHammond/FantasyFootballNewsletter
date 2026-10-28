@@ -432,3 +432,16 @@ def test_player_luck_lineup_card():
     assert card["rows"][-1]["w"] == 50.0 and card["rows"][0]["photo"].endswith("/3.jpg")
     assert card["caps"][-1] == "Add it up, and your players cost you 0.4 wins."
     assert luck.lineup_card(players[:2], {"players": 0}) is None
+
+
+def test_around_the_leagues_is_a_dropdown_of_the_desk_and_the_luck_index(web, monkeypatch):
+    _seed()
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    monkeypatch.setenv("LUCK_PUBLIC", "1")
+    page = web.get("/luck").text
+    assert "The National Desk" in page and 'href="/luck" class="nav-drop-item on"' in page
+    assert page.count('class="nav-drop') >= 2                      # this one and the trade market
+    monkeypatch.setenv("LUCK_PUBLIC", "")
+    only_desk = web.get("/market").text
+    assert '<a href="/around" class="nav-main">Around the Leagues</a>' in only_desk
+    assert 'href="/luck"' not in only_desk                          # never a link to a page that 404s

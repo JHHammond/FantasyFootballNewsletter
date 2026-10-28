@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% set F = (a.front if a else {}) or {} %}
-{% block title %}{% if F.headline %}{{ F.headline }} &middot; {% endif %}Around the Leagues, Week {{ week }}{% endblock %}
+{% block title %}{% if F.headline %}{{ F.headline }} &middot; {% endif %}The National Desk, Week {{ week }}{% endblock %}
 {% block description %}Week {{ week }} across {{ '{:,}'.format(a.teams) if a and a.teams else 'every' }} fantasy football teams on Sleeper, ESPN and Yahoo, every lineup re-scored in plain PPR: where your score ranks, the busts, the heartbreakers and the bench disasters.{% endblock %}
-{% block og_title %}{{ F.headline or 'Around the Leagues' }}{% endblock %}
+{% block og_title %}{{ F.headline or 'The National Desk' }}{% endblock %}
 {% block og_description %}Week {{ week }} across every fantasy league on The Commissioner&rsquo;s Desk. Where does your score rank?{% endblock %}
 {# A shared /around?score= link previews as that score's card. The test has
    to live inside the block: the parent renders the block either way. #}
@@ -61,7 +61,7 @@
         <span class="dateline-mid">{{ season }} &middot; Week {{ week }} &middot; Final</span>
         <span>{% if a.teams %}{{ '{:,}'.format(a.teams) }} teams{% else %}Every league{% endif %}</span>
     </p>
-    <p class="at-flag">Around the Leagues</p>
+    <p class="at-flag">The National Desk</p>
     {% if F.headline %}
     <h1 class="front-head at-head">{{ F.headline }}</h1>
     {% if F.deck %}<p class="front-deck at-deck">{{ F.deck }}</p>{% endif %}

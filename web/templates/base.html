@@ -63,8 +63,28 @@
                    on a phone a tap opens it (the script below). Without the
                    script "Trade market" is still a plain link to the market. #}
                 {% set here = request.url.path if request else '' %}
-                {% if around_open() %}
-                <a href="/around" class="nav-main{{ ' nav-here' if here == '/around' }}">Around the Leagues</a>
+                {# Around the Leagues (28 Oct, John): a dropdown of the two
+                   pages that look across every league, The National Desk
+                   (/around) and The Luck Index (/luck). Each one shows when
+                   its own switch is on (AROUND_PUBLIC, LUCK_PUBLIC), or to
+                   staff, who can see both pages anyway. With only one of
+                   them open it's a plain link, not a menu of one. #}
+                {% set staff_nav = user and user.plan == 'staff' %}
+                {% set show_desk = around_open() or staff_nav %}
+                {% set show_luck = luck_open() or staff_nav %}
+                {% set in_around = here.startswith('/around') or here.startswith('/luck') %}
+                {% if show_desk and show_luck %}
+                <div class="nav-drop{{ ' nav-here-drop' if in_around }}">
+                    <a href="/around" class="nav-main nav-drop-btn" aria-haspopup="true" aria-expanded="false">Around the Leagues<svg class="nav-chev" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" /></svg></a>
+                    <div class="nav-drop-menu">
+                        <a href="/around" class="nav-drop-item{{ ' on' if here.startswith('/around') }}"><b>The National Desk</b><span>This week across every league: records, fame and shame</span></a>
+                        <a href="/luck" class="nav-drop-item{{ ' on' if here.startswith('/luck') }}"><b>The Luck Index</b><span>How lucky is your team? Your Luck Report, in wins</span></a>
+                    </div>
+                </div>
+                {% elif show_desk %}
+                <a href="/around" class="nav-main{{ ' nav-here' if here.startswith('/around') }}">Around the Leagues</a>
+                {% elif show_luck %}
+                <a href="/luck" class="nav-main{{ ' nav-here' if here.startswith('/luck') }}">The Luck Index</a>
                 {% endif %}
                 <div class="nav-drop{{ ' nav-here-drop' if here.startswith('/market') or here == '/team' }}">
                     <a href="/market" class="nav-main nav-drop-btn" aria-haspopup="true" aria-expanded="false">Trade market<svg class="nav-chev" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" /></svg></a>
@@ -141,21 +161,28 @@
             }
         });
     })();
-    // The Trade market dropdown on touch screens: the first tap opens it, a
-    // tap elsewhere closes it. With a mouse, CSS hover does the work.
+    // The nav dropdowns (Around the Leagues, Trade market) on touch screens:
+    // the first tap opens one (and closes the other), a tap elsewhere closes
+    // it. With a mouse, CSS hover does the work.
     (function () {
-        var drop = document.querySelector(".nav-drop"), btn = drop && drop.querySelector(".nav-drop-btn");
-        if (!btn) return;
+        var drops = Array.prototype.slice.call(document.querySelectorAll(".nav-drop"));
+        if (!drops.length) return;
         var touch = window.matchMedia("(hover: none), (max-width: 760px)");
-        btn.addEventListener("click", function (e) {
-            if (!touch.matches) return;                 // a mouse click on it just opens the market
-            e.preventDefault();
-            var open = !drop.classList.contains("open");
-            drop.classList.toggle("open", open);
-            btn.setAttribute("aria-expanded", open ? "true" : "false");
+        function shut(d) { d.classList.remove("open"); var b = d.querySelector(".nav-drop-btn"); if (b) b.setAttribute("aria-expanded", "false"); }
+        drops.forEach(function (drop) {
+            var btn = drop.querySelector(".nav-drop-btn");
+            if (!btn) return;
+            btn.addEventListener("click", function (e) {
+                if (!touch.matches) return;             // a mouse click on it just opens its page
+                e.preventDefault();
+                var open = !drop.classList.contains("open");
+                drops.forEach(function (d) { if (d !== drop) shut(d); });
+                drop.classList.toggle("open", open);
+                btn.setAttribute("aria-expanded", open ? "true" : "false");
+            });
         });
         document.addEventListener("click", function (e) {
-            if (!drop.contains(e.target)) { drop.classList.remove("open"); btn.setAttribute("aria-expanded", "false"); }
+            drops.forEach(function (d) { if (!d.contains(e.target)) shut(d); });
         });
     })();
     // A funnel step the server can't see for itself (web/analytics.py).

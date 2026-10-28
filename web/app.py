@@ -232,6 +232,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["demo_mode"] = DEMO_MODE
 templates.env.globals["around_open"] = lambda: os.getenv("AROUND_PUBLIC", "").strip() == "1"
 templates.env.globals["team_open"] = lambda: os.getenv("TEAM_PUBLIC", "").strip() == "1"
+templates.env.globals["luck_open"] = lambda: os.getenv("LUCK_PUBLIC", "").strip() == "1"
 
 
 def static_url(name: str) -> str:

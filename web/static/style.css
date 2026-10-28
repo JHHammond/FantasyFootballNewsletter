@@ -4275,6 +4275,7 @@ th.mk-c-rk { text-align: center; }
 .masthead-nav a.nav-drop-item:hover, .masthead-nav a.nav-drop-item.on { background: #f6f1e6; border: 0; }
 .nav-drop-item b { font: 700 15px "Barlow", sans-serif; }
 .nav-drop-item span { font: 500 13px "Barlow", sans-serif; color: var(--muted); }
+.masthead-nav a.nav-drop-item, .nav-drop-item span { white-space: normal; }   /* a long line wraps on a phone, never widens the menu */
 .nav-right { display: inline-flex; align-items: center; gap: 12px; margin-left: 8px; }
 .masthead-nav a.nav-acct { display: inline-flex; align-items: center; gap: 8px; border: 0; color: var(--ink); text-decoration: none; }
 .nav-acct svg { width: 40px; height: 40px; padding: 7px; border: 1px solid var(--line); border-radius: 50%; fill: none; stroke: var(--ink); stroke-width: 1.6; background: var(--paper); transition: border-color .15s; }
