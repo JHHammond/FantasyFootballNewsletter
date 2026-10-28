@@ -3337,21 +3337,21 @@ html.nb-lock { overflow: hidden; }
 .at-market-chart { margin: 18px 0 8px; }
 .at-market-boards { margin-top: 18px; }
 .at-market-note { margin-top: 14px; font-size: 14px; }
-.at-mk-path { fill: none; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
+.at-mk-path { fill: none; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
 .at-mk-dot { stroke: var(--paper); stroke-width: 1.5; }
 .at-mk-label { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: .6px; }
-.at-mk-0 .at-mk-path, .at-mk-0 .at-mk-dot { stroke: var(--accent); fill: var(--accent); }
-.at-mk-0 .at-mk-path { fill: none; } .at-mk-0 .at-mk-label { fill: var(--accent); }
-.at-mk-1 .at-mk-path { stroke: var(--ink); } .at-mk-1 .at-mk-dot { fill: var(--ink); stroke: var(--paper); }
-.at-mk-1 .at-mk-label { fill: var(--ink); }
-.at-mk-2 .at-mk-path { stroke: #2d6a1f; } .at-mk-2 .at-mk-dot { fill: #2d6a1f; stroke: var(--paper); }
-.at-mk-2 .at-mk-label { fill: #2d6a1f; }
-.at-mk-3 .at-mk-path { stroke: #8a6d1f; } .at-mk-3 .at-mk-dot { fill: #8a6d1f; stroke: var(--paper); }
-.at-mk-3 .at-mk-label { fill: #8a6d1f; }
-.at-mk-4 .at-mk-path { stroke: #4a5b8c; } .at-mk-4 .at-mk-dot { fill: #4a5b8c; stroke: var(--paper); }
-.at-mk-4 .at-mk-label { fill: #4a5b8c; }
-.at-mk-5 .at-mk-path { stroke: #7a4a6a; } .at-mk-5 .at-mk-dot { fill: #7a4a6a; stroke: var(--paper); }
-.at-mk-5 .at-mk-label { fill: #7a4a6a; }
+.at-mk-0 .at-mk-path, .at-mk-0 .at-mk-dot { stroke: #9b2226; fill: #9b2226; }
+.at-mk-0 .at-mk-path { fill: none; } .at-mk-0 .at-mk-label { fill: #9b2226; }
+.at-mk-1 .at-mk-path { stroke: #1f2f4a; } .at-mk-1 .at-mk-dot { fill: #1f2f4a; stroke: var(--paper); }
+.at-mk-1 .at-mk-label { fill: #1f2f4a; }
+.at-mk-2 .at-mk-path { stroke: #2a6f6b; } .at-mk-2 .at-mk-dot { fill: #2a6f6b; stroke: var(--paper); }
+.at-mk-2 .at-mk-label { fill: #2a6f6b; }
+.at-mk-3 .at-mk-path { stroke: #8c6a2e; } .at-mk-3 .at-mk-dot { fill: #8c6a2e; stroke: var(--paper); }
+.at-mk-3 .at-mk-label { fill: #8c6a2e; }
+.at-mk-4 .at-mk-path { stroke: #55507a; } .at-mk-4 .at-mk-dot { fill: #55507a; stroke: var(--paper); }
+.at-mk-4 .at-mk-label { fill: #55507a; }
+.at-mk-5 .at-mk-path { stroke: #4f6b45; } .at-mk-5 .at-mk-dot { fill: #4f6b45; stroke: var(--paper); }
+.at-mk-5 .at-mk-label { fill: #4f6b45; }
 .at-up { color: #2d6a1f; } .at-down { color: var(--accent); }
 /* The backfill report. A platform that gave nothing back has to be
    obvious from across the room, because the whole point of the table is
@@ -3532,19 +3532,19 @@ html.nb-lock { overflow: hidden; }
 .at-mk-initial { font: 700 11px "Barlow", sans-serif; }
 .at-mkt-svg image { pointer-events: none; }
 /* Each line's colour, carried through to its chip and its face ring. */
-.at-mk-0 .at-mk-cursor, .at-mk-0 .at-mk-ring { stroke: var(--accent); fill: var(--accent); }
-.at-mk-0 .at-mk-ring { fill: var(--paper); } .at-mk-0 .at-mk-initial { fill: var(--accent); }
-.at-mkt-chip.at-mk-0 .at-mkt-chip-text b { color: var(--accent); }
-.at-mk-1 .at-mk-cursor { fill: var(--ink); stroke: var(--paper); } .at-mk-1 .at-mk-ring { stroke: var(--ink); }
-.at-mk-1 .at-mk-initial { fill: var(--ink); }
-.at-mk-2 .at-mk-cursor { fill: #2d6a1f; stroke: var(--paper); } .at-mk-2 .at-mk-ring { stroke: #2d6a1f; }
-.at-mk-2 .at-mk-initial { fill: #2d6a1f; } .at-mkt-chip.at-mk-2 .at-mkt-chip-text b { color: #2d6a1f; }
-.at-mk-3 .at-mk-cursor { fill: #8a6d1f; stroke: var(--paper); } .at-mk-3 .at-mk-ring { stroke: #8a6d1f; }
-.at-mk-3 .at-mk-initial { fill: #8a6d1f; } .at-mkt-chip.at-mk-3 .at-mkt-chip-text b { color: #8a6d1f; }
-.at-mk-4 .at-mk-cursor { fill: #4a5b8c; stroke: var(--paper); } .at-mk-4 .at-mk-ring { stroke: #4a5b8c; }
-.at-mk-4 .at-mk-initial { fill: #4a5b8c; } .at-mkt-chip.at-mk-4 .at-mkt-chip-text b { color: #4a5b8c; }
-.at-mk-5 .at-mk-cursor { fill: #7a4a6a; stroke: var(--paper); } .at-mk-5 .at-mk-ring { stroke: #7a4a6a; }
-.at-mk-5 .at-mk-initial { fill: #7a4a6a; } .at-mkt-chip.at-mk-5 .at-mkt-chip-text b { color: #7a4a6a; }
+.at-mk-0 .at-mk-cursor, .at-mk-0 .at-mk-ring { stroke: #9b2226; fill: #9b2226; }
+.at-mk-0 .at-mk-ring { fill: var(--paper); } .at-mk-0 .at-mk-initial { fill: #9b2226; }
+.at-mkt-chip.at-mk-0 .at-mkt-chip-text b { color: #9b2226; }
+.at-mk-1 .at-mk-cursor { fill: #1f2f4a; stroke: var(--paper); } .at-mk-1 .at-mk-ring { stroke: #1f2f4a; }
+.at-mk-1 .at-mk-initial { fill: #1f2f4a; }
+.at-mk-2 .at-mk-cursor { fill: #2a6f6b; stroke: var(--paper); } .at-mk-2 .at-mk-ring { stroke: #2a6f6b; }
+.at-mk-2 .at-mk-initial { fill: #2a6f6b; } .at-mkt-chip.at-mk-2 .at-mkt-chip-text b { color: #2a6f6b; }
+.at-mk-3 .at-mk-cursor { fill: #8c6a2e; stroke: var(--paper); } .at-mk-3 .at-mk-ring { stroke: #8c6a2e; }
+.at-mk-3 .at-mk-initial { fill: #8c6a2e; } .at-mkt-chip.at-mk-3 .at-mkt-chip-text b { color: #8c6a2e; }
+.at-mk-4 .at-mk-cursor { fill: #55507a; stroke: var(--paper); } .at-mk-4 .at-mk-ring { stroke: #55507a; }
+.at-mk-4 .at-mk-initial { fill: #55507a; } .at-mkt-chip.at-mk-4 .at-mkt-chip-text b { color: #55507a; }
+.at-mk-5 .at-mk-cursor { fill: #4f6b45; stroke: var(--paper); } .at-mk-5 .at-mk-ring { stroke: #4f6b45; }
+.at-mk-5 .at-mk-initial { fill: #4f6b45; } .at-mkt-chip.at-mk-5 .at-mkt-chip-text b { color: #4f6b45; }
 /* A board row is a button now: it opens the player, so it has to look it. */
 .at-mkt-row {
     display: flex; align-items: center; gap: 12px; width: 100%; cursor: pointer;
@@ -3605,17 +3605,17 @@ html.nb-lock { overflow: hidden; }
 .at-pc-x { background: none; border: 0; cursor: pointer; padding: 4px 11px 4px 6px; color: var(--muted); font-size: 16px; line-height: 1; }
 .at-pc-x:hover { color: var(--accent); }
 .at-pc-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.at-mk-0 .at-pc-swatch { background: var(--accent); }
-.at-mk-1 .at-pc-swatch { background: var(--ink); }
-.at-mk-2 .at-pc-swatch { background: #2d6a1f; }
-.at-mk-3 .at-pc-swatch { background: #8a6d1f; }
-.at-mk-4 .at-pc-swatch { background: #4a5b8c; }
-.at-mk-5 .at-pc-swatch { background: #7a4a6a; }
-.at-pc-head.at-mk-0 .at-pc-price { color: var(--accent); }
-.at-pc-head.at-mk-2 .at-pc-price { color: #2d6a1f; }
-.at-pc-head.at-mk-3 .at-pc-price { color: #8a6d1f; }
-.at-pc-head.at-mk-4 .at-pc-price { color: #4a5b8c; }
-.at-pc-head.at-mk-5 .at-pc-price { color: #7a4a6a; }
+.at-mk-0 .at-pc-swatch { background: #9b2226; }
+.at-mk-1 .at-pc-swatch { background: #1f2f4a; }
+.at-mk-2 .at-pc-swatch { background: #2a6f6b; }
+.at-mk-3 .at-pc-swatch { background: #8c6a2e; }
+.at-mk-4 .at-pc-swatch { background: #55507a; }
+.at-mk-5 .at-pc-swatch { background: #4f6b45; }
+.at-pc-head.at-mk-0 .at-pc-price { color: #9b2226; }
+.at-pc-head.at-mk-2 .at-pc-price { color: #2a6f6b; }
+.at-pc-head.at-mk-3 .at-pc-price { color: #8c6a2e; }
+.at-pc-head.at-mk-4 .at-pc-price { color: #55507a; }
+.at-pc-head.at-mk-5 .at-pc-price { color: #4f6b45; }
 
 .at-pc-stats { display: flex; flex-wrap: wrap; gap: 4px 22px; font: 500 14px "Barlow", sans-serif; color: var(--muted); padding-top: 8px; border-top: 1px dashed var(--line); }
 .at-pc-stats b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -3628,9 +3628,9 @@ html.nb-lock { overflow: hidden; }
 .at-pc-grid { stroke-dasharray: none; opacity: .7; }
 .at-pc-rule { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 4 4; opacity: .5; }
 .at-pc-area { pointer-events: none; }
-.at-pc-on .at-mk-path { stroke-width: 3.4; }
-.at-pc-off .at-mk-path { stroke-width: 2.4; opacity: .92; }
-.at-pc-off .at-pc-end { opacity: .92; }
+.at-pc-on .at-mk-path { stroke-width: 3.6; }
+.at-pc-off .at-mk-path { stroke-width: 1.7; opacity: .5; }
+.at-pc-off .at-pc-end { opacity: .7; }
 .at-pc .at-pc-mark { stroke: var(--paper); stroke-width: 1.5; }
 .at-pc .at-mk-ring { stroke-width: 1.5; }
 .at-pc-svg image { pointer-events: none; }
@@ -4019,18 +4019,18 @@ a.offer-go { display: inline-block; text-decoration: none; text-align: center; }
 }
 
 /* ---- chart: ten lines (23 Oct) ---- */
-.at-mk-6 .at-mk-path { stroke: #1f6f7a; } .at-mk-6 .at-mk-dot { fill: #1f6f7a; stroke: var(--paper); } .at-mk-6 .at-mk-label, .at-mk-6 .at-mk-initial { fill: #1f6f7a; }
-.at-mk-6 .at-mk-cursor { fill: #1f6f7a; stroke: var(--paper); } .at-mk-6 .at-mk-ring { stroke: #1f6f7a; }
-.at-mk-6 .at-pc-swatch { background: #1f6f7a; } .at-pc-head.at-mk-6 .at-pc-price { color: #1f6f7a; }
-.at-mk-7 .at-mk-path { stroke: #b5651d; } .at-mk-7 .at-mk-dot { fill: #b5651d; stroke: var(--paper); } .at-mk-7 .at-mk-label, .at-mk-7 .at-mk-initial { fill: #b5651d; }
-.at-mk-7 .at-mk-cursor { fill: #b5651d; stroke: var(--paper); } .at-mk-7 .at-mk-ring { stroke: #b5651d; }
-.at-mk-7 .at-pc-swatch { background: #b5651d; } .at-pc-head.at-mk-7 .at-pc-price { color: #b5651d; }
-.at-mk-8 .at-mk-path { stroke: #5b5b5b; } .at-mk-8 .at-mk-dot { fill: #5b5b5b; stroke: var(--paper); } .at-mk-8 .at-mk-label, .at-mk-8 .at-mk-initial { fill: #5b5b5b; }
-.at-mk-8 .at-mk-cursor { fill: #5b5b5b; stroke: var(--paper); } .at-mk-8 .at-mk-ring { stroke: #5b5b5b; }
-.at-mk-8 .at-pc-swatch { background: #5b5b5b; } .at-pc-head.at-mk-8 .at-pc-price { color: #5b5b5b; }
-.at-mk-9 .at-mk-path { stroke: #2f8f5b; } .at-mk-9 .at-mk-dot { fill: #2f8f5b; stroke: var(--paper); } .at-mk-9 .at-mk-label, .at-mk-9 .at-mk-initial { fill: #2f8f5b; }
-.at-mk-9 .at-mk-cursor { fill: #2f8f5b; stroke: var(--paper); } .at-mk-9 .at-mk-ring { stroke: #2f8f5b; }
-.at-mk-9 .at-pc-swatch { background: #2f8f5b; } .at-pc-head.at-mk-9 .at-pc-price { color: #2f8f5b; }
+.at-mk-6 .at-mk-path { stroke: #a0522d; } .at-mk-6 .at-mk-dot { fill: #a0522d; stroke: var(--paper); } .at-mk-6 .at-mk-label, .at-mk-6 .at-mk-initial { fill: #a0522d; }
+.at-mk-6 .at-mk-cursor { fill: #a0522d; stroke: var(--paper); } .at-mk-6 .at-mk-ring { stroke: #a0522d; }
+.at-mk-6 .at-pc-swatch { background: #a0522d; } .at-pc-head.at-mk-6 .at-pc-price { color: #a0522d; }
+.at-mk-7 .at-mk-path { stroke: #3f6a8a; } .at-mk-7 .at-mk-dot { fill: #3f6a8a; stroke: var(--paper); } .at-mk-7 .at-mk-label, .at-mk-7 .at-mk-initial { fill: #3f6a8a; }
+.at-mk-7 .at-mk-cursor { fill: #3f6a8a; stroke: var(--paper); } .at-mk-7 .at-mk-ring { stroke: #3f6a8a; }
+.at-mk-7 .at-pc-swatch { background: #3f6a8a; } .at-pc-head.at-mk-7 .at-pc-price { color: #3f6a8a; }
+.at-mk-8 .at-mk-path { stroke: #6b6050; } .at-mk-8 .at-mk-dot { fill: #6b6050; stroke: var(--paper); } .at-mk-8 .at-mk-label, .at-mk-8 .at-mk-initial { fill: #6b6050; }
+.at-mk-8 .at-mk-cursor { fill: #6b6050; stroke: var(--paper); } .at-mk-8 .at-mk-ring { stroke: #6b6050; }
+.at-mk-8 .at-pc-swatch { background: #6b6050; } .at-pc-head.at-mk-8 .at-pc-price { color: #6b6050; }
+.at-mk-9 .at-mk-path { stroke: #2f5d50; } .at-mk-9 .at-mk-dot { fill: #2f5d50; stroke: var(--paper); } .at-mk-9 .at-mk-label, .at-mk-9 .at-mk-initial { fill: #2f5d50; }
+.at-mk-9 .at-mk-cursor { fill: #2f5d50; stroke: var(--paper); } .at-mk-9 .at-mk-ring { stroke: #2f5d50; }
+.at-mk-9 .at-pc-swatch { background: #2f5d50; } .at-pc-head.at-mk-9 .at-pc-price { color: #2f5d50; }
 
 /* ---- the board under the chart (23 Oct) ---- */
 .mk-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; margin: 4px 0 10px; border-bottom: 1px solid var(--line); }
@@ -4218,8 +4218,8 @@ th.mk-c-rk { text-align: center; }
 .cmp-search { position: relative; margin: 0 0 16px; }
 .cmp-slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .cmp-slot { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 3px; padding: 18px 12px 14px; border-radius: 14px; background: #f6f1e6; border-top: 4px solid transparent; min-height: 230px; }
-.cmp-slot.at-mk-0 { border-top-color: var(--accent); } .cmp-slot.at-mk-1 { border-top-color: var(--ink); }
-.cmp-slot.at-mk-2 { border-top-color: #2d6a1f; } .cmp-slot.at-mk-3 { border-top-color: #8a6d1f; }
+.cmp-slot.at-mk-0 { border-top-color: #9b2226; } .cmp-slot.at-mk-1 { border-top-color: #1f2f4a; }
+.cmp-slot.at-mk-2 { border-top-color: #2a6f6b; } .cmp-slot.at-mk-3 { border-top-color: #8c6a2e; }
 .cmp-swatch { position: absolute; left: 12px; top: 12px; }
 .cmp-empty { justify-content: center; border: 2px dashed #d8cfbd; background: transparent; color: var(--muted); font: 600 14px "Barlow", sans-serif; }
 .cmp-empty svg { width: 64px; height: 64px; fill: #ddd4c2; margin-bottom: 6px; }
@@ -4229,7 +4229,7 @@ th.mk-c-rk { text-align: center; }
 .cmp-name:hover { color: var(--accent); }
 .cmp-meta { font: 600 12px "Barlow Condensed", sans-serif; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
 .cmp-price { font: 400 40px/1 "Anton", sans-serif; color: var(--ink); margin-top: 6px; }
-.cmp-slot.at-mk-0 .cmp-price { color: var(--accent); }
+.cmp-slot.at-mk-0 .cmp-price { color: #9b2226; }
 .cmp-prank { font: 700 13px "Barlow", sans-serif; color: var(--ink-2); }
 .cmp-moves { display: flex; flex-direction: column; gap: 1px; font: 600 12.5px "Barlow", sans-serif; margin-top: 4px; }
 .cmp-x { position: absolute; right: 8px; top: 6px; border: 0; background: none; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; }
@@ -4607,7 +4607,7 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 /* Bold, every line at full strength (John, 27 Oct: the lines "look weak
    and silly ... so light in their color"). The focused one is told apart by
    weight and its fill, never by fading the others. */
-.mk2-line { fill: none; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
+.mk2-line { fill: none; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
 .mk2-end { stroke: var(--paper); stroke-width: 1.5; }
 .mk2-cur { stroke: var(--paper); stroke-width: 2; }
 .mk2-rule { stroke: #b9b0a0; stroke-width: 1; stroke-dasharray: 3 4; }
@@ -4803,8 +4803,12 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
 .mk3-more small { font: 600 11.5px "Barlow", sans-serif; color: var(--muted); margin-top: -4px; }
 /* The line in focus (26 Oct): drawn on top, a soft shade under it; the
    others step back a little. Its box fills with a tint of its colour. */
-.mk2-line-on { stroke-width: 3.4; }
-.mk2-line-off { opacity: .92; }
+/* The selected player stands out (John, 28 Oct): a heavy line over its shade;
+   everyone else thin and stepped back until you pick them. */
+.mk2-line-on { stroke-width: 3.8; }
+.mk2-line-off { stroke-width: 1.7; opacity: .5; }
+.mk2-end-off, .mk2-lbl-off { opacity: .7; }
+.mk2-lbl-off:hover { opacity: 1; }
 .mk2-area { pointer-events: none; }
 .mk3-who { cursor: pointer; }
 .mk3-who:focus-visible { outline: 2px solid var(--slot, var(--accent)); outline-offset: -4px; border-radius: 14px; }

@@ -244,8 +244,10 @@
     var b0 = DATA.base.split("-").map(Number);
     function dateOf(d) { return new Date(Date.UTC(b0[0], b0[1] - 1, b0[2] + d)); }
     function dayLabel(d) { var t = dateOf(d); return MONTHS[t.getUTCMonth()] + " " + t.getUTCDate(); }
-    // One colour per line, for the life of the line: the paper's red first.
-    var COLOURS = ["#b3141c", "#111111", "#2d6a1f", "#a07c12", "#3f5ea8", "#8a3f74", "#c2571a", "#1f7a80", "#6b6050"];
+    // One colour per line, for the life of the line. Deep, ink-like newspaper
+    // colours (John, 28 Oct: the bright red, black, green and mustard looked
+    // "a bit cartoonish"): claret first, then navy, teal, ochre, slate.
+    var COLOURS = ["#9b2226", "#1f2f4a", "#2a6f6b", "#8c6a2e", "#55507a", "#4f6b45", "#a0522d", "#3f6a8a", "#6b6050"];
 
     var svg = document.getElementById("at-pc-svg"),
         dateTag = document.getElementById("mk2-date"),
@@ -494,11 +496,29 @@
         if (hi / lo < 1.6) { var mid = Math.sqrt(lo * hi); lo = Math.max(1, mid / Math.sqrt(1.6)); hi = lo * 1.6; }
     }
 
+    // A monotone cubic (Fritsch-Carlson) through the closes: smooth again (John, 28 Oct:
+    // "I miss the old, slightly more curved and less sharp chart lines"), and it never
+    // overshoots a close, so the curve can't show a price nobody paid.
     function smooth(P) {
-        // Straight from close to close (John, 26 Oct: the curves looked
-        // "cartoony ... it needs to look serious"). A price chart, not a
-        // drawing: every bend is a day somebody traded him.
-        return P.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1); }).join("");
+        var n = P.length;
+        if (n < 3) return P.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1); }).join("");
+        var dx = [], m = [], t = [];
+        for (var i = 0; i < n - 1; i++) { dx[i] = P[i + 1][0] - P[i][0]; m[i] = dx[i] ? (P[i + 1][1] - P[i][1]) / dx[i] : 0; }
+        t[0] = m[0]; t[n - 1] = m[n - 2];
+        for (i = 1; i < n - 1; i++) t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
+        for (i = 0; i < n - 1; i++) {
+            if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+            var a = t[i] / m[i], b = t[i + 1] / m[i], s = a * a + b * b;
+            if (s > 9) { var tau = 3 / Math.sqrt(s); t[i] = tau * a * m[i]; t[i + 1] = tau * b * m[i]; }
+        }
+        var d = "M" + P[0][0].toFixed(1) + "," + P[0][1].toFixed(1);
+        for (i = 0; i < n - 1; i++) {
+            var h = dx[i] / 3;
+            d += "C" + (P[i][0] + h).toFixed(1) + "," + (P[i][1] + t[i] * h).toFixed(1) + " "
+               + (P[i + 1][0] - h).toFixed(1) + "," + (P[i + 1][1] - t[i + 1] * h).toFixed(1) + " "
+               + P[i + 1][0].toFixed(1) + "," + P[i + 1][1].toFixed(1);
+        }
+        return d;
     }
     function el(name, attrs, parent) {
         var e = document.createElementNS(NS, name);
@@ -586,9 +606,10 @@
             }
             el("path", {"class": "mk2-line" + (on ? " mk2-line-on" : focus ? " mk2-line-off" : ""), d: d, stroke: col, "data-key": c.k}, lines);
             var end = P[P.length - 1];
-            el("circle", {"class": "mk2-end", cx: end[0], cy: end[1], r: narrow ? 5 : 5.5, fill: col}, svg);
+            var off = !!focus && !on;
+            el("circle", {"class": "mk2-end" + (off ? " mk2-end-off" : ""), cx: end[0], cy: end[1], r: on ? (narrow ? 5.5 : 6) : (narrow ? 4 : 4.5), fill: col}, svg);
             el("circle", {"class": "mk2-cur", r: narrow ? 4.5 : 5, fill: col, style: "display:none", "data-key": c.k}, svg);
-            items.push({c: c, col: col, want: end[1] - LBL / 2, endY: end[1], slot: pts[pts.length - 1][1]});
+            items.push({c: c, col: col, off: off, want: end[1] - LBL / 2, endY: end[1], slot: pts[pts.length - 1][1]});
         });
         // Y labels above the lines, with a paper halo so a line passing
         // behind never hides one.
@@ -609,9 +630,9 @@
         var r = narrow ? 11 : 12;
         placeLabels(items).forEach(function (it, i) {
             var p = BY[it.c.k], cy = it.y + LBL / 2, cx = R + 12 + r;
-            el("path", {"class": "mk2-leader", stroke: it.col,
-                        d: "M" + R + "," + it.endY.toFixed(1) + " L" + (cx - r - 2) + "," + cy.toFixed(1)}, svg);
-            var a = el("a", {"class": "mk2-lbl", href: playerUrl(it.c.k)}, svg);
+            el("path", {"class": "mk2-leader" + (it.off ? " mk2-lbl-off" : ""), stroke: it.col,
+                        d: "M" + R + "," + it.endY.toFixed(1) + " C" + (R + 6) + "," + it.endY.toFixed(1) + " " + (R + 6) + "," + cy.toFixed(1) + " " + (cx - r - 2) + "," + cy.toFixed(1)}, svg);
+            var a = el("a", {"class": "mk2-lbl" + (it.off ? " mk2-lbl-off" : ""), href: playerUrl(it.c.k)}, svg);
             a.setAttributeNS("http://www.w3.org/1999/xlink", "href", playerUrl(it.c.k));
             var t = el("title", {}, a); t.textContent = p.name + ": see his trades";
             el("circle", {cx: cx, cy: cy, r: r + 1, fill: "#efe8db", stroke: it.col, "stroke-width": 1.25}, a);

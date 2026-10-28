@@ -24,8 +24,8 @@ _PARTICLES = {"st.", "st", "van", "von", "de", "del", "della", "da", "di", "du",
 
 #: Steals in greens and blues, regrets in reds: the colour says which list
 #: a line belongs to before the label does.
-STEAL_COLOURS = ["#1f7a3a", "#3f5ea8", "#1f7a80"]
-REGRET_COLOURS = ["#b3141c", "#8a3f74", "#c2571a"]
+STEAL_COLOURS = ["#2a6f6b", "#1f2f4a", "#4f6b45"]     # deep, ink-like (28 Oct)
+REGRET_COLOURS = ["#9b2226", "#55507a", "#a0522d"]
 
 
 def esc(value) -> str:
@@ -57,11 +57,39 @@ def end_labels(names: list[str]) -> list[str]:
 # Geometry
 # ---------------------------------------------------------------------------
 
-def line_path(points: list[tuple[float, float]]) -> str:
-    """Straight from close to close, like the market page (John, 26 Oct: the
-    smoothed curves looked "cartoony ... it needs to look serious")."""
+def monotone_path(points: list[tuple[float, float]]) -> str:
+    """A smooth curve through screen points that never overshoots one
+    (Fritsch–Carlson), like the market page's lines: a price that went
+    #20 -> #12 is never drawn dipping to #10 on the way. Back on 28 Oct
+    (John: "I miss the old, slightly more curved and less sharp chart lines")."""
     pts = sorted(points)
-    return " ".join(f"{'M' if i == 0 else 'L'}{x:.1f},{y:.1f}" for i, (x, y) in enumerate(pts))
+    n = len(pts)
+    if n == 0:
+        return ""
+    if n == 1:
+        x, y = pts[0]
+        return f"M{x:.1f},{y:.1f}"
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    d = [(ys[i + 1] - ys[i]) / ((xs[i + 1] - xs[i]) or 1e-9) for i in range(n - 1)]
+    m = [d[0]] + [0.0] * (n - 2) + [d[-1]]
+    for i in range(1, n - 1):
+        m[i] = 0.0 if d[i - 1] * d[i] <= 0 else (d[i - 1] + d[i]) / 2
+    for i in range(n - 1):
+        if d[i] == 0:
+            m[i] = m[i + 1] = 0.0
+            continue
+        a, b = m[i] / d[i], m[i + 1] / d[i]
+        s = a * a + b * b
+        if s > 9:
+            t = 3 / math.sqrt(s)
+            m[i], m[i + 1] = t * a * d[i], t * b * d[i]
+    out = [f"M{xs[0]:.1f},{ys[0]:.1f}"]
+    for i in range(n - 1):
+        h = xs[i + 1] - xs[i]
+        out.append(f"C{xs[i] + h / 3:.1f},{ys[i] + m[i] * h / 3:.1f} "
+                   f"{xs[i + 1] - h / 3:.1f},{ys[i + 1] - m[i + 1] * h / 3:.1f} "
+                   f"{xs[i + 1]:.1f},{ys[i + 1]:.1f}")
+    return " ".join(out)
 
 
 def nice_ticks(lo: float, hi: float, most: int = 5) -> list[int]:
@@ -158,7 +186,7 @@ def chart_svg(series: list[dict], *, base: str | None, last: int,
         if not pts:
             continue
         dash = ' stroke-dasharray="7 5"' if s.get("dash") else ""
-        parts.append(f'<path class="pc-line" d="{line_path(pts)}" stroke="{col}"{dash}/>')
+        parts.append(f'<path class="pc-line" d="{monotone_path(pts)}" stroke="{col}"{dash}/>')
         if s["line"][0][0] == 0:
             sx, sy = pts[0]
             parts.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="2.6" class="pc-start" stroke="{col}"/>')
