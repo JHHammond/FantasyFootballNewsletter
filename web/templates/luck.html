@@ -2,6 +2,7 @@
 {% from "_macros.html" import flow_button %}
 {% block title %}The Luck Index &middot; How lucky is your team?{% endblock %}
 {% block description %}Measure exactly how lucky your fantasy football team has been this season, in wins, against every connected team in the country.{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{{ static_url('luck.css') }}" />{% endblock %}
 {% block wrapclass %}home around luck{% endblock %}
 {% block og_title %}How lucky is your fantasy team?{% endblock %}
 {% block og_description %}The Luck Index: the wins you have, minus the wins you earned, against every team in the country.{% endblock %}
@@ -41,7 +42,7 @@
             <span class="ar-rank-field"><span>{{ results|length }} found</span></span>
             <ol class="ar-list lk-found">
                 {% for r in results %}
-                <li><a class="ar-name" href="/luck/{{ r.public_slug }}?team={{ r.team_id|urlencode }}">{{ r.team_name }}<small>{{ r.league_name }}{% if r.manager %} &middot; {{ r.manager }}{% endif %}</small></a>
+                <li><a class="ar-name" href="/luck/{{ r.public_slug }}?team={{ r.team_id|urlencode }}#lr">{{ r.team_name }}<small>{{ r.league_name }}{% if r.manager %} &middot; {{ r.manager }}{% endif %}</small></a>
                     <span class="platform-chip">{{ {'sleeper': 'Sleeper', 'espn': 'ESPN', 'yahoo': 'Yahoo'}.get(r.provider, r.provider) }}</span></li>
                 {% endfor %}
             </ol>
@@ -54,7 +55,7 @@
             <span class="ar-rank-field"><span>Your leagues</span></span>
             <ol class="ar-list lk-found">
                 {% for l in mine %}
-                <li><a class="ar-name" href="/luck/{{ l.public_slug }}">{{ l.paper_name or l.league_name }}<small>{{ l.league_name }}</small></a>
+                <li><a class="ar-name" href="/luck/{{ l.public_slug }}{% if l.my_team_id %}?team={{ l.my_team_id|urlencode }}#lr{% endif %}">{{ l.paper_name or l.league_name }}<small>{% if l.my_team_id %}Your Luck Report &rarr;{% else %}{{ l.league_name }}{% endif %}</small></a>
                     <span class="platform-chip">{{ {'sleeper': 'Sleeper', 'espn': 'ESPN', 'yahoo': 'Yahoo'}.get(l.provider, l.provider) }}</span></li>
                 {% endfor %}
             </ol>

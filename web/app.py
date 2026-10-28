@@ -2324,7 +2324,9 @@ def luck_home(request: Request, q: str = ""):
     ready = db.luck_ready()
     mine, results, searched, limited = [], [], False, False
     if user:
-        mine = [l for l in db.leagues_for_user(user["id"])
+        # Own papers and followed leagues, each with this account's team when
+        # it's known, so the link goes straight to that team's report (27 Oct).
+        mine = [l for l in db.market_leagues_for_user(user["id"])
                 if int(l.get("season") or 0) == season and l.get("public_slug")]
     name = clean_text(q, max_length=80).strip()
     if name and ready:
@@ -2338,6 +2340,14 @@ def luck_home(request: Request, q: str = ""):
                 if r.get("public_slug") and key not in seen:
                     seen.add(key)
                     results.append(r)
+            # One team by that name: straight to its report, not a list of one
+            # to click (John, 27 Oct: "put in your team, it should take you to
+            # the luck report for your team").
+            if len(results) == 1:
+                r = results[0]
+                return RedirectResponse(
+                    f"/luck/{r['public_slug']}?team={quote(str(r['team_id']))}#lr",
+                    status_code=303)
     return _render(request, "luck.html", ready=ready, mine=mine, q=name,
                    results=results, searched=searched, limited=limited,
                    season=season, week=nfl_week.completed_week(),
@@ -2357,20 +2367,40 @@ def _luck_league_data(slug: str):
     return league, season, data
 
 
+def _my_team_in(user: Optional[dict], league: dict) -> str:
+    """This account's team in the league, when it's known (own paper or a
+    followed league, 057). Empty otherwise."""
+    if not user:
+        return ""
+    try:
+        for l in db.market_leagues_for_user(user["id"]):
+            if str(l.get("id")) == str(league.get("id")) and l.get("my_team_id"):
+                return str(l["my_team_id"])
+    except Exception as exc:  # noqa: BLE001 — a nicety, never a failure
+        print(f"[luck] my team lookup failed: {exc}", flush=True)
+    return ""
+
+
 @app.get("/luck/{slug}", response_class=HTMLResponse)
 def luck_league_page(request: Request, slug: str, team: str = ""):
-    _luck_open(request)
+    user = _luck_open(request)
     from . import around, luck
     league, season, data = _luck_league_data(slug)
     chosen = next((t for t in data["teams"] if str(t["team_id"]) == team), None)
-    rep = None
+    mine = _my_team_in(user, league)
+    my_row = next((t for t in data["teams"] if str(t["team_id"]) == mine), None) if mine else None
+    rep = cov = nat_mark = None
     if chosen:
         rep = luck.team_report(db, season, data["stats_league_id"], chosen, data["teams"])
+        cov = luck.cover(chosen, league.get("league_name") or "", data.get("through"))
+        nat_mark = luck.national_marker(data.get("nat") or {}, float(chosen["total"]))
     base = public_base_url()
     card = (f"{base}/luck/{slug}/card/{quote(str(chosen['team_id']))}.png"
             if chosen else None)
     return _render(request, "luck_league.html", league=league, data=data,
-                   chosen=chosen, report=rep, season=season, describe=around.describe,
+                   chosen=chosen, report=rep, cover=cov, nat_mark=nat_mark, my_row=my_row,
+                   standings=luck.standings_slope(data["teams"]),
+                   season=season, describe=around.describe,
                    public=os.getenv("LUCK_PUBLIC", "").strip() == "1",
                    card_url=card,
                    share_url=f"{base}/luck/{slug}"

@@ -297,3 +297,105 @@ def test_the_league_strip():
     crowd = luck.league_strip([{"team_id": str(i), "team_name": str(i), "total": 0.01 * i}
                                for i in range(4)])
     assert len({d["lane"] for d in crowd["dots"]}) == 3          # piled-up dots stack
+
+
+# ---------------------------------------------------------------------------
+# The report as a show, and the league page (27 Oct)
+# ---------------------------------------------------------------------------
+
+def _rows_with_verdicts(rows):
+    for r in rows:
+        r.update(verdict=luck.verdict(r["total"]), luckier_than=50,
+                 deserved_w=round(r["w"] + 0.5 * r["t"] - r["total"], 1),
+                 deserved_l=round(r["games"] - (r["w"] + 0.5 * r["t"] - r["total"]), 1))
+    return rows
+
+
+def test_one_search_match_goes_straight_to_the_report(web, monkeypatch):
+    monkeypatch.setenv("LUCK_PUBLIC", "1")
+    lg = _seed()
+    r = web.get("/luck?q=JohnHenry", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/luck/{lg['public_slug']}?team=b#lr"
+
+
+def test_your_own_team_is_one_tap_away(web, monkeypatch):
+    monkeypatch.setenv("LUCK_PUBLIC", "1")
+    lg = _seed()
+    _staff(web)
+    user = demo_db.user_by_email("s@example.com")
+    demo_db.follow_league(user["id"], lg["id"], "b")
+    home = web.get("/luck")
+    assert f"/luck/{lg['public_slug']}?team=b#lr" in home.text and "Your Luck Report" in home.text
+    page = web.get(f"/luck/{lg['public_slug']}")
+    assert "Your Luck Report is ready" in page.text and 'href="?team=b#lr"' in page.text
+
+
+def test_every_card_has_a_colour_world_and_the_charts_it_can_draw():
+    rows = _rows_with_verdicts(luck.compute(_league4(), [], SEASON))
+    b = next(r for r in rows if r["team_id"] == "b")
+    detail = luck.compute_team(_league4(), [], SEASON, "L", "b")
+    rep = luck.report(b, detail, rows)
+    assert all(c.get("world") in {"paper", "ink", "red", "green", "gold"} for c in rep["cards"])
+    assert rep["verdict_world"] == luck.VERDICT_WORLD[b["verdict"]]
+    kinds = [c["kind"] for c in rep["cards"]]
+    assert kinds[:2] == ["record", "season"]
+    # week 1: b scored 130 (beat 2 of 3 teams) and lost: a robbery. Week 2: 120, top, won.
+    season = next(c for c in rep["cards"] if c["kind"] == "season")["season"]
+    assert [(c["week"], c["result"], c["pct"], c["tag"]) for c in season["cols"]] == \
+        [(1, "L", 67, "robbed"), (2, "W", 100, None)]
+    assert season["robbed"] == 1 and season["gifts"] == 0
+    # the unluckiest week shows the whole league that week, b and its opponent picked out
+    board = next(c for c in rep["cards"] if c["kind"] == "week")["board"]
+    assert [(r["place"], r["me"], r["opp"]) for r in board["rows"]] == \
+        [(1, False, True), (2, True, False), (3, False, False), (4, False, False)]
+    meter = next(c for c in rep["cards"] if c["kind"] == "record")["meter"]
+    assert meter["games"] == 2 and meter["have"] == 1.0 and meter["ticks"][-1]["x"] == 100.0
+
+
+def test_the_cover_asks_and_keeps_the_answer_sealed():
+    winning = luck.cover({"team_name": "Hank's Heroes", "w": 5, "l": 2}, "Kevlarville", 7)
+    losing = luck.cover({"team_name": "Sad Sacks", "w": 1, "l": 6}, "Kevlarville", 7)
+    even = luck.cover({"team_name": "The Mid Tier", "w": 3, "l": 3}, "Kevlarville", 1)
+    assert winning["head"] == "Is Hank's Heroes good, or just lucky?"
+    assert losing["head"] == "Was Sad Sacks robbed?"
+    assert even["head"].startswith("What is The Mid Tier") and "1 week of Kevlarville" in even["byline"]
+
+
+def test_coin_flips_and_a_players_weeks():
+    weeks = [{"week": 1, "points": 100.0, "opponent_points": 103.0, "result": "L", "opp_name": "X"},
+             {"week": 2, "points": 120.0, "opponent_points": 90.0, "result": "W", "opp_name": "Y"},
+             {"week": 3, "points": 101.0, "opponent_points": 99.5, "result": "W", "opp_name": "Z"}]
+    detail = {"scores": [{"team_id": "a", "week": w, "points": 100.0} for w in (1, 2, 3)]}
+    # close = under 5% of the league's 100-point average: weeks 1 and 3
+    assert [(c["week"], c["result"]) for c in luck.coins(detail, weeks)] == [(1, "L"), (3, "W")]
+    lineups = [{"week": w, "player_key": "p1", "started": True, "points": pts}
+               for w, pts in ((1, 4.0), (2, 20.0), (3, 12.0))]
+    ch = luck.player_chart({"lineups": lineups},
+                           {"player_key": "p1", "starts": 3, "dev_total": -6.0}, "low")
+    assert ch["avg"] == "14.0"                      # (36 + 6) / 3: his own average
+    assert [b["hit"] for b in ch["bars"]] == [True, False, False]
+
+
+def test_the_standings_against_the_standings_they_earned():
+    teams = [{"team_id": "a", "team_name": "A", "w": 6, "l": 1, "t": 0, "pf": 120, "deserved_w": 3.0},
+             {"team_id": "b", "team_name": "B", "w": 4, "l": 3, "t": 0, "pf": 110, "deserved_w": 5.5},
+             {"team_id": "c", "team_name": "C", "w": 2, "l": 5, "t": 0, "pf": 100, "deserved_w": 2.0}]
+    s = luck.standings_slope(teams)
+    assert [r["team_id"] for r in s["left"]] == ["a", "b", "c"]
+    assert [r["team_id"] for r in s["right"]] == ["b", "a", "c"]
+    by = {l["team_id"]: l for l in s["lines"]}
+    assert by["a"]["dir"] == "up" and by["b"]["dir"] == "down" and by["c"]["dir"] == "even"
+    assert s["biggest"]["team_id"] in {"a", "b"} and luck.standings_slope(teams[:2]) is None
+
+
+def test_the_league_page_leads_with_the_story(web, monkeypatch):
+    monkeypatch.setenv("LUCK_PUBLIC", "1")
+    lg = _seed()
+    page = web.get(f"/luck/{lg['public_slug']}").text
+    assert "The luckiest" in page and "The most robbed" in page
+    assert "The standings vs. the standings they earned" in page
+    assert "luck.css" in page
+    report = web.get(f"/luck/{lg['public_slug']}?team=b").text
+    assert "What is Mike Vick Legal Team, really?" in report and "Sealed" in report   # 1-1
+    assert "k-season" in report and "lr-board" in report
