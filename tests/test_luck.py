@@ -469,3 +469,20 @@ def test_a_player_card_compares_his_usual_with_what_he_did_for_you():
     assert card["caps"][0] == "Bust averages 14.0 points a week in your league."
     assert card["caps"][1] == "For you, he averaged 6.0, across 2 starts."
     assert card["caps"][2].startswith("That's 16.0 points short of his average, all told.")
+
+
+def test_not_luck_says_plainly_when_the_lineup_wasnt_to_blame():
+    team = {"team_id": "x", "team_name": "X", "w": 4, "l": 3, "t": 0, "games": 7, "total": 0.0,
+            "deserved_w": 4.0, "deserved_l": 3.0, "verdict": "Fair", "own_losses": 0, "bench_avg": 12.1,
+            "close_w": 0, "close_l": 0}
+    weeks = [{"week": k, "points": 100.0, "opponent_points": 100.0 + (10 if r == "L" else -10), "result": r,
+              "ap_real": 0.5, "place": 3, "n": 6} for k, r in enumerate("WLWLWLW", start=1)]
+    card = next(c for c in luck.report(team, {"weeks": weeks}, [])["cards"] if c["kind"] == "skill")
+    assert card["caps"] == ["You left 12.1 points a week on your bench.",
+                            "But you lost 3 games, and your best possible lineup would have lost all 3 too.",
+                            "So those losses weren't the lineup. They were the matchups."]
+    assert [l["week"] for l in card["losses"]] == [2, 4, 6] and card["losses"][0]["margin"] == "10.0"
+    unbeaten = dict(team, l=0)
+    card = next(c for c in luck.report(unbeaten, {"weeks": [w for w in weeks if w["result"] == "W"]}, [])["cards"]
+                if c["kind"] == "skill")
+    assert card["caps"][1] == "And you haven't lost a game, so it never cost you. Yet."

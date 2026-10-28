@@ -1035,18 +1035,38 @@ def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
                                f"{_pts(swap['gain'] - swap['margin'])}. {sub}"]})
         highlights.append(f"Week {swap['week']}: {i['name']} scored {_pts(i['points'])} on your "
                           f"bench. You lost by {_pts(swap['margin'])}.")
-    elif own:
+    # Every loss, with the margin, for the "not luck" card (John, 28 Oct: "none
+    # of your losses were the lineup's fault" needed to be clearer).
+    lost = [{"week": int(w["week"]), "margin": _pts(float(w["opponent_points"]) - float(w["points"]))}
+            for w in sorted(weeks, key=lambda w: int(w["week"]))
+            if w["result"] == "L" and w.get("opponent_points") is not None]
+    n_lost = int(team.get("l") or 0)
+    if own:
         line = f"Loss{'es' if own != 1 else ''} your own bench would have won."
         sub = "That one's on you." if own == 1 else "Those are on you."
         cards.append({"kind": "skill", "kicker": "Not luck", "big": str(own), "line": line,
-                      "sub": sub, "tone": "down", "caps": [f"{line} {sub}"]})
+                      "sub": sub, "tone": "down", "losses": lost, "unit": "on you",
+                      "caps": [f"You lost {_plural(n_lost, 'game')}.",
+                               (f"Your best possible lineup would have won {own} of them." if n_lost > 1
+                                else "Your best possible lineup would have won it."),
+                               "Those were the lineup, not luck." if own > 1 else "That one was the lineup, not luck."]})
         highlights.append(f"Your bench would have won {own} of your losses.")
     elif bench is not None:
         line = "Points a week left on your bench."
         sub = ("None of your losses were the lineup's fault." if team["l"]
                else "Never cost you a game. Yet.")
+        if n_lost:
+            all_ = "both" if n_lost == 2 else f"all {n_lost}" if n_lost > 2 else "it"
+            caps = [f"You left {_pts(bench)} points a week on your bench.",
+                    (f"But you lost {_plural(n_lost, 'game')}, and your best possible lineup "
+                     f"would have lost {all_} too."),
+                    ("So those losses weren't the lineup. They were the matchups." if n_lost > 1
+                     else "So that loss wasn't the lineup. It was the matchup.")]
+        else:
+            caps = [f"You left {_pts(bench)} points a week on your bench.",
+                    "And you haven't lost a game, so it never cost you. Yet."]
         cards.append({"kind": "skill", "kicker": "Not luck", "big": _pts(bench), "line": line,
-                      "sub": sub, "caps": [f"{line} {sub}"]})
+                      "sub": sub, "losses": lost, "unit": "pts a week on the bench", "caps": caps})
 
     games = int(team.get("games") or len(weeks) or 0)
     return {"cards": storyline(cards, games), "highlights": highlights[:3],

@@ -239,6 +239,15 @@
                         {{ swap_side(c.swap['in'], 'in') }}
                     </div>
 
+                {% elif c.kind == 'skill' %}
+                    <div class="lr-big pop" style="--i: 2">{{ c.big }}</div>
+                    {% if c.unit %}<p class="lr-unit set" style="--i: 3">{{ c.unit }}</p>{% endif %}
+                    {% if c.losses %}
+                    <div class="lr-losses" data-at="2" aria-label="Your losses">
+                        {% for l in c.losses %}<span style="--i: {{ loop.index0 }}">Wk {{ l.week }}<small>lost by</small><b>{{ l.margin }}</b></span>{% endfor %}
+                    </div>
+                    {% endif %}
+
                 {% else %}
                     {% if c.eyebrow %}<span class="lr-eyebrow set" style="--i: 2">{{ c.eyebrow }}</span>{% endif %}
                     {% if c.big %}<div class="lr-big pop" style="--i: 2">{{ c.big }}</div>{% endif %}

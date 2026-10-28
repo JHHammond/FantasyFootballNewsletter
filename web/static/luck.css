@@ -690,3 +690,13 @@
 .lr-starts b { font: 400 15px "Anton", sans-serif; letter-spacing: 0; margin-left: 6px; color: var(--fg); }
 .lr-starts .below b { color: var(--down); } .lr-starts .above b { color: var(--up); }
 .k-player .lr-hero .lr-big.mid { font-size: clamp(46px, 13vw, 58px); }
+
+/* Not luck, spelled out (28 Oct): the bench number, then every loss with its
+   margin, then whether the best possible lineup would have changed any. */
+.k-skill .lr-unit { margin-top: -2px; }
+.lr-losses { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 18px auto 2px; max-width: 360px; }
+.lr-losses span { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 12px 4px; border-radius: 999px; border: 1px solid var(--rule);
+                  font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mute); }
+.lr-losses small { font: inherit; letter-spacing: inherit; opacity: .8; }
+.lr-losses b { font: 400 15px "Anton", sans-serif; letter-spacing: 0; color: var(--down); }
+.lr.js .lr-slide.b2 .lr-losses span { animation: lr-pop .5s cubic-bezier(.2,1.4,.4,1) both; animation-delay: calc(var(--i, 0) * 120ms + .15s); }
