@@ -417,8 +417,14 @@ def test_the_week_cards_and_the_opponent_play_in_three_beats():
                             "You played the one team that scored more. And you lost."]
     opp = next(c for c in rep["cards"] if c["kind"] == "opponent")
     # a averages 120 (140, 100) and put up 140 against b; b's 130 beats their usual
-    assert opp["caps"][1] == "On average, they score 120.0."
+    # their usual first, then that week against you, then the gap (28 Oct)
+    assert opp["caps"][:2] == ["a averages 120.0 points a week.",
+                               "But in Week 1, they put up 140.0 against you."]
     assert "Against their usual 120.0, your 130.0 wins by 10.0." in opp["caps"][2]
+    season = next(c for c in rep["cards"] if c["kind"] == "season")
+    assert [col["place"] for col in season["season"]["cols"]] == ["2nd", "1st"]     # ranks, not percentiles
+    assert season["lead"] == "How did your score rank each week?"
+    assert next(c for c in rep["cards"] if c["kind"] == "against")["lead"] == "First, the schedule."
     against = next(c for c in rep["cards"] if c["kind"] == "against")
     assert [r["me"] for r in against["board"]["rows"]].count(True) == 1
 
@@ -445,3 +451,21 @@ def test_around_the_leagues_is_a_dropdown_of_the_desk_and_the_luck_index(web, mo
     only_desk = web.get("/market").text
     assert '<a href="/around" class="nav-main">Around the Leagues</a>' in only_desk
     assert 'href="/luck"' not in only_desk                          # never a link to a page that 404s
+
+
+def test_a_player_card_compares_his_usual_with_what_he_did_for_you():
+    rows = _rows_with_verdicts(luck.compute(_league4(), [], SEASON))
+    b = dict(next(r for r in rows if r["team_id"] == "b"))
+    lineups = [{"week": 1, "player_key": "p9", "started": True, "points": 4.0, "name": "Bust", "position": "WR"},
+               {"week": 2, "player_key": "p9", "started": True, "points": 8.0, "name": "Bust", "position": "WR"}]
+    detail = luck.compute_team(_league4(), [], SEASON, "L", "b")
+    detail["lineups"] = lineups
+    detail["players"] = [{"player_key": "p9", "name": "Bust", "position": "WR", "starts": 2,
+                          "dev_total": -16.0, "dev_avg": -8.0, "worst": 4.0, "best": 8.0}]
+    card = next(c for c in luck.report(b, detail, rows)["cards"] if c["kind"] == "player")
+    cmp = card["compare"]
+    assert cmp["usual"] == "14.0" and cmp["mine"] == "6.0"           # (12 + 16) / 2, and 12 / 2
+    assert [w["week"] for w in cmp["weeks"]] == [1, 2] and not any(w["above"] for w in cmp["weeks"])
+    assert card["caps"][0] == "Bust averages 14.0 points a week in your league."
+    assert card["caps"][1] == "For you, he averaged 6.0, across 2 starts."
+    assert card["caps"][2].startswith("That's 16.0 points short of his average, all told.")

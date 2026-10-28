@@ -645,3 +645,48 @@
     .lr-board li { height: 19px; }
     .k-verdict .lr-vnum .lr-big { font-size: 92px; }
 }
+
+/* =========================================================================
+   28 Oct (John): "the bars need to not be dark grey. They are hard to see."
+   A bar colour per world that reads against it: plain light bars on ink,
+   plain mid-grey on paper. The track behind a bar stays --soft.
+   ========================================================================= */
+.w-paper { --bar: rgba(17,17,17,.2); }
+.w-ink   { --bar: rgba(255,253,248,.34); }
+.w-gold  { --bar: rgba(17,17,17,.22); }
+.w-green, .w-red { --bar: rgba(255,253,248,.32); }
+.k-opponent .bar { fill: var(--bar); }
+.k-opponent.tone-down .bar.vs { fill: var(--down); } .k-opponent.tone-up .bar.vs { fill: var(--up); }
+.k-opponent .avglab { fill: var(--fg); opacity: .85; }
+.lr-board .bar i { background: var(--bar); }
+.lr-key i.k-bar { background: var(--bar); }
+.k-opponent .lr-eyebrow { margin: -2px 0 2px; }
+
+/* a long lead line never rides up into "Part 2 · The schedule" */
+.lr-slide { justify-content: safe center; }
+
+/* a small word beside a big number: "avg", "pts short" */
+.lr-bigcap { display: inline-block; margin-right: 8px; vertical-align: middle; font: 700 15px "Barlow Condensed", sans-serif;
+             letter-spacing: 1.6px; text-transform: uppercase; color: var(--mute); }
+.lr-big .lr-bigcap:last-child { margin: 0 0 0 8px; }
+
+/* the players, plainly: his usual against what he did for you, every start */
+.lr-herosub { font: 700 12.5px "Barlow Condensed", sans-serif; letter-spacing: 1.6px; text-transform: uppercase; color: var(--mute); margin-top: 3px; }
+.lr-cmp { margin: 14px auto 6px; width: 100%; max-width: 360px; text-align: left; }
+.lr-cmp .row { display: grid; grid-template-columns: 120px minmax(0, 1fr) 52px; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--rule); }
+.lr-cmp .row:last-child { border-bottom: 1px solid var(--rule); }
+.lr-cmp .row > span:first-child { font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mute); line-height: 1.2; }
+.lr-cmp .tr { position: relative; height: 16px; background: var(--soft); border-radius: 3px; overflow: hidden; }
+.lr-cmp .tr i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+.lr-cmp .usual .tr i { background: var(--bar); }
+.k-player.tone-down .lr-cmp .mine .tr i { background: var(--down); }
+.k-player.tone-up .lr-cmp .mine .tr i { background: var(--up); }
+.lr-cmp b { font: 400 22px "Anton", sans-serif; text-align: right; }
+.k-player.tone-down .lr-cmp .mine b { color: var(--down); } .k-player.tone-up .lr-cmp .mine b { color: var(--up); }
+.lr.js .is-on .grow-x { transform-origin: 0 50%; animation: lr-widen .8s cubic-bezier(.2,.8,.2,1) both; animation-delay: .45s; }
+.lr-starts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 12px 0 2px; }
+.lr-starts span { padding: 4px 11px 3px; border-radius: 999px; border: 1px solid var(--rule);
+                  font: 700 12px "Barlow Condensed", sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mute); }
+.lr-starts b { font: 400 15px "Anton", sans-serif; letter-spacing: 0; margin-left: 6px; color: var(--fg); }
+.lr-starts .below b { color: var(--down); } .lr-starts .above b { color: var(--up); }
+.k-player .lr-hero .lr-big.mid { font-size: clamp(46px, 13vw, 58px); }

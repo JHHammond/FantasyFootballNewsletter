@@ -116,23 +116,23 @@
 
                 {% elif c.kind == 'opponent' and c.chart %}
                     {% set ch = c.chart %}{% set hit = ch.hit %}
-                    <div class="lr-bigs pop" style="--i: 2">
-                        <span class="lr-big mid till-3">{{ c.their }}</span>
+                    <span class="lr-eyebrow set" style="--i: 2">{{ c.eyebrow }}</span>
+                    <div class="lr-bigs pop" style="--i: 3">
+                        <span class="lr-big mid till-2"><small class="lr-bigcap">avg</small>{{ c.avg }}</span>
+                        <span class="lr-big mid tint till-3" data-at="2">{{ c.their }}</span>
                         <span class="lr-big mid tint" data-at="3">{{ c.big }}</span>
                     </div>
-                    <figure class="lr-fig set" style="--i: 3">
-                        <svg viewBox="0 0 320 186" role="img" aria-label="{{ c.opp }} scored {{ c.their }} against you, against a {{ c.avg }} average">
+                    <figure class="lr-fig set" style="--i: 4">
+                        <svg viewBox="0 0 320 186" role="img" aria-label="{{ c.opp }} average {{ c.avg }}; against you, {{ c.their }}">
                             <line x1="8" x2="312" y1="{{ ch.base }}" y2="{{ ch.base }}" class="axis" />
                             {% for b in ch.bars %}
-                            <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="2" class="bar {{ 'vs grow' if b.vs else 'g2' }}" style="--d: {{ '%.2f'|format(0.06 * loop.index0) }}s" />
-                            <text x="{{ b.cx }}" y="{{ ch.base + 16 }}" text-anchor="middle" class="{{ 't-strong' if b.vs }}"{% if not b.vs %} data-at="2"{% endif %}>{{ ('VS YOU' if ch.bars|length <= 5 else 'YOU') if b.vs else 'WK ' ~ b.week }}</text>
+                            <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="2" class="bar {{ 'vs g2' if b.vs else 'grow' }}" style="--d: {{ '%.2f'|format(0.07 * loop.index0) }}s" />
+                            <text x="{{ b.cx }}" y="{{ ch.base + 16 }}" text-anchor="middle" class="{{ 't-strong' if b.vs }}">{{ ('VS YOU' if ch.bars|length <= 5 else 'YOU') if b.vs else 'WK ' ~ b.week }}</text>
                             {% endfor %}
-                            <text x="{{ hit.cx }}" y="{{ hit.y - 8 }}" text-anchor="middle" class="val till-3">{{ c.their }}</text>
-                            <g data-at="2">
-                                <line x1="8" x2="312" y1="{{ ch.avg_y }}" y2="{{ ch.avg_y }}" class="avg" />
-                                {% set right = hit.cx < 160 %}
-                                <text x="{{ 312 if right else 8 }}" y="{{ ch.avg_y - 6 }}" text-anchor="{{ 'end' if right else 'start' }}">THEIR AVERAGE {{ c.avg }}</text>
-                            </g>
+                            <line x1="8" x2="312" y1="{{ ch.avg_y }}" y2="{{ ch.avg_y }}" class="avg" />
+                            {% set right = hit.cx < 160 %}
+                            <text x="{{ 312 if right else 8 }}" y="{{ ch.avg_y - 6 }}" text-anchor="{{ 'end' if right else 'start' }}" class="avglab">THEIR AVERAGE {{ c.avg }}</text>
+                            <text x="{{ hit.cx }}" y="{{ hit.y - 8 }}" text-anchor="middle" class="val till-3" data-at="2">{{ c.their }}</text>
                             {% set gx = (hit.x + hit.w + 9) if hit.cx < 250 else (hit.x - 9) %}
                             {% set ga = 'start' if hit.cx < 250 else 'end' %}
                             <g class="gapmark" data-at="3">
@@ -147,7 +147,7 @@
                             </g>
                             {% endif %}
                         </svg>
-                        <figcaption class="lr-key"><span><i class="k-soft"></i>Their weeks</span><span><i class="k-avg"></i>Their average</span>{% if ch.you_y is not none %}<span data-at="3"><i class="k-you"></i>You, that week ({{ c.you }})</span>{% endif %}</figcaption>
+                        <figcaption class="lr-key"><span><i class="k-bar"></i>Their weeks</span><span><i class="k-avg"></i>Their average</span>{% if ch.you_y is not none %}<span data-at="3"><i class="k-you"></i>Your score that week ({{ c.you }})</span>{% endif %}</figcaption>
                     </figure>
 
                 {% elif c.kind == 'season' %}
@@ -158,13 +158,13 @@
                             <line x1="4" x2="316" y1="{{ sc.base }}" y2="{{ sc.base }}" class="axis" />
                             {% for col in sc.cols %}
                             <rect x="{{ col.x }}" y="{{ col.y }}" width="{{ col.w }}" height="{{ col.h }}" rx="2" class="col {{ col.result }} grow" style="--d: {{ '%.2f'|format(0.12 * loop.index0) }}s" />
-                            <text x="{{ col.cx }}" y="{{ col.y - 6 }}" text-anchor="middle" class="pct fade" style="--d: {{ '%.2f'|format(0.12 * loop.index0 + 0.3) }}s">{{ col.pct }}%</text>
+                            <text x="{{ col.cx }}" y="{{ col.y - 6 }}" text-anchor="middle" class="pct fade" style="--d: {{ '%.2f'|format(0.12 * loop.index0 + 0.3) }}s">{{ col.place }}</text>
                             {% if col.tag %}<text x="{{ col.cx }}" y="{{ col.y - 21 }}" text-anchor="middle" class="tag {{ col.tag }}" data-at="2">{{ col.tag|upper }}</text>{% endif %}
                             <text x="{{ col.cx }}" y="{{ sc.base + 16 }}" text-anchor="middle">WK {{ col.week }}</text>
                             {% endfor %}
                             <line x1="4" x2="316" y1="{{ sc.mid_y }}" y2="{{ sc.mid_y }}" class="half" data-at="2" />
                         </svg>
-                        <figcaption class="lr-key"><span><i class="k-up"></i>Won</span><span><i class="k-down"></i>Lost</span><span data-at="2"><i class="k-avg"></i>Half the league</span></figcaption>
+                        <figcaption class="lr-key"><span><i class="k-up"></i>Won</span><span><i class="k-down"></i>Lost</span><span data-at="2"><i class="k-avg"></i>Middle of the league</span></figcaption>
                     </figure>
 
                 {% elif c.kind == 'week' %}
@@ -217,22 +217,18 @@
                         <figure class="lr-photo">{% if c.photo %}<img src="{{ c.photo }}" alt="{{ c.eyebrow }}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />{% endif %}<em>{{ c.position or '' }}</em></figure>
                         <div>
                             <span class="lr-eyebrow">{{ c.eyebrow }}{% if c.position %}<b class="lr-pos">{{ c.position }}</b>{% endif %}</span>
-                            <div class="lr-big mid tint" data-at="3">{{ c.big }}</div>
+                            <p class="lr-herosub">{{ c.starts }} start{{ 's' if c.starts != 1 }} for you</p>
+                            <div class="lr-big mid tint" data-at="3">{{ c.big }}<small class="lr-bigcap">{{ 'pts short' if c.tone == 'down' else 'pts over' }}</small></div>
                         </div>
                     </div>
-                    {% if c.chart %}{% set ch = c.chart %}
-                    <figure class="lr-fig set" style="--i: 3">
-                        <svg viewBox="0 0 320 166" role="img" aria-label="{{ c.eyebrow }}, week by week for you, against his {{ ch.avg }} average">
-                            <line x1="6" x2="314" y1="{{ ch.base }}" y2="{{ ch.base }}" class="axis" />
-                            {% for b in ch.bars %}
-                            <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ [b.h, 1.5]|max }}" rx="2" class="bar g2{{ ' hit' if b.hit }}" style="--d: {{ '%.2f'|format(0.08 * loop.index0) }}s" />
-                            <text x="{{ b.cx }}" y="{{ ch.base + 16 }}" text-anchor="middle" class="{{ 't-strong' if b.hit }}" data-at="2">WK {{ b.week }}</text>
-                            {% if b.hit %}<text x="{{ b.cx }}" y="{{ b.y - 7 }}" text-anchor="middle" class="val" data-at="3">{{ b.pts }}</text>{% endif %}
-                            {% endfor %}
-                            <line x1="6" x2="314" y1="{{ ch.avg_y }}" y2="{{ ch.avg_y }}" class="avg" />
-                            <text x="314" y="{{ ch.avg_y - 6 }}" text-anchor="end">HIS AVERAGE {{ ch.avg }}</text>
-                        </svg>
-                    </figure>
+                    {% if c.compare %}{% set m = c.compare %}
+                    <div class="lr-cmp set" style="--i: 3">
+                        <div class="row usual"><span>His average in your league</span><span class="tr"><i class="grow-x" style="width: {{ m.usual_w }}%"></i></span><b>{{ m.usual }}</b></div>
+                        <div class="row mine" data-at="2"><span>For you, a game</span><span class="tr"><i class="w2" style="width: {{ m.mine_w }}%"></i></span><b>{{ m.mine }}</b></div>
+                    </div>
+                    <div class="lr-starts" data-at="2">
+                        {% for w in m.weeks %}<span class="{{ 'above' if w.above else 'below' }}">Wk {{ w.week }}<b>{{ w.pts }}</b></span>{% endfor %}
+                    </div>
                     {% endif %}
 
                 {% elif c.kind == 'swap' %}
