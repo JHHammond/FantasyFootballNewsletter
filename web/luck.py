@@ -517,7 +517,7 @@ def n_wins(n: float) -> str:
 
 #: The verdict's colour world: gold for the blessed, ink for the cursed.
 VERDICT_WORLD = {"Blessed": "gold", "Lucky": "green", "Fair": "paper",
-                 "Unlucky": "red", "Cursed": "ink"}
+                 "Unlucky": "ink", "Cursed": "ink"}    # no red cards (John, 27 Oct)
 
 
 def cover(team: dict, league_name: str, through: Optional[int]) -> dict:
@@ -665,17 +665,162 @@ def national_marker(nat: dict, total: float) -> Optional[dict]:
     return {"cols": cols, "you_x": you_x}
 
 
-def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:  # noqa: ARG001
+def _plural(n, word: str) -> str:
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+#: The report's chapters, in story order (John, 27 Oct: "it needs to tell a
+#: story. rn it is disjointed cards"). Each chapter keeps one colour, paper or
+#: ink (John: no red cards); red and green are only ever accents.
+CHAPTERS = [("record", "The record", "paper"), ("schedule", "The schedule", "ink"),
+            ("players", "The players", "paper"), ("fault", "Not luck", "ink")]
+CHAPTER_OF = {"record": "record", "against": "schedule", "season": "schedule", "week": "schedule",
+              "opponent": "schedule", "close": "schedule", "lineup": "players", "player": "players",
+              "swap": "fault", "skill": "fault"}
+#: Story order inside the schedule chapter (John, 27 Oct: "maybe the order of
+#: cards needs to be changed"): who you drew, the one who went off, what it
+#: did to the record week by week, the worst and best of those weeks, then
+#: the coin flips.
+KIND_ORDER = {"record": 0, "against": 1, "opponent": 2, "season": 3, "week": 4, "close": 5,
+              "lineup": 6, "player": 7, "swap": 8, "skill": 8}
+
+
+def storyline(cards: list[dict], games: int) -> list[dict]:
+    """Put the cards in story order, chapter by chapter, and give each one
+    the line that leads into it from the card before, its chapter's colour,
+    and "Part 2 · The schedule". The last card of the schedule and players
+    chapters closes that chapter: the case file at the foot of the report
+    fills in its number there."""
+    order = {c: i for i, (c, _, _) in enumerate(CHAPTERS)}
+    cards = sorted(cards, key=lambda c: (order[CHAPTER_OF[c["kind"]]], KIND_ORDER[c["kind"]],
+                                         0 if c.get("tone") == "down" else 1))
+    present = [c for c, _, _ in CHAPTERS if any(CHAPTER_OF[x["kind"]] == c for x in cards)]
+    names = {c: (n, w) for c, n, w in CHAPTERS}
+    prev = None
+    for i, c in enumerate(cards):
+        ch = CHAPTER_OF[c["kind"]]
+        c["chapter"] = ch
+        c["part"] = f"Part {present.index(ch) + 1} · {names[ch][0]}"
+        c["world"] = names[ch][1]
+        k, pk = c["kind"], (prev or {}).get("kind")
+        hot_week = next((x.get("week") for x in cards if x["kind"] == "opponent" and x.get("tone") == "down"), None)
+        if k == "record":
+            lead = f"Through {_plural(games, 'week')}:"
+        elif k == "against":
+            lead = "Start with who you drew."
+        elif k == "opponent" and c.get("tone") == "down":
+            lead = f"Like {c['opp']}, in Week {c['week']}." if pk == "against" else f"Then there was {c['opp']}."
+        elif k == "opponent":
+            lead = ("And some weeks, the other team didn't show up." if pk == "opponent"
+                    else "Some weeks, the other team didn't show up.")
+        elif k == "season":
+            lead = "Here's what that did to you, week by week." if pk in ("against", "opponent") \
+                else "Start with the schedule."
+        elif k == "week" and c.get("tone") == "down":
+            lead = (f"Week {c['week']} hurt the most." if c.get("week") == hot_week
+                    else f"Week {c['week']} is where it hurt.")
+        elif k == "week":
+            lead = "But it cut both ways." if pk == "week" else f"Week {c['week']} went your way."
+        elif k == "close":
+            lead = "Then the coin flips."
+        elif k == "lineup":
+            lead = "Now, the players."
+        elif k == "player" and c.get("tone") == "up" and pk == "player":
+            lead = "Not everybody let you down."
+        elif k == "player":
+            lead = "The biggest no-show:" if pk == "lineup" else "Now, the players."
+        else:
+            lead = "One thing we can't blame on luck."
+        c["lead"] = lead
+        nxt = cards[i + 1] if i + 1 < len(cards) else None
+        c["closes"] = ch if ch in ("schedule", "players") and (nxt is None or CHAPTER_OF[nxt["kind"]] != ch) else None
+        prev = c
+    return cards
+
+
+def points_against(team: dict, league_rows: list[dict]) -> Optional[dict]:
+    """Every team's average points against, most first, you picked out."""
+    rows = [r for r in league_rows or [] if r.get("pa") is not None]
+    if len(rows) < 4 or team.get("pa") is None:
+        return None
+    rows = sorted(rows, key=lambda r: (-float(r["pa"]), str(r.get("team_name") or "")))
+    top = float(rows[0]["pa"]) or 1.0
+    me = str(team["team_id"])
+    board = [{"place": i + 1, "name": r.get("team_name") or "", "pts": _pts(r["pa"]),
+              "w": round(100 * float(r["pa"]) / top, 1), "me": str(r["team_id"]) == me}
+             for i, r in enumerate(rows)]
+    n = len(rows)
+    rank = next(b["place"] for b in board if b["me"])
+    if rank == 1:
+        where = "The most against anybody in your league."
+    elif rank == n:
+        where = "The fewest against anybody in your league."
+    elif rank <= n / 2:
+        where = f"The {_ordinal(rank)}-most of {n} teams."
+    else:
+        where = f"The {_ordinal(n - rank + 1)}-fewest of {n} teams."
+    ol = team.get("opp_luck")
+    if ol is None or abs(float(ol)) < 1:
+        how = "About what those teams score against everybody else."
+    elif float(ol) < 0:
+        how = f"Your opponents scored {abs(float(ol)):.1f} a week more against you than they usually do."
+    else:
+        how = f"Your opponents scored {float(ol):.1f} a week less against you than they usually do."
+    tone = "down" if rank <= max(1, n // 3) else "up" if rank > n - max(1, n // 3) else None
+    return {"kind": "against", "kicker": "Points against", "big": _pts(team["pa"]),
+            "board": {"rows": board, "n": n}, "rank": rank, "tone": tone,
+            "line": f"Your opponents averaged {_pts(team['pa'])} points against you.",
+            "sub": how,
+            "caps": [f"Your opponents averaged {_pts(team['pa'])} points against you.", where, how]}
+
+
+def lineup_card(players: list[dict], team: dict, cap: int = 8) -> Optional[dict]:
+    """Every starter you used, against his own average, photos down the side:
+    player luck you can see (John, 27 Oct: "we can do more for player luck
+    and players/their photos"). The biggest swings either way, best at the
+    top, at most `cap` rows."""
+    ps = [p for p in players if int(p.get("starts") or 0) >= 1 and p.get("dev_total") is not None]
+    if len(ps) < 3:
+        return None
+    ps = sorted(ps, key=lambda p: -abs(float(p["dev_total"])))[:cap]
+    ps.sort(key=lambda p: -float(p["dev_total"]))
+    spread = max([abs(float(p["dev_total"])) for p in ps] + [1.0])
+    rows = [{"name": p.get("name") or p["player_key"], "position": p.get("position") or "",
+             "photo": photo_url(p["player_key"], p.get("position")),
+             "dev": float(p["dev_total"]), "starts": int(p["starts"]),
+             "w": round(50 * abs(float(p["dev_total"])) / spread, 1)} for p in ps]
+    pl = team.get("players")
+    if pl is None or abs(float(pl)) < 0.05:
+        total = "Add it up, and your players were worth nothing either way."
+    elif float(pl) > 0:
+        total = f"Add it up, and your players were worth {n_wins(float(pl))} of luck."
+    else:
+        total = f"Add it up, and your players cost you {n_wins(-float(pl))}."
+    return {"kind": "lineup", "kicker": "Player luck", "rows": rows,
+            "tone": "up" if (pl or 0) > 0.05 else "down" if (pl or 0) < -0.05 else None,
+            "line": "Every starter you used, against his own average.", "sub": total,
+            "caps": ["Every starter you used, against his own average.",
+                     "Above the line, the ones who outplayed themselves for you. Below it, the ones who didn't.",
+                     total]}
+
+
+def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:
     """{"cards": [...], "highlights": [...]} for one team. `team` is its row
-    from league_page (with verdict, luckier_than, deserved_w/l)."""
+    from league_page (with verdict, luckier_than, deserved_w/l).
+
+    Each card carries "caps": what it says at each beat as it plays (27 Oct,
+    John: "multiple animations, i.e. the week you played them, then something
+    else could populate that is their average"). The template shows one
+    caption per beat and builds the chart up beat by beat."""
     weeks = [w for w in (detail.get("weeks") or []) if w.get("ap_real") is not None]
     players = detail.get("players") or []
     cards: list[dict] = []
     highlights: list[str] = []
     rec = f"{team['w']}-{team['l']}" + (f"-{team['t']}" if team.get("t") else "")
-    dw, dl = team["deserved_w"], team["deserved_l"]
+    dw = team["deserved_w"]
+    names = {str(r["team_id"]): r.get("team_name") or "" for r in league_rows or []}
 
-    # 2. the record, and the wins you earned. One number, not a W-L pair:
+    # the record, and the wins you earned. One number, not a W-L pair:
     # "a 0.3-2.7 team" read as a range (John, 1 Oct).
     owed = dw - (team["w"] + 0.5 * (team.get("t") or 0))
     if abs(owed) < 0.25:
@@ -686,140 +831,205 @@ def report(team: dict, detail: dict, league_rows: list[dict]) -> dict:  # noqa: 
         sub = f"You're {n_wins(-owed)} ahead of what you earned. Somebody up there likes you."
     cards.append({"kind": "record", "kicker": "The record", "big": rec,
                   "line": f"Your play earned {n_wins(dw)}.", "sub": sub,
-                  "world": "paper", "meter": record_meter(team)})
+                  "meter": record_meter(team), "tone": "up" if owed < -0.25 else "down" if owed > 0.25 else None,
+                  "caps": ["That's the record.",
+                           f"Your play earned {n_wins(dw)}. Every week, against every team in your league.",
+                           sub]})
 
-    # 2b. the season, week by week: robberies and gifts (27 Oct)
-    names = {str(r["team_id"]): r.get("team_name") or "" for r in league_rows or []}
+    # points against, the whole league (John, 27 Oct: "a leaguewide comparison
+    # of points against you could be interesting"): your number first, then
+    # every team's around it, then how your opponents played against you
+    # compared with their usual
+    ag = points_against(team, league_rows)
+    if ag:
+        cards.append(ag)
+
+    # the season, week by week: robberies and gifts
     sc = season_chart(weeks)
     if sc:
-        bits = [f"{sc['robbed']} robbed" if sc["robbed"] else "",
-                f"{sc['gifts']} gifted" if sc["gifts"] else ""]
-        bits = [b for b in bits if b]
-        cards.append({"kind": "season", "kicker": "Week by week", "world": "ink",
-                      "line": "How much of your league your score would have beaten, every week.",
-                      "sub": (" · ".join(bits).capitalize() + "." if bits else
-                              "Every result about what you earned."),
-                      "season": sc})
+        bits = []
+        if sc["robbed"]:
+            bits.append(f"{_plural(sc['robbed'], 'week')} you beat most of the league and lost.")
+        if sc["gifts"]:
+            bits.append(f"{_plural(sc['gifts'], 'week')} you didn't, and won anyway.")
+        summary = " ".join(bits) or "Every result about what your score deserved."
+        cards.append({"kind": "season", "kicker": "Week by week",
+                      "line": "Every week: how much of your league your score would have beaten.",
+                      "sub": summary, "season": sc,
+                      "caps": ["Every week: how much of your league your score would have beaten.",
+                               summary]})
 
-    # 3. the unluckiest loss and the luckiest win
+    # the unluckiest loss and the luckiest win: your score alone, then the
+    # league around it, then the team you happened to play
+    def week_card(w, unlucky):
+        board = week_board(detail, w, team["team_id"], names)
+        place, n = int(w["place"]), int(w["n"])
+        opp_place = next((r["place"] for r in (board or {}).get("rows", []) if r["opp"]), None)
+        if unlucky:
+            above = place - 1
+            c2 = ("The highest score in your league." if place == 1 else
+                  f"The {_ordinal(place)}-highest of {n}. Better than {_plural(n - place, 'team')}.")
+            c3 = ("You played the one team that scored more." if above == 1 else
+                  f"Only {above} teams scored more. You played one of them.")
+            return {"kind": "week", "kicker": "Your unluckiest week", "week": int(w["week"]),
+                    "eyebrow": f"Week {w['week']}", "big": f"{_ordinal(place)} of {n}",
+                    "pts": _pts(w["points"]), "result": "L", "opp_place": opp_place,
+                    "line": f"You scored {_pts(w['points'])}, the {_ordinal(place)}-highest "
+                            f"score of {n} in your league.",
+                    "sub": "And you lost.", "tone": "down", "board": board,
+                    "caps": [f"Week {w['week']}. You scored {_pts(w['points'])}.", c2, c3 + " And you lost."]}
+        below = n - place
+        c2 = f"{_ordinal(place)} of {n}. Only {_plural(below, 'team')} scored less."
+        c3 = ("You played the one team that scored less." if below == 1 else
+              f"You played one of the {below}.")
+        return {"kind": "week", "kicker": "Your luckiest week", "week": int(w["week"]),
+                "eyebrow": f"Week {w['week']}", "big": f"{_ordinal(place)} of {n}",
+                "pts": _pts(w["points"]), "result": "W", "opp_place": opp_place,
+                "line": f"You scored {_pts(w['points'])}. That would have lost to "
+                        f"{n - place} teams in your league.",
+                "sub": "You drew the one it beat.", "tone": "up", "board": board,
+                "caps": [f"Week {w['week']}. You scored {_pts(w['points'])}.", c2, c3 + " And you won."]}
+
     losses = [w for w in weeks if w["result"] == "L"]
     wins = [w for w in weeks if w["result"] == "W"]
     if losses:
         w = max(losses, key=lambda x: (x["ap_real"], -x["week"]))
         if w["ap_real"] >= 0.5:
-            line = (f"You scored {_pts(w['points'])}, the {_ordinal(w['place'])}-highest "
-                    f"score of {w['n']} in your league.")
-            cards.append({"kind": "week", "kicker": "Your unluckiest week",
-                          "eyebrow": f"Week {w['week']}", "big": f"{_ordinal(w['place'])} of {w['n']}",
-                          "line": line, "sub": "And you lost.", "tone": "down",
-                          "world": "red", "board": week_board(detail, w, team["team_id"], names)})
+            cards.append(week_card(w, True))
             highlights.append(f"Week {w['week']}: the {_ordinal(w['place'])}-highest score "
                               f"in the league. Lost.")
     if wins:
         w = min(wins, key=lambda x: (x["ap_real"], x["week"]))
-        if w["ap_real"] <= 0.5:
-            cards.append({"kind": "week", "kicker": "Your luckiest week",
-                          "eyebrow": f"Week {w['week']}", "big": f"{_ordinal(w['place'])} of {w['n']}",
-                          "line": f"You scored {_pts(w['points'])}. That would have lost to "
-                                  f"{w['n'] - w['place']} teams in your league.",
-                          "sub": "You drew the one it beat.", "tone": "up",
-                          "world": "green", "board": week_board(detail, w, team["team_id"], names)})
+        if w["ap_real"] <= 0.5 and int(w["n"]) > int(w["place"]):
+            cards.append(week_card(w, False))
             if not highlights:
                 highlights.append(f"Week {w['week']}: {_ordinal(w['place'])} of {w['n']} "
                                   f"in the league. Won anyway.")
 
-    # 4. the opponent who found another gear (or forgot to show up)
+    # the opponent who found another gear (or forgot to show up): that week,
+    # then their season and their average, then the gap and what you'd have
+    # done against their usual
+    def opp_card(w, hot):
+        chart = opponent_chart(detail, w)
+        delta = w["opponent_points"] - w["opp_avg"]
+        their, avg, you = float(w["opponent_points"]), float(w["opp_avg"]), float(w["points"])
+        theirs = sorted((float(b["pts"]) for b in (chart or {}).get("bars", [])), reverse=hot)
+        rank = theirs.index(their) + 1 if their in theirs else None
+        if rank == 1:
+            how = "Their best week of the season." if hot else "Their worst week of the season."
+        elif rank:
+            how = f"Their {_ordinal(rank)}-{'best' if hot else 'worst'} week of the season."
+        else:
+            how = ""
+        if hot and you > avg:
+            vs = f"Against their usual {_pts(avg)}, your {_pts(you)} wins by {you - avg:.1f}."
+        elif not hot and you < avg:
+            vs = f"Against their usual {_pts(avg)}, your {_pts(you)} loses by {avg - you:.1f}."
+        else:
+            vs = "Against you, naturally." if hot else "You'll take it."
+        big = f"+{delta:.1f}" if hot else f"−{abs(delta):.1f}"
+        return {"kind": "opponent",
+                "kicker": "The opponent who found another gear" if hot else "The opponent who didn't show up",
+                "eyebrow": f"Week {w['week']} · {w['opp_name']}", "week": int(w["week"]),
+                "big": big, "their": _pts(their), "avg": _pts(avg), "you": _pts(you),
+                "line": (f"{w['opp_name']} averages {_pts(avg)}. They scored {_pts(their)}." if hot else
+                         f"{w['opp_name']} averages {_pts(avg)}. Against you: {_pts(their)}."),
+                "sub": "Against you, naturally." if hot else "You'll take it.",
+                "tone": "down" if hot else "up", "opp": w["opp_name"], "chart": chart,
+                "caps": [f"Week {w['week']}: {w['opp_name']} scored {_pts(their)} against you.",
+                         f"On average, they score {_pts(avg)}.",
+                         " ".join(x for x in (how, vs) if x)]}
+
     faced = [w for w in weeks if w.get("opp_avg") is not None and w.get("opponent_points") is not None]
     if faced:
         hot = max(faced, key=lambda x: (x["opponent_points"] - x["opp_avg"], -x["week"]))
         delta = hot["opponent_points"] - hot["opp_avg"]
         if delta >= 8:
-            cards.append({"kind": "opponent", "kicker": "The opponent who found another gear",
-                          "eyebrow": f"Week {hot['week']} \u00b7 {hot['opp_name']}",
-                          "big": f"+{delta:.1f}",
-                          "line": f"{hot['opp_name']} averages {_pts(hot['opp_avg'])}. "
-                                  f"They scored {_pts(hot['opponent_points'])}.",
-                          "sub": "Against you, naturally.", "tone": "down", "world": "paper",
-                          "opp": hot["opp_name"], "chart": opponent_chart(detail, hot)})
+            cards.append(opp_card(hot, True))
             highlights.append(f"{hot['opp_name']} scored {delta:.0f} above their average. "
                               f"Against you.")
         cold = min(faced, key=lambda x: (x["opponent_points"] - x["opp_avg"], x["week"]))
         cdelta = cold["opponent_points"] - cold["opp_avg"]
         if cdelta <= -8 and cold["result"] == "W":
-            cards.append({"kind": "opponent", "kicker": "The opponent who didn't show up",
-                          "eyebrow": f"Week {cold['week']} \u00b7 {cold['opp_name']}",
-                          "big": f"\u2212{abs(cdelta):.1f}",
-                          "line": f"{cold['opp_name']} averages {_pts(cold['opp_avg'])}. "
-                                  f"Against you: {_pts(cold['opponent_points'])}.",
-                          "sub": "You'll take it.", "tone": "up", "world": "ink",
-                          "opp": cold["opp_name"], "chart": opponent_chart(detail, cold)})
+            cards.append(opp_card(cold, False))
 
-    # 5. your players: the bust and the boom
+    # close games
+    cw, cl = team.get("close_w") or 0, team.get("close_l") or 0
+    if cw + cl:
+        verdict_line = ("The coin hates you." if cl > cw else
+                        "The coin loves you." if cw > cl else "Dead even.")
+        cards.append({"kind": "close", "kicker": "Coin flips", "big": f"{cw}-{cl}",
+                      "line": "In games decided by a few points.", "sub": verdict_line,
+                      "tone": "down" if cl > cw else "up" if cw > cl else None,
+                      "coins": coins(detail, weeks),
+                      "caps": [f"{_plural(cw + cl, 'game')} decided by a few points. {verdict_line}"]})
+
+    # your players: the bust and the boom. His average first, then his weeks
+    # for you, then what it added up to.
+    def player_card(p, bust):
+        chart = player_chart(detail, p, "low" if bust else "high")
+        name = p.get("name") or p["player_key"]
+        starts = _plural(p["starts"], "start")
+        avg = chart["avg"] if chart else None
+        return {"kind": "player", "kicker": "Your biggest no-show" if bust else "The one who carried you",
+                "eyebrow": name,
+                "big": (f"−{abs(p['dev_total']):.1f}" if bust else f"+{p['dev_total']:.1f}"),
+                "line": (f"Points {'below' if bust else 'above'} his own average, across {starts} for you."),
+                "sub": (f"Low point: {_pts(p['worst'])}." if bust else f"Best game: {_pts(p['best'])}."),
+                "tone": "down" if bust else "up", "position": p.get("position"), "chart": chart,
+                "photo": photo_url(p["player_key"], p.get("position")),
+                "caps": [(f"{name} averages {avg} a week in your league." if avg else f"{name}."),
+                         f"For you, across {starts}:",
+                         (f"{abs(p['dev_total']):.1f} points below his average. Low point: {_pts(p['worst'])}."
+                          if bust else
+                          f"{p['dev_total']:.1f} points above his average. Best game: {_pts(p['best'])}.")]}
+
+    lu = lineup_card(players, team)
+    if lu:
+        cards.append(lu)
     if players:
         bust = players[0]
         if bust["dev_total"] <= -6:
-            cards.append({"kind": "player", "kicker": "Your biggest no-show",
-                          "eyebrow": bust.get("name") or bust["player_key"],
-                          "big": f"\u2212{abs(bust['dev_total']):.1f}",
-                          "line": f"Points below his own average, across {bust['starts']} "
-                                  f"start{'s' if bust['starts'] != 1 else ''} for you.",
-                          "sub": f"Low point: {_pts(bust['worst'])}.", "tone": "down",
-                          "position": bust.get("position"), "world": "red",
-                          "chart": player_chart(detail, bust, "low"),
-                          "photo": photo_url(bust["player_key"], bust.get("position"))})
+            cards.append(player_card(bust, True))
         boom = players[-1]
         if boom["dev_total"] >= 6 and boom is not bust:
-            cards.append({"kind": "player", "kicker": "The one who carried you",
-                          "eyebrow": boom.get("name") or boom["player_key"],
-                          "big": f"+{boom['dev_total']:.1f}",
-                          "line": f"Points above his own average, across {boom['starts']} "
-                                  f"start{'s' if boom['starts'] != 1 else ''} for you.",
-                          "sub": f"Best game: {_pts(boom['best'])}.", "tone": "up",
-                          "position": boom.get("position"), "world": "green",
-                          "chart": player_chart(detail, boom, "high"),
-                          "photo": photo_url(boom["player_key"], boom.get("position"))})
+            cards.append(player_card(boom, False))
 
-    # 6. close games
-    cw, cl = team.get("close_w") or 0, team.get("close_l") or 0
-    if cw + cl:
-        cards.append({"kind": "close", "kicker": "Coin flips", "big": f"{cw}-{cl}",
-                      "line": "In games decided by a few points.",
-                      "sub": ("The coin hates you." if cl > cw else
-                              "The coin loves you." if cw > cl else "Dead even."),
-                      "tone": "down" if cl > cw else "up" if cw > cl else None,
-                      "world": "gold", "coins": coins(detail, weeks)})
-
-    # 7. not luck
+    # not luck
     own = team.get("own_losses") or 0
     bench = team.get("bench_avg")
     swap = winning_swap(detail) if own else None
     if swap:
         o, i = swap["out"], swap["in"]
         others = own - 1
+        sub = ("That one's on you." if not others else
+               "And your bench would have won another one." if others == 1 else
+               f"And your bench would have won {others} more.")
         cards.append({"kind": "swap", "kicker": "Not luck",
-                      "eyebrow": f"Week {swap['week']} \u00b7 lost by {_pts(swap['margin'])}",
+                      "eyebrow": f"Week {swap['week']} · lost by {_pts(swap['margin'])}",
                       "swap": {"out": _swap_side(o, "Started"), "in": _swap_side(i, "On your bench")},
                       "line": f"Start {i['name']} over {o['name']} and you win by "
                               f"{_pts(swap['gain'] - swap['margin'])}.",
-                      "sub": ("That one's on you." if not others else
-                              "And your bench would have won another one." if others == 1 else
-                              f"And your bench would have won {others} more."),
-                      "tone": "down", "world": "ink"})
+                      "sub": sub, "tone": "down",
+                      "caps": [f"Start {i['name']} over {o['name']} and you win by "
+                               f"{_pts(swap['gain'] - swap['margin'])}. {sub}"]})
         highlights.append(f"Week {swap['week']}: {i['name']} scored {_pts(i['points'])} on your "
                           f"bench. You lost by {_pts(swap['margin'])}.")
     elif own:
-        cards.append({"kind": "skill", "kicker": "Not luck", "big": str(own),
-                      "line": f"Loss{'es' if own != 1 else ''} your own bench would have won.",
-                      "sub": "That one's on you." if own == 1 else "Those are on you.",
-                      "tone": "down", "world": "ink"})
+        line = f"Loss{'es' if own != 1 else ''} your own bench would have won."
+        sub = "That one's on you." if own == 1 else "Those are on you."
+        cards.append({"kind": "skill", "kicker": "Not luck", "big": str(own), "line": line,
+                      "sub": sub, "tone": "down", "caps": [f"{line} {sub}"]})
         highlights.append(f"Your bench would have won {own} of your losses.")
     elif bench is not None:
-        cards.append({"kind": "skill", "kicker": "Not luck", "big": _pts(bench),
-                      "line": "Points a week left on your bench.",
-                      "sub": "None of your losses were the lineup's fault." if team["l"]
-                             else "Never cost you a game. Yet.", "world": "ink"})
+        line = "Points a week left on your bench."
+        sub = ("None of your losses were the lineup's fault." if team["l"]
+               else "Never cost you a game. Yet.")
+        cards.append({"kind": "skill", "kicker": "Not luck", "big": _pts(bench), "line": line,
+                      "sub": sub, "caps": [f"{line} {sub}"]})
 
-    return {"cards": cards, "highlights": highlights[:3],
+    games = int(team.get("games") or len(weeks) or 0)
+    return {"cards": storyline(cards, games), "highlights": highlights[:3],
             "verdict_world": VERDICT_WORLD.get(team.get("verdict") or "", "paper")}
 
 

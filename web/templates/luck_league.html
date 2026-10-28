@@ -16,8 +16,6 @@
 {% macro dv(v, spread) -%}
 <span class="dv" aria-hidden="true">{% if v is not none and (v|float)|abs >= 0.05 %}<i class="widen {{ 'up' if v|float > 0 else 'down' }}" style="width:{{ '%.1f'|format([50, 50 * (v|float)|abs / spread]|min) }}%"></i>{% endif %}</span>
 {%- endmacro %}
-{% macro folio(n, total) -%}<p class="lr-folio" aria-hidden="true"><span>The Luck Report</span><span>No. {{ n }} of {{ total }}</span></p>{%- endmacro %}
-
 {% macro swap_side(p, cls) -%}
 <div class="lr-sw {{ cls }}">
     <span class="lr-sw-role">{{ p.role }}</span>
@@ -30,30 +28,6 @@
 </div>
 {%- endmacro %}
 
-{% macro opp_chart(ch, opp) -%}
-{% set hit = ch.hit %}
-<figure class="lr-fig set" style="--i: 3">
-    <svg viewBox="0 0 320 180" role="img" aria-label="{{ opp }} scored {{ hit.pts }} against you, against a {{ ch.avg }} average across {{ ch.bars|length }} weeks">
-        <line x1="8" x2="312" y1="{{ ch.base }}" y2="{{ ch.base }}" class="axis" />
-        {% for b in ch.bars %}
-        <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="2" class="bar grow{{ ' vs' if b.vs }}" style="--d: {{ '%.2f'|format(0.06 * loop.index0) }}s" />
-        <text x="{{ b.cx }}" y="166" text-anchor="middle" class="{{ 't-strong' if b.vs }}">{{ ('VS YOU' if ch.bars|length <= 5 else 'YOU') if b.vs else 'WK ' ~ b.week }}</text>
-        {% if b.vs and (ch.you_y is none or (ch.you_y - b.y)|abs > 18) %}<text x="{{ b.cx }}" y="{{ b.y - 8 }}" text-anchor="middle" class="val fade">{{ b.pts }}</text>{% endif %}
-        {% endfor %}
-        <line x1="8" x2="312" y1="{{ ch.avg_y }}" y2="{{ ch.avg_y }}" class="avg draw" />
-        {% set right = hit.cx < 160 %}
-        <text x="{{ 312 if right else 8 }}" y="{{ ch.avg_y - 6 }}" text-anchor="{{ 'end' if right else 'start' }}" class="fade">THEIR AVERAGE {{ ch.avg }}</text>
-        {% if ch.you_y is not none %}
-        {% set after = hit.cx < 240 %}
-        <g class="you fade">
-            <line x1="{{ hit.x - 7 }}" x2="{{ hit.x + hit.w + 7 }}" y1="{{ ch.you_y }}" y2="{{ ch.you_y }}" />
-            <text x="{{ (hit.x + hit.w + 11) if after else (hit.x - 11) }}" y="{{ ch.you_y + 4 }}" text-anchor="{{ 'start' if after else 'end' }}">YOU {{ ch.you }}</text>
-        </g>
-        {% endif %}
-    </svg>
-</figure>
-{%- endmacro %}
-
 {% block content %}
 {% if not public %}<div class="alert alert-error ar-note"><strong>Staff preview.</strong> Set <code>LUCK_PUBLIC=1</code> on Render to open the Luck Index to everyone.</div>{% endif %}
 
@@ -64,23 +38,32 @@
 
 {% if chosen and report %}
 {# ======================================================================== the report #}
+{# A story in chapters (27 Oct): the record, the schedule, the players, not
+   luck, then the verdict. Each card plays in beats: one caption per beat,
+   and the chart builds up as it goes (data-at = the beat a piece arrives,
+   .g2/.w2 = bars that grow at beat 2, .till-N = gone from beat N). The case
+   file at the foot fills in as each chapter closes. #}
 {% set vworld = report.verdict_world %}
 {% set has_country = chosen.luckier_than is not none and nat_mark %}
-{% set total_slides = report.cards|length + 3 + (1 if has_country else 0) %}
 {% set quips = {'Blessed': 'Buy a lottery ticket. Today.', 'Lucky': 'Don\'t look a gift horse in the mouth.',
                 'Fair': 'The football gods owe you nothing. You owe them nothing.',
                 'Unlucky': 'The football gods have noticed you. Unfortunately.',
                 'Cursed': 'Check your house for an ancient burial ground.'} %}
 <section class="lr world-{{ vworld }}" id="lr" aria-roledescription="carousel" aria-label="The Luck Report for {{ chosen.team_name }}">
   <div class="lr-stage grain">
-    <button type="button" class="lr-nav lr-prev" aria-label="Previous card">&larr;</button>
+    <button type="button" class="lr-nav lr-prev" aria-label="Previous">&larr;</button>
     <div class="lr-frame">
-        <div class="lr-progress" aria-hidden="true">{% for _ in range(total_slides) %}<span><i></i></span>{% endfor %}</div>
+        <div class="lr-progress" aria-hidden="true">{% for _ in range(report.cards|length + 3 + (1 if has_country else 0)) %}<span><i></i></span>{% endfor %}</div>
         <button type="button" class="lr-pause" aria-label="Pause"><svg class="i-pause" viewBox="0 0 14 14"><rect x="2" y="1" width="3.5" height="12" rx="1"/><rect x="8.5" y="1" width="3.5" height="12" rx="1"/></svg><svg class="i-play" viewBox="0 0 14 14"><path d="M3 1.5v11l9.5-5.5z"/></svg></button>
+        <div class="lr-ledger" aria-hidden="true">
+            <span class="lab">Case file</span>
+            <span class="it" data-k="schedule">Schedule <b class="v">{{ signed(chosen.schedule) }}</b><b class="q">?</b></span>
+            <span class="it" data-k="players">Players <b class="v">{{ signed(chosen.players) }}</b><b class="q">?</b></span>
+        </div>
         <div class="lr-track" id="lr-track" tabindex="0">
 
             {# ---- the front page #}
-            <article class="lr-slide k-cover w-ink grain" data-dur="5" aria-label="Cover">
+            <article class="lr-slide k-cover w-ink grain" data-beats="1" data-dur="10" aria-label="Cover">
                 <div class="lr-mast set" style="--i: 0">
                     <b>The Luck Report</b>
                     <span><span>Special edition</span><span>Through week {{ data.through }}</span></span>
@@ -99,94 +82,115 @@
                 <p class="lr-hint set" style="--i: 6"><span class="touch">Tap to start &rarr;</span><span class="mouse">Click to start &rarr;</span></p>
             </article>
 
-            {# ---- the evidence #}
+            {# ---- the story #}
             {% for c in report.cards %}
-            {% set n = loop.index + 1 %}
-            <article class="lr-slide k-{{ c.kind }} w-{{ c.world or 'paper' }} grain{{ ' tone-' ~ c.tone if c.tone }}"
-                     data-dur="{{ 8 if (c.season or c.board or c.chart or c.coins) else 6.5 }}" aria-label="{{ c.kicker }}">
-                <span class="lr-kicker set" style="--i: 0">{{ c.kicker }}</span>
+            <article class="lr-slide k-{{ c.kind }} w-{{ c.world }} grain{{ ' tone-' ~ c.tone if c.tone }}"
+                     data-beats="{{ c.caps|length }}" data-chapter="{{ c.chapter }}"{% if c.closes %} data-closes="{{ c.closes }}"{% endif %} aria-label="{{ c.kicker }}">
+                <p class="lr-part">{{ c.part }}</p>
+                <p class="lr-lead set" style="--i: 0">{{ c.lead }}</p>
+                <span class="lr-kicker set" style="--i: 1">{{ c.kicker }}</span>
 
                 {% if c.kind == 'record' %}
-                    <div class="lr-big pop" style="--i: 1">{{ c.big }}</div>
+                    <div class="lr-big pop" style="--i: 2">{{ c.big }}</div>
                     {% set m = c.meter %}
-                    <div class="lr-meter set" style="--i: 2" role="img" aria-label="{{ m.have }} wins, {{ m.earned }} earned, out of {{ m.games }} games">
+                    <div class="lr-meter" data-at="2" role="img" aria-label="{{ m.have }} wins, {{ m.earned }} earned, out of {{ m.games }} games">
                         <span class="rail"></span>
                         {% for t in m.ticks %}<span class="tick" style="left: {{ t.x }}%"><b>{{ t.n }}</b></span>{% endfor %}
                         {% set lo = [m.have_x, m.earned_x]|min %}{% set hi = [m.have_x, m.earned_x]|max %}
-                        {% if hi - lo > 0.5 %}<span class="gap {{ 'up' if m.gap > 0 else 'down' }}" style="left: {{ lo }}%; width: {{ '%.1f'|format(hi - lo) }}%"></span>{% endif %}
+                        {% if hi - lo > 0.5 %}<span class="gap {{ 'up' if m.gap > 0 else 'down' }}" data-at="3" style="left: {{ lo }}%; width: {{ '%.1f'|format(hi - lo) }}%"></span>{% endif %}
                         <span class="pin have" style="left: {{ m.have_x }}%"><span>Your wins<em>{{ m.have|round(1)|string|replace('.0', '') }}</em></span></span>
                         <span class="pin earned" style="left: {{ m.earned_x }}%"><span>Earned<em>{{ m.earned }}</em></span></span>
                     </div>
-                    <p class="lr-line set" style="--i: 3">{{ c.line }}</p>
-                    <p class="lr-sub set" style="--i: 4">{{ c.sub }}</p>
+
+                {% elif c.kind == 'against' %}
+                    <div class="lr-big mid pop" style="--i: 2"><span data-count="{{ c.big }}" data-fmt="pts">{{ c.big }}</span></div>
+                    <ol class="lr-board set" style="--i: 3" aria-label="Average points against, every team">
+                        {% for r in c.board.rows %}
+                        <li class="{{ 'me' if r.me }}">
+                            <span class="pl"{% if not r.me %} data-at="2"{% endif %}>{{ r.place }}</span>
+                            <span class="bar"><i class="{{ 'w1' if r.me else 'w2' }}" style="width: {{ r.w }}%; --d: {{ '%.2f'|format(0.05 * loop.index0) }}s"></i><span{% if not r.me %} data-at="2"{% endif %}>{{ r.name }}{% if r.me %}<b class="who">YOU</b>{% endif %}</span></span>
+                            <span class="pts"{% if not r.me %} data-at="2"{% endif %}>{{ r.pts }}</span>
+                        </li>
+                        {% endfor %}
+                    </ol>
+
+                {% elif c.kind == 'opponent' and c.chart %}
+                    {% set ch = c.chart %}{% set hit = ch.hit %}
+                    <div class="lr-bigs pop" style="--i: 2">
+                        <span class="lr-big mid till-3">{{ c.their }}</span>
+                        <span class="lr-big mid tint" data-at="3">{{ c.big }}</span>
+                    </div>
+                    <figure class="lr-fig set" style="--i: 3">
+                        <svg viewBox="0 0 320 186" role="img" aria-label="{{ c.opp }} scored {{ c.their }} against you, against a {{ c.avg }} average">
+                            <line x1="8" x2="312" y1="{{ ch.base }}" y2="{{ ch.base }}" class="axis" />
+                            {% for b in ch.bars %}
+                            <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="2" class="bar {{ 'vs grow' if b.vs else 'g2' }}" style="--d: {{ '%.2f'|format(0.06 * loop.index0) }}s" />
+                            <text x="{{ b.cx }}" y="{{ ch.base + 16 }}" text-anchor="middle" class="{{ 't-strong' if b.vs }}"{% if not b.vs %} data-at="2"{% endif %}>{{ ('VS YOU' if ch.bars|length <= 5 else 'YOU') if b.vs else 'WK ' ~ b.week }}</text>
+                            {% endfor %}
+                            <text x="{{ hit.cx }}" y="{{ hit.y - 8 }}" text-anchor="middle" class="val till-3">{{ c.their }}</text>
+                            <g data-at="2">
+                                <line x1="8" x2="312" y1="{{ ch.avg_y }}" y2="{{ ch.avg_y }}" class="avg" />
+                                {% set right = hit.cx < 160 %}
+                                <text x="{{ 312 if right else 8 }}" y="{{ ch.avg_y - 6 }}" text-anchor="{{ 'end' if right else 'start' }}">THEIR AVERAGE {{ c.avg }}</text>
+                            </g>
+                            {% set gx = (hit.x + hit.w + 9) if hit.cx < 250 else (hit.x - 9) %}
+                            {% set ga = 'start' if hit.cx < 250 else 'end' %}
+                            <g class="gapmark" data-at="3">
+                                <line x1="{{ gx }}" x2="{{ gx }}" y1="{{ ch.avg_y }}" y2="{{ hit.y }}" />
+                                <line x1="{{ gx - 4 }}" x2="{{ gx + 4 }}" y1="{{ ch.avg_y }}" y2="{{ ch.avg_y }}" />
+                                <line x1="{{ gx - 4 }}" x2="{{ gx + 4 }}" y1="{{ hit.y }}" y2="{{ hit.y }}" />
+                                <text x="{{ gx + (6 if ga == 'start' else -6) }}" y="{{ (ch.avg_y + hit.y) / 2 + 5 }}" text-anchor="{{ ga }}" class="gapval">{{ c.big }}</text>
+                            </g>
+                            {% if ch.you_y is not none %}
+                            <g class="you" data-at="3">
+                                <line x1="{{ hit.x - 7 }}" x2="{{ hit.x + hit.w + 7 }}" y1="{{ ch.you_y }}" y2="{{ ch.you_y }}" />
+                            </g>
+                            {% endif %}
+                        </svg>
+                        <figcaption class="lr-key"><span><i class="k-soft"></i>Their weeks</span><span><i class="k-avg"></i>Their average</span>{% if ch.you_y is not none %}<span data-at="3"><i class="k-you"></i>You, that week ({{ c.you }})</span>{% endif %}</figcaption>
+                    </figure>
 
                 {% elif c.kind == 'season' %}
                     {% set sc = c.season %}
-                    <p class="lr-line set" style="--i: 1">{{ c.line }}</p>
                     <figure class="lr-fig set" style="--i: 2">
                         <svg viewBox="0 0 320 200" role="img" aria-label="{% for col in sc.cols %}Week {{ col.week }}: {{ 'won' if col.result == 'W' else 'lost' if col.result == 'L' else 'tied' }}, beat {{ col.pct }}% of the league. {% endfor %}">
                             {% for col in sc.cols %}<rect x="{{ col.x }}" y="{{ sc.top }}" width="{{ col.w }}" height="{{ sc.base - sc.top }}" rx="2" class="col-back" />{% endfor %}
                             <line x1="4" x2="316" y1="{{ sc.base }}" y2="{{ sc.base }}" class="axis" />
                             {% for col in sc.cols %}
-                            <rect x="{{ col.x }}" y="{{ col.y }}" width="{{ col.w }}" height="{{ col.h }}" rx="2" class="col {{ col.result }} grow" style="--d: {{ '%.2f'|format(0.09 * loop.index0) }}s" />
-                            <text x="{{ col.cx }}" y="{{ col.y - 6 }}" text-anchor="middle" class="pct fade" style="--d: {{ '%.2f'|format(0.09 * loop.index0 + 0.3) }}s">{{ col.pct }}%</text>
-                            {% if col.tag %}<text x="{{ col.cx }}" y="{{ col.y - 21 }}" text-anchor="middle" class="tag {{ col.tag }} fade" style="--d: {{ '%.2f'|format(0.09 * loop.index0 + 0.5) }}s">{{ col.tag|upper }}</text>{% endif %}
+                            <rect x="{{ col.x }}" y="{{ col.y }}" width="{{ col.w }}" height="{{ col.h }}" rx="2" class="col {{ col.result }} grow" style="--d: {{ '%.2f'|format(0.12 * loop.index0) }}s" />
+                            <text x="{{ col.cx }}" y="{{ col.y - 6 }}" text-anchor="middle" class="pct fade" style="--d: {{ '%.2f'|format(0.12 * loop.index0 + 0.3) }}s">{{ col.pct }}%</text>
+                            {% if col.tag %}<text x="{{ col.cx }}" y="{{ col.y - 21 }}" text-anchor="middle" class="tag {{ col.tag }}" data-at="2">{{ col.tag|upper }}</text>{% endif %}
                             <text x="{{ col.cx }}" y="{{ sc.base + 16 }}" text-anchor="middle">WK {{ col.week }}</text>
                             {% endfor %}
-                            <line x1="4" x2="316" y1="{{ sc.mid_y }}" y2="{{ sc.mid_y }}" class="half draw" />
+                            <line x1="4" x2="316" y1="{{ sc.mid_y }}" y2="{{ sc.mid_y }}" class="half" data-at="2" />
                         </svg>
-                        <figcaption class="lr-key"><span><i class="k-up"></i>Won</span><span><i class="k-down"></i>Lost</span><span><i class="k-avg"></i>Half the league</span></figcaption>
+                        <figcaption class="lr-key"><span><i class="k-up"></i>Won</span><span><i class="k-down"></i>Lost</span><span data-at="2"><i class="k-avg"></i>Half the league</span></figcaption>
                     </figure>
-                    <p class="lr-sub loud set" style="--i: 3">{{ c.sub }}</p>
 
                 {% elif c.kind == 'week' %}
-                    <span class="lr-eyebrow set" style="--i: 1">{{ c.eyebrow }}</span>
-                    <div class="lr-big mid pop" style="--i: 2">{{ c.big }}</div>
+                    <div class="lr-bigs pop" style="--i: 2">
+                        <span class="lr-big mid till-2"><span data-count="{{ c.pts }}" data-fmt="pts">{{ c.pts }}</span></span>
+                        <span class="lr-big mid" data-at="2">{{ c.big }}</span>
+                    </div>
                     {% if c.board %}
+                    {% set mine = (c.board.rows|selectattr('me')|first) %}
+                    <div class="lr-boardwrap">
+                    <span class="lr-result {{ c.result }}" data-at="3">{{ 'Lost' if c.result == 'L' else 'Won' }}</span>
                     <ol class="lr-board set" style="--i: 3" aria-label="Every score in the league that week">
                         {% for r in c.board.rows %}
-                        <li class="{{ 'me' if r.me }}{{ ' opp' if r.opp }}">
-                            <span class="pl">{{ r.place }}</span>
-                            <span class="bar"><i class="widen" style="width: {{ r.w }}%; --d: {{ '%.2f'|format(0.05 * loop.index0) }}s"></i><span>{{ r.name }}{% if r.me %}<b class="who">YOU</b>{% elif r.opp %}<b class="who">THEM</b>{% endif %}</span></span>
-                            <span class="pts">{{ r.pts }}</span>
+                        {% set side = ('beaten' if mine and r.place > mine.place else 'above') if not r.me else '' %}
+                        <li class="{{ 'me' if r.me }}{{ ' opp' if r.opp }} {{ side }}">
+                            <span class="pl"{% if not r.me %} data-at="2"{% endif %}>{{ r.place }}</span>
+                            <span class="bar"><i class="{{ 'w1' if r.me else 'w2' }}" style="width: {{ r.w }}%; --d: {{ '%.2f'|format(0.04 * loop.index0) }}s"></i><span{% if not r.me %} data-at="2"{% endif %}>{{ r.name }}{% if r.me %}<b class="who">YOU</b>{% elif r.opp %}<b class="who" data-at="3">THEM</b>{% endif %}</span></span>
+                            <span class="pts"{% if not r.me %} data-at="2"{% endif %}>{{ r.pts }}</span>
                         </li>
                         {% endfor %}
                     </ol>
+                    </div>
                     {% endif %}
-                    <p class="lr-line set" style="--i: 4">{{ c.line }}</p>
-                    <p class="lr-sub set" style="--i: 5">{{ c.sub }}</p>
-
-                {% elif c.kind == 'opponent' %}
-                    <span class="lr-eyebrow set" style="--i: 1">{{ c.eyebrow }}</span>
-                    <div class="lr-big mid tint pop" style="--i: 2">{{ c.big }}</div>
-                    <p class="lr-line set" style="--i: 3">{{ c.line }}</p>
-                    {% if c.chart %}{{ opp_chart(c.chart, c.opp) }}{% endif %}
-                    <p class="lr-sub set" style="--i: 5">{{ c.sub }}</p>
-
-                {% elif c.kind == 'player' %}
-                    {% if c.photo %}<figure class="lr-photo"><img src="{{ c.photo }}" alt="{{ c.eyebrow }}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.remove();" /></figure>{% endif %}
-                    <span class="lr-eyebrow set" style="--i: 1">{{ c.eyebrow }}{% if c.position %}<b class="lr-pos">{{ c.position }}</b>{% endif %}</span>
-                    <div class="lr-big pop" style="--i: 2">{{ c.big }}</div>
-                    <p class="lr-line set" style="--i: 3">{{ c.line }}</p>
-                    {% if c.chart %}{% set ch = c.chart %}
-                    <figure class="lr-fig set" style="--i: 4">
-                        <svg viewBox="0 0 320 166" role="img" aria-label="{{ c.eyebrow }}, week by week for you, against his {{ ch.avg }} average">
-                            <line x1="6" x2="314" y1="{{ ch.base }}" y2="{{ ch.base }}" class="axis" />
-                            {% for b in ch.bars %}
-                            <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ [b.h, 1.5]|max }}" rx="2" class="bar grow{{ ' hit' if b.hit }}" style="--d: {{ '%.2f'|format(0.07 * loop.index0) }}s" />
-                            <text x="{{ b.cx }}" y="{{ ch.base + 16 }}" text-anchor="middle" class="{{ 't-strong' if b.hit }}">WK {{ b.week }}</text>
-                            {% if b.hit %}<text x="{{ b.cx }}" y="{{ b.y - 7 }}" text-anchor="middle" class="val fade">{{ b.pts }}</text>{% endif %}
-                            {% endfor %}
-                            <line x1="6" x2="314" y1="{{ ch.avg_y }}" y2="{{ ch.avg_y }}" class="avg draw" />
-                            <text x="314" y="{{ ch.avg_y - 6 }}" text-anchor="end" class="fade">HIS AVERAGE {{ ch.avg }}</text>
-                        </svg>
-                    </figure>
-                    {% endif %}
-                    <p class="lr-sub set" style="--i: 5">{{ c.sub }}</p>
 
                 {% elif c.kind == 'close' %}
-                    <div class="lr-big pop" style="--i: 1">{{ c.big }}</div>
-                    <p class="lr-line set" style="--i: 2">{{ c.line }}</p>
+                    <div class="lr-big pop" style="--i: 2">{{ c.big }}</div>
                     {% if c.coins %}
                     <div class="lr-coins" aria-label="Close games">
                         {% for k in c.coins %}
@@ -194,54 +198,89 @@
                         {% endfor %}
                     </div>
                     {% endif %}
-                    <p class="lr-sub loud set" style="--i: 3">{{ c.sub }}</p>
+
+                {% elif c.kind == 'lineup' %}
+                    <ol class="lr-lineup set" style="--i: 2">
+                        {% for p in c.rows %}
+                        <li class="{{ 'up' if p.dev > 0 else 'down' }}" style="--d: {{ '%.2f'|format(0.06 * loop.index0) }}s">
+                            <span class="ph">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />{% endif %}<em>{{ p.position }}</em></span>
+                            <span class="nm">{{ p.name }}<small>{{ p.position }} &middot; {{ p.starts }} start{{ 's' if p.starts != 1 }}</small></span>
+                            <span class="dv"><i class="w2 {{ 'up' if p.dev > 0 else 'down' }}" style="width: {{ p.w }}%"></i></span>
+                            <span class="vl" data-at="2">{{ signed(p.dev) }}</span>
+                        </li>
+                        {% endfor %}
+                    </ol>
+                    <p class="lr-total" data-at="3">Player luck <b>{{ signed(chosen.players) }}</b> wins</p>
+
+                {% elif c.kind == 'player' %}
+                    <div class="lr-hero">
+                        <figure class="lr-photo">{% if c.photo %}<img src="{{ c.photo }}" alt="{{ c.eyebrow }}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />{% endif %}<em>{{ c.position or '' }}</em></figure>
+                        <div>
+                            <span class="lr-eyebrow">{{ c.eyebrow }}{% if c.position %}<b class="lr-pos">{{ c.position }}</b>{% endif %}</span>
+                            <div class="lr-big mid tint" data-at="3">{{ c.big }}</div>
+                        </div>
+                    </div>
+                    {% if c.chart %}{% set ch = c.chart %}
+                    <figure class="lr-fig set" style="--i: 3">
+                        <svg viewBox="0 0 320 166" role="img" aria-label="{{ c.eyebrow }}, week by week for you, against his {{ ch.avg }} average">
+                            <line x1="6" x2="314" y1="{{ ch.base }}" y2="{{ ch.base }}" class="axis" />
+                            {% for b in ch.bars %}
+                            <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ [b.h, 1.5]|max }}" rx="2" class="bar g2{{ ' hit' if b.hit }}" style="--d: {{ '%.2f'|format(0.08 * loop.index0) }}s" />
+                            <text x="{{ b.cx }}" y="{{ ch.base + 16 }}" text-anchor="middle" class="{{ 't-strong' if b.hit }}" data-at="2">WK {{ b.week }}</text>
+                            {% if b.hit %}<text x="{{ b.cx }}" y="{{ b.y - 7 }}" text-anchor="middle" class="val" data-at="3">{{ b.pts }}</text>{% endif %}
+                            {% endfor %}
+                            <line x1="6" x2="314" y1="{{ ch.avg_y }}" y2="{{ ch.avg_y }}" class="avg" />
+                            <text x="314" y="{{ ch.avg_y - 6 }}" text-anchor="end">HIS AVERAGE {{ ch.avg }}</text>
+                        </svg>
+                    </figure>
+                    {% endif %}
 
                 {% elif c.kind == 'swap' %}
-                    <span class="lr-eyebrow set" style="--i: 1">{{ c.eyebrow }}</span>
-                    <div class="lr-pair set" style="--i: 2" role="group" aria-label="Started {{ c.swap.out.name }}, {{ c.swap.out.pts }} points. On the bench, {{ c.swap['in'].name }}, {{ c.swap['in'].pts }} points.">
+                    <span class="lr-eyebrow set" style="--i: 2">{{ c.eyebrow }}</span>
+                    <div class="lr-pair set" style="--i: 3" role="group" aria-label="Started {{ c.swap.out.name }}, {{ c.swap.out.pts }} points. On the bench, {{ c.swap['in'].name }}, {{ c.swap['in'].pts }} points.">
                         {{ swap_side(c.swap.out, 'out') }}
                         <span class="lr-sw-arrow" aria-hidden="true"><svg viewBox="0 0 40 28"><path d="M4 9h28l-6-6M36 19H8l6 6" /></svg></span>
                         {{ swap_side(c.swap['in'], 'in') }}
                     </div>
-                    <p class="lr-line set" style="--i: 3">{{ c.line }}</p>
-                    <p class="lr-sub set" style="--i: 4">{{ c.sub }}</p>
 
                 {% else %}
-                    {% if c.eyebrow %}<span class="lr-eyebrow set" style="--i: 1">{{ c.eyebrow }}</span>{% endif %}
+                    {% if c.eyebrow %}<span class="lr-eyebrow set" style="--i: 2">{{ c.eyebrow }}</span>{% endif %}
                     {% if c.big %}<div class="lr-big pop" style="--i: 2">{{ c.big }}</div>{% endif %}
-                    <p class="lr-line set" style="--i: 3">{{ c.line }}</p>
-                    {% if c.sub %}<p class="lr-sub set" style="--i: 4">{{ c.sub }}</p>{% endif %}
                 {% endif %}
-                {{ folio(n, total_slides) }}
+
+                <div class="lr-caps" aria-live="polite">{% for cap in c.caps %}<p class="cap" data-b="{{ loop.index }}">{{ cap }}</p>{% endfor %}</div>
             </article>
             {% endfor %}
 
-            {# ---- the verdict #}
+            {# ---- the verdict: add up the case, then the number #}
             {% set vt = tone(chosen.total) %}
-            {% set vn = report.cards|length + 2 %}
-            <article class="lr-slide k-verdict w-{{ vworld }} grain tone-{{ vt }}" data-dur="0" data-verdict="{{ chosen.verdict }}" aria-label="The verdict">
+            <article class="lr-slide k-verdict w-{{ vworld }} grain tone-{{ vt }}" data-beats="2" data-auto="0" data-verdict="{{ chosen.verdict }}" aria-label="The verdict">
                 {% if chosen.verdict == 'Cursed' %}
                 <svg class="lr-crack" viewBox="0 0 440 800" preserveAspectRatio="none" aria-hidden="true"><path d="M262 300 L230 352 L248 371 L201 446 L216 470 L170 560 L182 590 L140 700"/><path d="M262 300 L302 268 L296 236 L340 190 L332 150 L380 96"/><path d="M230 352 L176 330 L130 344 L84 318"/><path d="M216 470 L268 500 L300 560 L352 590"/><path d="M262 300 L318 330 L372 318 L430 340"/><path d="M201 446 L150 440 L96 470 L40 462"/></svg>
                 {% endif %}
-                <span class="lr-kicker set" style="--i: 0">The verdict</span>
-                <div class="lr-vnum"><span class="lr-big" data-count="{{ '%.1f'|format(chosen.total) }}">{{ signed(chosen.total) }}</span></div>
-                <span class="lr-unit set" style="--i: 1">wins of luck</span>
+                <p class="lr-lead set" style="--i: 0">Add it up.</p>
+                <span class="lr-kicker set" style="--i: 1">The verdict</span>
+                <div class="lr-sum set" style="--i: 2">
+                    <div><span>Schedule luck</span>{{ dv(chosen.schedule, 1.5) }}<b>{{ signed(chosen.schedule) }}</b></div>
+                    <div><span>Player luck</span>{{ dv(chosen.players, 1.5) }}<b>{{ signed(chosen.players) }}</b></div>
+                </div>
+                <div class="lr-vnum" data-at="2"><span class="lr-big" data-count="{{ '%.1f'|format(chosen.total) }}" data-at-count="2">{{ signed(chosen.total) }}</span></div>
+                <span class="lr-unit" data-at="2">wins of luck</span>
                 <span class="lr-stamp">{{ chosen.verdict }}</span>
-                <p class="lr-quip set" style="--i: 3">{{ quips.get(chosen.verdict, '') }}</p>
-                <p class="lr-vrec set" style="--i: 4">{{ rec(chosen) }} &middot; earned {{ chosen.deserved_w }} wins</p>
-                <button type="button" class="lr-sharebtn lr-share-btn set" style="--i: 5" data-size="story"><svg viewBox="0 0 20 20"><path d="M10 13V2M5.5 6.5 10 2l4.5 4.5M4 11v6h12v-6"/></svg>Share my report</button>
+                <p class="lr-quip" data-at="2">{{ quips.get(chosen.verdict, '') }}</p>
+                <p class="lr-vrec" data-at="2">{{ rec(chosen) }} &middot; earned {{ chosen.deserved_w }} wins</p>
+                <button type="button" class="lr-sharebtn lr-share-btn" data-at="2" data-size="story"><svg viewBox="0 0 20 20"><path d="M10 13V2M5.5 6.5 10 2l4.5 4.5M4 11v6h12v-6"/></svg>Share my report</button>
                 <p class="lr-copied" hidden>Link copied.</p>
-                {{ folio(vn, total_slides) }}
             </article>
 
             {# ---- the receipts: your league #}
-            <article class="lr-slide k-league w-paper grain" data-dur="0" aria-label="Your league">
+            <article class="lr-slide k-league w-paper grain" data-beats="1" data-auto="0" aria-label="Your league">
                 <span class="lr-kicker set" style="--i: 0">Your league</span>
                 <p class="lr-rhead set" style="--i: 1">{% if nteams < 2 %}{{ league.league_name }}{% elif chosen.league_place == 1 %}The luckiest team in {{ league.league_name }}{% elif chosen.league_place == nteams %}The unluckiest team in {{ league.league_name }}{% else %}{{ ordinal(chosen.league_place) }} luckiest of {{ nteams }} in {{ league.league_name }}{% endif %}</p>
                 <ol class="lr-ranks set" style="--i: 2">
                     {% for t in teams[:16] %}
                     {% set me = t.team_id|string == chosen.team_id|string %}
-                    <li class="{{ 'me' if me }}" style="--d: {{ '%.2f'|format(0.04 * loop.index0) }}s">
+                    <li class="{{ 'me' if me }}">
                         <span class="pl">{{ loop.index }}</span>
                         <a class="nm" href="?team={{ t.team_id|urlencode }}#lr">{{ t.team_name }}</a>
                         {{ dv(t.total, spread) }}
@@ -250,12 +289,11 @@
                     {% endfor %}
                 </ol>
                 <p class="lr-sub set" style="--i: 3">Tap a team to watch their report.</p>
-                {{ folio(vn + 1, total_slides) }}
             </article>
 
             {# ---- the receipts: the country #}
             {% if has_country %}
-            <article class="lr-slide k-country w-ink grain" data-dur="0" aria-label="Around the country">
+            <article class="lr-slide k-country w-ink grain" data-beats="1" data-auto="0" aria-label="Around the country">
                 <span class="lr-kicker set" style="--i: 0">Around the country</span>
                 <div class="lr-big pop" style="--i: 1"><span data-count="{{ chosen.luckier_than }}" data-fmt="pct">{{ chosen.luckier_than }}%</span></div>
                 <p class="lr-line set" style="--i: 2">Luckier than {{ chosen.luckier_than }}% of the {{ '{:,}'.format(data.national) }} teams we measured in America.</p>
@@ -268,22 +306,17 @@
                         <text x="4" y="120">−4 WINS</text><text x="160" y="120" text-anchor="middle">0</text><text x="316" y="120" text-anchor="end">+4 WINS</text>
                     </svg>
                 </figure>
-                <div class="lr-split set" style="--i: 4">
-                    <div><span>Schedule luck</span>{{ dv(chosen.schedule, 1.5) }}<b>{{ signed(chosen.schedule) }}</b></div>
-                    <div><span>Player luck</span>{{ dv(chosen.players, 1.5) }}<b>{{ signed(chosen.players) }}</b></div>
-                </div>
-                <div class="lr-more set" style="--i: 5">
+                <div class="lr-more set" style="--i: 4">
                     <a href="{{ card_url }}?size=story" download>Story image</a>
                     <a href="{{ card_url }}?size=square" download>Square image</a>
                     <button type="button" class="lr-copy">Copy link</button>
                 </div>
-                <a class="lr-onward set" style="--i: 6" href="#league">See the whole league &darr;</a>
-                {{ folio(total_slides, total_slides) }}
+                <a class="lr-onward set" style="--i: 5" href="#league">See the whole league &darr;</a>
             </article>
             {% endif %}
         </div>
     </div>
-    <button type="button" class="lr-nav lr-next" aria-label="Next card">&rarr;</button>
+    <button type="button" class="lr-nav lr-next" aria-label="Next">&rarr;</button>
   </div>
 </section>
 {% endif %}
@@ -464,17 +497,31 @@
         io.observe(slope);
     }
 
-    // ---- the report
+    // ---- the report: one clock drives the beats, the progress bars and the
+    // autoplay, so pausing stops all three. A beat is 4.2 s and a card holds
+    // at least 13 s (John, 27 Oct: "half as fast"). Tapping forward plays the
+    // next beat first, then the next card.
     var root = document.getElementById("lr");
     if (root) {
+        var BEAT = 4200, MIN_CARD = 13000;
         var track = document.getElementById("lr-track");
         var frame = root.querySelector(".lr-frame");
         var slides = track.querySelectorAll(".lr-slide");
         var bars = root.querySelectorAll(".lr-progress span");
-        var current = -1, paused = false;
+        var ledger = root.querySelector(".lr-ledger");
+        var current = -1, t = 0, last = null, paused = false;
+        var closes = {};
+        slides.forEach(function (s, k) { if (s.dataset.closes) closes[s.dataset.closes] = k; });
         root.classList.add("js");
         if (still) root.classList.add("static");
 
+        function plan(s) {
+            var beats = parseInt(s.getAttribute("data-beats") || "1", 10);
+            var auto = s.getAttribute("data-auto") !== "0";
+            var dur = s.getAttribute("data-dur") ? parseFloat(s.getAttribute("data-dur")) * 1000
+                                                 : Math.max(MIN_CARD, beats * BEAT + 4800);
+            return {beats: beats, auto: auto, dur: dur};
+        }
         function go(i) {
             i = Math.max(0, Math.min(slides.length - 1, i));
             track.scrollTo({left: i * track.clientWidth, behavior: still ? "auto" : "smooth"});
@@ -483,35 +530,9 @@
             paused = p; root.classList.toggle("paused", p);
             root.querySelector(".lr-pause").setAttribute("aria-label", p ? "Play" : "Pause");
         }
-        function mark() {
-            var i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
-            if (i === current) return;
-            current = i;
-            var s = slides[i];
-            var dur = parseFloat(s.getAttribute("data-dur") || "6.5");
-            root.style.setProperty("--dur", (dur || 6.5) + "s");
-            bars.forEach(function (b, k) {
-                b.className = k < i ? "done" : k === i ? (dur ? "on" : "done") : "";
-                // restart the fill animation on the new bar
-                var bar = b.querySelector("i"); bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = "";
-            });
-            root.classList.toggle("at-start", i === 0);
-            root.classList.toggle("at-end", i === slides.length - 1);
-            var dark = /w-(paper|gold)/.test(s.className);
-            root.setAttribute("data-fg", dark ? "dark" : "light");
-            slides.forEach(function (sl, k) { sl.classList.toggle("is-on", k === i); });
-            s.querySelectorAll("[data-count]").forEach(countUp);
-            if (s.classList.contains("k-verdict")) celebrate(s);
-        }
-        // when the bar finishes filling, the next card
-        bars.forEach(function (b, k) {
-            b.querySelector("i").addEventListener("animationend", function () {
-                if (k === current && !paused) go(current + 1);
-            });
-        });
-
-        function fmt(v, kind, end) {
+        function fmt(v, kind) {
             if (kind === "pct") return Math.round(v) + "%";
+            if (kind === "pts") return v.toFixed(1);
             if (Math.abs(v) < 0.05) return "0.0";
             return (v > 0 ? "+" : "−") + Math.abs(v).toFixed(1);
         }
@@ -520,13 +541,73 @@
             if (still || isNaN(end)) { el.textContent = fmt(end, kind); return; }
             var t0 = null, dur = 1100;
             el.textContent = fmt(0, kind);
-            function step(t) {
-                if (!t0) t0 = t;
-                var p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+            function step(ts) {
+                if (!t0) t0 = ts;
+                var p = Math.min(1, (ts - t0) / dur), e = 1 - Math.pow(1 - p, 3);
                 el.textContent = fmt(end * e, kind);
                 if (p < 1) requestAnimationFrame(step);
             }
             setTimeout(function () { requestAnimationFrame(step); }, 150);
+        }
+        function setBeat(s, b) {
+            if (s.dataset.beat === String(b)) return;
+            s.dataset.beat = b;
+            for (var k = 2; k <= 4; k++) s.classList.toggle("b" + k, b >= k);
+            s.querySelectorAll(".cap").forEach(function (c) { c.classList.toggle("on", parseInt(c.getAttribute("data-b"), 10) === b); });
+            s.querySelectorAll("[data-count]").forEach(function (el) {
+                var at = parseInt(el.getAttribute("data-at-count") || "1", 10);
+                if (at === b) countUp(el);
+            });
+            if (s.classList.contains("k-verdict") && b >= 2) celebrate(s);
+        }
+        function ledgerFor(i) {
+            if (!ledger) return;
+            var s = slides[i];
+            ledger.classList.toggle("show", !!s.dataset.chapter);
+            ["schedule", "players"].forEach(function (k) {
+                var it = ledger.querySelector('[data-k="' + k + '"]');
+                var done = closes[k] === undefined ? false : i > closes[k];
+                if (done && !it.classList.contains("shown")) { it.classList.add("shown", "pop"); setTimeout(function () { it.classList.remove("pop"); }, 900); }
+                if (!done) it.classList.remove("shown");
+            });
+        }
+        function enter(i, back) {
+            var s = slides[i], p = plan(s);
+            current = i;
+            s.dataset.beat = "";
+            t = back ? (p.beats - 1) * BEAT : 0;
+            root.classList.toggle("at-start", i === 0);
+            root.classList.toggle("at-end", i === slides.length - 1);
+            root.setAttribute("data-fg", /w-(paper|gold)/.test(s.className) ? "dark" : "light");
+            slides.forEach(function (sl, k) { sl.classList.toggle("is-on", k === i); });
+            bars.forEach(function (b, k) { b.className = k < i ? "done" : ""; b.querySelector("i").style.width = k < i ? "100%" : "0"; });
+            ledgerFor(i);
+            setBeat(s, still ? p.beats : 1 + Math.floor(t / BEAT));
+        }
+        function mark() {
+            var i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+            if (i !== current) enter(i, i < current);
+        }
+        function tick(ts) {
+            if (last === null) last = ts;
+            var dt = Math.min(100, ts - last); last = ts;
+            if (current >= 0 && !still) {
+                var s = slides[current], p = plan(s);
+                var held = paused || root.classList.contains("held");
+                if (!held) t += dt;
+                setBeat(s, Math.min(p.beats, 1 + Math.floor(t / BEAT)));
+                var fill = p.auto ? Math.min(1, t / p.dur) : Math.min(1, t / Math.max(1, p.beats * BEAT));
+                var bar = bars[current] && bars[current].querySelector("i");
+                if (bar) bar.style.width = (fill * 100).toFixed(2) + "%";
+                if (p.auto && !held && t >= p.dur && current < slides.length - 1) { t = 0; go(current + 1); }
+            }
+            requestAnimationFrame(tick);
+        }
+        function forward() {
+            var s = slides[current], p = plan(s);
+            var b = 1 + Math.floor(t / BEAT);
+            if (!still && b < p.beats) { t = b * BEAT; setBeat(s, b + 1); }
+            else go(current + 1);
         }
         // the verdict lands: confetti for the lucky, a jolt (and a crack) for the cursed
         function celebrate(s) {
@@ -552,19 +633,19 @@
                     frame.classList.remove("jolt"); void frame.offsetWidth; frame.classList.add("jolt");
                     var crack = s.querySelector(".lr-crack"); if (crack) crack.classList.add("go");
                 }
-            }, 1250);
+            }, 1300);
         }
 
         track.addEventListener("scroll", function () { window.requestAnimationFrame(mark); }, {passive: true});
         root.querySelector(".lr-prev").addEventListener("click", function () { go(current - 1); });
-        root.querySelector(".lr-next").addEventListener("click", function () { go(current + 1); });
+        root.querySelector(".lr-next").addEventListener("click", forward);
         root.querySelector(".lr-pause").addEventListener("click", function (e) { e.stopPropagation(); setPaused(!paused); });
 
         // tap: left third back, the rest forward; press and hold to pause
-        var downAt = 0, holdTimer = null, held = false;
+        var holdTimer = null, held = false;
         track.addEventListener("pointerdown", function (e) {
             if (e.target.closest("a, button")) return;
-            downAt = Date.now(); held = false;
+            held = false;
             holdTimer = setTimeout(function () { held = true; root.classList.add("held"); }, 260);
         });
         function release() { clearTimeout(holdTimer); root.classList.remove("held"); }
@@ -573,24 +654,25 @@
         track.addEventListener("click", function (e) {
             if (e.target.closest("a, button") || held) { held = false; return; }
             var r = track.getBoundingClientRect();
-            go(current + ((e.clientX - r.left) < r.width / 3 ? -1 : 1));
+            if ((e.clientX - r.left) < r.width / 3) go(current - 1); else forward();
         });
         document.addEventListener("keydown", function (e) {
             var rr = root.getBoundingClientRect();
             if (rr.bottom < 0 || rr.top > window.innerHeight) return;
-            if (e.key === "ArrowRight") { go(current + 1); e.preventDefault(); }
+            if (e.key === "ArrowRight") { forward(); e.preventDefault(); }
             if (e.key === "ArrowLeft") { go(current - 1); e.preventDefault(); }
             if (e.key === " " && document.activeElement === track) { setPaused(!paused); e.preventDefault(); }
         });
         // the story stops while it can't be seen: another tab, or scrolled away
-        document.addEventListener("visibilitychange", function () { root.classList.toggle("held", document.hidden); });
+        var offscreen = false;
+        function hold() { root.classList.toggle("held", offscreen || document.hidden); }
+        document.addEventListener("visibilitychange", hold);
         if ("IntersectionObserver" in window) {
-            new IntersectionObserver(function (es) {
-                es.forEach(function (e) { root.classList.toggle("offscreen", !e.isIntersecting); root.classList.toggle("held", !e.isIntersecting || document.hidden); });
-            }, {threshold: 0.4}).observe(frame);
+            new IntersectionObserver(function (es) { es.forEach(function (e) { offscreen = !e.isIntersecting; hold(); }); }, {threshold: 0.4}).observe(frame);
         }
         window.addEventListener("resize", function () { track.scrollLeft = Math.max(0, current) * track.clientWidth; });
         mark();
+        requestAnimationFrame(tick);
 
         // Sharing: the picture itself where the phone allows it, the link otherwise.
         {% if chosen %}

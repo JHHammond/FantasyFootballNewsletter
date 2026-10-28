@@ -336,10 +336,16 @@ def test_every_card_has_a_colour_world_and_the_charts_it_can_draw():
     b = next(r for r in rows if r["team_id"] == "b")
     detail = luck.compute_team(_league4(), [], SEASON, "L", "b")
     rep = luck.report(b, detail, rows)
-    assert all(c.get("world") in {"paper", "ink", "red", "green", "gold"} for c in rep["cards"])
+    # chapters keep one colour each, paper or ink: no red cards (27 Oct)
+    assert {c["world"] for c in rep["cards"]} <= {"paper", "ink"}
+    assert "red" not in luck.VERDICT_WORLD.values()
     assert rep["verdict_world"] == luck.VERDICT_WORLD[b["verdict"]]
     kinds = [c["kind"] for c in rep["cards"]]
-    assert kinds[:2] == ["record", "season"]
+    # the story order: the record, who you drew, the one who went off, week by week, the worst week
+    assert kinds[:5] == ["record", "against", "opponent", "season", "week"]
+    assert [c["part"] for c in rep["cards"]][:2] == ["Part 1 \u00b7 The record", "Part 2 \u00b7 The schedule"]
+    assert all(c["lead"] and c["caps"] for c in rep["cards"])
+    assert [c["kind"] for c in rep["cards"] if c["closes"] == "schedule"] == ["week"]
     # week 1: b scored 130 (beat 2 of 3 teams) and lost: a robbery. Week 2: 120, top, won.
     season = next(c for c in rep["cards"] if c["kind"] == "season")["season"]
     assert [(c["week"], c["result"], c["pct"], c["tag"]) for c in season["cols"]] == \
@@ -399,3 +405,30 @@ def test_the_league_page_leads_with_the_story(web, monkeypatch):
     report = web.get(f"/luck/{lg['public_slug']}?team=b").text
     assert "What is Mike Vick Legal Team, really?" in report and "Sealed" in report   # 1-1
     assert "k-season" in report and "lr-board" in report
+
+
+def test_the_week_cards_and_the_opponent_play_in_three_beats():
+    rows = _rows_with_verdicts(luck.compute(_league4(), [], SEASON))
+    b = next(r for r in rows if r["team_id"] == "b")
+    rep = luck.report(b, luck.compute_team(_league4(), [], SEASON, "L", "b"), rows)
+    week = next(c for c in rep["cards"] if c["kind"] == "week")
+    assert week["caps"] == ["Week 1. You scored 130.0.",
+                            "The 2nd-highest of 4. Better than 2 teams.",
+                            "You played the one team that scored more. And you lost."]
+    opp = next(c for c in rep["cards"] if c["kind"] == "opponent")
+    # a averages 120 (140, 100) and put up 140 against b; b's 130 beats their usual
+    assert opp["caps"][1] == "On average, they score 120.0."
+    assert "Against their usual 120.0, your 130.0 wins by 10.0." in opp["caps"][2]
+    against = next(c for c in rep["cards"] if c["kind"] == "against")
+    assert [r["me"] for r in against["board"]["rows"]].count(True) == 1
+
+
+def test_player_luck_lineup_card():
+    players = [{"player_key": str(k), "name": f"P{k}", "position": "WR", "starts": 2,
+                "dev_total": d, "dev_avg": d / 2, "worst": 1, "best": 30} for k, d in
+               enumerate([-12.0, -3.0, 4.0, 9.5])]
+    card = luck.lineup_card(players, {"players": -0.4})
+    assert [r["name"] for r in card["rows"]] == ["P3", "P2", "P1", "P0"]      # best at the top
+    assert card["rows"][-1]["w"] == 50.0 and card["rows"][0]["photo"].endswith("/3.jpg")
+    assert card["caps"][-1] == "Add it up, and your players cost you 0.4 wins."
+    assert luck.lineup_card(players[:2], {"players": 0}) is None
