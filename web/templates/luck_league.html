@@ -274,8 +274,7 @@
                 <span class="lr-stamp">{{ chosen.verdict }}</span>
                 <p class="lr-quip" data-at="2">{{ quips.get(chosen.verdict, '') }}</p>
                 <p class="lr-vrec" data-at="2">{{ rec(chosen) }} &middot; earned {{ chosen.deserved_w }} wins</p>
-                <button type="button" class="lr-sharebtn lr-share-btn" data-at="2" data-size="story"><svg viewBox="0 0 20 20"><path d="M10 13V2M5.5 6.5 10 2l4.5 4.5M4 11v6h12v-6"/></svg>Share my report</button>
-                <p class="lr-copied" hidden>Link copied.</p>
+                <button type="button" class="lr-sharebtn lr-share-btn" data-at="2"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V2M5.5 6.5 10 2l4.5 4.5M4 11v6h12v-6"/></svg>Share my report</button>
             </article>
 
             {# ---- the receipts: your league #}
@@ -311,17 +310,43 @@
                         <text x="4" y="120">−4 WINS</text><text x="160" y="120" text-anchor="middle">0</text><text x="316" y="120" text-anchor="end">+4 WINS</text>
                     </svg>
                 </figure>
-                <div class="lr-more set" style="--i: 4">
-                    <a href="{{ card_url }}?size=story" download>Story image</a>
-                    <a href="{{ card_url }}?size=square" download>Square image</a>
-                    <button type="button" class="lr-copy">Copy link</button>
-                </div>
+                <button type="button" class="lr-sharebtn lr-share-btn set" style="--i: 4"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V2M5.5 6.5 10 2l4.5 4.5M4 11v6h12v-6"/></svg>Share my report</button>
                 <a class="lr-onward set" style="--i: 5" href="#league">See the whole league &darr;</a>
             </article>
             {% endif %}
         </div>
     </div>
     <button type="button" class="lr-nav lr-next" aria-label="Next">&rarr;</button>
+  </div>
+  {# The share sheet (28 Oct, John: "it should just be one share button that
+     turns into this", the phone's own share sheet). A phone opens its native
+     sheet with the picture attached; a browser without one (most desktop
+     browsers) opens this instead. #}
+  <div class="lr-sheet" id="lr-sheet" hidden>
+    <div class="lr-sheet-back" data-close></div>
+    <div class="lr-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="lr-sheet-h">
+      <div class="lr-sheet-head">
+        <img class="lr-sheet-thumb" alt="Your Luck Report card" width="56" height="56" />
+        <div class="lr-sheet-who">
+          <b id="lr-sheet-h">{{ chosen.team_name }}</b>
+          <span>{{ signed(chosen.total) }} wins of luck &middot; {{ chosen.verdict }}</span>
+          <small>commissionersdesk.com</small>
+        </div>
+        <button type="button" class="lr-sheet-x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="lr-sheet-apps">
+        <a class="lr-app" data-to="sms" href="#"><i><svg viewBox="0 0 24 24"><path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 17.5H9l-4.5 3.5v-3.5H4A1.5 1.5 0 0 1 2.5 16V7A1.5 1.5 0 0 1 4 5.5z"/></svg></i>Text</a>
+        <a class="lr-app" data-to="whatsapp" href="#" target="_blank" rel="noopener"><i><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 0 0-7.4 12.7L3.5 20.5l4.4-1.1A8.5 8.5 0 1 0 12 3.5z"/></svg></i>WhatsApp</a>
+        <a class="lr-app" data-to="x" href="#" target="_blank" rel="noopener"><i><svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h10"/></svg></i>X</a>
+        <a class="lr-app" data-to="facebook" href="#" target="_blank" rel="noopener"><i><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M8 13.5l3 3 5-7"/></svg></i>Facebook</a>
+        <a class="lr-app" data-to="email" href="#"><i><svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg></i>Email</a>
+      </div>
+      <ul class="lr-sheet-list">
+        <li><button type="button" data-to="copy"><span>Copy link</span><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></button></li>
+        <li><a data-to="story" href="/luck/{{ league.public_slug }}/card/{{ chosen.team_id|urlencode }}.png?size=story" download="luck-report-story.png"><span>Save image for stories</span><svg viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2"/><path d="M12 8v7M9 12l3 3 3-3"/></svg></a></li>
+        <li><a data-to="square" href="/luck/{{ league.public_slug }}/card/{{ chosen.team_id|urlencode }}.png?size=square" download="luck-report.png"><span>Save square image</span><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M12 8v7M9 12l3 3 3-3"/></svg></a></li>
+      </ul>
+    </div>
   </div>
 </section>
 {% endif %}
@@ -679,30 +704,89 @@
         mark();
         requestAnimationFrame(tick);
 
-        // Sharing: the picture itself where the phone allows it, the link otherwise.
+        // Sharing (28 Oct). One button. A phone's own share sheet, with the
+        // picture attached: the picture is fetched ahead of time, because a
+        // share sheet only opens straight from a tap, and fetching first (as
+        // this used to) used up the tap, so the phone refused and the page
+        // fell back to opening the image. Without a share sheet of its own (most
+        // desktop browsers) the button opens ours.
         {% if chosen %}
         var url = {{ share_url|tojson }};
         var text = {{ ((chosen.team_name ~ ": " ~ signed(chosen.total) ~ " wins of luck. " ~ chosen.verdict ~ ". " ~ (chosen.rank_line or "") ~ " How lucky is yours?")|trim)|tojson }};
-        var card = {{ card_url|tojson }};
+        // Fetched from this page's own address, never the public one, so the
+        // picture loads on www and bare domain alike (and on localhost).
+        var card = {{ card_url|tojson }}.replace(/^https?:\/\/[^\/]+/, "");
         {% else %}var url = "", text = "", card = "";{% endif %}
-        function copied() { root.querySelectorAll(".lr-copied").forEach(function (c) { c.hidden = false; setTimeout(function () { c.hidden = true; }, 2400); }); }
-        root.querySelectorAll(".lr-copy").forEach(function (b) {
-            b.addEventListener("click", function () { if (navigator.clipboard) navigator.clipboard.writeText(text + " " + url).then(copied, copied); });
-        });
-        root.querySelectorAll(".lr-share-btn").forEach(function (btn) {
-            btn.addEventListener("click", function () {
-                var size = this.getAttribute("data-size");
-                setPaused(true);
-                if (window.cdEvent) cdEvent("card_shared", "luck");
-                if (!navigator.share) { window.location.href = card + "?size=" + size; return; }
-                fetch(card + "?size=" + size).then(function (r) { return r.blob(); }).then(function (blob) {
-                    var file = new File([blob], "luck-report.png", {type: "image/png"});
-                    if (navigator.canShare && navigator.canShare({files: [file]})) {
-                        return navigator.share({files: [file], text: text + " " + url});
-                    }
-                    return navigator.share({title: document.title, text: text, url: url});
-                }).catch(function () {});
+        var shareFile = null, fetching = false;
+        function loadPicture() {
+            if (shareFile || fetching || !card || !window.fetch || !window.File) return;
+            fetching = true;
+            fetch(card + "?size=story").then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) {
+                if (b) shareFile = new File([b], "luck-report.png", {type: "image/png"});
+            }).catch(function () {}).then(function () { fetching = false; });
+        }
+        setTimeout(loadPicture, 1200);
+        function counted(how) { if (window.cdEvent) cdEvent("card_shared", "luck-" + how); }
+
+        var sheet = document.getElementById("lr-sheet"), lastFocus = null;
+        function openSheet() {
+            if (!sheet) return;
+            lastFocus = document.activeElement;
+            var thumb = sheet.querySelector(".lr-sheet-thumb");
+            if (thumb && !thumb.getAttribute("src")) thumb.setAttribute("src", card + "?size=square");
+            var msg = encodeURIComponent(text + " " + url);
+            var links = {
+                sms: "sms:?&body=" + msg,
+                whatsapp: "https://wa.me/?text=" + msg,
+                x: "https://twitter.com/intent/tweet?text=" + encodeURIComponent(text) + "&url=" + encodeURIComponent(url),
+                facebook: "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(url),
+                email: "mailto:?subject=" + encodeURIComponent("My Luck Report") + "&body=" + msg
+            };
+            sheet.querySelectorAll(".lr-app").forEach(function (a) { a.setAttribute("href", links[a.getAttribute("data-to")]); });
+            sheet.hidden = false;
+            requestAnimationFrame(function () { sheet.classList.add("open"); });
+            document.documentElement.classList.add("lr-sheet-lock");
+            var first = sheet.querySelector(".lr-app"); if (first) first.focus();
+        }
+        function closeSheet() {
+            if (!sheet || sheet.hidden) return;
+            sheet.classList.remove("open");
+            document.documentElement.classList.remove("lr-sheet-lock");
+            setTimeout(function () { sheet.hidden = true; }, 220);
+            if (lastFocus && lastFocus.focus) lastFocus.focus();
+        }
+        if (sheet) {
+            sheet.addEventListener("click", function (e) {
+                if (e.target.closest("[data-close]")) { closeSheet(); return; }
+                var t = e.target.closest("[data-to]");
+                if (!t) return;
+                var to = t.getAttribute("data-to");
+                if (to === "copy") {
+                    var label = t.querySelector("span");
+                    var done = function () { label.textContent = "Link copied"; setTimeout(function () { label.textContent = "Copy link"; }, 2200); };
+                    if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, done); else done();
+                }
+                counted(to);
             });
+            document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeSheet(); });
+        }
+        function share() {
+            setPaused(true);
+            if (navigator.share) {
+                var withPicture = shareFile && navigator.canShare && navigator.canShare({files: [shareFile]});
+                var data = withPicture ? {files: [shareFile], text: text + " " + url}
+                                       : {title: "My Luck Report", text: text, url: url};
+                navigator.share(data).then(function () { counted(withPicture ? "picture" : "link"); }, function (err) {
+                    if (err && err.name === "AbortError") return;   // they closed it
+                    openSheet();                                      // anything else: ours
+                });
+                return;
+            }
+            openSheet();
+        }
+        root.querySelectorAll(".lr-share-btn").forEach(function (btn) {
+            btn.addEventListener("click", function (e) { e.stopPropagation(); share(); });
+            btn.addEventListener("pointerenter", loadPicture);
         });
     }
 

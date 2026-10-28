@@ -486,3 +486,15 @@ def test_not_luck_says_plainly_when_the_lineup_wasnt_to_blame():
     card = next(c for c in luck.report(unbeaten, {"weeks": [w for w in weeks if w["result"] == "W"]}, [])["cards"]
                 if c["kind"] == "skill")
     assert card["caps"][1] == "And you haven't lost a game, so it never cost you. Yet."
+
+
+def test_one_share_button_and_a_share_sheet_for_browsers_without_one(web, monkeypatch):
+    monkeypatch.setenv("LUCK_PUBLIC", "1")
+    lg = _seed()
+    page = web.get(f"/luck/{lg['public_slug']}?team=b").text
+    assert page.count('class="lr-sharebtn lr-share-btn') == 2            # the verdict and the last card
+    assert "Story image</a>" not in page and 'class="lr-copy"' not in page
+    assert 'id="lr-sheet"' in page and 'data-to="copy"' in page
+    assert f'href="/luck/{lg['public_slug']}/card/b.png?size=story"' in page   # saved from this site, any host
+    # the picture is fetched before the tap, so the phone's sheet opens from the tap itself
+    assert "setTimeout(loadPicture" in page and "navigator.share(data)" in page
