@@ -1431,13 +1431,19 @@ def _trade_rating(season: int, latest: int, market: str = "redraft") -> Optional
     tag = "rating" if market == "redraft" else "rating-dynasty"
     key = (tag, season, latest)
 
+    def load():
+        built = trade_rating.build(db, season, list(range(1, max(latest, 1) + 1)), market=market)
+        # Never keep an empty market (28 Oct: the morning past 10,000 users,
+        # adp() ran past the API's time limit, the build came back empty, and
+        # that empty board was cached for 15 minutes for everybody). Raising
+        # keeps the last good market on the page and tries again in two
+        # minutes (around.swr's retry), instead of storing nothing as the answer.
+        if not (built and built.get("pickable")):
+            raise RuntimeError(f"the {market} market came back empty")
+        return trade_rating.apply_injuries(built, _injury_status())
+
     def refresh():
-        return around.swr(
-            around._cache, key,
-            lambda: trade_rating.apply_injuries(
-                trade_rating.build(db, season, list(range(1, max(latest, 1) + 1)), market=market),
-                _injury_status()),
-            ttl=RATING_TTL) or None
+        return around.swr(around._cache, key, load, ttl=RATING_TTL) or None
 
     # Nobody waits for a rebuild (John, 23 Oct: "the trades page is very
     # slow"). The build reads every trade of the season and walks every
