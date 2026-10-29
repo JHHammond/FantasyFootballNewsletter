@@ -319,7 +319,7 @@ def test_the_script_and_the_card_agree_on_a_rank():
     the two drift, a share says something the page never said."""
     import re
     page = (Path(__file__).resolve().parent.parent
-            / "web" / "templates" / "around.html").read_text()
+            / "web" / "templates" / "around_rank.html").read_text()
     js = page[page.index("function below("):page.index("function verdict(")]
     assert "arr.length - 1" in js and "v <= arr[0]" in js   # the same shape
     # Every verdict the script can print is one the server can print.
@@ -362,10 +362,15 @@ def test_the_share_card(web, monkeypatch):
     # A score nobody could have scored isn't a card.
     for bad in ("", "abc", "-5", "9999", "NaN"):
         assert web.get(f"/around/card.png?score={bad}&week=3").status_code == 404
-    # A shared link previews as its own card.
-    page = web.get("/around?score=120.5")
+    # A shared link previews as its own card, on the score checker's page.
+    page = web.get("/around/rank?score=120.5")
     assert "/around/card.png?score=120.50" in page.text
     assert "/static/brand/og-image.png" in web.get("/around").text
+    assert "/static/brand/og-image.png" in web.get("/around/rank").text
+    # Links shared before the split still land on a filled-in card.
+    old = web.get("/around?score=120.5&week=3", follow_redirects=False)
+    assert old.status_code == 301
+    assert old.headers["location"] == "/around/rank?score=120.5&week=3"
 
     monkeypatch.delenv("AROUND_PUBLIC", raising=False)
     assert web.get("/around/card.png?score=120.5&week=3").status_code == 404
@@ -670,7 +675,7 @@ def test_the_full_player_list_needs_an_account(web, monkeypatch):
     monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
     monkeypatch.setenv("AROUND_PUBLIC", "1")
     _seed_players()
-    page = web.get("/around").text
+    page = web.get("/around/players").text
     assert "at-all-gate" in page, "no invitation to sign up"
     assert 'id="at-all-toggle"' not in page, "the control is there without an account"
     assert web.get("/around/players.json").status_code == 401
@@ -685,7 +690,7 @@ def test_the_gate_is_a_gate_and_not_a_curtain(web, monkeypatch):
     monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
     monkeypatch.setenv("AROUND_PUBLIC", "1")
     _seed_players()
-    page = web.get("/around").text
+    page = web.get("/around/players").text
     assert "var ALL = [];" in page
     assert "var ALL = [{" not in page
 
@@ -698,7 +703,7 @@ def test_an_account_opens_it(web, monkeypatch):
     web.post("/signup", data={"email": "reader@example.com",
                               "password": "correct horse battery 9",
                               "confirm": "correct horse battery 9"})
-    page = web.get("/around").text
+    page = web.get("/around/players").text
     assert 'id="at-all-toggle"' in page
     assert "at-all-gate" not in page
 
@@ -783,3 +788,62 @@ def test_the_masthead_menu_works_without_javascript(web, monkeypatch):
     assert ">Around the Leagues<" in page
     # 24 Oct nav: signed out, the account icon reads "Sign in" and Upgrade leads to sign-up.
     assert "Sign in" in page and 'class="nav-upgrade-btn"' in page
+
+
+def test_the_desk_is_three_pages(web, monkeypatch):
+    """John, 28 Oct: the player boards and the score checker get pages of
+    their own. The front keeps a line of each, and all three share a gate."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    monkeypatch.delenv("AROUND_PUBLIC", raising=False)
+    for path in ("/around", "/around/rank", "/around/players"):
+        assert web.get(path).status_code == 404, path      # closed together
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    lg = _league()
+    league_stats.save_week(demo_db, lg, _week(monkeypatch), _ctx())
+
+    front = web.get("/around?week=3").text
+    assert 'action="/around/rank"' in front                # the score box
+    assert 'href="/around/players?week=3"' in front        # the way to the boards
+    assert 'id="ar-score"' not in front and 'data-panel="win_best"' not in front
+    assert "The lineup desk" in front and "Face-offs" in front
+
+    rank = web.get("/around/rank?week=3")
+    assert rank.status_code == 200
+    assert "<h1" in rank.text and "Where does your score rank?" in rank.text
+    assert 'id="ar-score"' in rank.text and "ar-hist" in rank.text
+    assert "Hank" not in rank.text
+
+    players = web.get("/around/players?week=3")
+    assert players.status_code == 200
+    assert "The player boards" in players.text and 'data-panel="win_best"' in players.text
+    assert "Hank" not in players.text
+
+    # The section strip says which page you're on and carries the week.
+    for path, on in (("/around?week=3", "This week"), ("/around/rank?week=3", "Where you rank"),
+                     ("/around/players?week=3", "Player boards")):
+        assert f'aria-current="page">{on}</a>' in web.get(path).text, path
+
+
+def test_a_shared_score_link_opens_the_checker_filled_in(web, monkeypatch):
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    lg = _league()
+    league_stats.save_week(demo_db, lg, _week(monkeypatch), _ctx())
+    page = web.get("/around/rank?score=120.5&week=3").text
+    assert "score.value = 120.5" in page
+    assert "of fantasy teams in week 3" in page            # the link preview's title
+    # Nonsense in the query string is just the empty checker.
+    for bad in ("abc", "9999", "-1"):
+        r = web.get(f"/around/rank?score={bad}")
+        assert r.status_code == 200 and "var want =" not in r.text
+
+
+def test_the_new_pages_are_findable(web, monkeypatch):
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    xml = web.get("/sitemap.xml").text
+    assert "/around/rank<" in xml and "/around/players<" in xml
+    monkeypatch.setenv("LUCK_PUBLIC", "1")
+    menu = web.get("/").text
+    assert 'href="/around/rank"' in menu and 'href="/around/players"' in menu

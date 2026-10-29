@@ -5035,3 +5035,66 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
     .dk-tabs a { padding: 11px 10px 10px; font-size: 14.5px; }
     .dk-tab-more { display: none; }       /* "People", "Lore": all four fit */
 }
+
+/* =====================================================================
+   The National Desk, three pages (28 Oct). John: split the player boards
+   and the score checker off the front. A strip of section links ties them
+   together; the front keeps one line of each.
+   ===================================================================== */
+
+/* the section strip, above the dateline on all three pages */
+.at-desk {
+    display: flex; justify-content: center; flex-wrap: wrap; gap: 4px 26px;
+    margin: -4px 0 14px;
+    font-family: "Barlow Condensed", sans-serif; font-size: 14px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.8px;
+}
+.at-desk a {
+    color: var(--muted); text-decoration: none; padding: 4px 0;
+    border-bottom: 2px solid transparent;
+}
+.at-desk a:hover { color: var(--ink); }
+.at-desk a.on { color: var(--ink); border-bottom-color: var(--accent); }
+
+/* the front's one line of the score checker */
+.at-ear {
+    display: flex; align-items: center; justify-content: center; gap: 14px 18px; flex-wrap: wrap;
+    margin: 18px 0 30px; padding: 14px 20px;
+    background: var(--paper); border-top: 3px solid var(--accent);
+    box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 10px 22px -16px rgba(40, 30, 10, .45);
+}
+.at-ear-kicker {
+    font-family: "Barlow Condensed", sans-serif; font-size: 13px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.8px; color: var(--accent);
+    margin-right: 6px;
+}
+.at-ear-form { display: flex; align-items: center; justify-content: center; gap: 10px 14px; flex-wrap: wrap; }
+.at-ear-form .at-ear-kicker { font-size: 15px; color: var(--ink); margin: 0; }
+.at-ear-form input {
+    font: 400 22px "Anton", sans-serif; width: 210px; max-width: 100%;
+    padding: 5px 10px; border: 1px solid var(--ink); background: #fff; color: var(--ink);
+}
+.at-ear-form input::placeholder { font: 500 15px "Barlow", sans-serif; color: var(--muted); }
+.at-ear-form input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.at-ear-text { font-family: Georgia, serif; font-size: 16px; line-height: 1.5; color: var(--ink-2); margin: 0; }
+.at-ear-text b { color: var(--ink); }
+
+/* "the player boards ->" under the players of the week */
+.at-more { text-align: center; margin: 20px 0 0; font-family: Georgia, serif; font-size: 15.5px; }
+.wrap p.at-more a:not(.btn) { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--line); }
+.wrap p.at-more a:not(.btn):hover { color: var(--ink); border-bottom-color: var(--accent); }
+.at-more b { color: var(--accent); }
+
+.at-how-links { margin-top: 12px; }
+.at-how-links a { color: var(--ink); }
+
+/* the two pages of their own open straight onto their tool */
+.around-rank .ar-sec#rank, .around-players .ar-sec:first-of-type { margin-top: 26px; }
+
+@media (max-width: 640px) {
+    .at-desk { gap: 2px 14px; font-size: 12.5px; letter-spacing: .8px; flex-wrap: nowrap; white-space: nowrap; }
+    .at-ear { padding: 14px 16px; }
+    .at-ear-form { width: 100%; }
+    .at-ear-form .at-ear-kicker { width: 100%; text-align: center; }
+    .at-ear-form input { flex: 1 1 140px; width: auto; }
+}

@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{# The player boards. Their own page since 28 Oct; they used to sit halfway
+   down /around. The top ten of each board is public; the whole searchable
+   list needs an account and arrives from /around/players.json. #}
+{% block title %}Fantasy player boards, week {{ week }}: win rates, starts and benches &middot; The National Desk{% endblock %}
+{% block description %}Every NFL player started in week {{ week }} across {{ '{:,}'.format(a.teams) if a and a.teams else 'every' }} fantasy football teams on Sleeper, ESPN and Yahoo: win rate when started, most started, the players who carried teams, and the points left on benches.{% endblock %}
+{% block og_title %}The player boards, week {{ week }}{% endblock %}
+{% block og_description %}Who won fantasy teams their games in week {{ week }}, who lost them, and who scored on the bench.{% endblock %}
+{% block og_image %}{{ public_base() }}/static/brand/og-image.png{% endblock %}
+{% block wrapclass %}home around around-players{% endblock %}
+
+{% from "_around_macros.html" import who, pts, face, player with context %}
+
+{% block content %}
+{% if not ready %}
+<div class="alert alert-error">Around the Leagues is being set up. Check back on Tuesday.</div>
+{% else %}
+
+<section class="front at-front">
+    {% include "_around_desknav.html" %}
+    <p class="dateline">
+        <span>The national edition</span>
+        <span class="dateline-mid">{{ season }} &middot; Week {{ week }} &middot; Final</span>
+        <span>{% if a.teams %}{{ '{:,}'.format(a.teams) }} teams{% else %}Every league{% endif %}</span>
+    </p>
+    <p class="at-flag">The National Desk</p>
+    <h1 class="front-head at-head">The player boards</h1>
+    {% if a.teams %}
+    <p class="front-deck at-deck">Week {{ week }}, read through {{ '{:,}'.format(a.teams) }} lineups: who won teams their games, who lost them, and who scored on the bench.</p>
+    {% else %}
+    <p class="front-deck at-deck">Week {{ week }} isn&rsquo;t in yet. Scores land early Tuesday morning, once Monday night is over.</p>
+    {% endif %}
+    {% if weeks|length > 1 %}
+    <nav class="at-weeks" aria-label="Choose a week">
+        <span>Week</span>
+        {% for w in weeks %}<a href="{{ base_path }}?week={{ w }}" class="{{ 'on' if w == week }}"{% if w == week %} aria-current="page"{% endif %}>{{ w }}</a>{% endfor %}
+    </nav>
+    {% endif %}
+</section>
+
+{% if a.teams %}
+{# ================================================================ the boards #}
+{% set P = a.players %}
+<section class="ar-sec">
+    {% if not a.has_lineups %}
+    <p class="ar-empty">Lineups for week {{ week }} haven&rsquo;t been collected yet.{% if staff %} Once migration 029 is in, run the collector below for this week and this section fills in.{% endif %}</p>
+    {% else %}
+    {# John, 21 Oct: win rate leads. The first board is the one the page opens
+       on, and the expanded list below ranks by it until a tab is clicked. #}
+    {% set boards = [
+        ('win_best', 'Best win rate', 'Win rate for teams that started him. At least ' ~ P.min_starts ~ ' starts.', P.win_best),
+        ('win_worst', 'Worst win rate', 'Same rule, counting players who played. Starting these was a coin flip you mostly lost.', P.win_worst),
+        ('top_on', 'Carried teams', 'How many lineups he was the best player in.', P.top_on),
+        ('started', 'Most started', 'Started on the most teams, and what he gave them.', P.started),
+        ('benched', 'Benched', 'Points scored from the bench, added up across every team that sat him.', P.benched),
+    ] %}
+    <div class="at-tabs" data-tabs>
+        <div class="at-tablist" role="tablist">
+            {% for key, title, sub, rows in boards %}
+            <button type="button" role="tab" class="at-tab{{ ' on' if loop.first }}" data-tab="{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ title }}</button>
+            {% endfor %}
+        </div>
+        {% for key, title, sub, rows in boards %}
+        {% set top =
+            (rows|map(attribute='bench_total')|max if key == 'benched' else
+             rows|map(attribute='teams')|max if key == 'top_on' else
+             rows|map(attribute='started')|max) if rows else 1 %}
+        <div class="ar-board at-panel{{ ' on' if loop.first }}" role="tabpanel" data-panel="{{ key }}">
+            <h3 class="ar-board-head">{{ title }}</h3>
+            <p class="ar-board-sub">{{ sub }}</p>
+            <ol class="ar-list at-rows">
+                {% for p in rows %}
+                {% set v = p.bench_total if key == 'benched' else p.teams if key == 'top_on' else p.win_pct if key.startswith('win') else p.started %}
+                {% set w = (100 * p.win_pct) if key.startswith('win') else (100 * v / top if top else 0) %}
+                <li>
+                    {{ face(p) }}
+                    <span class="ar-name">{{ player(p) }}<small>
+                        {%- if key == 'started' %}on {{ pct(p.start_pct) }} of rosters{% if p.ppr is not none %} &middot; scored {{ pts(p.ppr) }}{% endif %}
+                        {%- elif key == 'benched' %}{{ pts(p.bench_avg) }} a bench, on {{ '{:,}'.format(p.benched) }} of them
+                        {%- elif key.startswith('win') %}{{ '{:,}'.format(p.started) }} starts{% if p.ppr is not none %} &middot; scored {{ pts(p.ppr) }}{% endif %}
+                        {%- else %}{% if p.best is not none %}scored up to {{ pts(p.best) }}{% endif %}{% endif -%}
+                    </small></span>
+                    <span class="at-bar{{ ' at-bar-bad' if key == 'win_worst' }}" aria-hidden="true"><i style="width:{{ '%.0f'|format(w) }}%"></i></span>
+                    <span class="ar-val">
+                        {%- if key == 'benched' %}<b>{{ '{:,.0f}'.format(p.bench_total) }}</b> pts
+                        {%- elif key.startswith('win') %}<b>{{ pct(p.win_pct) }}</b> won
+                        {%- elif key == 'top_on' %}<b>{{ '{:,}'.format(p.teams) }}</b> teams
+                        {%- else %}<b>{{ '{:,}'.format(p.started) }}</b> starts{% endif -%}
+                    </span>
+                </li>
+                {% else %}<li class="ar-none">Nobody cleared {{ P.min_starts }} starts this week.</li>{% endfor %}
+            </ol>
+        </div>
+        {% endfor %}
+        {% if a.player_count %}
+        <div class="at-all" id="at-all">
+            <div class="at-all-bar">
+                {% if not user %}
+                {# The gate. The ten-a-board lists above stay public — they
+                   are what search engines and readers arrive on — and the
+                   whole searchable list is what an account is for. The
+                   data is not in this page at all for a signed-out
+                   reader, so this is a gate and not a curtain. #}
+                <a class="at-all-toggle at-all-gate"
+                   href="/signup?next=/around/players">
+                    Search all <span class="at-all-count">{{ '{:,}'.format(a.player_count) }}</span>
+                    players &mdash; free account
+                </a>
+                <span class="at-all-gate-note">Every player this week, searchable by
+                    name, position and NFL team. <a href="/login?next=/around/players">Already have
+                    an account?</a></span>
+                {% else %}
+                <button type="button" class="at-all-toggle" id="at-all-toggle"
+                        aria-expanded="false" aria-controls="at-all-panel">
+                    Show every player <span class="at-all-count">{{ '{:,}'.format(a.player_count) }}</span>
+                </button>
+                <label class="at-all-search" hidden id="at-all-search">
+                    <span class="visually-hidden">Search players</span>
+                    <input type="search" id="at-all-q" placeholder="Search a player, position or team&hellip;"
+                           autocomplete="off" spellcheck="false" />
+                </label>
+                {% endif %}
+            </div>
+            {% if user %}
+            <div class="at-all-panel" id="at-all-panel" hidden>
+                {# Filled from the week's own players, so a position or a team
+                   nobody rostered never gets a control. #}
+                <div class="at-all-filters">
+                    <div class="at-chips" id="at-all-pos" role="group" aria-label="Filter by position"></div>
+                    <label class="at-all-team">
+                        <span class="visually-hidden">Filter by NFL team</span>
+                        <select id="at-all-teamsel"><option value="">Every NFL team</option></select>
+                    </label>
+                </div>
+                <p class="at-all-note" id="at-all-note"></p>
+                <ol class="ar-list at-rows at-all-rows" id="at-all-rows"></ol>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+{% endif %}{# ready #}
+
+<script>
+(function () {
+    var WEEK = {{ week|tojson }};
+    // ---- every player, searchable -------------------------------------
+    // The boards show ten apiece. This is the same week's players, all of
+    // them, ranked by whichever board is open and filtered as you type.
+    // Fetched on first open from /around/players.json, which needs a
+    // session. It used to be embedded here for every visitor, which was
+    // most of the page's weight for the many who never opened it — and
+    // would have made the sign-in gate a curtain rather than a gate.
+    var ALL = [];
+    var ALL_LOADED = false;
+    var MIN_STARTS = {{ ((a.players or {}).get('min_starts') or 150) if a else 150 }};
+    // `keep` is each board's own rule, so the count in the note matches the
+    // list: the win-rate boards only mean something past a floor of starts.
+    var BOARDS = {
+        started:   {sort: function (p) { return -p.started; },
+                    val: function (p) { return fmtInt(p.started) + " starts"; }},
+        benched:   {sort: function (p) { return -p.bench_total; },
+                    keep: function (p) { return p.benched > 0; },
+                    qual: " who scored from a bench",
+                    val: function (p) { return fmtInt(Math.round(p.bench_total)) + " pts"; }},
+        win_best:  {sort: function (p) { return -p.win_pct; },
+                    keep: function (p) { return p.started >= MIN_STARTS && tookField(p); },
+                    qual: " with " + MIN_STARTS + "+ starts",
+                    val: function (p) { return pctOf(p.win_pct) + " won"; }},
+        win_worst: {sort: function (p) { return p.win_pct; },
+                    keep: function (p) { return p.started >= MIN_STARTS && tookField(p); },
+                    qual: " with " + MIN_STARTS + "+ starts",
+                    val: function (p) { return pctOf(p.win_pct) + " won"; }},
+        top_on:    {sort: function (p) { return -p.teams; },
+                    keep: function (p) { return p.teams > 0; },
+                    qual: " who were a team's best player",
+                    val: function (p) { return fmtInt(p.teams) + " teams"; }}
+    };
+    // Same rule as the boards above (054): a player who scored exactly
+    // nothing did not play, so he has no win rate worth ranking.
+    function tookField(p) {
+        var v = (p.ppr !== null && p.ppr !== undefined) ? p.ppr : p.best;
+        return v !== null && v !== undefined && v !== 0;
+    }
+    function fmtInt(n) { return (n || 0).toLocaleString(); }
+    function pctOf(v) { return v === null || v === undefined ? "–" : Math.round(v * 100) + "%"; }
+    function pts(v) { return v === null || v === undefined ? "–" : v.toFixed(1); }
+
+    var allBox = document.getElementById("at-all"),
+        allToggle = document.getElementById("at-all-toggle"),
+        allPanel = document.getElementById("at-all-panel"),
+        allRows = document.getElementById("at-all-rows"),
+        allNote = document.getElementById("at-all-note"),
+        allSearch = document.getElementById("at-all-search"),
+        allQ = document.getElementById("at-all-q"),
+        allPos = document.getElementById("at-all-pos"),
+        allTeam = document.getElementById("at-all-teamsel");
+    var posPick = "", teamPick = "";
+    var allKey = "win_best", allOpen = false;   // the first board above
+
+    function buildFilters() {
+        if (!allPos || allPos.childNodes.length) return;
+        var order = ["QB", "RB", "WR", "TE", "K", "DEF"];
+        var have = {}, teams = {};
+        ALL.forEach(function (p) {
+            if (p.position) have[p.position] = 1;
+            if (p.nfl_team) teams[p.nfl_team] = 1;
+        });
+        var list = order.filter(function (x) { return have[x]; })
+            .concat(Object.keys(have).filter(function (x) { return order.indexOf(x) < 0; }).sort());
+        [""].concat(list).forEach(function (pos) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "at-chip" + (pos ? "" : " on");
+            b.setAttribute("aria-pressed", pos ? "false" : "true");
+            b.textContent = pos || "All";
+            b.addEventListener("click", function () {
+                posPick = pos;
+                Array.prototype.forEach.call(allPos.children, function (c) {
+                    var on = c === b;
+                    c.classList.toggle("on", on);
+                    c.setAttribute("aria-pressed", on ? "true" : "false");
+                });
+                renderAll();
+            });
+            allPos.appendChild(b);
+        });
+        Object.keys(teams).sort().forEach(function (t) {
+            var o = document.createElement("option");
+            o.value = t; o.textContent = t;
+            allTeam.appendChild(o);
+        });
+        allTeam.addEventListener("change", function () {
+            teamPick = allTeam.value; renderAll();
+        });
+    }
+
+    function renderAll() {
+        if (!allOpen || !allRows) return;
+        var board = BOARDS[allKey] || BOARDS.win_best;
+        var q = (allQ.value || "").trim().toLowerCase();
+        var pool = ALL.filter(function (p) {
+            return (!board.keep || board.keep(p))
+                && (!posPick || p.position === posPick)
+                && (!teamPick || p.nfl_team === teamPick);
+        });
+        var ranked = pool.slice().sort(function (x, y) {
+            var a1 = board.sort(x), b1 = board.sort(y);
+            return a1 === b1 ? (x.name || "").localeCompare(y.name || "") : a1 - b1;
+        });
+        var rows = ranked, hidden = 0;
+        if (q) {
+            // Name matches anywhere; a position or a team has to be the whole
+            // word, or "RB" finds Ka'imi Fai-rb-airn.
+            rows = ranked.filter(function (p) {
+                return (p.name || "").toLowerCase().indexOf(q) >= 0
+                    || (p.position || "").toLowerCase() === q
+                    || (p.nfl_team || "").toLowerCase() === q;
+            });
+        }
+        if (rows.length > 150) { hidden = rows.length - 150; rows = rows.slice(0, 150); }
+        var place = new Map();
+        ranked.forEach(function (p, i) { place.set(p.player_key, i + 1); });
+        var html = rows.map(function (p) {
+            return '<li><span class="at-all-rank">' + place.get(p.player_key) + '</span>' +
+                '<span class="ar-name"><span class="ar-player"></span>' +
+                (p.position ? '<span class="ar-pos"></span>' : '') +
+                '<small></small></span>' +
+                '<span class="ar-val"><b></b></span></li>';
+        }).join("");
+        allRows.innerHTML = html;
+        // Names are platform data: set them as text, never as markup.
+        Array.prototype.forEach.call(allRows.children, function (li, i) {
+            var p = rows[i];
+            li.querySelector(".ar-player").textContent = p.name || p.player_key;
+            var pos = li.querySelector(".ar-pos");
+            if (pos) pos.textContent = p.position;
+            li.querySelector("small").textContent =
+                fmtInt(p.rostered) + " rosters · started " + pctOf(p.start_pct)
+                + (p.ppr !== null && p.ppr !== undefined ? " · scored " + pts(p.ppr) : "")
+                + (p.nfl_team ? " · " + p.nfl_team : "");
+            li.querySelector(".ar-val b").textContent = (BOARDS[allKey] || BOARDS.win_best).val(p);
+        });
+        // "1 RB on PHI", not "1 RBs on PHI".
+        function noun(n) {
+            var one = n === 1;
+            return (posPick ? " " + posPick + (one ? "" : "s") : one ? " player" : " players")
+                + (teamPick ? " on " + teamPick : "") + (board.qual || "");
+        }
+        allNote.textContent = !rows.length
+            ? (q ? "Nobody by that name matches those filters."
+                 : "Nobody matches those filters.")
+            : (q ? "Showing " + fmtInt(rows.length) + " of " + fmtInt(ranked.length) + noun(ranked.length)
+                 : ranked.length === 1 ? "The only" + noun(1)
+                 : "All " + fmtInt(ranked.length) + noun(ranked.length) + ", ranked")
+              + (hidden ? ", the first 150." : ".");
+    }
+    function openAll(on) {
+        allOpen = on;
+        allPanel.hidden = !on;
+        allSearch.hidden = !on;
+        allToggle.setAttribute("aria-expanded", on ? "true" : "false");
+        allToggle.firstChild.textContent = on ? "Hide the full list " : "Show every player ";
+        if (!on) return;
+        if (ALL_LOADED) { buildFilters(); renderAll(); allQ.focus(); return; }
+        // First open: go and get the list. The button is already pressed,
+        // so say what is happening rather than showing an empty panel.
+        allNote.textContent = "Fetching every player\u2026";
+        fetch("/around/players.json?week=" + encodeURIComponent(WEEK),
+              {credentials: "same-origin"}).then(function (r) {
+            return r.ok ? r.json() : null;
+        }).then(function (d) {
+            if (!d || !(d.all || []).length) {
+                allNote.textContent = "That list isn\u2019t in yet.";
+                return;
+            }
+            ALL = d.all;
+            MIN_STARTS = d.min_starts || MIN_STARTS;
+            ALL_LOADED = true;
+            buildFilters();
+            renderAll();
+            allQ.focus();
+        }).catch(function () {
+            allNote.textContent = "Couldn\u2019t fetch the list just now.";
+        });
+    }
+    // The tabs above say which board is open; the full list ranks by it.
+    var tabBox = allBox && allBox.closest("[data-tabs]");
+    if (tabBox) tabBox.addEventListener("at-tab", function (e) { allKey = e.detail; renderAll(); });
+    if (allToggle) {
+        allToggle.addEventListener("click", function () { openAll(!allOpen); });
+        allQ.addEventListener("input", renderAll);
+        // Typing in the box is asking for the list, so open it.
+        allQ.addEventListener("focus", function () { if (!allOpen) openAll(true); });
+    }
+
+
+    // Tabs. Without JavaScript every panel shows, one under another.
+    document.querySelectorAll("[data-tabs]").forEach(function (box) {
+        box.classList.add("js");
+        var tabs = box.querySelectorAll(".at-tab"), panels = box.querySelectorAll(".at-panel");
+        tabs.forEach(function (t) {
+            t.addEventListener("click", function () {
+                tabs.forEach(function (x) { x.classList.toggle("on", x === t); x.setAttribute("aria-selected", x === t ? "true" : "false"); });
+                panels.forEach(function (p) { p.classList.toggle("on", p.getAttribute("data-panel") === t.getAttribute("data-tab")); });
+                // The player page re-ranks its full list to match the open tab.
+                box.dispatchEvent(new CustomEvent("at-tab", {detail: t.getAttribute("data-tab")}));
+            });
+        });
+    });
+
+    // Hover tooltips for the columns and the week dots.
+    document.querySelectorAll(".ar-chart-box").forEach(function (box) {
+        var tip = box.querySelector(".ar-tip");
+        box.querySelectorAll(".ar-col").forEach(function (g) {
+            function show() {
+                tip.textContent = g.getAttribute("data-tip");
+                tip.hidden = false;
+                var r = box.getBoundingClientRect(), mr = g.getBoundingClientRect();
+                tip.style.left = (mr.left - r.left + mr.width / 2) + "px";
+                tip.style.top = "0px";
+                g.classList.add("hot");
+            }
+            function hide() { tip.hidden = true; g.classList.remove("hot"); }
+            g.addEventListener("mouseenter", show); g.addEventListener("mouseleave", hide);
+            g.addEventListener("touchstart", show, {passive: true});
+        });
+    });
+})();
+</script>
+{% endblock %}

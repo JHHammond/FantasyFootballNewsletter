@@ -41,7 +41,7 @@ import time
 import sys
 import threading
 from contextlib import asynccontextmanager
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -1384,9 +1384,40 @@ def staff_papers(request: Request, week: int = 0, sample: int = 0,
                    sample=sample, sent=sent)
 
 
+#: The National Desk is three pages (28 Oct, John: split the player boards
+#: and the score checker off the front). Same data, same build, same gate.
+AROUND_VIEWS = {
+    "front": "around.html",
+    "rank": "around_rank.html",
+    "players": "around_players.html",
+}
+
+
+def _my_rank(around, a: dict, mine: list) -> Optional[dict]:
+    """The signed-in reader's own team, ranked, for one line on the front.
+    Only a team we KNOW is theirs (leagues.my_team_id); a guess at which of
+    twelve teams is you would be worse than the plain score box."""
+    pct = (a or {}).get("pct") or {}
+    for lg in mine or []:
+        for t in lg.get("teams") or []:
+            if not t.get("mine"):
+                continue
+            if t.get("ppr") is not None and pct.get("all"):
+                fmt, score = "all", t["ppr"]
+            elif (lg.get("scoring") or "") in pct:
+                fmt, score = lg["scoring"], t["points"]
+            else:
+                continue
+            r = around.rank(pct, score, fmt)
+            if r:
+                return {**r, "fmt": fmt, "name": t.get("name") or "Your team"}
+    return None
+
+
 def _around_page(request: Request, week: int, season: int, *, public: bool,
                  staff: bool, user: Optional[dict] = None,
-                 score: str = "") -> HTMLResponse:
+                 score: str = "", view: str = "front",
+                 fmt: str = "all") -> HTMLResponse:
     import nfl_week
     from . import around, league_stats
 
@@ -1407,16 +1438,24 @@ def _around_page(request: Request, week: int, season: int, *, public: bool,
         if a is None:
             a = {"public": public, "teams": 0, "summary": {}, "front": {},
                  "pct": {}, "hist": {}, "season_data": {}, "halls": {}}
-    # A shared /around?score=141.6 link previews as that score's card.
-    shared = around.rank(a.get("pct") or {}, _a_score(score)) if a and score else None
-    return _render(request, "around.html", ready=ready,
+    front_path = "/around" if public and not staff else "/staff/around"
+    mine = around.my_teams(db, user, season, week)
+    # A shared /around/rank?score=141.6 link previews as that score's card.
+    fmt = fmt if fmt in around.POOL else "all"
+    points = _a_score(score) if view == "rank" and a else None
+    shared = around.rank(a.get("pct") or {}, points, fmt) if points is not None else None
+    return _render(request, AROUND_VIEWS[view], ready=ready,
                    lineups_ready=lineups_ready, a=a, staff=staff,
-                   base_path="/around" if public and not staff else "/staff/around",
+                   base_path=front_path if view == "front" else f"/around/{view}",
+                   desk_front=front_path, desk_on=view,
+                   my_rank=_my_rank(around, a, mine) if view == "front" else None,
+                   shared_fmt=fmt if shared else None,
+                   rankings_open=os.getenv("RANKINGS_PUBLIC", "").strip() == "1" or staff
+                   or bool(user and user.get("plan") == plans.STAFF),
                    season=season, week=week, latest=latest,
                    weeks=list(range(1, max(latest, 1) + 1)),
                    describe=around.describe, pct=around.pct, photo=around.photo,
-                   mine=around.my_teams(db, user, season, week),
-                   shared=shared, card_base=f"{public_base_url()}/around/card.png",
+                   mine=mine, shared=shared, card_base=f"{public_base_url()}/around/card.png",
                    job=league_stats.job_status() if staff else {})
 
 
@@ -1622,17 +1661,47 @@ def _a_score(raw) -> Optional[float]:
     return v if 0 <= v <= MAX_SCORE else None
 
 
-@app.get("/around", response_class=HTMLResponse)
-def around_page(request: Request, week: int = 0, score: str = ""):
-    """Around the Leagues, for everybody: every connected league's week in
-    one scoring system, no team or manager names. Open once AROUND_PUBLIC=1
-    is set on Render; staff can always see it (it's their public preview)."""
+def _around_viewer(request: Request) -> Optional[dict]:
+    """The gate the three National Desk pages share: open once
+    AROUND_PUBLIC=1 is set on Render; staff can always see them."""
     user = current_user(request)
     staff = bool(user and user.get("plan") == plans.STAFF)
     if not around_public() and not staff:
         raise HTTPException(status_code=404)
+    return user
+
+
+@app.get("/around", response_class=HTMLResponse)
+def around_page(request: Request, week: int = 0, score: str = "", fmt: str = ""):
+    """Around the Leagues, for everybody: every connected league's week in
+    one scoring system, no team or manager names. Open once AROUND_PUBLIC=1
+    is set on Render; staff can always see it (it's their public preview)."""
+    user = _around_viewer(request)
+    if score:
+        # Shared links from before the split (28 Oct) carried ?score= here.
+        # The score checker is its own page now; send them to it, filled in.
+        q = {"score": score, **({"week": week} if week else {}), **({"fmt": fmt} if fmt else {})}
+        return RedirectResponse("/around/rank?" + urlencode(q), status_code=301)
+    return _around_page(request, week, 0, public=True, staff=False, user=user)
+
+
+@app.get("/around/rank", response_class=HTMLResponse)
+def around_rank_page(request: Request, week: int = 0, score: str = "", fmt: str = "all"):
+    """Where does your score rank? A page of its own: type a score (or pick
+    your team) and see where it lands nationally. A shared ?score= link opens
+    it filled in, and previews as that score's card."""
+    user = _around_viewer(request)
     return _around_page(request, week, 0, public=True, staff=False,
-                        user=user, score=score)
+                        user=user, score=score, view="rank", fmt=fmt)
+
+
+@app.get("/around/players", response_class=HTMLResponse)
+def around_players_page(request: Request, week: int = 0):
+    """The player boards: win rates, starts, carried teams and benches, with
+    the whole week's list searchable for an account."""
+    user = _around_viewer(request)
+    return _around_page(request, week, 0, public=True, staff=False,
+                        user=user, view="players")
 
 
 @app.get("/around/card.png")

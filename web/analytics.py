@@ -33,6 +33,8 @@ BEACON_PATHS = [re.compile(p) for p in (
     r"/connect",
     r"/connect/(sleeper|espn|yahoo)",
     r"/around",
+    r"/around/rank",
+    r"/around/players",
     r"/luck",
     r"/luck/[^/]+",
     r"/rankings",

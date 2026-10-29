@@ -4,25 +4,11 @@
 {% block description %}Week {{ week }} across {{ '{:,}'.format(a.teams) if a and a.teams else 'every' }} fantasy football teams on Sleeper, ESPN and Yahoo, every lineup re-scored in plain PPR: where your score ranks, the busts, the heartbreakers and the bench disasters.{% endblock %}
 {% block og_title %}{{ F.headline or 'The National Desk' }}{% endblock %}
 {% block og_description %}Week {{ week }} across every fantasy league on The Commissioner&rsquo;s Desk. Where does your score rank?{% endblock %}
-{# A shared /around?score= link previews as that score's card. The test has
-   to live inside the block: the parent renders the block either way. #}
-{% block og_image %}{% if shared %}{{ card_base }}?score={{ '%.2f'|format(shared.score) }}&amp;week={{ week }}&amp;size=og{% else %}{{ public_base() }}/static/brand/og-image.png{% endif %}{% endblock %}
+{# A shared ?score= link now lives on /around/rank, which previews as the card. #}
+{% block og_image %}{{ public_base() }}/static/brand/og-image.png{% endblock %}
 {% block wrapclass %}home around{% endblock %}
 
-{% macro who(r) -%}
-<span class="ar-who">{{ describe(r, true) }}</span>{% if not a.public %}<span class="ar-staff">{{ r.team_name or 'unnamed' }}{% if r.manager and r.manager != r.team_name %} &middot; {{ r.manager }}{% endif %}</span>{% endif %}
-{%- endmacro %}
-
-{% macro pts(v) -%}{{ '%.1f'|format(v|float) if v is not none else '–' }}{%- endmacro %}
-
-{% macro face(p, cls='at-face') -%}
-{%- set src = photo(p) -%}
-<span class="{{ cls }}{{ ' at-face-def' if p.position == 'DEF' }}" aria-hidden="true">{% if src %}<img src="{{ src }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
-{%- endmacro %}
-
-{% macro player(p) -%}
-<span class="ar-player">{{ p.name }}</span>{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}
-{%- endmacro %}
+{% from "_around_macros.html" import who, pts, face, player with context %}
 
 {% block under_masthead %}
 {% if staff %}
@@ -56,6 +42,7 @@
 
 {# ================================================================ the front #}
 <section class="front at-front">
+    {% include "_around_desknav.html" %}
     <p class="dateline">
         <span>The national edition</span>
         <span class="dateline-mid">{{ season }} &middot; Week {{ week }} &middot; Final</span>
@@ -85,6 +72,27 @@
 {% endif %}
 
 {% if a.teams %}
+
+{# ================================================================ your score
+   The score checker has its own page now (/around/rank). The front keeps
+   one line of it, high up: the answer itself for a signed-in reader whose
+   team we know, a score box for everybody else. #}
+<section class="at-ear" aria-label="Where does your score rank?">
+    {% if my_rank %}
+    <p class="at-ear-text"><span class="at-ear-kicker">Your week {{ week }}</span>
+        <b>{{ my_rank.name }}</b> scored {{ pts(my_rank.score) }}{% if my_rank.fmt != 'all' %} in its own scoring{% endif %}, better than
+        <b>{{ my_rank.pct }}%</b> of the country. {{ my_rank.verdict }}</p>
+    <a class="btn btn-sm btn-primary at-ear-go" href="/around/rank?week={{ week }}&amp;score={{ '%.2f'|format(my_rank.score) }}{% if my_rank.fmt != 'all' %}&amp;fmt={{ my_rank.fmt }}{% endif %}">See your card</a>
+    {% else %}
+    <form class="at-ear-form" action="/around/rank" method="get">
+        <label for="at-ear-score" class="at-ear-kicker">Where does your score rank?</label>
+        <input type="hidden" name="week" value="{{ week }}" />
+        <input id="at-ear-score" name="score" type="number" step="0.01" min="0" max="400"
+               inputmode="decimal" placeholder="Your week {{ week }} score" required />
+        <button class="btn btn-sm btn-primary" type="submit">See where it lands</button>
+    </form>
+    {% endif %}
+</section>
 
 {# ================================================================ the stories #}
 {% if F.stories %}
@@ -121,107 +129,10 @@
         </article>
         {% endfor %}
     </div>
+    <p class="at-more"><a href="/around/players?week={{ week }}"><b>The player boards</b>: best and worst win rates,
+        the most started, the most benched{% if a.player_count %}, and all {{ '{:,}'.format(a.player_count) }} players searchable{% endif %} &rarr;</a></p>
 </section>
 {% endif %}
-
-{# ================================================================ rank lookup #}
-<section class="ar-sec" id="rank">
-    <h2 class="section-head"><span>Where does your score rank?</span></h2>
-    <div class="ar-rank">
-        <form class="ar-rank-form" onsubmit="return false">
-            {% if mine %}
-            <label class="ar-rank-field ar-mine-field">
-                <span>Your teams</span>
-                <select id="ar-mine">
-                    <option value="">Pick one of your teams&hellip;</option>
-                    {% for lg in mine %}
-                    <optgroup label="{{ lg.league }}">
-                        {% for t in lg.teams %}
-                        <option value="{{ t.id }}"
-                                data-league="{{ lg.id }}"
-                                data-points="{{ t.points }}"
-                                {% if t.ppr is not none %}data-ppr="{{ t.ppr }}"{% endif %}
-                                data-scoring="{{ lg.scoring }}"
-                                data-name="{{ t.name }}">{{ t.name }}{{ ' — your team' if t.mine }}</option>
-                        {% endfor %}
-                    </optgroup>
-                    {% endfor %}
-                </select>
-            </label>
-            {% endif %}
-            <label class="ar-rank-field">
-                <span>{{ 'Or type a week' if mine else 'Your week' }} {{ week }} score</span>
-                <input type="number" step="0.01" min="0" max="400" id="ar-score" inputmode="decimal" placeholder="112.4" />
-            </label>
-            <label class="ar-rank-field">
-                <span>Your league scores</span>
-                <select id="ar-format">
-                    {% if a.standardized %}<option value="all">Any format, in PPR</option>{% endif %}
-                    {% for key, label in [('ppr', 'PPR'), ('half_ppr', 'Half-PPR'), ('std', 'Standard')] %}
-                    {% if a.pct.get(key) and a.pct.get('n_' ~ key, 0) >= a.min_group %}<option value="{{ key }}">{{ label }}</option>{% endif %}
-                    {% endfor %}
-                </select>
-            </label>
-        </form>
-        <div class="ar-rank-out">
-            <div id="ar-out" class="ar-out-empty" aria-live="polite">
-                <span class="ar-rank-big">&mdash;</span>
-                <span class="ar-rank-line">{% if mine %}Pick a team, or type a score,{% else %}Type your score{% endif %} to see where it lands among {{ '{:,}'.format(a.compared) }} teams this week.</span>
-            </div>
-            <div class="at-share" id="ar-share" hidden>
-                <button type="button" class="btn btn-sm btn-primary" id="ar-share-btn">Share this card</button>
-                <a class="at-share-alt" id="ar-share-open" href="#" target="_blank" rel="noopener">See the card</a>
-                <span class="at-copied" id="ar-copied" hidden></span>
-            </div>
-        </div>
-    </div>
-    <p class="ar-pool-note" id="ar-pool-note" hidden></p>
-
-    {% if mine %}
-    {# Your own lineup, against the country. The page above is 14,000
-       strangers, which is interesting once; this is the same week read
-       back through the only lineup the reader actually cares about. It
-       arrives from /around/my-lineup.json because the page is cached and
-       shared and this is one person's roster. #}
-    <div class="at-mylineup" id="at-mine" hidden>
-        <h3 class="ar-board-head">Your lineup, against the country</h3>
-        <div id="at-mine-out"></div>
-    </div>
-    {% endif %}
-
-    {% set h = a.hist %}
-    {% if h %}
-    {% set med = a.summary.median_ppr %}
-    {% set med_x = h.x0 + ((med - h.lo) / (h.hi - h.lo)) * h.plot_w if med is not none and h.hi > h.lo else none %}
-    <figure class="ar-chart">
-        <figcaption class="ar-chart-cap">How {{ '{:,}'.format(a.compared) }} teams scored in week {{ week }}{% if a.standardized %}, in PPR{% endif %}</figcaption>
-        <div class="ar-chart-box">
-        <svg viewBox="0 -18 {{ h.width }} {{ h.height + 18 }}" class="ar-hist" role="img"
-             aria-label="Distribution of week {{ week }} scores, median {{ med }}">
-            <line x1="0" x2="{{ h.width }}" y1="{{ h.base }}" y2="{{ h.base }}" class="ar-axis" />
-            {% for c in h.cols %}
-            <g class="ar-col" data-lo="{{ c.lo }}" data-tip="{{ c.label }} points: {{ '{:,}'.format(c.n) }} team{{ '' if c.n == 1 else 's' }}">
-                <rect x="{{ c.x - 1 }}" y="0" width="{{ c.w + 2 }}" height="{{ h.base }}" class="ar-hit" />
-                {% if c.h > 0 %}<path d="M{{ c.x }},{{ h.base }} V{{ c.y + [4, c.h]|min }} Q{{ c.x }},{{ c.y }} {{ c.x + [4, c.h]|min }},{{ c.y }} H{{ c.x + c.w - [4, c.h]|min }} Q{{ c.x + c.w }},{{ c.y }} {{ c.x + c.w }},{{ c.y + [4, c.h]|min }} V{{ h.base }} Z" class="ar-bar" />{% endif %}
-                {% if c.tick %}<text x="{{ c.x + c.w / 2 }}" y="{{ h.base + 18 }}" class="ar-tick" text-anchor="middle">{{ c.lo }}{{ '+' if c.lo == 250 }}</text>{% endif %}
-            </g>
-            {% endfor %}
-            {% if med_x is not none %}
-            <g class="at-median" id="ar-median">
-                <line x1="{{ med_x }}" x2="{{ med_x }}" y1="-4" y2="{{ h.base }}" />
-                <text x="{{ med_x + 6 }}" y="-6" class="at-median-label">Median {{ pts(med) }}</text>
-            </g>
-            {% endif %}
-            <g id="ar-marker" class="ar-marker" style="display:none">
-                <line x1="0" x2="0" y1="-4" y2="{{ h.base }}" />
-                <text x="0" y="-6" text-anchor="middle" class="ar-marker-label">You</text>
-            </g>
-        </svg>
-        <div class="ar-tip" hidden></div>
-        </div>
-    </figure>
-    {% endif %}
-</section>
 
 {# ================================================================ lineup desk #}
 {% set lu = a.lineup %}
@@ -249,110 +160,6 @@
             <p>teams started the week with an empty slot in their lineup. Set your lineup.</p>
         </li>
     </ul>
-</section>
-
-{# ================================================================ the boards #}
-{% set P = a.players %}
-<section class="ar-sec">
-    <h2 class="section-head"><span>The player boards</span></h2>
-    {% if not a.has_lineups %}
-    <p class="ar-empty">Lineups for week {{ week }} haven&rsquo;t been collected yet.{% if staff %} Once migration 029 is in, run the collector below for this week and this section fills in.{% endif %}</p>
-    {% else %}
-    {# John, 21 Oct: win rate leads. The first board is the one the page opens
-       on, and the expanded list below ranks by it until a tab is clicked. #}
-    {% set boards = [
-        ('win_best', 'Best win rate', 'Win rate for teams that started him. At least ' ~ P.min_starts ~ ' starts.', P.win_best),
-        ('win_worst', 'Worst win rate', 'Same rule, counting players who played. Starting these was a coin flip you mostly lost.', P.win_worst),
-        ('top_on', 'Carried teams', 'How many lineups he was the best player in.', P.top_on),
-        ('started', 'Most started', 'Started on the most teams, and what he gave them.', P.started),
-        ('benched', 'Benched', 'Points scored from the bench, added up across every team that sat him.', P.benched),
-    ] %}
-    <div class="at-tabs" data-tabs>
-        <div class="at-tablist" role="tablist">
-            {% for key, title, sub, rows in boards %}
-            <button type="button" role="tab" class="at-tab{{ ' on' if loop.first }}" data-tab="{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ title }}</button>
-            {% endfor %}
-        </div>
-        {% for key, title, sub, rows in boards %}
-        {% set top =
-            (rows|map(attribute='bench_total')|max if key == 'benched' else
-             rows|map(attribute='teams')|max if key == 'top_on' else
-             rows|map(attribute='started')|max) if rows else 1 %}
-        <div class="ar-board at-panel{{ ' on' if loop.first }}" role="tabpanel" data-panel="{{ key }}">
-            <h3 class="ar-board-head">{{ title }}</h3>
-            <p class="ar-board-sub">{{ sub }}</p>
-            <ol class="ar-list at-rows">
-                {% for p in rows %}
-                {% set v = p.bench_total if key == 'benched' else p.teams if key == 'top_on' else p.win_pct if key.startswith('win') else p.started %}
-                {% set w = (100 * p.win_pct) if key.startswith('win') else (100 * v / top if top else 0) %}
-                <li>
-                    {{ face(p) }}
-                    <span class="ar-name">{{ player(p) }}<small>
-                        {%- if key == 'started' %}on {{ pct(p.start_pct) }} of rosters{% if p.ppr is not none %} &middot; scored {{ pts(p.ppr) }}{% endif %}
-                        {%- elif key == 'benched' %}{{ pts(p.bench_avg) }} a bench, on {{ '{:,}'.format(p.benched) }} of them
-                        {%- elif key.startswith('win') %}{{ '{:,}'.format(p.started) }} starts{% if p.ppr is not none %} &middot; scored {{ pts(p.ppr) }}{% endif %}
-                        {%- else %}{% if p.best is not none %}scored up to {{ pts(p.best) }}{% endif %}{% endif -%}
-                    </small></span>
-                    <span class="at-bar{{ ' at-bar-bad' if key == 'win_worst' }}" aria-hidden="true"><i style="width:{{ '%.0f'|format(w) }}%"></i></span>
-                    <span class="ar-val">
-                        {%- if key == 'benched' %}<b>{{ '{:,.0f}'.format(p.bench_total) }}</b> pts
-                        {%- elif key.startswith('win') %}<b>{{ pct(p.win_pct) }}</b> won
-                        {%- elif key == 'top_on' %}<b>{{ '{:,}'.format(p.teams) }}</b> teams
-                        {%- else %}<b>{{ '{:,}'.format(p.started) }}</b> starts{% endif -%}
-                    </span>
-                </li>
-                {% else %}<li class="ar-none">Nobody cleared {{ P.min_starts }} starts this week.</li>{% endfor %}
-            </ol>
-        </div>
-        {% endfor %}
-        {% if a.player_count %}
-        <div class="at-all" id="at-all">
-            <div class="at-all-bar">
-                {% if not user %}
-                {# The gate. The ten-a-board lists above stay public — they
-                   are what search engines and readers arrive on — and the
-                   whole searchable list is what an account is for. The
-                   data is not in this page at all for a signed-out
-                   reader, so this is a gate and not a curtain. #}
-                <a class="at-all-toggle at-all-gate"
-                   href="/signup?next=/around#players">
-                    Search all <span class="at-all-count">{{ '{:,}'.format(a.player_count) }}</span>
-                    players &mdash; free account
-                </a>
-                <span class="at-all-gate-note">Every player this week, searchable by
-                    name, position and NFL team. <a href="/login?next=/around">Already have
-                    an account?</a></span>
-                {% else %}
-                <button type="button" class="at-all-toggle" id="at-all-toggle"
-                        aria-expanded="false" aria-controls="at-all-panel">
-                    Show every player <span class="at-all-count">{{ '{:,}'.format(a.player_count) }}</span>
-                </button>
-                <label class="at-all-search" hidden id="at-all-search">
-                    <span class="visually-hidden">Search players</span>
-                    <input type="search" id="at-all-q" placeholder="Search a player, position or team&hellip;"
-                           autocomplete="off" spellcheck="false" />
-                </label>
-                {% endif %}
-            </div>
-            {% if user %}
-            <div class="at-all-panel" id="at-all-panel" hidden>
-                {# Filled from the week's own players, so a position or a team
-                   nobody rostered never gets a control. #}
-                <div class="at-all-filters">
-                    <div class="at-chips" id="at-all-pos" role="group" aria-label="Filter by position"></div>
-                    <label class="at-all-team">
-                        <span class="visually-hidden">Filter by NFL team</span>
-                        <select id="at-all-teamsel"><option value="">Every NFL team</option></select>
-                    </label>
-                </div>
-                <p class="at-all-note" id="at-all-note"></p>
-                <ol class="ar-list at-rows at-all-rows" id="at-all-rows"></ol>
-            </div>
-            {% endif %}
-        </div>
-        {% endif %}
-    </div>
-    {% endif %}
 </section>
 
 {# ================================================================ face-offs #}
@@ -540,436 +347,6 @@
 
 <script>
 (function () {
-    var P = {{ (a.pct if a else {})|tojson }};
-    var H = {{ ({'lo': a.hist.lo, 'hi': a.hist.hi, 'x0': a.hist.x0, 'w': a.hist.plot_w} if a and a.hist else {})|tojson }};
-    var WEEK = {{ week|tojson }}, CARD = {{ (card_base if a else '')|tojson }};
-    var SHARE_URL = {{ (public_base() ~ '/around')|tojson }};
-    var POOL = {all: "fantasy teams", ppr: "PPR teams", half_ppr: "half-PPR teams", std: "standard-scoring teams"};
-    var SCALE = "{{ 'all' if a and a.standardized else '' }}";   // what the chart is drawn in
-    var score = document.getElementById("ar-score"), fmt = document.getElementById("ar-format"),
-        out = document.getElementById("ar-out"), marker = document.getElementById("ar-marker"),
-        median = document.getElementById("ar-median"), share = document.getElementById("ar-share"),
-        shareBtn = document.getElementById("ar-share-btn"), openCard = document.getElementById("ar-share-open"),
-        copied = document.getElementById("ar-copied"), mine = document.getElementById("ar-mine"),
-        note = document.getElementById("ar-pool-note");
-    var cols = document.querySelectorAll(".ar-hist .ar-col");
-    var teamName = "", current = null;
-
-    // The twin of web.around._below / rank(): the page answers as you type,
-    // the share card answers on the server, and they must agree.
-    function below(arr, v) {
-        if (!arr || !arr.length) return null;
-        if (v <= arr[0]) return 0;
-        if (v >= arr[arr.length - 1]) return 1;
-        for (var i = 1; i < arr.length; i++) {
-            if (v <= arr[i]) {
-                var span = arr[i] - arr[i - 1];
-                return (i - 1 + (span > 0 ? (v - arr[i - 1]) / span : 0)) / (arr.length - 1);
-            }
-        }
-        return 1;
-    }
-    function verdict(p) {
-        return p >= 99 ? "One of the best in the country." : p >= 90 ? "A top-10% week." :
-               p >= 75 ? "A strong week." : p >= 50 ? "Better than most." :
-               p >= 25 ? "Below the middle." : p >= 10 ? "A rough one." :
-               "One of the worst in the country.";
-    }
-    function ordinal(n) {
-        var s = n.toLocaleString();
-        if (n % 100 >= 11 && n % 100 <= 13) return s + "th";
-        return s + ({1: "st", 2: "nd", 3: "rd"}[n % 10] || "th");
-    }
-    function paint(v) {                 // the bars you beat go pale red, yours red
-        cols.forEach(function (g) {
-            var lo = parseFloat(g.getAttribute("data-lo"));
-            g.classList.toggle("beat", v !== null && lo + 10 <= v);
-            g.classList.toggle("you", v !== null && lo <= v && v < lo + 10);
-        });
-    }
-    function clear() {
-        if (marker) marker.style.display = "none";
-        if (median) median.style.display = "";
-        if (share) share.hidden = true;
-        if (note) note.hidden = true;
-        out.className = "ar-out-empty";
-        paint(null);
-        current = null;
-    }
-    function update() {
-        if (!score || !fmt) return;
-        var v = parseFloat(score.value), key = fmt.value;
-        if (isNaN(v)) { clear(); return; }
-        var s = below(P[key], v), n = P["n_" + key] || 0;
-        if (s === null) { clear(); return; }
-        var beat = Math.round(s * n), p = Math.round(s * 100), place = Math.max(1, n - beat);
-        current = {score: v, pct: p, place: place, teams: n, fmt: key};
-        out.className = "";
-        out.innerHTML =
-            '<span class="ar-rank-big">' + p + '<small>%</small></span>' +
-            '<span class="ar-rank-label">of teams beaten</span>' +
-            '<span class="ar-rank-line"><b>' + v.toFixed(1) + '</b> ranks <b>' + ordinal(place) +
-            '</b> of ' + n.toLocaleString() + ' ' + POOL[key] + ' in week ' + WEEK +
-            '. ' + verdict(p) + '</span>';
-        if (share) { share.hidden = false; copied.hidden = true; }
-        if (openCard) openCard.href = cardUrl("og");
-        // The chart is drawn in one scale. Mark the score on it only when
-        // that is the scale being asked about; say so when it isn't.
-        if (marker && H.w && key === SCALE) {
-            var x = H.x0 + Math.max(0, Math.min(1, (v - H.lo) / (H.hi - H.lo))) * H.w;
-            marker.setAttribute("transform", "translate(" + x.toFixed(1) + ",0)");
-            marker.style.display = "";
-            if (median) median.style.display = "none";
-            paint(v);
-            if (note) note.hidden = true;
-        } else {
-            if (marker) marker.style.display = "none";
-            if (median) median.style.display = "";
-            paint(null);
-            if (note) {
-                note.textContent = "The chart below shows every league re-scored in PPR. "
-                    + "Your score is being ranked against " + POOL[key] + " only.";
-                note.hidden = false;
-            }
-        }
-    }
-    function cardUrl(size) {
-        if (!current) return "#";
-        return CARD + "?score=" + current.score.toFixed(2) + "&week=" + WEEK
-             + "&fmt=" + encodeURIComponent(current.fmt) + "&size=" + size
-             + (teamName ? "&team=" + encodeURIComponent(teamName) : "");
-    }
-    if (score) {
-        score.addEventListener("input", function () {
-            // Typing is a different question from "my team": drop the name,
-            // and don't leave a team showing that this score isn't.
-            teamName = "";
-            if (mine) mine.value = "";
-            update();
-        });
-        fmt.addEventListener("change", update);
-    }
-    if (mine) mine.addEventListener("change", function () {
-        var o = mine.selectedOptions[0];
-        if (!o || !o.value) { teamName = ""; return; }
-        // Prefer the standardized score, because that's what "any format"
-        // ranks; otherwise fall back to the league's own points.
-        var ppr = o.dataset.ppr, want = (ppr && P.all) ? "all" : (o.dataset.scoring || "");
-        var opt = Array.prototype.find.call(fmt.options, function (x) { return x.value === want; });
-        if (opt) fmt.value = want;
-        score.value = (opt && want === "all" && ppr) ? ppr : o.dataset.points;
-        teamName = o.dataset.name || "";
-        update();
-        showMyLineup(o.dataset.league, o.value, o.dataset.name || "");
-    });
-
-    // ---- your lineup, against the country -------------------------------
-    // Player names are platform data, so everything below is written with
-    // textContent rather than pasted in as markup.
-    function esc(t) {
-        var d = document.createElement("div");
-        d.textContent = t == null ? "" : t;
-        return d.innerHTML;
-    }
-    var mineBox = document.getElementById("at-mine"),
-        mineOut = document.getElementById("at-mine-out");
-    var mineSeen = {};
-    function pc(x) { return Math.round((x || 0) * 100); }
-    function showMyLineup(league, team, name) {
-        if (!mineBox || !mineOut || !league || !team) {
-            if (mineBox) mineBox.hidden = true;
-            return;
-        }
-        mineBox.hidden = false;
-        mineOut.innerHTML = '<p class="ar-board-sub">Reading your lineup\u2026</p>';
-        var at = "/around/my-lineup.json?league=" + encodeURIComponent(league)
-               + "&team=" + encodeURIComponent(team) + "&week=" + encodeURIComponent(WEEK);
-        var draw = function (d) {
-            if (!d || !(d.started || []).length) {
-                mineOut.innerHTML = '<p class="ar-board-sub">No stored lineup for that '
-                    + "team this week.</p>";
-                return;
-            }
-            var html = "";
-            // The headline is whichever of these the week actually gave
-            // them, in order of how much it is worth saying out loud.
-            if (d.differential) {
-                html += '<p class="ar-board-sub"><b>' + esc(d.differential.name) + "</b> was yours: "
-                     + "only " + (d.differential.started_by || 0).toLocaleString()
-                     + " of " + (d.lineups || 0).toLocaleString()
-                     + " lineups started him, and he scored "
-                     + (d.differential.ppr != null ? d.differential.ppr.toFixed(1) : "\u2014")
-                     + ".</p>";
-            } else if (d.regret) {
-                html += '<p class="ar-board-sub"><b>' + esc(d.regret.name) + "</b> scored "
-                     + d.regret.ppr.toFixed(1) + " on your bench, and "
-                     + esc(d.worst.name) + " scored "
-                     + (d.worst.ppr != null ? d.worst.ppr.toFixed(1) : "\u2014")
-                     + " in your lineup.</p>";
-            } else {
-                html += '<p class="ar-board-sub">' + esc(name || "Your team")
-                     + ", week " + WEEK + ".</p>";
-            }
-            html += '<ol class="ar-list at-rows at-mine-list">';
-            d.started.forEach(function (p) {
-                var note = "";
-                if (p.share != null && p.started_by) {
-                    note = (p.started_by).toLocaleString() + " lineups ("
-                         + pc(p.share) + "%)";
-                    if (p.rare) note += " \u00b7 almost nobody else";
-                    else if (p.common) note += " \u00b7 everybody had him";
-                } else {
-                    note = "not in the national pool";
-                }
-                html += '<li><span class="ar-name">' + esc(p.name)
-                     + (p.position ? '<span class="ar-pos">' + esc(p.position) + "</span>" : "")
-                     + "<small>" + note + "</small></span>"
-                     + '<span class="ar-val"><b>'
-                     + (p.ppr != null ? p.ppr.toFixed(1) : p.points.toFixed(1))
-                     + "</b></span></li>";
-            });
-            html += "</ol>";
-            mineOut.innerHTML = html;
-        };
-        if (mineSeen[at]) { draw(mineSeen[at]); return; }
-        fetch(at, {credentials: "same-origin"}).then(function (r) {
-            return r.ok ? r.json() : null;
-        }).then(function (d) {
-            mineSeen[at] = d;
-            draw(d);
-        }).catch(function () {
-            mineOut.innerHTML = '<p class="ar-board-sub">Couldn\u2019t read that one.</p>';
-        });
-    }
-
-    // Sharing: the card as a picture. Web Share takes the file itself where
-    // it can; everywhere else the picture opens in a tab to save or drag.
-    if (shareBtn) shareBtn.addEventListener("click", function () {
-        if (!current) return;
-        if (window.cdEvent) cdEvent("card_shared", "around");
-        var text = current.score.toFixed(1) + " beat " + current.pct + "% of "
-                 + current.teams.toLocaleString() + " " + POOL[current.fmt]
-                 + " in week " + WEEK + ".";
-        var done = function (msg) { copied.textContent = msg; copied.hidden = false; };
-        shareBtn.disabled = true;
-        fetch(cardUrl("square")).then(function (r) {
-            if (!r.ok) throw new Error("no card");
-            return r.blob();
-        }).then(function (blob) {
-            var file = new File([blob], "my-rank-week-" + WEEK + ".png", {type: "image/png"});
-            if (navigator.canShare && navigator.canShare({files: [file]})) {
-                return navigator.share({files: [file], text: text, url: SHARE_URL});
-            }
-            if (navigator.clipboard && window.ClipboardItem) {
-                return navigator.clipboard.write([new ClipboardItem({"image/png": blob})])
-                    .then(function () { done("Card copied. Paste it in the group chat."); });
-            }
-            window.open(cardUrl("square"), "_blank", "noopener");
-        }).catch(function () {
-            // Sharing a file isn't allowed here. Copy the sentence instead,
-            // and either way the card is one click away beside this button.
-            var fallback = "Use \u201cSee the card\u201d to save the picture.";
-            if (navigator.clipboard) {
-                navigator.clipboard.writeText(text + " " + SHARE_URL).then(
-                    function () { done("Copied. " + fallback); },
-                    function () { done(fallback); });
-            } else { done(fallback); }
-        }).then(function () { shareBtn.disabled = false; });
-    });
-
-    {% if shared %}
-    // Someone opened a shared link: show them that score straight away.
-    if (score) { score.value = {{ shared.score|tojson }}; update(); }
-    {% endif %}
-
-
-    // ---- every player, searchable -------------------------------------
-    // The boards show ten apiece. This is the same week's players, all of
-    // them, ranked by whichever board is open and filtered as you type.
-    // Fetched on first open from /around/players.json, which needs a
-    // session. It used to be embedded here for every visitor, which was
-    // most of the page's weight for the many who never opened it — and
-    // would have made the sign-in gate a curtain rather than a gate.
-    var ALL = [];
-    var ALL_LOADED = false;
-    var MIN_STARTS = {{ ((a.players or {}).get('min_starts') or 150) if a else 150 }};
-    // `keep` is each board's own rule, so the count in the note matches the
-    // list: the win-rate boards only mean something past a floor of starts.
-    var BOARDS = {
-        started:   {sort: function (p) { return -p.started; },
-                    val: function (p) { return fmtInt(p.started) + " starts"; }},
-        benched:   {sort: function (p) { return -p.bench_total; },
-                    keep: function (p) { return p.benched > 0; },
-                    qual: " who scored from a bench",
-                    val: function (p) { return fmtInt(Math.round(p.bench_total)) + " pts"; }},
-        win_best:  {sort: function (p) { return -p.win_pct; },
-                    keep: function (p) { return p.started >= MIN_STARTS && tookField(p); },
-                    qual: " with " + MIN_STARTS + "+ starts",
-                    val: function (p) { return pctOf(p.win_pct) + " won"; }},
-        win_worst: {sort: function (p) { return p.win_pct; },
-                    keep: function (p) { return p.started >= MIN_STARTS && tookField(p); },
-                    qual: " with " + MIN_STARTS + "+ starts",
-                    val: function (p) { return pctOf(p.win_pct) + " won"; }},
-        top_on:    {sort: function (p) { return -p.teams; },
-                    keep: function (p) { return p.teams > 0; },
-                    qual: " who were a team's best player",
-                    val: function (p) { return fmtInt(p.teams) + " teams"; }}
-    };
-    // Same rule as the boards above (054): a player who scored exactly
-    // nothing did not play, so he has no win rate worth ranking.
-    function tookField(p) {
-        var v = (p.ppr !== null && p.ppr !== undefined) ? p.ppr : p.best;
-        return v !== null && v !== undefined && v !== 0;
-    }
-    function fmtInt(n) { return (n || 0).toLocaleString(); }
-    function pctOf(v) { return v === null || v === undefined ? "–" : Math.round(v * 100) + "%"; }
-    function pts(v) { return v === null || v === undefined ? "–" : v.toFixed(1); }
-
-    var allBox = document.getElementById("at-all"),
-        allToggle = document.getElementById("at-all-toggle"),
-        allPanel = document.getElementById("at-all-panel"),
-        allRows = document.getElementById("at-all-rows"),
-        allNote = document.getElementById("at-all-note"),
-        allSearch = document.getElementById("at-all-search"),
-        allQ = document.getElementById("at-all-q"),
-        allPos = document.getElementById("at-all-pos"),
-        allTeam = document.getElementById("at-all-teamsel");
-    var posPick = "", teamPick = "";
-    var allKey = "win_best", allOpen = false;   // the first board above
-
-    function buildFilters() {
-        if (!allPos || allPos.childNodes.length) return;
-        var order = ["QB", "RB", "WR", "TE", "K", "DEF"];
-        var have = {}, teams = {};
-        ALL.forEach(function (p) {
-            if (p.position) have[p.position] = 1;
-            if (p.nfl_team) teams[p.nfl_team] = 1;
-        });
-        var list = order.filter(function (x) { return have[x]; })
-            .concat(Object.keys(have).filter(function (x) { return order.indexOf(x) < 0; }).sort());
-        [""].concat(list).forEach(function (pos) {
-            var b = document.createElement("button");
-            b.type = "button";
-            b.className = "at-chip" + (pos ? "" : " on");
-            b.setAttribute("aria-pressed", pos ? "false" : "true");
-            b.textContent = pos || "All";
-            b.addEventListener("click", function () {
-                posPick = pos;
-                Array.prototype.forEach.call(allPos.children, function (c) {
-                    var on = c === b;
-                    c.classList.toggle("on", on);
-                    c.setAttribute("aria-pressed", on ? "true" : "false");
-                });
-                renderAll();
-            });
-            allPos.appendChild(b);
-        });
-        Object.keys(teams).sort().forEach(function (t) {
-            var o = document.createElement("option");
-            o.value = t; o.textContent = t;
-            allTeam.appendChild(o);
-        });
-        allTeam.addEventListener("change", function () {
-            teamPick = allTeam.value; renderAll();
-        });
-    }
-
-    function renderAll() {
-        if (!allOpen || !allRows) return;
-        var board = BOARDS[allKey] || BOARDS.win_best;
-        var q = (allQ.value || "").trim().toLowerCase();
-        var pool = ALL.filter(function (p) {
-            return (!board.keep || board.keep(p))
-                && (!posPick || p.position === posPick)
-                && (!teamPick || p.nfl_team === teamPick);
-        });
-        var ranked = pool.slice().sort(function (x, y) {
-            var a1 = board.sort(x), b1 = board.sort(y);
-            return a1 === b1 ? (x.name || "").localeCompare(y.name || "") : a1 - b1;
-        });
-        var rows = ranked, hidden = 0;
-        if (q) {
-            // Name matches anywhere; a position or a team has to be the whole
-            // word, or "RB" finds Ka'imi Fai-rb-airn.
-            rows = ranked.filter(function (p) {
-                return (p.name || "").toLowerCase().indexOf(q) >= 0
-                    || (p.position || "").toLowerCase() === q
-                    || (p.nfl_team || "").toLowerCase() === q;
-            });
-        }
-        if (rows.length > 150) { hidden = rows.length - 150; rows = rows.slice(0, 150); }
-        var place = new Map();
-        ranked.forEach(function (p, i) { place.set(p.player_key, i + 1); });
-        var html = rows.map(function (p) {
-            return '<li><span class="at-all-rank">' + place.get(p.player_key) + '</span>' +
-                '<span class="ar-name"><span class="ar-player"></span>' +
-                (p.position ? '<span class="ar-pos"></span>' : '') +
-                '<small></small></span>' +
-                '<span class="ar-val"><b></b></span></li>';
-        }).join("");
-        allRows.innerHTML = html;
-        // Names are platform data: set them as text, never as markup.
-        Array.prototype.forEach.call(allRows.children, function (li, i) {
-            var p = rows[i];
-            li.querySelector(".ar-player").textContent = p.name || p.player_key;
-            var pos = li.querySelector(".ar-pos");
-            if (pos) pos.textContent = p.position;
-            li.querySelector("small").textContent =
-                fmtInt(p.rostered) + " rosters · started " + pctOf(p.start_pct)
-                + (p.ppr !== null && p.ppr !== undefined ? " · scored " + pts(p.ppr) : "")
-                + (p.nfl_team ? " · " + p.nfl_team : "");
-            li.querySelector(".ar-val b").textContent = (BOARDS[allKey] || BOARDS.win_best).val(p);
-        });
-        // "1 RB on PHI", not "1 RBs on PHI".
-        function noun(n) {
-            var one = n === 1;
-            return (posPick ? " " + posPick + (one ? "" : "s") : one ? " player" : " players")
-                + (teamPick ? " on " + teamPick : "") + (board.qual || "");
-        }
-        allNote.textContent = !rows.length
-            ? (q ? "Nobody by that name matches those filters."
-                 : "Nobody matches those filters.")
-            : (q ? "Showing " + fmtInt(rows.length) + " of " + fmtInt(ranked.length) + noun(ranked.length)
-                 : ranked.length === 1 ? "The only" + noun(1)
-                 : "All " + fmtInt(ranked.length) + noun(ranked.length) + ", ranked")
-              + (hidden ? ", the first 150." : ".");
-    }
-    function openAll(on) {
-        allOpen = on;
-        allPanel.hidden = !on;
-        allSearch.hidden = !on;
-        allToggle.setAttribute("aria-expanded", on ? "true" : "false");
-        allToggle.firstChild.textContent = on ? "Hide the full list " : "Show every player ";
-        if (!on) return;
-        if (ALL_LOADED) { buildFilters(); renderAll(); allQ.focus(); return; }
-        // First open: go and get the list. The button is already pressed,
-        // so say what is happening rather than showing an empty panel.
-        allNote.textContent = "Fetching every player\u2026";
-        fetch("/around/players.json?week=" + encodeURIComponent(WEEK),
-              {credentials: "same-origin"}).then(function (r) {
-            return r.ok ? r.json() : null;
-        }).then(function (d) {
-            if (!d || !(d.all || []).length) {
-                allNote.textContent = "That list isn\u2019t in yet.";
-                return;
-            }
-            ALL = d.all;
-            MIN_STARTS = d.min_starts || MIN_STARTS;
-            ALL_LOADED = true;
-            buildFilters();
-            renderAll();
-            allQ.focus();
-        }).catch(function () {
-            allNote.textContent = "Couldn\u2019t fetch the list just now.";
-        });
-    }
-    if (allToggle) {
-        allToggle.addEventListener("click", function () { openAll(!allOpen); });
-        allQ.addEventListener("input", renderAll);
-        // Typing in the box is asking for the list, so open it.
-        allQ.addEventListener("focus", function () { if (!allOpen) openAll(true); });
-    }
-
     // Tabs. Without JavaScript every panel shows, one under another.
     document.querySelectorAll("[data-tabs]").forEach(function (box) {
         box.classList.add("js");
@@ -978,7 +355,8 @@
             t.addEventListener("click", function () {
                 tabs.forEach(function (x) { x.classList.toggle("on", x === t); x.setAttribute("aria-selected", x === t ? "true" : "false"); });
                 panels.forEach(function (p) { p.classList.toggle("on", p.getAttribute("data-panel") === t.getAttribute("data-tab")); });
-                if (box.contains(allBox)) { allKey = t.getAttribute("data-tab"); renderAll(); }
+                // The player page re-ranks its full list to match the open tab.
+                box.dispatchEvent(new CustomEvent("at-tab", {detail: t.getAttribute("data-tab")}));
             });
         });
     });

@@ -1,0 +1,8 @@
+{# The National Desk is three pages since 28 Oct (John: split the player
+   boards and the score checker off the front). This strip ties them back
+   together; the week you're reading carries across. #}
+<nav class="at-desk" aria-label="The National Desk">
+    {% for key, href, label in [('front', desk_front, 'This week'), ('rank', '/around/rank', 'Where you rank'), ('players', '/around/players', 'Player boards')] %}
+    <a href="{{ href }}?week={{ week }}"{% if desk_on == key %} class="on" aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+</nav>

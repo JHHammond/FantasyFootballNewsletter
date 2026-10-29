@@ -1,0 +1,18 @@
+{# Shared by the three National Desk pages: the front (/around), where a
+   score ranks (/around/rank) and the player boards (/around/players).
+   Imported `with context` because who() and face() read the page's own
+   `a`, describe() and photo(). #}
+{% macro who(r) -%}
+<span class="ar-who">{{ describe(r, true) }}</span>{% if not a.public %}<span class="ar-staff">{{ r.team_name or 'unnamed' }}{% if r.manager and r.manager != r.team_name %} &middot; {{ r.manager }}{% endif %}</span>{% endif %}
+{%- endmacro %}
+
+{% macro pts(v) -%}{{ '%.1f'|format(v|float) if v is not none else '–' }}{%- endmacro %}
+
+{% macro face(p, cls='at-face') -%}
+{%- set src = photo(p) -%}
+<span class="{{ cls }}{{ ' at-face-def' if p.position == 'DEF' }}" aria-hidden="true">{% if src %}<img src="{{ src }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
+{%- endmacro %}
+
+{% macro player(p) -%}
+<span class="ar-player">{{ p.name }}</span>{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}
+{%- endmacro %}
