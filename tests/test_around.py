@@ -811,7 +811,9 @@ def test_the_desk_is_three_pages(web, monkeypatch):
     rank = web.get("/around/rank?week=3")
     assert rank.status_code == 200
     assert "<h1" in rank.text and "Where does your score rank?" in rank.text
-    assert 'id="ar-score"' in rank.text and "ar-hist" in rank.text
+    assert 'id="ar-score"' in rank.text and 'id="rv-grid"' in rank.text
+    assert "var BINS = [[" in rank.text                     # the curve has its data
+    assert "Your lineup, against the country" not in rank.text   # 29 Oct: taken out
     assert "Hank" not in rank.text
 
     players = web.get("/around/players?week=3")
@@ -844,6 +846,8 @@ def test_the_new_pages_are_findable(web, monkeypatch):
     monkeypatch.setenv("AROUND_PUBLIC", "1")
     xml = web.get("/sitemap.xml").text
     assert "/around/rank<" in xml and "/around/players<" in xml
+    # 29 Oct, John: the masthead got crowded. The two pages are reached from
+    # the National Desk's own section strip, not the masthead menu.
     monkeypatch.setenv("LUCK_PUBLIC", "1")
     menu = web.get("/").text
-    assert 'href="/around/rank"' in menu and 'href="/around/players"' in menu
+    assert 'href="/around/rank"' not in menu

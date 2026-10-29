@@ -92,48 +92,44 @@
     </div>
     <p class="ar-pool-note" id="ar-pool-note" hidden></p>
 
-    {% if mine %}
-    {# Your own lineup, against the country. The page above is 14,000
-       strangers, which is interesting once; this is the same week read
-       back through the only lineup the reader actually cares about. It
-       arrives from /around/my-lineup.json because the page is cached and
-       shared and this is one person's roster. #}
-    <div class="at-mylineup" id="at-mine" hidden>
-        <h3 class="ar-board-head">Your lineup, against the country</h3>
-        <div id="at-mine-out"></div>
-    </div>
-    {% endif %}
-
-    {% set h = a.hist %}
-    {% if h %}
-    {% set med = a.summary.median_ppr %}
-    {% set med_x = h.x0 + ((med - h.lo) / (h.hi - h.lo)) * h.plot_w if med is not none and h.hi > h.lo else none %}
-    <figure class="ar-chart">
-        <figcaption class="ar-chart-cap">How {{ '{:,}'.format(a.compared) }} teams scored in week {{ week }}{% if a.standardized %}, in PPR{% endif %}</figcaption>
-        <div class="ar-chart-box">
-        <svg viewBox="0 -18 {{ h.width }} {{ h.height + 18 }}" class="ar-hist" role="img"
-             aria-label="Distribution of week {{ week }} scores, median {{ med }}">
-            <line x1="0" x2="{{ h.width }}" y1="{{ h.base }}" y2="{{ h.base }}" class="ar-axis" />
-            {% for c in h.cols %}
-            <g class="ar-col" data-lo="{{ c.lo }}" data-tip="{{ c.label }} points: {{ '{:,}'.format(c.n) }} team{{ '' if c.n == 1 else 's' }}">
-                <rect x="{{ c.x - 1 }}" y="0" width="{{ c.w + 2 }}" height="{{ h.base }}" class="ar-hit" />
-                {% if c.h > 0 %}<path d="M{{ c.x }},{{ h.base }} V{{ c.y + [4, c.h]|min }} Q{{ c.x }},{{ c.y }} {{ c.x + [4, c.h]|min }},{{ c.y }} H{{ c.x + c.w - [4, c.h]|min }} Q{{ c.x + c.w }},{{ c.y }} {{ c.x + c.w }},{{ c.y + [4, c.h]|min }} V{{ h.base }} Z" class="ar-bar" />{% endif %}
-                {% if c.tick %}<text x="{{ c.x + c.w / 2 }}" y="{{ h.base + 18 }}" class="ar-tick" text-anchor="middle">{{ c.lo }}{{ '+' if c.lo == 250 }}</text>{% endif %}
-            </g>
-            {% endfor %}
-            {% if med_x is not none %}
-            <g class="at-median" id="ar-median">
-                <line x1="{{ med_x }}" x2="{{ med_x }}" y1="-4" y2="{{ h.base }}" />
-                <text x="{{ med_x + 6 }}" y="-6" class="at-median-label">Median {{ pts(med) }}</text>
-            </g>
-            {% endif %}
-            <g id="ar-marker" class="ar-marker" style="display:none">
-                <line x1="0" x2="0" y1="-4" y2="{{ h.base }}" />
-                <text x="0" y="-6" text-anchor="middle" class="ar-marker-label">You</text>
-            </g>
-        </svg>
-        <div class="ar-tip" hidden></div>
+    {# The picture of the answer (29 Oct, John: "cooler data viz", and the
+       your-lineup list came out). Two views of one number: the country's
+       scores as a curve with everything you beat filled red, and the same
+       percentile as 100 teams, one of them you. Drawn by the script below
+       from BINS; labels are HTML laid over the shapes so they stay readable
+       at phone width. #}
+    {% if a.hist and a.hist.cols %}
+    <figure class="rv" id="rv" aria-describedby="rv-sum">
+        <div class="rv-curve-wrap">
+            <figcaption class="ar-chart-cap">How {{ '{:,}'.format(a.compared) }} teams scored in week {{ week }}{% if a.standardized %}, in PPR{% endif %}</figcaption>
+            <div class="rv-plot" id="rv-plot">
+                <svg class="rv-svg" viewBox="0 0 1000 200" preserveAspectRatio="none" aria-hidden="true">
+                    <defs>
+                        <clipPath id="rv-clip-beat"><rect id="rv-cb" x="0" y="0" width="0" height="200" /></clipPath>
+                        <clipPath id="rv-clip-rest"><rect id="rv-cr" x="0" y="0" width="1000" height="200" /></clipPath>
+                    </defs>
+                    <path id="rv-rest" class="rv-area-rest" clip-path="url(#rv-clip-rest)" />
+                    <path id="rv-beat" class="rv-area-beat" clip-path="url(#rv-clip-beat)" />
+                    <path id="rv-line" class="rv-line" />
+                    <line class="rv-base" x1="0" x2="1000" y1="199" y2="199" />
+                </svg>
+                <div class="rv-median" id="rv-median"><span>Median <b id="rv-median-v"></b></span></div>
+                <div class="rv-you" id="rv-you" hidden><span class="rv-pill">You <b id="rv-you-v"></b></span></div>
+                <div class="rv-cross" id="rv-cross" hidden></div>
+                <div class="ar-tip rv-tip" id="rv-tip" hidden></div>
+            </div>
+            <div class="rv-ticks" id="rv-ticks" aria-hidden="true"></div>
+            <ul class="rv-key" id="rv-key">
+                <li><i class="rv-sw rv-sw-beat"></i><b id="rv-k-beat">&mdash;</b> teams you beat</li>
+                <li><i class="rv-sw rv-sw-rest"></i><b id="rv-k-rest">{{ '{:,}'.format(a.compared) }}</b> <span id="rv-k-rest-w">teams</span></li>
+            </ul>
         </div>
+        <div class="rv-grid-wrap">
+            <p class="ar-chart-cap">If the country were 100 teams</p>
+            <svg class="rv-grid" id="rv-grid" viewBox="0 0 200 200" role="img" aria-labelledby="rv-grid-cap"></svg>
+            <p class="rv-grid-cap" id="rv-grid-cap">Type a score and find your seat.</p>
+        </div>
+        <p class="visually-hidden" id="rv-sum" aria-live="polite"></p>
     </figure>
     {% endif %}
 </section>
@@ -166,20 +162,21 @@
 <script>
 (function () {
     var P = {{ (a.pct if a else {})|tojson }};
-    var H = {{ ({'lo': a.hist.lo, 'hi': a.hist.hi, 'x0': a.hist.x0, 'w': a.hist.plot_w} if a and a.hist else {})|tojson }};
+    // The week's scores in 10-point bins, [low edge, teams]. The last bin is "250 and up".
+    {%- set bins = [] %}{% for c in ((a.hist or {}).get('cols') or [] if a else []) %}{% if bins.append([c.lo, c.n]) %}{% endif %}{% endfor %}
+    var BINS = {{ bins|tojson }};
+    var MEDIAN = {{ (a.summary.median_ppr if a and a.summary else none)|tojson }};
     var WEEK = {{ week|tojson }}, CARD = {{ (card_base if a else '')|tojson }};
     // A shared link opens this page with the score already in, so whoever
     // it reaches sees the answer and then the box for their own.
     var SHARE_BASE = {{ (public_base() ~ '/around/rank')|tojson }};
     var POOL = {all: "fantasy teams", ppr: "PPR teams", half_ppr: "half-PPR teams", std: "standard-scoring teams"};
-    var SCALE = "{{ 'all' if a and a.standardized else '' }}";   // what the chart is drawn in
-    var score = document.getElementById("ar-score"), fmt = document.getElementById("ar-format"),
-        out = document.getElementById("ar-out"), marker = document.getElementById("ar-marker"),
-        median = document.getElementById("ar-median"), share = document.getElementById("ar-share"),
-        shareBtn = document.getElementById("ar-share-btn"), openCard = document.getElementById("ar-share-open"),
-        copied = document.getElementById("ar-copied"), mine = document.getElementById("ar-mine"),
-        note = document.getElementById("ar-pool-note");
-    var cols = document.querySelectorAll(".ar-hist .ar-col");
+    var SCALE = "{{ 'all' if a and a.standardized else '' }}";   // what the curve is drawn in
+    var CALM = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var $ = function (id) { return document.getElementById(id); };
+    var score = $("ar-score"), fmt = $("ar-format"), out = $("ar-out"),
+        share = $("ar-share"), shareBtn = $("ar-share-btn"), openCard = $("ar-share-open"),
+        copied = $("ar-copied"), mine = $("ar-mine"), note = $("ar-pool-note");
     var teamName = "", current = null;
 
     // The twin of web.around._below / rank(): the page answers as you type,
@@ -207,20 +204,152 @@
         if (n % 100 >= 11 && n % 100 <= 13) return s + "th";
         return s + ({1: "st", 2: "nd", 3: "rd"}[n % 10] || "th");
     }
-    function paint(v) {                 // the bars you beat go pale red, yours red
-        cols.forEach(function (g) {
-            var lo = parseFloat(g.getAttribute("data-lo"));
-            g.classList.toggle("beat", v !== null && lo + 10 <= v);
-            g.classList.toggle("you", v !== null && lo <= v && v < lo + 10);
-        });
+    function tween(from, to, ms, step) {
+        if (CALM || from === to) { step(to); return; }
+        var t0 = null;
+        function frame(t) {
+            if (t0 === null) t0 = t;
+            var k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+            step(from + (to - from) * e);
+            if (k < 1) requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
     }
+
+    // ---- the curve ------------------------------------------------------
+    // A smooth line through the bins (monotone, so it never dips below zero
+    // between two bins), the area under it grey, and everything left of your
+    // score filled red. The split is two clip rectangles, so moving it is one
+    // number.
+    var plot = $("rv-plot"), W = 1000, HT = 200, TOP = 46;
+    var LO = BINS.length ? BINS[0][0] : 0, HI = BINS.length ? BINS[BINS.length - 1][0] + 10 : 1;
+    var PEAK = BINS.reduce(function (m, b) { return Math.max(m, b[1]); }, 1);
+    function xOf(v) { return Math.max(0, Math.min(W, (v - LO) / (HI - LO) * W)); }
+    function pctX(v) { return (xOf(v) / W * 100).toFixed(2) + "%"; }
+    function monotone(pts) {               // Fritsch–Carlson, as d3.curveMonotoneX
+        var n = pts.length, d = [], m = [], i;
+        for (i = 0; i < n - 1; i++) d.push((pts[i + 1][1] - pts[i][1]) / (pts[i + 1][0] - pts[i][0]));
+        m[0] = d[0]; m[n - 1] = d[n - 2];
+        for (i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+        for (i = 0; i < n - 1; i++) {
+            if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+            var a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+            if (s > 9) { var t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+        }
+        var p = "M" + pts[0][0].toFixed(1) + "," + pts[0][1].toFixed(1);
+        for (i = 0; i < n - 1; i++) {
+            var h = (pts[i + 1][0] - pts[i][0]) / 3;
+            p += "C" + (pts[i][0] + h).toFixed(1) + "," + (pts[i][1] + m[i] * h).toFixed(1) + " "
+               + (pts[i + 1][0] - h).toFixed(1) + "," + (pts[i + 1][1] - m[i + 1] * h).toFixed(1) + " "
+               + pts[i + 1][0].toFixed(1) + "," + pts[i + 1][1].toFixed(1);
+        }
+        return p;
+    }
+    if (plot && BINS.length) {
+        var yOf = function (n) { return HT - 1 - (n / PEAK) * (HT - 1 - TOP); };
+        var pts = [[0, HT - 1]].concat(BINS.map(function (b) { return [xOf(b[0] + 5), yOf(b[1])]; }), [[W, HT - 1]]);
+        var line = monotone(pts);
+        $("rv-line").setAttribute("d", line);
+        var area = line + "L" + W + "," + HT + "L0," + HT + "Z";
+        $("rv-rest").setAttribute("d", area);
+        $("rv-beat").setAttribute("d", area);
+        // Ticks every 50 points, as HTML so they stay legible on a phone.
+        var ticks = $("rv-ticks");
+        for (var t = Math.ceil(LO / 50) * 50; t <= HI; t += 50) {
+            var s = document.createElement("span");
+            s.style.left = pctX(t);
+            s.textContent = t + (t >= 250 ? "+" : "");
+            ticks.appendChild(s);
+        }
+        if (MEDIAN !== null) {
+            $("rv-median").style.left = pctX(MEDIAN);
+            $("rv-median-v").textContent = MEDIAN.toFixed(1);
+        } else { $("rv-median").hidden = true; }
+
+        // Hover / touch: a crosshair on the bin under the pointer.
+        var cross = $("rv-cross"), tip = $("rv-tip");
+        var hover = function (e) {
+            var r = plot.getBoundingClientRect();
+            var v = LO + (e.clientX - r.left) / r.width * (HI - LO);
+            var b = BINS[Math.max(0, Math.min(BINS.length - 1, Math.floor((v - LO) / 10)))];
+            cross.style.left = pctX(b[0] + 5); cross.hidden = false;
+            tip.textContent = (b[0] >= 250 ? "250+" : b[0] + "–" + (b[0] + 10)) + " points: "
+                + b[1].toLocaleString() + " team" + (b[1] === 1 ? "" : "s");
+            tip.style.left = pctX(b[0] + 5); tip.style.top = "0px"; tip.hidden = false;
+        };
+        var leave = function () { cross.hidden = true; tip.hidden = true; };
+        plot.addEventListener("pointermove", hover);
+        plot.addEventListener("pointerdown", hover);
+        plot.addEventListener("pointerleave", leave);
+    }
+    var splitX = 0;
+    function drawCurve(v) {               // v: a score on the curve's scale, or null
+        if (!plot || !BINS.length) return;
+        var you = $("rv-you"), med = $("rv-median");
+        if (v === null) {
+            tween(splitX, 0, 350, function (x) { splitX = x; setSplit(x); });
+            you.hidden = true; med.classList.remove("rv-quiet");
+            return;
+        }
+        var to = xOf(v);
+        tween(splitX, to, 650, function (x) { splitX = x; setSplit(x); you.style.left = (x / W * 100) + "%"; });
+        you.hidden = false;
+        $("rv-you-v").textContent = v.toFixed(1);
+        you.classList.toggle("rv-you-left", to > W * 0.78);    // keep the pill on the page
+        // Too close to the median to label both: the median steps back.
+        med.classList.toggle("rv-quiet", MEDIAN !== null && Math.abs(to - xOf(MEDIAN)) < W * 0.14);
+    }
+    function setSplit(x) {
+        $("rv-cb").setAttribute("width", x.toFixed(1));
+        $("rv-cr").setAttribute("x", x.toFixed(1));
+        $("rv-cr").setAttribute("width", (W - x).toFixed(1));
+    }
+
+    // ---- 100 teams ------------------------------------------------------
+    // The same percentile as seats: worst at the bottom left, best at the
+    // top right, one seat yours. Beaten seats fill red one after another.
+    var grid = $("rv-grid"), dots = [];
+    if (grid) {
+        var NS = "http://www.w3.org/2000/svg";
+        for (var i = 0; i < 100; i++) {
+            var c = document.createElementNS(NS, "circle");
+            c.setAttribute("cx", 10 + (i % 10) * 20);
+            c.setAttribute("cy", 10 + (9 - Math.floor(i / 10)) * 20);
+            c.setAttribute("r", 7);
+            c.setAttribute("class", "rv-dot");
+            if (!CALM) c.style.transitionDelay = (i * 6) + "ms";
+            grid.appendChild(c);
+            dots.push(c);
+        }
+    }
+    function drawGrid(p) {                // p: percentile 0-100, or null
+        if (!dots.length) return;
+        var me = p === null ? -1 : Math.max(0, Math.min(99, p));
+        dots.forEach(function (d, i) {
+            d.classList.toggle("beat", i < me);
+            d.classList.toggle("me", i === me);
+            d.setAttribute("r", i === me ? 9 : 7);
+        });
+        var cap = $("rv-grid-cap");
+        if (p === null) { cap.textContent = "Type a score and find your seat."; return; }
+        var place = 100 - me;
+        cap.innerHTML = "You’d finish <b>" + ordinal(place) + "</b>"
+            + (place === 1 ? ", ahead of all 99." : me === 0 ? ", behind all 99." :
+               ", ahead of " + me + " and behind " + (99 - me) + ".");
+    }
+
+    // ---- the answer -----------------------------------------------------
+    var shownPct = 0;
     function clear() {
-        if (marker) marker.style.display = "none";
-        if (median) median.style.display = "";
         if (share) share.hidden = true;
         if (note) note.hidden = true;
         out.className = "ar-out-empty";
-        paint(null);
+        drawCurve(null); drawGrid(null);
+        if ($("rv-k-beat")) {
+            $("rv-k-beat").innerHTML = "&mdash;";
+            $("rv-k-rest").textContent = ($("rv-k-rest").dataset.all || $("rv-k-rest").textContent);
+            $("rv-k-rest-w").textContent = "teams";
+        }
         current = null;
     }
     function update() {
@@ -233,28 +362,35 @@
         current = {score: v, pct: p, place: place, teams: n, fmt: key};
         out.className = "";
         out.innerHTML =
-            '<span class="ar-rank-big">' + p + '<small>%</small></span>' +
+            '<span class="ar-rank-big"><span id="ar-pct">' + shownPct + '</span><small>%</small></span>' +
             '<span class="ar-rank-label">of teams beaten</span>' +
             '<span class="ar-rank-line"><b>' + v.toFixed(1) + '</b> ranks <b>' + ordinal(place) +
             '</b> of ' + n.toLocaleString() + ' ' + POOL[key] + ' in week ' + WEEK +
             '. ' + verdict(p) + '</span>';
+        var el = $("ar-pct");
+        tween(shownPct, p, 600, function (x) { shownPct = x; el.textContent = Math.round(x); });
         if (share) { share.hidden = false; copied.hidden = true; }
         if (openCard) openCard.href = cardUrl("og");
-        // The chart is drawn in one scale. Mark the score on it only when
-        // that is the scale being asked about; say so when it isn't.
-        if (marker && H.w && key === SCALE) {
-            var x = H.x0 + Math.max(0, Math.min(1, (v - H.lo) / (H.hi - H.lo))) * H.w;
-            marker.setAttribute("transform", "translate(" + x.toFixed(1) + ",0)");
-            marker.style.display = "";
-            if (median) median.style.display = "none";
-            paint(v);
+
+        var kb = $("rv-k-beat"), kr = $("rv-k-rest");
+        if (kb) {
+            if (!kr.dataset.all) kr.dataset.all = kr.textContent;
+            kb.textContent = beat.toLocaleString();
+            kr.textContent = Math.max(0, n - beat).toLocaleString();
+            $("rv-k-rest-w").textContent = "scored more";
+        }
+        if ($("rv-sum")) $("rv-sum").textContent = v.toFixed(1) + " beat " + beat.toLocaleString()
+            + " of " + n.toLocaleString() + " " + POOL[key] + ".";
+        drawGrid(p);
+        // The curve is drawn in one scale. Fill it only when that is the
+        // scale being asked about; say so when it isn't.
+        if (key === SCALE) {
+            drawCurve(v);
             if (note) note.hidden = true;
         } else {
-            if (marker) marker.style.display = "none";
-            if (median) median.style.display = "";
-            paint(null);
+            drawCurve(null);
             if (note) {
-                note.textContent = "The chart below shows every league re-scored in PPR. "
+                note.textContent = "The curve shows every league re-scored in PPR. "
                     + "Your score is being ranked against " + POOL[key] + " only.";
                 note.hidden = false;
             }
@@ -292,87 +428,7 @@
         score.value = (opt && want === "all" && ppr) ? ppr : o.dataset.points;
         teamName = o.dataset.name || "";
         update();
-        showMyLineup(o.dataset.league, o.value, o.dataset.name || "");
     });
-
-    // ---- your lineup, against the country -------------------------------
-    // Player names are platform data, so everything below is written with
-    // textContent rather than pasted in as markup.
-    function esc(t) {
-        var d = document.createElement("div");
-        d.textContent = t == null ? "" : t;
-        return d.innerHTML;
-    }
-    var mineBox = document.getElementById("at-mine"),
-        mineOut = document.getElementById("at-mine-out");
-    var mineSeen = {};
-    function pc(x) { return Math.round((x || 0) * 100); }
-    function showMyLineup(league, team, name) {
-        if (!mineBox || !mineOut || !league || !team) {
-            if (mineBox) mineBox.hidden = true;
-            return;
-        }
-        mineBox.hidden = false;
-        mineOut.innerHTML = '<p class="ar-board-sub">Reading your lineup\u2026</p>';
-        var at = "/around/my-lineup.json?league=" + encodeURIComponent(league)
-               + "&team=" + encodeURIComponent(team) + "&week=" + encodeURIComponent(WEEK);
-        var draw = function (d) {
-            if (!d || !(d.started || []).length) {
-                mineOut.innerHTML = '<p class="ar-board-sub">No stored lineup for that '
-                    + "team this week.</p>";
-                return;
-            }
-            var html = "";
-            // The headline is whichever of these the week actually gave
-            // them, in order of how much it is worth saying out loud.
-            if (d.differential) {
-                html += '<p class="ar-board-sub"><b>' + esc(d.differential.name) + "</b> was yours: "
-                     + "only " + (d.differential.started_by || 0).toLocaleString()
-                     + " of " + (d.lineups || 0).toLocaleString()
-                     + " lineups started him, and he scored "
-                     + (d.differential.ppr != null ? d.differential.ppr.toFixed(1) : "\u2014")
-                     + ".</p>";
-            } else if (d.regret) {
-                html += '<p class="ar-board-sub"><b>' + esc(d.regret.name) + "</b> scored "
-                     + d.regret.ppr.toFixed(1) + " on your bench, and "
-                     + esc(d.worst.name) + " scored "
-                     + (d.worst.ppr != null ? d.worst.ppr.toFixed(1) : "\u2014")
-                     + " in your lineup.</p>";
-            } else {
-                html += '<p class="ar-board-sub">' + esc(name || "Your team")
-                     + ", week " + WEEK + ".</p>";
-            }
-            html += '<ol class="ar-list at-rows at-mine-list">';
-            d.started.forEach(function (p) {
-                var note = "";
-                if (p.share != null && p.started_by) {
-                    note = (p.started_by).toLocaleString() + " lineups ("
-                         + pc(p.share) + "%)";
-                    if (p.rare) note += " \u00b7 almost nobody else";
-                    else if (p.common) note += " \u00b7 everybody had him";
-                } else {
-                    note = "not in the national pool";
-                }
-                html += '<li><span class="ar-name">' + esc(p.name)
-                     + (p.position ? '<span class="ar-pos">' + esc(p.position) + "</span>" : "")
-                     + "<small>" + note + "</small></span>"
-                     + '<span class="ar-val"><b>'
-                     + (p.ppr != null ? p.ppr.toFixed(1) : p.points.toFixed(1))
-                     + "</b></span></li>";
-            });
-            html += "</ol>";
-            mineOut.innerHTML = html;
-        };
-        if (mineSeen[at]) { draw(mineSeen[at]); return; }
-        fetch(at, {credentials: "same-origin"}).then(function (r) {
-            return r.ok ? r.json() : null;
-        }).then(function (d) {
-            mineSeen[at] = d;
-            draw(d);
-        }).catch(function () {
-            mineOut.innerHTML = '<p class="ar-board-sub">Couldn\u2019t read that one.</p>';
-        });
-    }
 
     // Sharing: the card as a picture. Web Share takes the file itself where
     // it can; everywhere else the picture opens in a tab to save or drag.
@@ -400,7 +456,7 @@
         }).catch(function () {
             // Sharing a file isn't allowed here. Copy the sentence instead,
             // and either way the card is one click away beside this button.
-            var fallback = "Use \u201cSee the card\u201d to save the picture.";
+            var fallback = "Use “See the card” to save the picture.";
             if (navigator.clipboard) {
                 navigator.clipboard.writeText(text + " " + shareUrl()).then(
                     function () { done("Copied. " + fallback); },
@@ -418,25 +474,6 @@
         update();
     }
     {% endif %}
-
-
-    // Hover tooltips for the columns and the week dots.
-    document.querySelectorAll(".ar-chart-box").forEach(function (box) {
-        var tip = box.querySelector(".ar-tip");
-        box.querySelectorAll(".ar-col").forEach(function (g) {
-            function show() {
-                tip.textContent = g.getAttribute("data-tip");
-                tip.hidden = false;
-                var r = box.getBoundingClientRect(), mr = g.getBoundingClientRect();
-                tip.style.left = (mr.left - r.left + mr.width / 2) + "px";
-                tip.style.top = "0px";
-                g.classList.add("hot");
-            }
-            function hide() { tip.hidden = true; g.classList.remove("hot"); }
-            g.addEventListener("mouseenter", show); g.addEventListener("mouseleave", hide);
-            g.addEventListener("touchstart", show, {passive: true});
-        });
-    });
 })();
 </script>
 {% endblock %}

@@ -77,9 +77,7 @@
                 <div class="nav-drop{{ ' nav-here-drop' if in_around }}">
                     <a href="/around" class="nav-main nav-drop-btn" aria-haspopup="true" aria-expanded="false">Around the Leagues<svg class="nav-chev" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" /></svg></a>
                     <div class="nav-drop-menu">
-                        <a href="/around" class="nav-drop-item{{ ' on' if here == '/around' }}"><b>The National Desk</b><span>This week across every league: records, fame and shame</span></a>
-                        <a href="/around/rank" class="nav-drop-item{{ ' on' if here == '/around/rank' }}"><b>Where does your score rank?</b><span>Your week&rsquo;s score against the whole country</span></a>
-                        <a href="/around/players" class="nav-drop-item{{ ' on' if here == '/around/players' }}"><b>The player boards</b><span>Win rates, most started and most benched, every player</span></a>
+                        <a href="/around" class="nav-drop-item{{ ' on' if here.startswith('/around') }}"><b>The National Desk</b><span>This week across every league: records, fame and shame</span></a>
                         <a href="/luck" class="nav-drop-item{{ ' on' if here.startswith('/luck') }}"><b>The Luck Index</b><span>How lucky is your team? Your Luck Report, in wins</span></a>
                     </div>
                 </div>

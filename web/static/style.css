@@ -5098,3 +5098,72 @@ a.cmp-unlock:hover { background: #8f0f16; color: #fff; }
     .at-ear-form .at-ear-kicker { width: 100%; text-align: center; }
     .at-ear-form input { flex: 1 1 140px; width: auto; }
 }
+
+/* ---------- where you rank, drawn (29 Oct) ----------
+   The curve of the country's scores with everything you beat in red, and
+   the same percentile as 100 seats. Shapes are SVG stretched to the box
+   (non-scaling strokes); every word is HTML on top, so it reads on a phone. */
+.rv {
+    display: grid; grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr); gap: 26px 34px;
+    margin: 22px 0 0; padding: 22px 26px 20px;
+    background: var(--paper);
+    box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 10px 22px -14px rgba(40, 30, 10, .45);
+}
+.rv .ar-chart-cap { margin-bottom: 14px; }
+.rv-plot { position: relative; height: 210px; margin-top: 26px; touch-action: pan-y; cursor: crosshair; }
+.rv-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+.rv-area-rest { fill: #e4dccb; }
+.rv-area-beat { fill: var(--accent); }
+.rv-line { fill: none; stroke: var(--ink); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.rv-base { stroke: var(--ink); stroke-width: 1; vector-effect: non-scaling-stroke; }
+
+.rv-median, .rv-you, .rv-cross { position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none; }
+.rv-median { border-left: 1.5px dashed var(--muted); }
+.rv-median span, .rv-pill {
+    position: absolute; top: -2px; left: 6px; white-space: nowrap;
+    font-family: "Barlow Condensed", sans-serif; font-size: 12.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.2px;
+}
+.rv-median span { color: var(--muted); }
+.rv-median span b { color: var(--ink-2); }
+.rv-median.rv-quiet span { display: none; }
+.rv-you { border-left: 2px solid var(--ink); top: -6px; }
+.rv-pill { top: -14px; left: 0; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 2px 8px 1px; }
+.rv-pill b { color: #fff; margin-left: 3px; }
+.rv-you-left .rv-pill { transform: translateX(-100%); }
+.rv-you:not([hidden])::after {           /* where the line meets the curve's floor */
+    content: ""; position: absolute; bottom: -5px; left: -6px; width: 10px; height: 10px;
+    border-radius: 50%; background: var(--ink); border: 2px solid var(--paper);
+}
+.rv-cross { border-left: 1px solid rgba(17,17,17,.35); }
+.rv-tip { transform: translate(-50%, -110%); pointer-events: none; }
+
+.rv-ticks { position: relative; height: 22px; margin-top: 4px; }
+.rv-ticks span {
+    position: absolute; transform: translateX(-50%); top: 2px;
+    font: 600 12px "Barlow Condensed", sans-serif; letter-spacing: .8px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+.rv-key { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 10px 0 0; padding: 0;
+    font-family: Georgia, serif; font-size: 15px; color: var(--ink-2); }
+.rv-key b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 19px; color: var(--ink); letter-spacing: .3px; margin-right: 2px; }
+.rv-sw { display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: 0; border: 1.5px solid var(--ink); }
+.rv-sw-beat { background: var(--accent); }
+.rv-sw-rest { background: #e4dccb; }
+
+.rv-grid-wrap { display: flex; flex-direction: column; }
+.rv-grid { width: 100%; max-width: 260px; height: auto; display: block; margin: 0 auto; }
+.rv-dot { fill: #e4dccb; transition: fill .25s ease, r .2s ease; }
+.rv-dot.beat { fill: var(--accent); }
+.rv-dot.me { fill: var(--ink); stroke: var(--accent); stroke-width: 2.5; }
+.rv-grid-cap { margin-top: 12px; text-align: center; font-family: Georgia, serif; font-size: 15.5px; line-height: 1.45; color: var(--ink-2); }
+.rv-grid-cap b { font-family: "Anton", sans-serif; font-weight: 400; font-size: 22px; color: var(--accent); letter-spacing: .3px; }
+
+@media (max-width: 760px) {
+    .rv { grid-template-columns: minmax(0, 1fr); padding: 18px 16px; }
+    .rv-plot { height: 170px; }
+    .rv-grid { max-width: 220px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .rv-dot { transition: none; }
+}
