@@ -90,11 +90,6 @@
                 <span class="ar-rank-big">&mdash;</span>
                 <span class="ar-rank-line">{% if mine %}Pick a team, or type a score,{% else %}Type your score{% endif %} to see where it lands among {{ '{:,}'.format(a.compared) }} teams this week.</span>
             </div>
-            <div class="at-share" id="ar-share" hidden>
-                <button type="button" class="btn btn-sm btn-primary" id="ar-share-btn">Share this card</button>
-                <a class="at-share-alt" id="ar-share-open" href="#" target="_blank" rel="noopener">See the card</a>
-                <span class="at-copied" id="ar-copied" hidden></span>
-            </div>
         </div>
     </div>
     <p class="ar-pool-note" id="ar-pool-note" hidden></p>
@@ -132,9 +127,15 @@
             </ul>
         </div>
         <div class="rv-grid-wrap">
-            <p class="ar-chart-cap">If the country were 100 teams</p>
+            <p class="ar-chart-cap">In a room of 100 players</p>
             <svg class="rv-grid" id="rv-grid" viewBox="0 0 200 200" role="img" aria-labelledby="rv-grid-cap"></svg>
             <p class="rv-grid-cap" id="rv-grid-cap">Type a score and find your seat.</p>
+            {# The share card is this picture (29 Oct, John), so the button lives under it. #}
+            <div class="at-share rv-share" id="ar-share" hidden>
+                <button type="button" class="btn btn-sm btn-primary" id="ar-share-btn">Share this card</button>
+                <a class="at-share-alt" id="ar-share-open" href="#" target="_blank" rel="noopener">See the card</a>
+                <span class="at-copied" id="ar-copied" hidden></span>
+            </div>
         </div>
         <p class="visually-hidden" id="rv-sum" aria-live="polite"></p>
     </figure>
@@ -364,10 +365,9 @@
         });
         var cap = $("rv-grid-cap");
         if (p === null) { cap.textContent = "Type a score and find your seat."; return; }
-        var place = 100 - me;
-        cap.innerHTML = "You’d finish <b>" + ordinal(place) + "</b>"
-            + (place === 1 ? ", ahead of all 99." : me === 0 ? ", behind all 99." :
-               ", ahead of " + me + " and behind " + (99 - me) + ".");
+        // The card says the same sentence (web/around_card.py _beat_line).
+        cap.innerHTML = me === 0 ? "You’d beat nobody."
+            : "You’d beat <b>" + me + "</b>.";
     }
 
     // ---- the answer -----------------------------------------------------
