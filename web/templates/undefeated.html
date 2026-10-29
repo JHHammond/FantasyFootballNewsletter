@@ -1,0 +1,629 @@
+{% extends "base.html" %}
+{% block title %}{% if u.ready %}{{ u.headline }} &middot; {% endif %}The Undefeated Watch{% endblock %}
+{% block description %}{% if u.ready %}After week {{ u.through }}, {{ '{:,}'.format(u.unbeaten) }} of {{ '{:,}'.format(u.teams) }} redraft fantasy football teams are still unbeaten. What they drafted, who they roster, how they work the waiver wire, and how few are left.{% else %}Every unbeaten fantasy football team in the country, what they have in common, and how few are left.{% endif %}{% endblock %}
+{% block og_title %}{{ u.headline if u.ready else 'The Undefeated Watch' }}{% endblock %}
+{% block og_description %}{% if u.ready %}{{ '{:,}'.format(u.unbeaten) }} of {{ '{:,}'.format(u.teams) }} teams are still {{ u.through }}-0. What do they have in common?{% else %}Who&rsquo;s still perfect?{% endif %}{% endblock %}
+{% block og_image %}{% if u.ready %}{{ card_base }}?size=og{% else %}{{ public_base() }}/static/brand/og-image.png{% endif %}{% endblock %}
+{% block wrapclass %}home around uw{% endblock %}
+
+{% macro tag(c) -%}
+{%- if names and c.team_name %}<span class="ar-staff">{{ c.team_name }}{% if c.manager and c.manager != c.team_name %} &middot; {{ c.manager }}{% endif %}</span>{% endif -%}
+{%- endmacro %}
+
+{% macro face(p) -%}
+<span class="at-face{{ ' at-face-def' if p.position == 'DEF' }}" aria-hidden="true">{% if p.photo %}<img src="{{ p.photo }}" alt="" loading="lazy" onerror="this.remove()" />{% endif %}<span>{{ (p.name or '?')[:1] }}</span></span>
+{%- endmacro %}
+
+{% macro ticket(c, big=false) -%}
+<article class="uw-ticket uw-v-{{ c.vcls }}{{ ' uw-ticket-big' if big }}">
+    <header class="uw-ticket-top">
+        <span class="uw-ticket-rec">{{ c.record }}</span>
+        <span class="uw-ticket-verdict">{{ c.verdict }}</span>
+    </header>
+    <p class="uw-ticket-who">{{ c.desc }}{{ tag(c) }}</p>
+    <dl class="uw-ticket-stats">
+        {% if c.ppg is not none %}<div><dd>{{ '%.1f'|format(c.ppg) }}</dd><dt>a week, PPR</dt></div>{% endif %}
+        {% if c.scores_like %}<div><dd>{{ c.scores_like }}</dd><dt>against everybody</dt></div>{% endif %}
+        {% if c.rank_txt %}<div><dd>{{ c.rank_txt }}</dd><dt>in its league in points</dt></div>{% endif %}
+    </dl>
+    {% if c.close_txt %}<p class="uw-ticket-close">Closest call: {{ c.close_txt|replace('Won', 'won') }}</p>{% endif %}
+</article>
+{%- endmacro %}
+
+{% block under_masthead %}
+{% if staff %}
+<div class="ar-staffbar">
+    <div class="ar-staffbar-in">
+        <span class="ar-staffbar-links">Staff &middot; {% if undefeated_open() %}Public{% else %}Not public yet: set <b>UNDEFEATED_PUBLIC=1</b> on Render{% endif %}</span>
+        {% if names %}<a class="ar-mode" href="/undefeated?public=1">See it without names</a>{% else %}<a class="ar-mode" href="/undefeated">Show team names</a>{% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if not u.ready %}
+<section class="front uw-front">
+    <p class="dateline"><span>The Undefeated Watch</span><span class="dateline-mid">{{ season }}</span><span>Redraft leagues</span></p>
+    <h1 class="front-head">Nobody&rsquo;s played yet.</h1>
+    <p class="front-deck">The Watch starts once week 1 is collected, early on the Tuesday after it&rsquo;s played.</p>
+    {% if staff %}<p class="alert alert-error uw-staffnote">Staff: nothing saved yet. Run <code>migrations/067_waivers.sql</code> and then <code>068_undefeated.sql</code> in the Supabase SQL editor; 068 does the first save. After that the <code>refresh-undefeated</code> job keeps it current at :25 and :55.</p>{% endif %}
+</section>
+{% else %}
+{% set S = u.summary %}
+
+{# ================================================================ the front #}
+<section class="front uw-front">
+    <p class="dateline">
+        <span>The Undefeated Watch</span>
+        <span class="dateline-mid">{{ u.season }} &middot; After week {{ u.through }}</span>
+        <span>{{ '{:,}'.format(u.teams) }} redraft teams</span>
+    </p>
+    <p class="at-flag">The Undefeated Watch</p>
+    <h1 class="front-head at-head">{{ u.headline }}</h1>
+    <p class="front-deck at-deck">{{ u.deck }}</p>
+</section>
+
+{# ================================================================ the room
+   The page's one big moment: every team in the country as a room of 1,000,
+   and the season replayed, week by week, until the ones still perfect are
+   all that's lit. #}
+<section class="uw-hero" aria-label="How many are left">
+    <figure class="uw-room">
+        <svg class="uw-room-svg" viewBox="0 0 400 250" role="img"
+             aria-label="{{ u.room_line }}" id="uw-room"></svg>
+        <noscript><p class="uw-room-noscript">{{ u.room_line }}</p></noscript>
+        <figcaption class="uw-room-cap" id="uw-room-cap">{{ u.room_line }}</figcaption>
+    </figure>
+    <div class="uw-count">
+        <p class="uw-count-when" id="uw-when">After week {{ u.through }}</p>
+        <p class="uw-count-num" id="uw-num">{{ '{:,}'.format(u.alive) }}</p>
+        <p class="uw-count-what">still perfect, of {{ '{:,}'.format(u.teams) }}</p>
+    </div>
+    <div class="uw-count-rest">
+        <dl class="uw-count-facts">
+            <div><dt>A coin would have left</dt><dd>{{ u.coin_txt }}</dd></div>
+            {% if u.over_txt %}<div><dt>Skill bought</dt><dd>{{ u.over_txt }} as many</dd></div>{% endif %}
+            {% if u.fell %}<div><dt>Fell in week {{ u.through }}</dt><dd>{{ '{:,}'.format(u.fell) }}</dd></div>{% endif %}
+        </dl>
+        <div class="uw-scrub" role="group" aria-label="Replay the season">
+            <button type="button" class="uw-play" id="uw-play">Replay the season</button>
+            <div class="uw-weeks" id="uw-weeks">
+                {% for r in u.room %}<button type="button" data-i="{{ loop.index0 }}" class="{{ 'on' if loop.last }}" aria-label="{{ 'Before week 1' if r.week == 0 else 'After week ' ~ r.week }}">{{ '0' if r.week == 0 else r.week }}</button>{% endfor %}
+            </div>
+        </div>
+        <div class="uw-share">
+            <button type="button" class="btn btn-sm uw-share-btn" id="uw-share">Share the count</button>
+            <a class="uw-share-see" href="{{ card_base }}?size=story" target="_blank" rel="noopener">See the card</a>
+            <span class="uw-share-done" id="uw-share-done" role="status"></span>
+        </div>
+    </div>
+</section>
+
+{% if mine %}
+<section class="uw-mine{{ ' uw-mine-alive' if mine.alive }}" aria-label="Your team">
+    {% if mine.alive %}
+    <p><span class="uw-mine-kicker">Your team</span> <b>{{ mine.name }}</b> is {{ mine.record }}. One of the {{ '{:,}'.format(u.unbeaten) }} left in the country. Don&rsquo;t look down.</p>
+    {% elif mine.fell_week %}
+    <p><span class="uw-mine-kicker">Your team</span> <b>{{ mine.name }}</b> {{ 'tied' if mine.tie else 'fell' }} in week {{ mine.fell_week }}{% if mine.fell_points is not none and mine.fell_opp is not none %}, {{ '%.1f'|format(mine.fell_points) }} to {{ '%.1f'|format(mine.fell_opp) }}{% endif %}. It&rsquo;s {{ mine.record }} now{% if mine.w == 0 %}, and on the other list{% endif %}.</p>
+    {% endif %}
+</section>
+{% endif %}
+
+{# ================================================================ the countdown #}
+{% set C = u.curve %}
+{% if C %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>The countdown</span></h2>
+    <p class="ar-intro">Teams still perfect after each week, against what flipping a coin for every game would have left. The scale is logarithmic, so every halving takes the same room; the gap between the lines is skill, and some schedule.</p>
+    <figure class="uw-chart">
+        <div class="uw-chart-key" aria-hidden="true">
+            <span class="uw-k-alive">Still perfect</span>
+            <span class="uw-k-coin">A coin</span>
+        </div>
+        <div class="uw-chart-box" id="uw-chart">
+            <svg viewBox="0 0 {{ C.width }} {{ C.height }}" preserveAspectRatio="none" class="uw-chart-svg" role="img"
+                 aria-label="Teams still perfect after each week, on a log scale">
+                {% for t in C.ticks %}<line x1="{{ C.left }}" x2="{{ C.right }}" y1="{{ t.y }}" y2="{{ t.y }}" class="uw-grid{{ ' major' if t.major }}" />{% endfor %}
+                <path d="{{ C.area }}" class="uw-area" />
+                <path d="{{ C.coin }}" class="uw-coin" />
+                <path d="{{ C.path }}" class="uw-line" />
+            </svg>
+            {# Words in HTML over the stretched SVG, so they stay legible on a phone. #}
+            {% for t in C.ticks %}<span class="uw-ytick" style="top:{{ '%.2f'|format(100 * t.y / C.height) }}%">{{ t.label }}</span>{% endfor %}
+            {% for d in C.dots %}
+            <span class="uw-dot{{ ' last' if loop.last }}" style="left:{{ '%.2f'|format(100 * d.x / C.width) }}%;top:{{ '%.2f'|format(100 * d.y / C.height) }}%"></span>
+            <span class="uw-xtick" style="left:{{ '%.2f'|format(100 * d.x / C.width) }}%">{{ 'Start' if d.week == 0 else d.week }}</span>
+            {% if loop.last %}<span class="uw-end" style="left:{{ '%.2f'|format(100 * d.x / C.width) }}%;top:{{ '%.2f'|format(100 * d.y / C.height) }}%">{{ '{:,}'.format(d.n) }}</span>{% endif %}
+            {% endfor %}
+            <span class="uw-coin-end" style="left:{{ '%.2f'|format(100 * C.coin_end.x / C.width) }}%;top:{{ '%.2f'|format(100 * C.coin_end.y / C.height) }}%">{{ u.coin_txt }}</span>
+            <div class="uw-hair" id="uw-hair" hidden><span class="uw-hair-line"></span><div class="uw-hair-card" id="uw-hair-card"></div></div>
+        </div>
+        <figcaption class="uw-chart-foot">Week</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{# ================================================================ the fallen #}
+{% set FL = u.fallen %}
+{% if FL.n %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>Week {{ u.through }}&rsquo;s fallen</span></h2>
+    <ul class="clippings uw-clips">
+        <li class="clip">
+            <span class="clip-kicker">Lost their first</span>
+            <strong class="ar-clip-num">{{ '{:,}'.format(FL.n) }}</strong>
+            <p>teams were {{ u.through - 1 }}-0 on Sunday morning and aren&rsquo;t now.</p>
+        </li>
+        <li class="clip">
+            <span class="clip-kicker">By less than a field goal</span>
+            <strong class="ar-clip-num">{{ '{:,}'.format(FL.close) }}</strong>
+            <p>of them lost by under three points. Somebody&rsquo;s kicker is getting a strongly worded text.</p>
+        </li>
+        {% set cr = FL.cruel[0] if FL.cruel else none %}
+        {% if cr %}
+        <li class="clip">
+            <span class="clip-kicker">The cruelest</span>
+            <strong class="ar-clip-num">{{ '%.1f'|format(cr.fell_ppr if cr.fell_ppr else cr.fell_points) }}</strong>
+            <p>{{ cr.desc }}{{ tag(cr) }} scored that and lost{% if cr.fell_opp is not none %}, to {{ '%.1f'|format(cr.fell_opp) }} in its own scoring{% endif %}. {{ u.through - 1 }}-0 until it ran into the one team that had more.</p>
+        </li>
+        {% endif %}
+        {% set ne = FL.nearest[0] if FL.nearest else none %}
+        {% if ne and ne.fell_margin is not none %}
+        <li class="clip">
+            <span class="clip-kicker">The closest</span>
+            <strong class="ar-clip-num">{{ 'Tied' if ne.fell_margin == 0 else '%.1f'|format(-ne.fell_margin) }}</strong>
+            <p>{% if ne.fell_margin == 0 %}{{ ne.desc }}{{ tag(ne) }} tied, which counts. Perfect means perfect.{% else %}{{ ne.desc }}{{ tag(ne) }} lost by that much. One more catch.{% endif %}</p>
+        </li>
+        {% endif %}
+    </ul>
+</section>
+{% endif %}
+
+{# ================================================================ the lessons #}
+{% if u.lessons %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>What the unbeaten do differently</span></h2>
+    <p class="ar-intro">Unbeaten teams against winless ones, with the whole country in between. Abandoned rosters are left out of the winless: a team nobody is managing doesn&rsquo;t teach anything about managing.</p>
+    <div class="uw-lessons">
+        {% for l in u.lessons %}
+        <article class="uw-lesson">
+            <h3>{{ l.head }}</h3>
+            <p>{{ l.body }}</p>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{# ================================================================ the tape #}
+{% if u.tape %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>The tale of the tape</span></h2>
+    <div class="uw-tape">
+        <div class="uw-legend" aria-hidden="true">
+            <span class="uw-lg-u">Unbeaten <small>{{ '{:,}'.format(u.tape_n.u.n) }}</small></span>
+            <span class="uw-lg-a">The country</span>
+            <span class="uw-lg-w">Winless <small>{{ '{:,}'.format(u.tape_n.w.n) }}</small></span>
+        </div>
+        {% for r in u.tape %}
+        <div class="uw-row">
+            <div class="uw-row-label">{{ r.label }}</div>
+            <div class="uw-track" aria-hidden="true">
+                <span class="uw-span" style="left:{{ [r.pu, r.pw]|min }}%;width:{{ ([r.pu, r.pw]|max) - ([r.pu, r.pw]|min) }}%"></span>
+                {% if r.pa is not none %}<span class="uw-mark uw-mark-a" style="left:{{ r.pa }}%"></span>{% endif %}
+                <span class="uw-mark uw-mark-w" style="left:{{ r.pw }}%"></span>
+                <span class="uw-mark uw-mark-u" style="left:{{ r.pu }}%"></span>
+            </div>
+            <div class="uw-vals"><b class="uw-v-u" title="Unbeaten">{{ r.u }}</b><span class="uw-v-w" title="Winless">{{ r.w }}</span><span class="uw-v-a" title="The country">{{ r.a }}</span>
+                <span class="visually-hidden">: unbeaten {{ r.u }}, winless {{ r.w }}, the country {{ r.a }}</span></div>
+        </div>
+        {% endfor %}
+    </div>
+    {% if u.sources %}
+    <div class="uw-src">
+        <h3 class="uw-sub">Where their starting points came from</h3>
+        {% for r in u.sources %}
+        <div class="uw-src-row uw-src-{{ r.g }}">
+            <span class="uw-src-label">{{ r.label }}</span>
+            <div class="uw-src-bar">
+                {% for p in r.parts if p.w > 0 %}<span class="uw-seg uw-seg-{{ p.key }}" style="width:{{ p.w }}%" title="{{ p.label }}: {{ p.txt }}">{% if p.w >= 9 %}{{ p.txt }}{% endif %}</span>{% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+        <p class="uw-src-key"><span class="uw-sw uw-seg-drafted"></span>Their own draft <span class="uw-sw uw-seg-traded"></span>Trades <span class="uw-sw uw-seg-wire"></span>The wire and free agency</p>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
+{# ================================================================ draft day #}
+{% set SL = u.slots %}
+{% if SL or u.builds %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>It starts on draft day</span></h2>
+    {% if SL %}
+    <figure class="uw-slots">
+        <figcaption class="uw-sub">Still perfect, by draft slot</figcaption>
+        <div class="uw-slots-plot">
+            <span class="uw-slots-avg" style="bottom:{{ SL.avg_h }}%"></span>
+            {% for c in SL.cols %}
+            <div class="uw-slot{{ ' best' if SL.best and c.slot == SL.best.slot }}">
+                <span class="uw-slot-val">{{ c.txt }}</span>
+                <span class="uw-slot-bar" style="height:{{ c.h }}%"></span>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="uw-slots-x">{% for c in SL.cols %}<span>{{ c.slot }}</span>{% endfor %}</div>
+        <p class="uw-note"><span class="uw-dash"></span>Every slot together: {{ SL.avg_txt }}. Each team&rsquo;s first pick, converted to a 12-team draft. {% if SL.best %}Slot {{ SL.best.slot }} has done best: {{ SL.best.u }} of its {{ SL.best.n }} teams are still perfect.{% endif %}</p>
+    </figure>
+    {% endif %}
+    {% if u.builds %}
+    <div class="uw-builds">
+        <h3 class="uw-sub">How they opened</h3>
+        <div class="uw-legend uw-legend-sm" aria-hidden="true">
+            <span class="uw-lg-u">Share of unbeaten</span><span class="uw-lg-a">The country</span><span class="uw-lg-w">Share of winless</span>
+        </div>
+        {% for b in u.builds %}
+        <div class="uw-row uw-row-build">
+            <div class="uw-row-label">{{ b.name }}<small>{{ b.what }}</small></div>
+            <div class="uw-track" aria-hidden="true">
+                <span class="uw-span" style="left:{{ [b.pu, b.pw]|min }}%;width:{{ ([b.pu, b.pw]|max) - ([b.pu, b.pw]|min) }}%"></span>
+                {% if b.pa is not none %}<span class="uw-mark uw-mark-a" style="left:{{ b.pa }}%"></span>{% endif %}
+                <span class="uw-mark uw-mark-w" style="left:{{ b.pw }}%"></span>
+                <span class="uw-mark uw-mark-u" style="left:{{ b.pu }}%"></span>
+            </div>
+            <div class="uw-vals"><b class="uw-v-u" title="Share of unbeaten">{{ b.su }}</b><span class="uw-v-w" title="Share of winless">{{ b.sw }}</span><span class="uw-v-a" title="The country">{{ b.sa }}</span>
+                <span class="visually-hidden">: {{ b.su }} of unbeaten teams, {{ b.sw }} of winless, {{ b.sa }} of the country</span></div>
+            <div class="uw-row-rate"><b>{{ b.rtxt }}</b> still perfect</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if u.draft_thread %}
+    <div class="uw-drafted">
+        <h3 class="uw-sub">Drafted by the unbeaten</h3>
+        <p class="uw-note">Players the unbeaten took far more often than everybody else did, decided in August before a game was played.</p>
+        <ol class="uw-plist">
+            {% for p in u.draft_thread[:8] %}
+            <li>{{ face(p) }}<span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>{% if p.adp %}Went around pick {{ '%.0f'|format(p.adp) }}. {% endif %}Drafted by {{ p.su }} of the unbeaten, {{ p.sa }} of everyone.</small></span><span class="uw-p-lift">{{ p.lift_txt }}</span></li>
+            {% endfor %}
+        </ol>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
+{# ================================================================ the players #}
+{% if u.thread or u.most %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>The common thread</span></h2>
+    <p class="ar-intro">Who the unbeaten have on their rosters now, against how often everyone else does. Fair warning: some of this is hindsight. The teams that are still perfect are the ones who had the players who broke out.</p>
+    {% set lead = u.thread[:4] if u.thread|length >= 2 else u.most[:4] %}
+    <div class="at-stars uw-stars">
+        {% for p in lead %}
+        <article class="at-star">
+            <figure class="at-star-photo{{ ' at-star-photo-def' if p.position == 'DEF' }}">
+                <span class="at-star-fallback" aria-hidden="true">{{ p.position or '?' }}</span>
+                {% if p.photo %}<img src="{{ p.photo }}" alt="{{ p.name }}" loading="lazy" onerror="this.remove()" />{% endif %}
+            </figure>
+            <div class="at-star-text">
+                <span class="clip-kicker">{% if p.lift_txt %}{{ p.lift_txt }} the national rate{% else %}On {{ p.su }} of them{% endif %}</span>
+                <h3 class="at-star-name">{{ p.name }}{% if p.position %} <span class="ar-pos">{{ p.position }}</span>{% endif %}</h3>
+                <p class="at-star-line">On {{ p.su }} of unbeaten rosters and {{ p.sa }} of everyone&rsquo;s.</p>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    <div class="ar-boards ar-boards-2 uw-pboards">
+        {% set rest = (u.thread[4:12] if u.thread|length >= 2 else u.most[4:12]) %}
+        {% if rest %}
+        <article class="ar-board">
+            <h3 class="ar-board-head">Also over-represented</h3>
+            <ol class="uw-plist">
+                {% for p in rest %}<li>{{ face(p) }}<span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>On {{ p.su }} of unbeaten rosters, {{ p.sa }} of everyone&rsquo;s.</small></span><span class="uw-p-lift">{{ p.lift_txt }}</span></li>{% endfor %}
+            </ol>
+        </article>
+        {% endif %}
+        {% if u.kryptonite %}
+        <article class="ar-board uw-kryp">
+            <h3 class="ar-board-head">Found on winless rosters</h3>
+            <ol class="uw-plist">
+                {% for p in u.kryptonite %}<li>{{ face(p) }}<span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>On {{ p.sw }} of winless rosters, {{ p.sa }} of everyone&rsquo;s.</small></span><span class="uw-p-lift">{{ p.liftw_txt }}</span></li>{% endfor %}
+            </ol>
+        </article>
+        {% endif %}
+    </div>
+</section>
+{% endif %}
+
+{# ================================================================ the wire #}
+<section class="ar-sec">
+    <h2 class="section-head"><span>The wire</span></h2>
+    {% set TU, TW = u.tape_n.u, u.tape_n.w %}
+    {% if u.wire_ready and TU.adds is not none %}
+    <section class="figures uw-figs" aria-label="The waiver wire">
+        <div class="figure"><strong>{{ '%.1f'|format(TU.adds) }}</strong><span>pickups per unbeaten team</span></div>
+        <div class="figure"><strong>{{ '%.1f'|format(TW.adds) if TW.adds is not none else '–' }}</strong><span>per winless team</span></div>
+        {% if TU.faab is not none %}<div class="figure"><strong>${{ '%.0f'|format(TU.faab) }}</strong><span>FAAB spent, unbeaten</span></div>{% endif %}
+        {% if TW.faab is not none %}<div class="figure"><strong>${{ '%.0f'|format(TW.faab) }}</strong><span>FAAB spent, winless</span></div>{% endif %}
+    </section>
+    {% else %}
+    <p class="ar-intro">We started keeping every waiver claim this week, won and lost, with the FAAB bid. Once every week of the season is in, this is where the unbeaten&rsquo;s pickups go{% if staff %} (staff: see the note at the bottom){% endif %}.</p>
+    {% endif %}
+    <div class="ar-boards ar-boards-2">
+        {% if u.wire_ready and u.wire_most %}
+        <article class="ar-board">
+            <h3 class="ar-board-head">The pickups that made them</h3>
+            <ol class="uw-plist">
+                {% for p in u.wire_most[:8] %}<li>{{ face(p) }}<span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>Picked up by {{ '{:,}'.format(p.n_u) }} unbeaten team{{ 's' if p.n_u != 1 }}, {{ p.su }} of them.</small></span><span class="uw-p-lift">{{ p.lift_txt or '' }}</span></li>{% endfor %}
+            </ol>
+        </article>
+        {% endif %}
+        {% if u.hot %}
+        <article class="ar-board">
+            <h3 class="ar-board-head">Most added{% if u.hot_week %}, week {{ u.hot_week }}{% endif %}</h3>
+            <ol class="uw-plist">
+                {% for p in u.hot %}<li><span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>{% if p.avg_bid %}${{ '%.0f'|format(p.avg_bid) }} average bid{% else %}No FAAB bids{% endif %}{% if p.failed %}, {{ p.failed }} claim{{ 's' if p.failed != 1 }} lost{% endif %}</small></span><span class="uw-p-lift">{{ '{:,}'.format(p.adds) }}</span></li>{% endfor %}
+            </ol>
+        </article>
+        {% endif %}
+    </div>
+</section>
+
+{# ================================================================ real or not #}
+{% if u.vtot %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>Real, or just lucky?</span></h2>
+    <p class="ar-intro">An unbeaten record says who they played. All-play says how they&rsquo;d do against everybody in their league, every week. A {{ u.through }}-0 team that would have lost half its games against the rest of its league is a pretender with a good schedule.</p>
+    <div class="uw-verdicts">
+        <div class="uw-vbar" role="img" aria-label="{% for v in u.vbar %}{{ v.label }}: {{ v.n }}{{ ', ' if not loop.last }}{% endfor %}">
+            {% for v in u.vbar if v.n %}<span class="uw-vseg uw-v-{{ 'real' if v.key == 'real' else 'mid' if v.key == 'middle' else 'fake' }}" style="width:{{ v.w }}%"></span>{% endfor %}
+        </div>
+        <div class="uw-vkey">
+            {% for v in u.vbar %}
+            <div class="uw-vkey-item uw-v-{{ 'real' if v.key == 'real' else 'mid' if v.key == 'middle' else 'fake' }}">
+                <b>{{ '{:,}'.format(v.n) }}</b><span>{{ v.label }}</span>
+                <small>{% if v.key == 'real' %}win three in four against their whole league{% elif v.key == 'middle' %}better than half, not dominant{% else %}would lose most weeks to the rest of their league{% endif %}</small>
+            </div>
+            {% endfor %}
+        </div>
+        {% if u.verdicts.led_league %}<p class="uw-note">{{ '{:,}'.format(u.verdicts.led_league) }} of the {{ '{:,}'.format(u.unbeaten) }} also lead their league in points.</p>{% endif %}
+    </div>
+    {% set fakes = u.pretenders|selectattr('vcls', 'equalto', 'fake')|list %}
+    {% if fakes %}
+    <h3 class="uw-sub uw-sub-c">The pretenders</h3>
+    <div class="uw-tickets uw-tickets-few">{% for c in fakes[:3] %}{{ ticket(c) }}{% endfor %}</div>
+    {% endif %}
+</section>
+{% endif %}
+
+{# ================================================================ the cards #}
+{% if u.cards %}
+<section class="ar-sec">
+    {% if u.state == 'none' %}
+    <h2 class="section-head"><span>The last to fall</span></h2>
+    <p class="ar-intro">Every team that was still perfect going into week {{ S.extinct }}.</p>
+    {% elif u.show_all %}
+    <h2 class="section-head"><span>{% if u.unbeaten == 1 %}The last one standing{% else %}The last {{ u.unbeaten }}{% endif %}</span></h2>
+    <p class="ar-intro">Every unbeaten team in the country, most dominant first. Each one, described and never named. Check back next Tuesday to see who&rsquo;s left.</p>
+    {% else %}
+    <h2 class="section-head"><span>The most dominant</span></h2>
+    <p class="ar-intro">The twelve unbeaten teams that would have won the most against everybody in their league. Once {{ 100 }} or fewer are left, every one of them gets a card here. {{ '{:,}'.format(u.unbeaten - 100) }} more have to lose first.</p>
+    {% endif %}
+    <div class="uw-tickets{{ ' uw-tickets-big' if u.unbeaten <= 10 }}">
+        {% for c in (u.cards if (u.show_all or u.state == 'none') else u.cards[:12]) %}{{ ticket(c, big=u.unbeaten <= 10) }}{% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{# ================================================================ standings #}
+{% if u.standings %}
+<section class="ar-sec">
+    <h2 class="section-head"><span>The country&rsquo;s standings</span></h2>
+    <div class="uw-stand">
+        {% for r in u.standings %}
+        <div class="uw-stand-row uw-stand-{{ r.kind or 'x' }}">
+            <span class="uw-stand-rec">{{ r.rec }}</span>
+            <span class="uw-stand-bar"><i style="width:{{ r.wd }}%"></i></span>
+            <span class="uw-stand-n">{{ '{:,}'.format(r.n) }}</span>
+        </div>
+        {% endfor %}
+        {% if u.tied %}<p class="uw-note">Plus {{ '{:,}'.format(u.tied) }} team{{ 's' if u.tied != 1 }} with a tie.</p>{% endif %}
+    </div>
+</section>
+{% endif %}
+
+{# ================================================================ how / pitch #}
+<section class="ar-sec at-how">
+    <div class="at-how-text">
+        <h2 class="at-how-head">How the Watch is kept</h2>
+        <p>Every redraft league connected to The Commissioner&rsquo;s Desk, on Sleeper, ESPN and Yahoo: {{ '{:,}'.format(S.leagues) }} of them through week {{ u.through }}. Dynasty leagues are left out. A team is unbeaten until it loses or ties. A league counts only once every one of its weeks is in, so nobody&rsquo;s perfect by a gap in our data. Scores are compared in plain PPR, all-play uses each league&rsquo;s own scoring, and the winless and the country leave out {{ '{:,}'.format(S.abandoned) }} abandoned rosters (fewer than half the starters took the field in some week). Teams are described, never named.</p>
+    </div>
+    {% if not user %}
+    <div class="at-pitch">
+        <p class="at-pitch-kicker">Your league, in print</p>
+        <p class="at-pitch-head">Is your team still perfect? Your league&rsquo;s paper will tell everyone.</p>
+        <p class="at-pitch-sub">Recaps, roasts and awards from your real results, every Tuesday. Your first three papers are free.</p>
+        <a class="btn btn-primary" href="/">Make your league&rsquo;s paper</a>
+    </div>
+    {% endif %}
+</section>
+
+{% if staff %}
+<section class="card ar-collect uw-staff">
+    <h2 class="card-title">The wire, collected &middot; staff only</h2>
+    {% if wire_note.error %}
+    <p class="card-sub">The waiver tables aren&rsquo;t there yet ({{ wire_note.error }}). Run <code>migrations/067_waivers.sql</code>.</p>
+    {% elif wire_note.weeks is defined %}
+    <p class="card-sub">{% if wire_note.complete %}Every week 1&ndash;{{ u.through }} is in: {{ '{:,}'.format(wire_note.adds) }} adds.{% else %}Weeks missing: {{ wire_note.missing|join(', ') }}. Backfill them with the collector on <a href="/staff/around">/staff/around</a> (weeks 1&ndash;{{ u.through }}; leagues already done are skipped and only their wire is asked for), or <code>python -m scripts.backfill_waivers</code>.{% endif %}
+        The wire sections use only leagues with every week scanned: {{ '{:,}'.format(S.wire_leagues) }} of {{ '{:,}'.format(S.leagues) }} so far.</p>
+    {% if wire_note.weeks %}<p class="card-sub">{% for w in wire_note.weeks %}Week {{ w.week }}: {{ '{:,}'.format(w.leagues) }} leagues, {{ '{:,}'.format(w.adds) }} adds, {{ '{:,}'.format(w.failed) }} lost claims.{{ ' ' }}{% endfor %}</p>{% endif %}
+    {% endif %}
+    <p class="card-sub">Left out: {{ S.dynasty_left }} dynasty leagues, {{ S.incomplete_left }} with a week missing or under four teams. {{ S.winless_all - S.winless }} winless team{{ 's' if (S.winless_all - S.winless) != 1 }} dropped as abandoned.</p>
+</section>
+{% endif %}
+
+<script type="application/json" id="uw-data">{{ {"room": u.room, "dots": u.curve.dots if u.curve else [], "teams": u.teams, "through": u.through, "unbeaten": u.unbeaten, "card": card_base, "url": public_base() ~ "/undefeated"}|tojson }}</script>
+<script>
+(function () {
+    var D = JSON.parse(document.getElementById("uw-data").textContent);
+    var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var fmt = function (n) { return Math.round(n).toLocaleString("en-US"); };
+
+    // ---- the room of 1,000 ------------------------------------------------
+    // Forty by twenty-five. Each seat is given a fixed place in the order
+    // teams fall (a seeded shuffle, so it looks like a season and not a
+    // wipe), and after week k only the last n_k in that order are lit.
+    var svg = document.getElementById("uw-room");
+    var cap = document.getElementById("uw-room-cap");
+    var num = document.getElementById("uw-num");
+    var when = document.getElementById("uw-when");
+    var weeks = document.getElementById("uw-weeks");
+    if (svg) {
+        var NS = "http://www.w3.org/2000/svg", COLS = 40, ROWS = 25, N = COLS * ROWS;
+        // Park-Miller, exact in a double, so web/undefeated_card.py lights
+        // the same seats on the share card.
+        var order = [], seed = 20261029;
+        for (var i = 0; i < N; i++) order.push(i);
+        function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+        for (var j = N - 1; j > 0; j--) { var k = Math.floor(rnd() * (j + 1)); var t = order[j]; order[j] = order[k]; order[k] = t; }
+        var rank = new Array(N);
+        order.forEach(function (seat, r) { rank[seat] = r; });
+        var dots = [];
+        for (var s = 0; s < N; s++) {
+            var c = document.createElementNS(NS, "circle");
+            c.setAttribute("cx", (s % COLS) * 10 + 5);
+            c.setAttribute("cy", Math.floor(s / COLS) * 10 + 5);
+            c.setAttribute("r", 3.4);
+            svg.appendChild(c);
+            dots.push(c);
+        }
+        var shown = -1;
+        function country(i) {
+            var r = D.room[i];
+            if (r.week === 0) return D.teams;
+            var d = (D.dots || []).filter(function (x) { return x.week === r.week; })[0];
+            return d ? d.n : 0;
+        }
+        function show(i, animateNum) {
+            var r = D.room[i], lit = r.n;
+            // A country with any team left keeps at least one seat lit.
+            if (lit === 0 && country(i) > 0) lit = 1;
+            for (var s = 0; s < N; s++) dots[s].setAttribute("class", rank[s] >= N - lit ? "on" : "");
+            when.textContent = r.week === 0 ? "Before week 1" : "After week " + r.week;
+            var target = country(i);
+            if (animateNum && !calm) countTo(target); else num.textContent = fmt(target);
+            cap.textContent = r.week === 0 ? "A room of 1,000 teams, before a game was played."
+                : "In a room of 1,000 teams, " + (r.n || (target ? "not even one" : "none")) + " " +
+                  (r.n === 1 ? "is" : "are") + " still perfect after week " + r.week + ".";
+            Array.prototype.forEach.call(weeks.children, function (b, bi) {
+                b.classList.toggle("on", bi === i);
+                b.setAttribute("aria-pressed", bi === i ? "true" : "false");
+            });
+            shown = i;
+        }
+        var counting = null;
+        function countTo(v) {
+            var from = parseInt(num.textContent.replace(/,/g, ""), 10) || v, t0 = null;
+            if (counting) cancelAnimationFrame(counting);
+            function step(ts) {
+                if (!t0) t0 = ts;
+                var p = Math.min(1, (ts - t0) / 380);
+                num.textContent = fmt(from + (v - from) * (1 - Math.pow(1 - p, 3)));
+                if (p < 1) counting = requestAnimationFrame(step);
+            }
+            counting = requestAnimationFrame(step);
+        }
+        var timer = null, playBtn = document.getElementById("uw-play");
+        function stop() { if (timer) { clearInterval(timer); timer = null; } playBtn.textContent = "Replay the season"; }
+        function play() {
+            stop();
+            var i = 0;
+            show(0, false);
+            playBtn.textContent = "Stop";
+            timer = setInterval(function () {
+                i += 1;
+                if (i >= D.room.length) { stop(); return; }
+                show(i, true);
+            }, 650);
+        }
+        playBtn.addEventListener("click", function () { if (timer) stop(); else play(); });
+        weeks.addEventListener("click", function (e) {
+            var b = e.target.closest("button");
+            if (!b) return;
+            stop();
+            show(parseInt(b.getAttribute("data-i"), 10), true);
+        });
+        show(D.room.length - 1, false);
+        // Play once, the first time the room comes into view.
+        if (!calm && "IntersectionObserver" in window) {
+            var io = new IntersectionObserver(function (es) {
+                if (es[0].isIntersecting) { io.disconnect(); setTimeout(play, 350); }
+            }, {threshold: 0.55});
+            io.observe(svg);
+        }
+    }
+
+    // ---- the countdown: a crosshair per week ------------------------------
+    var box = document.getElementById("uw-chart");
+    if (box && D.dots && D.dots.length) {
+        var hair = document.getElementById("uw-hair"), card = document.getElementById("uw-hair-card");
+        var W = 720;
+        function at(clientX) {
+            var r = box.getBoundingClientRect(), x = (clientX - r.left) / r.width * W;
+            var best = D.dots[0];
+            D.dots.forEach(function (d) { if (Math.abs(d.x - x) < Math.abs(best.x - x)) best = d; });
+            hair.hidden = false;
+            hair.style.left = (100 * best.x / W) + "%";
+            var coin = best.coin >= 10 ? fmt(best.coin) : best.coin >= 1 ? best.coin.toFixed(1) : "under 1";
+            card.innerHTML = "";
+            var h = document.createElement("b");
+            h.textContent = best.week === 0 ? "Before week 1" : "After week " + best.week;
+            var a = document.createElement("span");
+            a.textContent = fmt(best.n) + " still perfect";
+            var b = document.createElement("small");
+            b.textContent = "A coin: " + coin;
+            card.appendChild(h); card.appendChild(a); card.appendChild(b);
+            hair.classList.toggle("flip", best.x > W * 0.62);
+        }
+        box.addEventListener("mousemove", function (e) { at(e.clientX); });
+        box.addEventListener("mouseleave", function () { hair.hidden = true; });
+        box.addEventListener("touchstart", function (e) { at(e.touches[0].clientX); }, {passive: true});
+        box.addEventListener("touchmove", function (e) { at(e.touches[0].clientX); }, {passive: true});
+    }
+
+    // ---- share the count ----------------------------------------------------
+    var shareBtn = document.getElementById("uw-share"), done = document.getElementById("uw-share-done");
+    if (shareBtn) {
+        var text = D.unbeaten.toLocaleString("en-US") + " of " + D.teams.toLocaleString("en-US") +
+            " fantasy teams are still " + D.through + "-0. Who's still perfect?";
+        function say(m) { done.textContent = m; }
+        shareBtn.addEventListener("click", function () {
+            shareBtn.disabled = true;
+            fetch(D.card + "?size=story").then(function (r) {
+                if (!r.ok) throw new Error("card");
+                return r.blob();
+            }).then(function (blob) {
+                var file = new File([blob], "undefeated-week-" + D.through + ".png", {type: "image/png"});
+                if (navigator.canShare && navigator.canShare({files: [file]})) {
+                    return navigator.share({files: [file], text: text, url: D.url});
+                }
+                if (navigator.clipboard && window.ClipboardItem) {
+                    return navigator.clipboard.write([new ClipboardItem({"image/png": blob})])
+                        .then(function () { say("Card copied. Paste it anywhere."); });
+                }
+                window.open(D.card + "?size=story", "_blank", "noopener");
+            }).catch(function () {
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(text + " " + D.url).then(
+                        function () { say("Link copied."); },
+                        function () { say("Use “See the card” to save the picture."); });
+                } else { say("Use “See the card” to save the picture."); }
+            }).then(function () { shareBtn.disabled = false; window.cdEvent && window.cdEvent("card_shared", "undefeated"); });
+        });
+    }
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -17,7 +17,7 @@ def test_inline_scripts_parse(tmp_path):
     bad = []
     for page in sorted(TEMPLATES.glob("*.html")):
         for i, m in enumerate(SCRIPT.finditer(page.read_text(encoding="utf-8"))):
-            js = re.sub(r"\{%.*?%\}", "", re.sub(r"\{\{.*?\}\}", "0", m.group(1), flags=re.S), flags=re.S)
+            js = re.sub(r"\{%.*?%\}", "", re.sub(r"\{\{.*?\}\}", "(0)", m.group(1), flags=re.S), flags=re.S)
             if not js.strip():
                 continue
             f = tmp_path / f"{page.stem}_{i}.js"

@@ -62,6 +62,8 @@ def public_pages() -> list[tuple[str, str, bool]]:
         pages.append(("/around", "weekly", True))
         pages.append(("/around/rank", "weekly", True))
         pages.append(("/around/players", "weekly", True))
+    if os.getenv("UNDEFEATED_PUBLIC", "").strip() == "1":
+        pages.append(("/undefeated", "weekly", True))
     pages.append(("/market", "daily", True))
     pages.append(("/market/compare", "daily", True))
     pages.append(("/market/trades", "hourly", True))

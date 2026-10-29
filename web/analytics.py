@@ -35,6 +35,7 @@ BEACON_PATHS = [re.compile(p) for p in (
     r"/around",
     r"/around/rank",
     r"/around/players",
+    r"/undefeated",
     r"/luck",
     r"/luck/[^/]+",
     r"/rankings",
@@ -142,7 +143,7 @@ PAYWALL_STEPS = [("gate_seen", "Seen"), ("gate_hit", "Hit"), ("upgrade_clicked",
 #: dropped, so the endpoint can't be used to write arbitrary rows.
 CLIENT_EVENTS = {
     "link_copied": {"manage", "published"},
-    "card_shared": {"around", "luck"},
+    "card_shared": {"around", "luck", "undefeated"},
     "gate_seen": set(GATES),
     "gate_hit": set(GATES),
     "upgrade_clicked": set(GATES),

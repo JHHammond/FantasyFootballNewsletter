@@ -233,6 +233,7 @@ templates.env.globals["demo_mode"] = DEMO_MODE
 templates.env.globals["around_open"] = lambda: os.getenv("AROUND_PUBLIC", "").strip() == "1"
 templates.env.globals["team_open"] = lambda: os.getenv("TEAM_PUBLIC", "").strip() == "1"
 templates.env.globals["luck_open"] = lambda: os.getenv("LUCK_PUBLIC", "").strip() == "1"
+templates.env.globals["undefeated_open"] = lambda: os.getenv("UNDEFEATED_PUBLIC", "").strip() == "1"
 
 
 def static_url(name: str) -> str:
@@ -1741,6 +1742,73 @@ def around_card_image(request: Request, score: str = "", week: int = 0,
     return Response(png, media_type="image/png", headers={
         "Cache-Control": "public, max-age=900",
         "Content-Disposition": f'inline; filename="around-week-{week}-{size}.png"'})
+
+
+# ---------------------------------------------------------------------------
+# The Undefeated Watch (29 Oct 2026). Public once UNDEFEATED_PUBLIC=1 is set
+# on Render; staff can always see it, with team names in dashed tags.
+# ---------------------------------------------------------------------------
+
+def undefeated_public() -> bool:
+    return os.getenv("UNDEFEATED_PUBLIC", "").strip() == "1"
+
+
+def _undefeated_viewer(request: Request) -> tuple[Optional[dict], bool]:
+    user = current_user(request)
+    staff = bool(user and user.get("plan") == plans.STAFF)
+    if not undefeated_public() and not staff:
+        raise HTTPException(status_code=404)
+    return user, staff
+
+
+@app.get("/undefeated", response_class=HTMLResponse)
+def undefeated_page(request: Request, public: int = 0):
+    """Who is still perfect, what they have in common, and how few are left.
+    Redraft leagues only. ?public=1 shows staff the page without names."""
+    import nfl_week
+    from . import undefeated as uw
+
+    user, staff = _undefeated_viewer(request)
+    season = nfl_week.current_season()
+    try:
+        raw = uw.data(db, season)
+    except Exception as exc:  # noqa: BLE001 — a cold cache that timed out
+        print(f"[undefeated] no data: {type(exc).__name__}: {exc}", flush=True)
+        raw = {}
+    names = staff and not public
+    u = uw.build(raw, staff=names)
+    wire = {}
+    if staff and u.get("ready"):
+        try:
+            from . import waivers
+            wire = waivers.summary(db.waiver_volume(season), u["through"])
+        except Exception as exc:  # noqa: BLE001 — before 067
+            wire = {"error": f"{type(exc).__name__}"}
+    mine = uw.my_team(db, user, season, u.get("through")) if u.get("ready") else None
+    return _render(request, "undefeated.html", u=u, staff=staff, names=names,
+                   mine=mine, wire_note=wire, season=season,
+                   card_base=f"{public_base_url()}/undefeated/card.png")
+
+
+@app.get("/undefeated/card.png")
+def undefeated_card_image(request: Request, size: str = "square"):
+    """How many are left, as a picture for the socials. Nothing on it is a
+    team: a count, a room of 1,000 and a week."""
+    import nfl_week
+    from . import undefeated as uw, undefeated_card
+
+    _undefeated_viewer(request)
+    size = size if size in undefeated_card.SIZES else "square"
+    try:
+        u = uw.build(uw.data(db, nfl_week.current_season()))
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=503) from None
+    if not u.get("ready"):
+        raise HTTPException(status_code=404)
+    png = undefeated_card.render(u, size=size)
+    return Response(png, media_type="image/png", headers={
+        "Cache-Control": "public, max-age=900",
+        "Content-Disposition": f'inline; filename="undefeated-week-{u["through"]}-{size}.png"'})
 
 
 @app.get("/staff/around", response_class=HTMLResponse)

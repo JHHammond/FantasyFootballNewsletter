@@ -290,6 +290,7 @@ def seed(n_leagues: int = 300, weeks: int = 7, season: int | None = None,
                                                     if r["league_id"] == lid)})
         print(f"[demo] {len(draft_rows):,} draft picks across {len(rosters)} leagues")
     _trade(demo_db, rosters, season, weeks, rng)
+    _wire(demo_db, rosters, season, weeks, rng)
 
 
 def _draft(lid: str, teams: list, size: int, season: int,
@@ -450,6 +451,74 @@ def _trade(demo_db, rosters: dict, season: int, weeks: int,
     print(f"[demo] {len(heads):,} trades invented, {pure:,} player-for-player")
 
 
+def _wire(demo_db, rosters: dict, season: int, weeks: int,
+          rng: random.Random) -> None:
+    """Invent a season of waiver claims (067), so the Undefeated Watch's
+    wire section can be looked at.
+
+    Each week a few players are the week's frenzy (everybody wants the back
+    who just took over a starting job), and most adds are one-offs. About
+    six leagues in ten bid FAAB; the rest run on priority, and a claim
+    there has no bid. Some claims lose: a second team wanted the same man
+    and bid less, which is the row the wire section counts as a failed
+    claim. Like the trades above, the lineups are not rewritten, so a
+    pickup never actually starts for his new team in the demo."""
+    import datetime as dt
+
+    import nfl_week
+    from web import waivers as wv
+    try:
+        opener = nfl_week.season_opener(season)
+    except Exception:  # noqa: BLE001
+        opener = dt.date(season, 9, 4)
+    rows, scans = [], []
+    deep = POOL[30:]
+    for lid, teams in rosters.items():
+        faab = rng.random() < 0.6
+        busy = {t["id"]: rng.choice([0, 1, 1, 2, 3]) for t in teams}
+        for w in range(1, weeks + 1):
+            frenzy = rng.sample(deep, 3)
+            moves = 0
+            for t in teams:
+                if t.get("dead") and w > 2:
+                    continue
+                for _ in range(rng.choice([0, 0, 1]) + busy[t["id"]] // 2 + (rng.random() < 0.3)):
+                    p = rng.choice(frenzy) if rng.random() < 0.45 else rng.choice(deep)
+                    gone = rng.choice(t["roster"])
+                    kind = "waiver" if rng.random() < 0.7 else "free_agent"
+                    bid = rng.choice([1, 2, 4, 7, 11, 15, 22, 35]) if faab and kind == "waiver" else None
+                    when = (dt.datetime.combine(opener + dt.timedelta(days=7 * (w - 1) + 6),
+                                                dt.time(9, 0), dt.UTC)).isoformat()
+                    d = {"kind": kind, "status": "complete", "week": w, "bid": bid,
+                         "adds": [(t["name"], {"player_id": _key(p[0])})],
+                         "drops": [(t["name"], {"player_id": _key(gone[0])})],
+                         "created": f"{lid}-{t['id']}-{w}-{moves}"}
+                    key = wv.move_key(d)
+                    moves += 1
+                    base = {"league_id": lid, "season": season, "week": w, "move_key": key,
+                            "kind": kind, "status": "complete", "team_name": t["name"],
+                            "moved_at": when}
+                    rows.append({**base, "action": "add", "player_key": _key(p[0]),
+                                 "name": p[0], "position": p[1], "nfl_team": p[2], "bid": bid})
+                    rows.append({**base, "action": "drop", "player_key": _key(gone[0]),
+                                 "name": gone[0], "position": gone[1], "nfl_team": gone[2],
+                                 "bid": None})
+                    if kind == "waiver" and rng.random() < 0.25:
+                        rival = rng.choice([x for x in teams if x is not t])
+                        lost = {**d, "status": "failed", "adds": [(rival["name"], {"player_id": _key(p[0])})],
+                                "drops": [], "bid": max(0, (bid or 1) - rng.randint(1, 3)) if faab else None}
+                        rows.append({**base, "move_key": wv.move_key(lost), "status": "failed",
+                                     "team_name": rival["name"], "action": "add",
+                                     "player_key": _key(p[0]), "name": p[0], "position": p[1],
+                                     "nfl_team": p[2], "bid": lost["bid"]})
+            scans.append({"league_id": lid, "season": season, "week": w, "moves": moves})
+    demo_db.upsert_waivers(rows)
+    for sc in scans:
+        demo_db.upsert_waiver_scan(sc)
+    adds = sum(1 for r in rows if r["action"] == "add" and r["status"] == "complete")
+    print(f"[demo] {adds:,} waiver and free-agent adds invented")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--leagues", type=int, default=300)
@@ -460,12 +529,14 @@ def main() -> None:
     # (a test that imported it left /around open to everybody).
     os.environ["DEMO_MODE"] = "1"
     os.environ.setdefault("AROUND_PUBLIC", "1")
+    os.environ.setdefault("UNDEFEATED_PUBLIC", "1")
     import nfl_week
     weeks = args.weeks or max(nfl_week.completed_week(), 1)
     seed(args.leagues, weeks)
     import uvicorn
     from web.app import app
     print(f"Around the Leagues: http://localhost:{args.port}/around")
+    print(f"The Undefeated Watch: http://localhost:{args.port}/undefeated")
     uvicorn.run(app, host="127.0.0.1", port=args.port)
 
 
