@@ -51,6 +51,10 @@ PACE = {"sleeper": 0.25, "espn": 1.0, "yahoo": 0.5}
 #: Leagues collected at once, per platform. Each worker keeps PACE.
 WORKERS = {"sleeper": 3, "espn": 2, "yahoo": 1}
 
+#: Under the radar (066): started by fewer than this share of the teams
+#: that rostered him. Mirrors the SQL's `start_pct < 0.25`.
+RADAR_SHARE = 0.25
+
 
 def week_is_final(season: int, week: int, now: Optional[datetime] = None) -> bool:
     return (now or datetime.now(timezone.utc)) >= nfl_week.week_final(int(week), int(season))
@@ -720,7 +724,8 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
     for l in lut:
         e = ps.setdefault(l["player_key"], {"rostered": 0, "started": 0, "benched": 0,
                                             "wins": 0.0, "ppr": None, "best": None,
-                                            "bench": [], "did_play": None})
+                                            "bench": [], "did_play": None,
+                                            "bench_losses": 0})
         if l.get("did_play") is not None:
             e["did_play"] = (e["did_play"] is True) or bool(l["did_play"])
         e["rostered"] += 1
@@ -731,6 +736,14 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
         if bench:
             e["benched"] += 1
             e["bench"].append(l["points"])
+            # Bench losses (066): the team lost a game its own bench would
+            # have won, by less than he scored, and it was a real lineup.
+            t = by_team[(l["league_id"], l["team_id"])]
+            if (t["result"] == "L" and t["margin"] is not None
+                    and t["optimal_points"] is not None and t["opponent_points"] is not None
+                    and t["optimal_points"] > t["opponent_points"]
+                    and l["points"] > -t["margin"] and turned_up(t)):
+                e["bench_losses"] += 1
         if l["ppr_points"] is not None:
             e["ppr"] = l["ppr_points"] if e["ppr"] is None else max(e["ppr"], l["ppr_points"])
         e["best"] = l["points"] if e["best"] is None else max(e["best"], l["points"])
@@ -749,6 +762,7 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
             "teams": (top_on.get(key) or {}).get("teams", 0),
             "bench_total": _r(sum(e["bench"]), 2),
             "bench_avg": _r(_avg(e["bench"]), 2),
+            "bench_losses": e["bench_losses"],
             "did_play": e["did_play"],
         })
     pk = lambda c: c["player_key"]  # noqa: E731
@@ -866,6 +880,12 @@ def compute_week(team_rows: list[dict], lineup_rows: list[dict],
                             lambda c: (-c["win_pct"], -c["started"], pk(c)), 10),
             "win_worst": top([c for c in pcard if c["started"] >= min_starts and took_field(c)],
                              lambda c: (c["win_pct"], -c["started"], pk(c)), 10),
+            # 066 (John, 29 Oct): boards with a storyline in them.
+            "bench_losses": top([c for c in pcard if c["bench_losses"] > 0],
+                                lambda c: (-c["bench_losses"], -c["benched"], pk(c)), 10),
+            "radar": top([c for c in pcard if c["started"] >= min_starts
+                          and (c["start_pct"] or 0) < RADAR_SHARE and took_field(c)],
+                         lambda c: (-c["win_pct"], -c["started"], pk(c)), 10),
             "flops": top([c for c in pcard if c["started"] > 0 and c["ppr"] is not None
                           and c["ppr"] < 5], lambda c: (-c["started"], pk(c)), 5),
             "sleepers": top([c for c in pcard if c["rostered"] >= 100

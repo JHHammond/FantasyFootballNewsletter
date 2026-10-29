@@ -50,9 +50,11 @@
         ('win_best', 'Best win rate', 'Win rate for teams that started him. At least ' ~ P.min_starts ~ ' starts.', P.win_best),
         ('win_worst', 'Worst win rate', 'Same rule, counting players who played. Starting these was a coin flip you mostly lost.', P.win_worst),
         ('top_on', 'Carried teams', 'How many lineups he was the best player in.', P.top_on),
-        ('started', 'Most started', 'Started on the most teams, and what he gave them.', P.started),
-        ('benched', 'Benched', 'Points scored from the bench, added up across every team that sat him.', P.benched),
+        ('bench_losses', 'Bench losses', 'Benched by teams that lost by less than he scored, in a game their own bench would have won.', P.bench_losses),
+        ('radar', 'Under the radar', 'Most teams that had him left him on the bench. The few who started him won this often. At least ' ~ P.min_starts ~ ' starts.', P.radar),
     ] %}
+    {# John, 29 Oct: Most started and Benched made way for two boards with a
+       storyline (migration 066). #}
     <div class="at-tabs" data-tabs>
         <div class="at-tablist" role="tablist">
             {% for key, title, sub, rows in boards %}
@@ -61,7 +63,7 @@
         </div>
         {% for key, title, sub, rows in boards %}
         {% set top =
-            (rows|map(attribute='bench_total')|max if key == 'benched' else
+            (rows|map(attribute='bench_losses')|max if key == 'bench_losses' else
              rows|map(attribute='teams')|max if key == 'top_on' else
              rows|map(attribute='started')|max) if rows else 1 %}
         <div class="ar-board at-panel{{ ' on' if loop.first }}" role="tabpanel" data-panel="{{ key }}">
@@ -69,25 +71,26 @@
             <p class="ar-board-sub">{{ sub }}</p>
             <ol class="ar-list at-rows">
                 {% for p in rows %}
-                {% set v = p.bench_total if key == 'benched' else p.teams if key == 'top_on' else p.win_pct if key.startswith('win') else p.started %}
-                {% set w = (100 * p.win_pct) if key.startswith('win') else (100 * v / top if top else 0) %}
+                {% set rate = key.startswith('win') or key == 'radar' %}
+                {% set v = p.bench_losses if key == 'bench_losses' else p.teams if key == 'top_on' else p.win_pct if rate else p.started %}
+                {% set w = (100 * p.win_pct) if rate else (100 * v / top if top else 0) %}
                 <li>
                     {{ face(p) }}
                     <span class="ar-name">{{ player(p) }}<small>
-                        {%- if key == 'started' %}on {{ pct(p.start_pct) }} of rosters{% if p.ppr is not none %} &middot; scored {{ pts(p.ppr) }}{% endif %}
-                        {%- elif key == 'benched' %}{{ pts(p.bench_avg) }} a bench, on {{ '{:,}'.format(p.benched) }} of them
+                        {%- if key == 'bench_losses' %}sat on {{ '{:,}'.format(p.benched) }} benches{% if p.ppr is not none %} &middot; scored {{ pts(p.ppr) }}{% endif %}
+                        {%- elif key == 'radar' %}started by {{ pct(p.start_pct) }} of his teams &middot; {{ '{:,}'.format(p.started) }} starts{% if p.ppr is not none %} &middot; scored {{ pts(p.ppr) }}{% endif %}
                         {%- elif key.startswith('win') %}{{ '{:,}'.format(p.started) }} starts{% if p.ppr is not none %} &middot; scored {{ pts(p.ppr) }}{% endif %}
                         {%- else %}{% if p.best is not none %}scored up to {{ pts(p.best) }}{% endif %}{% endif -%}
                     </small></span>
                     <span class="at-bar{{ ' at-bar-bad' if key == 'win_worst' }}" aria-hidden="true"><i style="width:{{ '%.0f'|format(w) }}%"></i></span>
                     <span class="ar-val">
-                        {%- if key == 'benched' %}<b>{{ '{:,.0f}'.format(p.bench_total) }}</b> pts
-                        {%- elif key.startswith('win') %}<b>{{ pct(p.win_pct) }}</b> won
+                        {%- if key == 'bench_losses' %}<b>{{ '{:,}'.format(p.bench_losses) }}</b> loss{{ 'es' if p.bench_losses != 1 }}
+                        {%- elif rate %}<b>{{ pct(p.win_pct) }}</b> won
                         {%- elif key == 'top_on' %}<b>{{ '{:,}'.format(p.teams) }}</b> teams
                         {%- else %}<b>{{ '{:,}'.format(p.started) }}</b> starts{% endif -%}
                     </span>
                 </li>
-                {% else %}<li class="ar-none">Nobody cleared {{ P.min_starts }} starts this week.</li>{% endfor %}
+                {% else %}<li class="ar-none">{% if key == 'bench_losses' %}No bench losses this week{% if staff %} (or migration 066 hasn&rsquo;t been run){% endif %}.{% elif key == 'radar' %}Nobody under the radar cleared {{ P.min_starts }} starts this week.{% else %}Nobody cleared {{ P.min_starts }} starts this week.{% endif %}</li>{% endfor %}
             </ol>
         </div>
         {% endfor %}
@@ -159,12 +162,14 @@
     // `keep` is each board's own rule, so the count in the note matches the
     // list: the win-rate boards only mean something past a floor of starts.
     var BOARDS = {
-        started:   {sort: function (p) { return -p.started; },
-                    val: function (p) { return fmtInt(p.started) + " starts"; }},
-        benched:   {sort: function (p) { return -p.bench_total; },
-                    keep: function (p) { return p.benched > 0; },
-                    qual: " who scored from a bench",
-                    val: function (p) { return fmtInt(Math.round(p.bench_total)) + " pts"; }},
+        bench_losses: {sort: function (p) { return -(p.bench_losses || 0); },
+                    keep: function (p) { return (p.bench_losses || 0) > 0; },
+                    qual: " with a bench loss",
+                    val: function (p) { var n = p.bench_losses || 0; return fmtInt(n) + (n === 1 ? " loss" : " losses"); }},
+        radar:     {sort: function (p) { return -p.win_pct; },
+                    keep: function (p) { return p.started >= MIN_STARTS && (p.start_pct || 0) < 0.25 && tookField(p); },
+                    qual: " under the radar with " + MIN_STARTS + "+ starts",
+                    val: function (p) { return pctOf(p.win_pct) + " won"; }},
         win_best:  {sort: function (p) { return -p.win_pct; },
                     keep: function (p) { return p.started >= MIN_STARTS && tookField(p); },
                     qual: " with " + MIN_STARTS + "+ starts",

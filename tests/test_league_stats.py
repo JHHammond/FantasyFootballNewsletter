@@ -572,3 +572,86 @@ def test_a_starter_who_played_for_nothing_counts_as_turning_up():
     lowest = [c["team_name"] for c in got["halls"]["lowest"]]
     assert lowest[0] == "unlucky", lowest
     assert (got["halls"]["lowest"][0]["played"], got["halls"]["lowest"][0]["starters"]) == (9, 9)
+
+
+# --- 066: boards with a storyline (John, 29 Oct) ------------------------------
+
+def _benched(lg, team, key, pts):
+    return {"league_id": lg["id"], "season": SEASON, "week": 3, "team_id": team,
+            "player_key": key, "slot": "BN", "started": False,
+            "points": pts, "ppr_points": pts}
+
+
+def _starter(lg, team, key, pts, slot="WR"):
+    return {"league_id": lg["id"], "season": SEASON, "week": 3, "team_id": team,
+            "player_key": key, "slot": slot, "started": True,
+            "points": pts, "ppr_points": pts}
+
+
+def test_a_bench_loss_is_a_game_he_would_have_won_from_the_bench():
+    """Benched by a team that lost a game its own bench would have won, by
+    less than he scored. "Blake Corum sat on 1,204 benches; 318 of those
+    teams lost by less than his 17.1." """
+    lg = _league("BenchLoss", pid="bl")
+    rows, lu = [], []
+    # lost by 5, the best lineup would have won, and he scored 17: a bench loss
+    rows.append(_row(lg, "lost_by_5", 85.0, "L", opp=90.0, optimal_points=101.0))
+    lu += [_starter(lg, "lost_by_5", "s1", 85.0), _benched(lg, "lost_by_5", "corum", 17.0)]
+    # lost by 30: 17 wouldn't have covered it
+    rows.append(_row(lg, "lost_by_30", 60.0, "L", opp=90.0, optimal_points=95.0))
+    lu += [_starter(lg, "lost_by_30", "s2", 60.0), _benched(lg, "lost_by_30", "corum", 17.0)]
+    # lost by 5, but the bench couldn't have won it (not a lineup loss)
+    rows.append(_row(lg, "no_better", 85.0, "L", opp=90.0, optimal_points=88.0))
+    lu += [_starter(lg, "no_better", "s3", 85.0), _benched(lg, "no_better", "corum", 17.0)]
+    # won: nothing was lost
+    rows.append(_row(lg, "won", 95.0, "W", opp=90.0, optimal_points=112.0))
+    lu += [_starter(lg, "won", "s4", 95.0), _benched(lg, "won", "corum", 17.0)]
+    # a 4-point bench player who'd have covered a 3-point loss
+    rows.append(_row(lg, "lost_by_3", 87.0, "L", opp=90.0, optimal_points=91.0))
+    lu += [_starter(lg, "lost_by_3", "s5", 87.0), _benched(lg, "lost_by_3", "spare", 4.0)]
+
+    got = league_stats.compute_week(rows, lu, {}, SEASON, 3)
+    board = {c["player_key"]: c["bench_losses"] for c in got["players"]["bench_losses"]}
+    assert board == {"corum": 1, "spare": 1}, board
+    card = next(c for c in got["players"]["all"] if c["player_key"] == "corum")
+    assert card["bench_losses"] == 1 and card["benched"] == 4
+    # Most started and Benched are no longer boards, but still in the data.
+    assert "started" in got["players"] and "benched" in got["players"]
+
+
+def test_a_roster_nobody_opened_has_no_bench_losses():
+    """Same rule as the halls (053): one of four starters playing is not a
+    lineup decision."""
+    lg = _league("Ghosts", pid="gh")
+    rows = [_row(lg, "gone", 2.7, "L", opp=9.0, optimal_points=40.0)]
+    lu = _lineup(lg, "gone", scored=1, blank=3) + [_benched(lg, "gone", "stroud", 30.0)]
+    got = league_stats.compute_week(rows, lu, {}, SEASON, 3)
+    assert got["players"]["bench_losses"] == []
+
+
+def test_under_the_radar_is_the_few_who_started_him():
+    """Most teams that had him benched him; the ones who started him won."""
+    lg = _league("Radar", pid="rd")
+    rows, lu = [], []
+    n = 0
+    def team(result):
+        nonlocal n
+        n += 1
+        t = f"t{n}"
+        rows.append(_row(lg, t, 100.0, result, opp=90.0 if result == "W" else 110.0))
+        return t
+    # "secret": on 20 rosters, started on 4 (20%), all four won
+    for i in range(20):
+        t = team("W" if i < 4 else "L")
+        lu.append(_starter(lg, t, "secret", 22.0) if i < 4 else _benched(lg, t, "secret", 22.0))
+    # "everyone": started on all 6 rosters, 6 wins, but nobody's secret
+    for i in range(6):
+        lu.append(_starter(lg, team("W"), "everyone", 25.0))
+    # "half": on 8 rosters, started on 4 (50%): not under the radar
+    for i in range(8):
+        t = team("W")
+        lu.append(_starter(lg, t, "half", 18.0) if i < 4 else _benched(lg, t, "half", 18.0))
+    got = league_stats.compute_week(rows, lu, {}, SEASON, 3, min_starts=3)
+    radar = [c["player_key"] for c in got["players"]["radar"]]
+    assert radar == ["secret"], radar
+

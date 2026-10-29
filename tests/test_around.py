@@ -850,3 +850,18 @@ def test_the_new_pages_are_findable(web, monkeypatch):
     monkeypatch.setenv("LUCK_PUBLIC", "1")
     menu = web.get("/").text
     assert 'href="/around/rank"' in menu and 'href="/around/players"' in menu
+
+
+def test_the_player_boards_tell_stories(web, monkeypatch):
+    """John, 29 Oct: Most started and Benched out; Bench losses and Under
+    the radar in (066)."""
+    import nfl_week
+    monkeypatch.setattr(nfl_week, "completed_week", lambda *a, **k: 3)
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    _seed_players()
+    page = web.get("/around/players?week=3").text
+    for tab in ("win_best", "win_worst", "top_on", "bench_losses", "radar"):
+        assert f'data-tab="{tab}"' in page, tab
+    assert ">Bench losses<" in page and ">Under the radar<" in page
+    assert ">Most started<" not in page and ">Benched<" not in page
+    assert "bench_losses: {sort" in page and "radar:     {sort" in page   # the full list ranks by them

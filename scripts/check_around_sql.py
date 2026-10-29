@@ -53,7 +53,9 @@ def _ddl() -> str:
     parts = ["create table if not exists public.leagues (id uuid primary key);"]
     for name, path in (("team_weeks", "021_team_weeks.sql"),
                        ("nfl_players", "029_lineups_and_ppr.sql"),
-                       ("lineup_players", "029_lineups_and_ppr.sql")):
+                       ("lineup_players", "029_lineups_and_ppr.sql"),
+                       # 055: around_week asks it who took the field.
+                       ("nfl_week_players", "055_who_actually_played.sql")):
         src = (ROOT / "migrations" / path).read_text()
         m = re.search(r"create table if not exists public\.%s \(.*?\n\);" % name, src, re.S)
         if not m:
