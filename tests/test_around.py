@@ -821,10 +821,10 @@ def test_the_desk_is_three_pages(web, monkeypatch):
     assert "The player boards" in players.text and 'data-panel="win_best"' in players.text
     assert "Hank" not in players.text
 
-    # The section strip says which page you're on and carries the week.
-    for path, on in (("/around?week=3", "This week"), ("/around/rank?week=3", "Where you rank"),
-                     ("/around/players?week=3", "Player boards")):
-        assert f'aria-current="page">{on}</a>' in web.get(path).text, path
+    # 29 Oct, John: no section strip over the pages; the masthead menu
+    # carries all three instead.
+    for path in ("/around?week=3", "/around/rank?week=3", "/around/players?week=3"):
+        assert 'class="at-desk"' not in web.get(path).text, path
 
 
 def test_a_shared_score_link_opens_the_checker_filled_in(web, monkeypatch):
@@ -846,8 +846,7 @@ def test_the_new_pages_are_findable(web, monkeypatch):
     monkeypatch.setenv("AROUND_PUBLIC", "1")
     xml = web.get("/sitemap.xml").text
     assert "/around/rank<" in xml and "/around/players<" in xml
-    # 29 Oct, John: the masthead got crowded. The two pages are reached from
-    # the National Desk's own section strip, not the masthead menu.
+    # In the masthead's Around the Leagues menu (back in, 29 Oct).
     monkeypatch.setenv("LUCK_PUBLIC", "1")
     menu = web.get("/").text
-    assert 'href="/around/rank"' not in menu
+    assert 'href="/around/rank"' in menu and 'href="/around/players"' in menu

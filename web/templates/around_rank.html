@@ -18,7 +18,6 @@
 {% else %}
 
 <section class="front at-front">
-    {% include "_around_desknav.html" %}
     <p class="dateline">
         <span>The national edition</span>
         <span class="dateline-mid">{{ season }} &middot; Week {{ week }} &middot; Final</span>
@@ -42,11 +41,15 @@
 {% if a.teams %}
 {# ================================================================ rank lookup #}
 <section class="ar-sec" id="rank">
-    <div class="ar-rank">
-        <form class="ar-rank-form" onsubmit="return false">
+    {# The score box (29 Oct, John: make it look better). One big number
+       you type, like a scoreboard; the pools as chips rather than a menu.
+       The chips drive the real <select id="ar-format">, which stays in the
+       page (visually hidden) so the rest of the script reads one control. #}
+    <div class="ar-rank rk">
+        <form class="rk-form" onsubmit="return false">
             {% if mine %}
-            <label class="ar-rank-field ar-mine-field">
-                <span>Your teams</span>
+            <label class="rk-team">
+                <span class="rk-label">Fill it in from your team</span>
                 <select id="ar-mine">
                     <option value="">Pick one of your teams&hellip;</option>
                     {% for lg in mine %}
@@ -64,21 +67,25 @@
                 </select>
             </label>
             {% endif %}
-            <label class="ar-rank-field">
-                <span>{{ 'Or type a week' if mine else 'Your week' }} {{ week }} score</span>
-                <input type="number" step="0.01" min="0" max="400" id="ar-score" inputmode="decimal" placeholder="112.4" />
+            <label class="rk-score">
+                <span class="rk-label">{{ 'Or type a week' if mine else 'Your week' }} {{ week }} score</span>
+                <span class="rk-input">
+                    <input type="number" step="0.01" min="0" max="400" id="ar-score" inputmode="decimal" placeholder="0.0" autocomplete="off" />
+                    <em aria-hidden="true">pts</em>
+                </span>
             </label>
-            <label class="ar-rank-field">
-                <span>Your league scores</span>
-                <select id="ar-format">
-                    {% if a.standardized %}<option value="all">Any format, in PPR</option>{% endif %}
-                    {% for key, label in [('ppr', 'PPR'), ('half_ppr', 'Half-PPR'), ('std', 'Standard')] %}
+            <div class="rk-fmt">
+                <span class="rk-label" id="rk-fmt-label">Rank it against</span>
+                <div class="rk-chips" id="rk-chips" role="radiogroup" aria-labelledby="rk-fmt-label"></div>
+                <select id="ar-format" class="visually-hidden" tabindex="-1" aria-hidden="true">
+                    {% if a.standardized %}<option value="all">Every league</option>{% endif %}
+                    {% for key, label in [('ppr', 'PPR leagues'), ('half_ppr', 'Half-PPR'), ('std', 'Standard')] %}
                     {% if a.pct.get(key) and a.pct.get('n_' ~ key, 0) >= a.min_group %}<option value="{{ key }}">{{ label }}</option>{% endif %}
                     {% endfor %}
                 </select>
-            </label>
+            </div>
         </form>
-        <div class="ar-rank-out">
+        <div class="ar-rank-out rk-out">
             <div id="ar-out" class="ar-out-empty" aria-live="polite">
                 <span class="ar-rank-big">&mdash;</span>
                 <span class="ar-rank-line">{% if mine %}Pick a team, or type a score,{% else %}Type your score{% endif %} to see where it lands among {{ '{:,}'.format(a.compared) }} teams this week.</span>
@@ -178,6 +185,31 @@
         share = $("ar-share"), shareBtn = $("ar-share-btn"), openCard = $("ar-share-open"),
         copied = $("ar-copied"), mine = $("ar-mine"), note = $("ar-pool-note");
     var teamName = "", current = null;
+
+    // The pools as chips. They set the hidden <select>, which stays the
+    // one source of truth (the team picker sets it too).
+    var chips = $("rk-chips");
+    function syncChips() {
+        if (!chips || !fmt) return;
+        Array.prototype.forEach.call(chips.children, function (b) {
+            var on = b.getAttribute("data-v") === fmt.value;
+            b.classList.toggle("on", on);
+            b.setAttribute("aria-checked", on ? "true" : "false");
+        });
+    }
+    if (chips && fmt) {
+        Array.prototype.forEach.call(fmt.options, function (o) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "rk-chip";
+            b.setAttribute("role", "radio");
+            b.setAttribute("data-v", o.value);
+            b.textContent = o.textContent;
+            b.addEventListener("click", function () { fmt.value = o.value; syncChips(); update(); });
+            chips.appendChild(b);
+        });
+        syncChips();
+    }
 
     // The twin of web.around._below / rank(): the page answers as you type,
     // the share card answers on the server, and they must agree.
@@ -283,7 +315,7 @@
         plot.addEventListener("pointerleave", leave);
     }
     var splitX = 0;
-    function drawCurve(v) {               // v: a score on the curve's scale, or null
+    function drawCurve(v, label) {        // v: a score on the curve's scale, or null
         if (!plot || !BINS.length) return;
         var you = $("rv-you"), med = $("rv-median");
         if (v === null) {
@@ -294,7 +326,7 @@
         var to = xOf(v);
         tween(splitX, to, 650, function (x) { splitX = x; setSplit(x); you.style.left = (x / W * 100) + "%"; });
         you.hidden = false;
-        $("rv-you-v").textContent = v.toFixed(1);
+        $("rv-you-v").textContent = label;
         you.classList.toggle("rv-you-left", to > W * 0.78);    // keep the pill on the page
         // Too close to the median to label both: the median steps back.
         med.classList.toggle("rv-quiet", MEDIAN !== null && Math.abs(to - xOf(MEDIAN)) < W * 0.14);
@@ -340,10 +372,13 @@
 
     // ---- the answer -----------------------------------------------------
     var shownPct = 0;
+    var EMPTY = out ? out.innerHTML : "";     // the prompt, put back when the box is cleared
     function clear() {
         if (share) share.hidden = true;
         if (note) note.hidden = true;
         out.className = "ar-out-empty";
+        out.innerHTML = EMPTY;
+        shownPct = 0;
         drawCurve(null); drawGrid(null);
         if ($("rv-k-beat")) {
             $("rv-k-beat").innerHTML = "&mdash;";
@@ -354,6 +389,7 @@
     }
     function update() {
         if (!score || !fmt) return;
+        syncChips();
         var v = parseFloat(score.value), key = fmt.value;
         if (isNaN(v)) { clear(); return; }
         var s = below(P[key], v), n = P["n_" + key] || 0;
@@ -385,15 +421,22 @@
         // The curve is drawn in one scale. Fill it only when that is the
         // scale being asked about; say so when it isn't.
         if (key === SCALE) {
-            drawCurve(v);
+            drawCurve(v, v.toFixed(1));
             if (note) note.hidden = true;
-        } else {
-            drawCurve(null);
+        } else if (SCALE && P[SCALE]) {
+            // Another pool, another scale. Mark the curve where the same
+            // rank falls nationally, and say that's what the marker means.
+            var arr = P[SCALE], at = s * (arr.length - 1), i0 = Math.floor(at),
+                i1 = Math.min(arr.length - 1, i0 + 1);
+            drawCurve(arr[i0] + (arr[i1] - arr[i0]) * (at - i0), "Top " + Math.max(1, 100 - p) + "%");
             if (note) {
-                note.textContent = "The curve shows every league re-scored in PPR. "
-                    + "Your score is being ranked against " + POOL[key] + " only.";
+                note.textContent = "The curve is every league re-scored in PPR. Your "
+                    + v.toFixed(1) + " is ranked against " + POOL[key]
+                    + " only, so the marker sits where the same rank falls nationally.";
                 note.hidden = false;
             }
+        } else {
+            drawCurve(null);
         }
     }
     function shareUrl() {
