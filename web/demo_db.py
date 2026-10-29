@@ -1293,6 +1293,86 @@ def trade_scan_league_ids(season: int, week: int) -> set[str]:
             if int(r["season"]) == int(season) and int(r["week"]) == int(week)}
 
 
+# --- Waivers (067) -----------------------------------------------------------
+
+_WAIVERS: dict[tuple, dict[str, Any]] = {}
+_WAIVER_SCANS: dict[tuple, dict[str, Any]] = {}
+
+
+def upsert_waivers(rows: list[dict[str, Any]]) -> None:
+    with _lock:
+        for r in rows or []:
+            _WAIVERS[(r["league_id"], int(r["season"]), r["move_key"], r["action"],
+                      r["player_key"])] = dict(r)
+
+
+def upsert_waiver_scan(row: dict[str, Any]) -> None:
+    with _lock:
+        _WAIVER_SCANS[(row["league_id"], int(row["season"]), int(row["week"]))] = dict(row)
+
+
+def waivers_ready() -> bool:
+    return True
+
+
+def waiver_scan_league_ids(season: int, week: int) -> set[str]:
+    return {r["league_id"] for r in _WAIVER_SCANS.values()
+            if int(r["season"]) == int(season) and int(r["week"]) == int(week)}
+
+
+def waiver_volume(season: int) -> dict[str, Any]:
+    """The SQL function's twin (067)."""
+    season = int(season)
+    scans: dict = {}
+    for r in _WAIVER_SCANS.values():
+        if int(r["season"]) == season:
+            scans[int(r["week"])] = scans.get(int(r["week"]), 0) + 1
+    moves: dict = {}
+    for r in _WAIVERS.values():
+        if int(r["season"]) != season or r["action"] != "add":
+            continue
+        e = moves.setdefault(int(r["week"]), {"adds": 0, "failed": 0, "faab": 0})
+        if r["status"] == "complete":
+            e["adds"] += 1
+            e["faab"] += int(r.get("bid") or 0)
+        else:
+            e["failed"] += 1
+    return {"weeks": [{"week": w, "leagues": n, **moves.get(w, {"adds": 0, "failed": 0, "faab": 0})}
+                      for w, n in sorted(scans.items())],
+            "adds": sum(e["adds"] for e in moves.values())}
+
+
+# --- The Undefeated Watch (068) ----------------------------------------------
+
+def undefeated(season: int) -> dict[str, Any]:
+    """The SQL function's twin (web.undefeated.compute)."""
+    from web import undefeated as uw
+    season = int(season)
+    return uw.compute(
+        team_rows=[r for r in _TEAM_WEEKS.values() if int(r["season"]) == season],
+        lineup_rows=[r for r in _LINEUPS.values() if int(r["season"]) == season],
+        draft_rows=[r for r in _DRAFT_PICKS.values() if int(r["season"]) == season],
+        trade_heads=[r for r in _TRADES.values() if int(r["season"]) == season],
+        trade_players=[r for r in _TRADE_PLAYERS.values() if int(r["season"]) == season],
+        waiver_rows=[r for r in _WAIVERS.values() if int(r["season"]) == season],
+        waiver_scans=[r for r in _WAIVER_SCANS.values() if int(r["season"]) == season],
+        played={(k[1], k[2]): r.get("played") for k, r in _WEEK_PLAYERS.items()
+                if k[0] == season},
+        nfl_players=dict(_NFL_PLAYERS),
+        dynasty_ids=dynasty_league_ids(season),
+        season=season)
+
+
+def team_weeks_season_for_leagues(season: int,
+                                  league_ids: list[str]) -> list[dict[str, Any]]:
+    keep = {str(i) for i in (league_ids or []) if i}
+    cols = ("league_id", "team_id", "team_name", "week", "result", "points",
+            "opponent_points", "margin", "ppr_points")
+    return sorted(({k: r.get(k) for k in cols} for r in _TEAM_WEEKS.values()
+                   if str(r["league_id"]) in keep and int(r["season"]) == int(season)),
+                  key=lambda r: int(r["week"]))
+
+
 def trade_volume(season: int) -> dict[str, Any]:
     """The SQL function's twin (migration 045)."""
     season = int(season)

@@ -1884,6 +1884,88 @@ def trades_ready() -> bool:
         return False
 
 
+# --- Waivers (067) -----------------------------------------------------------
+
+def upsert_waivers(rows: list[dict[str, Any]]) -> None:
+    """One league-week's waiver and free-agent moves. Idempotent on the
+    move key, so a re-collection changes nothing."""
+    for i in range(0, len(rows or []), 500):
+        client().table("waivers").upsert(
+            rows[i:i + 500],
+            on_conflict="league_id,season,move_key,action,player_key").execute()
+
+
+def upsert_waiver_scan(row: dict[str, Any]) -> None:
+    client().table("waiver_scans").upsert(
+        row, on_conflict="league_id,season,week").execute()
+
+
+_WAIVERS_READY = False
+
+
+def waivers_ready() -> bool:
+    """False until migration 067 is run, so the collector skips quietly."""
+    global _WAIVERS_READY
+    if _WAIVERS_READY:
+        return True
+    try:
+        client().table("waiver_scans").select("league_id").limit(1).execute()
+        _WAIVERS_READY = True
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
+def waiver_scan_league_ids(season: int, week: int) -> set[str]:
+    """Leagues already asked about this week's wire, so a rerun skips them."""
+    out: set[str] = set()
+    start, page = 0, 1000
+    while True:
+        res = (client().table("waiver_scans").select("league_id")
+               .eq("season", int(season)).eq("week", int(week))
+               .order("league_id").range(start, start + page - 1).execute())
+        rows = res.data or []
+        out.update(r["league_id"] for r in rows)
+        if len(rows) < page:
+            return out
+        start += page
+
+
+def waiver_volume(season: int) -> dict[str, Any]:
+    """Leagues scanned, adds, failed claims and FAAB per week (067)."""
+    return _rpc_json("waiver_volume", {"p_season": int(season)}) or {}
+
+
+# --- The Undefeated Watch (068) ----------------------------------------------
+
+def undefeated(season: int) -> dict[str, Any]:
+    """Saved by the pg_cron job refresh-undefeated (068), because it adds up
+    the whole country. Live only before the first save, and only then."""
+    try:
+        rows = (client().table("undefeated_saved").select("payload")
+                .eq("season", int(season)).limit(1).execute().data or [])
+    except Exception:  # noqa: BLE001 — before 068, or a blip
+        rows = []
+    if rows and rows[0].get("payload"):
+        return rows[0]["payload"]
+    return _rpc_json("undefeated_live", {"p_season": int(season)}) or {}
+
+
+def team_weeks_season_for_leagues(season: int,
+                                  league_ids: list[str]) -> list[dict[str, Any]]:
+    """Every week of a handful of leagues — the viewer's own, for "is my
+    team still perfect?". Never more than a few hundred rows."""
+    ids = [str(i) for i in (league_ids or []) if i][:20]
+    if not ids:
+        return []
+    res = (client().table("team_weeks")
+           .select("league_id, team_id, team_name, week, result, points, "
+                   "opponent_points, margin, ppr_points")
+           .eq("season", int(season)).in_("league_id", ids)
+           .order("week").limit(5000).execute())
+    return res.data or []
+
+
 def trade_scan_league_ids(season: int, week: int) -> set[str]:
     """Leagues already looked at for this week, so a rerun skips them. A
     league with no trades is in here too — that is the point of the table."""

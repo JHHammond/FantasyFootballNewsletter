@@ -244,7 +244,8 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     season = int(season or nfl_week.current_season())
     report = {"week": week, "season": season, "leagues": 0, "collected": 0,
               "skipped_done": 0, "no_data": 0, "errors": 0, "rows": 0,
-              "scanned": 0, "trades": 0, "drafted": 0, "picks": 0}
+              "scanned": 0, "trades": 0, "drafted": 0, "picks": 0,
+              "waiver_scanned": 0, "waiver_moves": 0}
 
     if not week_is_final(season, week):
         log(f"Week {week} isn't final yet; nothing collected.")
@@ -282,6 +283,15 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     # league that made none is still a league we have looked at.
     trading = db.trades_ready()
     scanned = db.trade_scan_league_ids(season, week) if trading else set()
+    # The waiver wire (067) comes out of the same feed as the trades, so it
+    # is asked in the same call, and tracked the same way: a league-week not
+    # in waiver_scans is asked again, which is how weeks collected before
+    # 067 fill in (John, 29 Oct: "begin gathering waivers").
+    try:
+        waiving = db.waivers_ready()
+        wscanned = db.waiver_scan_league_ids(season, week) if waiving else set()
+    except Exception:  # noqa: BLE001 — before migration 067
+        waiving, wscanned = False, set()
     # The draft is a once-a-season thing, not a once-a-week one, so a
     # league is asked exactly once however many weeks get collected. It
     # rides along here rather than in a job of its own because the pacing,
@@ -305,6 +315,7 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     todo = [l for l in pool
             if l["id"] not in done
             or (trading and l["id"] not in scanned)
+            or (waiving and l["id"] not in wscanned)
             or (drafting and l["id"] not in drafted)]
     report["skipped_done"] = len(pool) - len(todo)
     started = time.time()
@@ -354,18 +365,27 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
                     log(f"  no draft: {league.get('league_name')} "
                         f"({league['provider']}): {type(exc).__name__}: {exc}")
             sleep(PACE.get(league["provider"], 1.0))
-        if trading and league["id"] not in scanned and not should_stop():
+        want_trades = trading and league["id"] not in scanned
+        want_waivers = waiving and league["id"] not in wscanned
+        if (want_trades or want_waivers) and not should_stop():
             try:
-                from web import trades as trades_mod
-                got = trades_mod.collect_league(db, league, season, week, ctx)
+                # One fetch of the transactions feed, both stores (067).
+                from web import waivers as waivers_mod
+                got, moves = waivers_mod.collect_league(
+                    db, league, season, week, ctx,
+                    trades=want_trades, waivers=want_waivers)
                 with lock:
-                    report["scanned"] += 1
-                    report["trades"] += got
+                    if want_trades:
+                        report["scanned"] += 1
+                        report["trades"] += got
+                    if want_waivers:
+                        report["waiver_scanned"] += 1
+                        report["waiver_moves"] += moves
             except Exception as exc:  # noqa: BLE001 — never the week's scores
                 with lock:
                     quiet = report["errors"] > 20
                 if not quiet:
-                    log(f"  no trades: {league.get('league_name')} "
+                    log(f"  no trades/waivers: {league.get('league_name')} "
                         f"({league['provider']}): {type(exc).__name__}: {exc}")
             sleep(PACE.get(league["provider"], 1.0))
         sleep(PACE.get(league["provider"], 1.0))
@@ -402,6 +422,9 @@ def collect_week(db, week: int, *, season: Optional[int] = None,
     if trading:
         log(f"Week {week}: {report['trades']} trades found in "
             f"{report['scanned']} leagues scanned.")
+    if waiving:
+        log(f"Week {week}: {report['waiver_moves']:,} waiver and free-agent moves "
+            f"in {report['waiver_scanned']} leagues scanned.")
     return report
 
 
@@ -465,10 +488,11 @@ def start_background(db, weeks: list[int]) -> bool:
             clear_cache()
             refresh_rankings(db, log=log)
             try:
-                from web import around, luck, rankings
+                from web import around, luck, rankings, undefeated
                 around.clear_cache()
                 luck.clear_cache()
                 rankings.clear_cache()
+                undefeated.clear_cache()
             except Exception:  # noqa: BLE001
                 pass
 
