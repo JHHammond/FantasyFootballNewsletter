@@ -79,6 +79,60 @@ COMPACT_CSS = """
   .ranking-card-name { grid-column: 3; font-size: 15px !important; margin: 0 !important; }
   .ranking-card-comment { grid-column: 3; font-size: 12.5px !important; line-height: 1.35 !important; margin: 0 !important; }
 
+
+  /* ---- General UI pass (31 Oct, second round) ---- */
+
+  /* Alignment: one left edge for everything below the nameplate. */
+  .front-page { padding-left: 13px !important; padding-right: 13px !important; }
+  .back-page { margin-left: 13px !important; margin-right: 13px !important; border: 0 !important; }
+  .back-page > div, .bp-records, .bp-tx, .bp-trades { padding-left: 0 !important; padding-right: 0 !important;
+      border: 0 !important; }
+  .front-col, .front-col-center, .feature-main, .lead-story,
+  .lead-story p, .col-story, .wk-board { margin-left: 0 !important; margin-right: 0 !important;
+      padding-left: 0 !important; padding-right: 0 !important; max-width: none !important; }
+  .section-title-full, .col-section-label, .bp-label, .section-note, .award-head, .award-desc,
+  .wk-head, .classifieds-title { text-align: left !important; }
+
+  /* Rhythm: comfortable phone leading, one body size. */
+  .story-body p, .lead-story p, .award-body p, .award-body, .obit p, .fraud-callout-body,
+  .fraud-callout-body p, .classified-body { font-size: 17px !important; line-height: 1.5 !important; }
+  .story-body p, .lead-story p, .award-body p { margin: 0 0 .7em !important; }
+
+  /* A type scale of five: body 17, small 13, label 12, story head 23, front 23.
+     Every label in one style: small, heavy, tracked, ink. */
+  .section-title-full, .col-section-label, .bp-label, .award-title, .wk-head, .classifieds-title,
+  .fraud-callout-label { font-family: inherit !important; font-size: 12px !important; font-weight: 800 !important;
+      letter-spacing: 1.6px !important; text-transform: uppercase !important; font-style: normal !important;
+      color: #111 !important; }
+  .section-title-full, .col-section-label, .bp-label, .classifieds-title {
+      background: none !important; border: 0 !important; border-top: 3px solid #111 !important;
+      padding: 8px 0 0 !important; margin: 0 0 10px !important; }
+  .section-note, .award-desc, .col-story-teaser, .story-subhead, .obit-dates, .rb-who, .wire-body,
+  .hd-sub, .lt-proj, .bp-note, .dr-note { font-size: 13px !important; color: #3f3a33 !important;
+      font-style: normal !important; }
+
+  /* Hierarchy and restraint: ink for labels and ranks; the accent is kept
+     for what can be tapped and for the one number that matters. */
+  .cx-rank-plain { color: #111 !important; }
+  .col-story-headline a, .teaser-link { color: #111 !important; }
+
+  /* Proximity: tight inside a group, clear air between groups. */
+  .story-headline { margin-bottom: 2px !important; }
+  .full-section, .back-page > div { margin-top: 28px !important; }
+  .col-story { padding: 10px 0 !important; border-bottom: 1px solid #ddd !important; }
+
+  /* Affordance: the nav says it scrolls; the This Week rows look tappable. */
+  .section-nav { -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent);
+      mask-image: linear-gradient(90deg, #000 82%, transparent); }
+  .section-nav a { padding-top: 14px !important; padding-bottom: 14px !important; }
+  .col-story-headline a { display: block; padding: 6px 24px 6px 0; text-decoration: none !important;
+      border: 0 !important; position: relative; }
+  .col-story-headline a::after { content: "›"; position: absolute; right: 0; top: 50%; transform: translateY(-55%);
+      font-size: 26px; line-height: 1; color: var(--accent, #c40000); }
+
+  /* Progressive disclosure: the record book and the wire show three. */
+  .cx-hide { display: none !important; }
+
   /* 6. Honor Roll and Detention swipe sideways */
   .hd-grid { display: flex !important; overflow-x: auto; scroll-snap-type: x mandatory; gap: 10px !important;
       padding-bottom: 6px !important; -webkit-overflow-scrolling: touch; }
@@ -119,6 +173,38 @@ COMPACT_JS = """
   });
   document.querySelectorAll(".story-card .story-body").forEach(function (body) {
     if (body.querySelectorAll(":scope > p").length > 1) fold(body, "cx-folded");
+  });
+
+  // One format for a result, everywhere: "141.8–126.4 · by 15.4".
+  document.querySelectorAll(".col-story-body").forEach(function (el) {
+    el.textContent = el.textContent.replace(/\s+/g, " ").trim()
+      .replace(/^([\d.]+)\s*[—–-]\s*([\d.]+)\s*\|\s*margin:\s*([\d.]+)$/, "$1–$2 · by $3");
+  });
+  document.querySelectorAll(".story-subhead").forEach(function (el) {
+    el.textContent = el.textContent.replace(/\s*\|\s*([\d.]+)\s*-\s*([\d.]+)\s*$/, ", $1–$2");
+  });
+  // Medal colours for the top three ranks; ink for the rest.
+  document.querySelectorAll(".ranking-card-rank").forEach(function (el) {
+    var n = parseInt((el.textContent || "").replace("#", ""), 10);
+    if (n > 3) el.classList.add("cx-rank-plain");
+  });
+  // Three rows of the record book and the wire, then "Show all".
+  function showThree(rows, label) {
+    if (rows.length <= 3) return;
+    for (var i = 3; i < rows.length; i++) rows[i].classList.add("cx-hide");
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "cx-more";
+    b.textContent = label.replace("N", rows.length) + " ↓";
+    b.addEventListener("click", function () {
+      rows.forEach(function (r) { r.classList.remove("cx-hide"); }); b.remove();
+    });
+    rows[rows.length - 1].parentNode.insertBefore(b, rows[rows.length - 1].nextSibling);
+  }
+  document.querySelectorAll(".bp-records").forEach(function (box) {
+    showThree(Array.prototype.slice.call(box.querySelectorAll(".rb-row")), "All N records");
+  });
+  document.querySelectorAll(".wire").forEach(function (box) {
+    showThree(Array.prototype.slice.call(box.querySelectorAll(".wire-row")), "All N moves");
   });
 })();
 </script>
