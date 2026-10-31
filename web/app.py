@@ -5418,7 +5418,8 @@ def league_papers(request: Request, slug: str, subscribed: int = 0, error: str =
 
 
 @app.get("/p/{slug}/{season}/week-{week}", response_class=HTMLResponse)
-def read_paper(request: Request, slug: str, season: int, week: int, embed: int = 0):
+def read_paper(request: Request, slug: str, season: int, week: int, embed: int = 0,
+               layout: str = ""):
     """Serve from our own domain rather than redirecting to the CDN.
 
     Keeping readers here is what makes the pages worth anything to an ad
@@ -5457,6 +5458,12 @@ def read_paper(request: Request, slug: str, season: int, week: int, embed: int =
         # Cloudflare Web Analytics. Not in the homepage's preview frame: that
         # would count a read every time somebody looked at the landing page.
         html = analytics.beacon_for_paper(html, request.url.path)
+
+    # The compact phone layout, on test (31 Oct): any paper, any league, by
+    # adding ?layout=compact. Layered on at serve time; nothing is stored.
+    if layout == "compact" and not embed:
+        from . import compact
+        html = compact.apply(html)
 
     return HTMLResponse(
         content=html,

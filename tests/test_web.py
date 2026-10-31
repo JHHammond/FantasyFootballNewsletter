@@ -279,6 +279,17 @@ def test_reading_a_published_paper(client, league):
     assert "max-age" in r.headers["cache-control"]
 
 
+def test_a_paper_can_be_read_in_the_compact_layout(client, league):
+    path = demo_db.storage_path(league["public_slug"], 2025, 3)
+    demo_db._STORAGE[path] = "<html><head></head><body><h1>PAPER</h1></body></html>"
+    url = f"/p/{league['public_slug']}/2025/week-3"
+    assert "compact-layout" in client.get(url + "?layout=compact").text
+    assert "compact-layout" not in client.get(url).text
+    assert "compact-layout" not in client.get(url + "?layout=other").text
+    assert "compact-layout" not in client.get(url + "?layout=compact&embed=1").text
+    assert "compact-layout" not in demo_db._STORAGE[path]          # nothing stored
+
+
 def test_unpublished_week_is_404(client, league):
     assert client.get(f"/p/{league['public_slug']}/2025/week-9").status_code == 404
 
