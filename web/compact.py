@@ -59,13 +59,35 @@ COMPACT_CSS = """
   .award-card .award-title { font-size: 15px !important; }
 
   /* 4. The fold */
-  .cx-folded > :not(:first-child) { display: none !important; }
-  .cx-clamp { display: -webkit-box !important; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
-      overflow: hidden !important; }
-  .cx-more { display: block; width: 100%; margin: 6px 0 0; padding: 10px 0; background: none;
-      border: 0; border-top: 1px solid #ccc; font: inherit; font-size: 12px; font-weight: 800;
-      letter-spacing: 1.4px; text-transform: uppercase; color: var(--accent, #c40000); text-align: left;
-      cursor: pointer; }
+  /* The fold (31 Oct, second pass): a good run of the story, about
+     eleven lines, fading out into the page, then a real button. The fade
+     is a mask on the text, so it works on every theme's paper, dark
+     Gameday included. */
+  .cx-fold { max-height: var(--cx-h, 300px) !important; overflow: hidden !important; position: relative;
+      -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%);
+      mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%); }
+  .cx-more { display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; min-height: 48px; margin: 4px 0 6px; padding: 12px 16px;
+      background: #111; color: #fff; border: 0; border-radius: 6px; cursor: pointer;
+      font: inherit; font-size: 14px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase;
+      -webkit-tap-highlight-color: transparent; }
+  .cx-more:active { transform: scale(.985); }
+  .lead-story + .cx-more, .lead-story .cx-more { margin-bottom: 22px; }
+  /* On a dark paper (Gameday) the button flips to light. Detected by the
+     script, which reads the page's own background. */
+  .cx-dark .cx-more { background: #f2f4f7; color: #0b0d10; }
+  .cx-dark .section-note, .cx-dark .award-desc, .cx-dark .col-story-teaser, .cx-dark .story-subhead,
+  .cx-dark .obit-dates, .cx-dark .rb-who, .cx-dark .wire-body, .cx-dark .hd-sub, .cx-dark .lt-proj,
+  .cx-dark .bp-note, .cx-dark .dr-note { color: #b9c2cf !important; }
+  .cx-dark .section-title-full, .cx-dark .col-section-label, .cx-dark .bp-label, .cx-dark .award-title,
+  .cx-dark .wk-head, .cx-dark .classifieds-title, .cx-dark .fraud-callout-label,
+  .cx-dark .cx-rank-plain, .cx-dark .col-story-headline a, .cx-dark .teaser-link { color: #f2f4f7 !important; }
+  .cx-dark .section-title-full, .cx-dark .col-section-label, .cx-dark .bp-label,
+  .cx-dark .classifieds-title { border-top-color: #f2f4f7 !important; }
+  .cx-dark .story-scorebar { border-color: #2b313c !important; }
+  .cx-more .cx-arrow { font-size: 18px; line-height: 1; }
+  .cx-more.cx-quiet { background: none; color: var(--accent, #c40000); border: 1.5px solid currentColor;
+      min-height: 44px; font-size: 12.5px; }
 
   /* 5. Power rankings as a list */
   .rankings-grid, .rankings-row { display: block !important; }
@@ -155,23 +177,34 @@ COMPACT_JS = """
   document.querySelectorAll(".story-headline").forEach(function (h) {
     if (h.children.length === 0) h.textContent = titleCase(h.textContent.trim());
   });
-  function fold(el, cls) {
-    el.classList.add(cls);
+  var bg = getComputedStyle(document.querySelector(".page") || document.body).backgroundColor;
+  var rgb = (bg.match(/\d+/g) || [255, 255, 255]).slice(0, 3).map(Number);
+  if ((rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000 < 90) document.body.classList.add("cx-dark");
+  // Fold a story at about `lines` lines, with a fade and a button. Only
+  // when there is enough left below the fold to be worth a tap.
+  function fold(el, lines, label) {
+    var lh = parseFloat(getComputedStyle(el.querySelector("p") || el).lineHeight) || 26;
+    var h = Math.round(lh * lines);
+    if (el.scrollHeight < h + lh * 4) return;
+    el.style.setProperty("--cx-h", h + "px");
+    el.classList.add("cx-fold");
+    var words = (el.textContent || "").trim().split(/\s+/).length;
+    var mins = Math.max(1, Math.round(words / 230));
     var b = document.createElement("button");
-    b.type = "button"; b.className = "cx-more"; b.textContent = "Keep reading \\u2193";
+    b.type = "button"; b.className = "cx-more";
+    b.setAttribute("aria-expanded", "false");
+    b.innerHTML = label + ' <span class="cx-arrow" aria-hidden="true">\u2193</span>';
+    if (words > 120) b.setAttribute("aria-label", label + ", " + mins + " minute read");
     b.addEventListener("click", function () {
-      el.classList.remove(cls); b.remove();
-      el.parentNode.querySelectorAll("p[hidden]").forEach(function (q) { q.hidden = false; });
+      el.classList.remove("cx-fold"); el.style.removeProperty("--cx-h"); b.remove();
     });
     el.parentNode.insertBefore(b, el.nextSibling);
   }
   document.querySelectorAll(".lead-story").forEach(function (lead) {
-    var first = lead.querySelector("p") || lead;
-    if ((lead.textContent || "").length > 320) fold(first, "cx-clamp");
-    lead.querySelectorAll(":scope > p ~ p").forEach(function (q) { q.hidden = true; });
+    fold(lead, 9, "Read the full story");
   });
   document.querySelectorAll(".story-card .story-body").forEach(function (body) {
-    if (body.querySelectorAll(":scope > p").length > 1) fold(body, "cx-folded");
+    fold(body, 11, "Keep reading");
   });
 
   // One format for a result, everywhere: "141.8–126.4 · by 15.4".
@@ -192,7 +225,7 @@ COMPACT_JS = """
     if (rows.length <= 3) return;
     for (var i = 3; i < rows.length; i++) rows[i].classList.add("cx-hide");
     var b = document.createElement("button");
-    b.type = "button"; b.className = "cx-more";
+    b.type = "button"; b.className = "cx-more cx-quiet";
     b.textContent = label.replace("N", rows.length) + " ↓";
     b.addEventListener("click", function () {
       rows.forEach(function (r) { r.classList.remove("cx-hide"); }); b.remove();
