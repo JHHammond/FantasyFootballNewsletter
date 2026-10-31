@@ -2051,25 +2051,23 @@ def week_results(games):
 
 def generate_lead_story(summary, week, league_name, commissioner_name="",
                         inside_jokes="", system=None, model=None, games=None,
-                        national=""):
-    """The paragraph at the top of the front page.
+                        national="", leads=None):
+    """The story at the top of the front page.
 
-    REWRITTEN, because what it produced was the thing John described as
-    "weird, hollow AI insults". Two causes, and the prompt was only the
-    second of them.
+    HISTORY. In September it was "weird, hollow AI insults": handed four
+    numbers and no players, the model reached for attitude. The fix gave it
+    every result and told it to write a straight round-up — every game, both
+    scores, no jokes — and that is what it did, every week: a scoreboard read
+    aloud, sitting directly above a list of the same scores (John, 31 Oct:
+    "bland").
 
-    THE DATA WAS NOT THERE. This call was handed the closest game, the
-    blowout, and the high and low team scores — four numbers and no players.
-    Asked for something "dramatic and funny" about a week it could barely
-    see, a model does the only thing left available to it and reaches for
-    attitude. The insults were not a failure of instruction; they were the
-    only thing in range.
-
-    So it now gets every result and the week's biggest performances, with the
-    manager attached to each. A round-up can be written from that. Attitude
-    cannot compete with "Steve, powered by 43 from Josh Allen, beat Mark
-    161-142", and once the facts are in the prompt the model stops inventing
-    a voice to fill the space.
+    NOW (31 Oct). One story, the way a real front page picks one. Code works
+    out the candidates from the season so far (history.story_leads: the
+    leader losing, an upset by record, a streak at three or snapped, revenge
+    in a rematch, a big score that lost), and the writer builds a short news
+    story on the strongest, in the paper's own voice: dry and specific, the
+    wit in the facts, never in insults. The other results are printed beside
+    it, so it does not repeat them.
     """
     context = {
         "week": week,
@@ -2086,60 +2084,66 @@ def generate_lead_story(summary, week, league_name, commissioner_name="",
         "inside_jokes": inside_jokes,
     }
 
-    # How this league compared with every league on the site (26 Sep). One
-    # of these, at most, where it makes the round-up land harder: "a 168
-    # that only 40 teams in the country beat, and he still won by six".
+    # How this league compared with every league on the site (26 Sep).
     national_block = ""
     if (national or "").strip():
         national_block = (
             "\nHOW THIS LEAGUE COMPARED WITH EVERY OTHER LEAGUE ON THE SITE this "
-            "week. These are real. Use AT MOST ONE, woven into a sentence, and "
-            "only if it makes a result hit harder. Skipping them is fine. Never "
-            "name or describe any other league.\n" + national.strip() + "\n")
+            "week. These are real. Use AT MOST ONE, and only if it makes the "
+            "story hit harder. Skipping them is fine. Never name or describe "
+            "any other league.\n" + national.strip() + "\n")
+
+    leads_block = ""
+    if leads:
+        leads_block = (
+            "\nTHIS WEEK'S POSSIBLE STORIES, worked out from the season so far. "
+            "All true. Strongest first, but pick the one that makes the best "
+            "front page, and you may join two if they are the same story "
+            "(the leader lost AND it was an upset):\n"
+            + "\n".join(f"- {line}" for line in leads) + "\n")
 
     prompt = f"""
-Write the LEAD STORY: the paragraph at the top of the front page that tells
-somebody who did not watch what happened in this league this week.
+Write the LEAD STORY: the front page story, under the main headline.
 
-IT IS A ROUND-UP, NOT A COLUMN. Every game gets its result. The week's
-biggest performances get named and attached to the manager who started them,
-because that is the connection the reader opened the paper for — who put up
-those numbers, and did it win.
+IT IS ONE STORY, NOT A ROUND-UP. Every result is printed in a list right
+beside it, so walking through the scores is wasted space. Pick the single
+thing this league will be talking about this week and tell it properly.
 
-HOW IT GOES
-- Open with the biggest performance of the week and the game it decided.
-- Then work through the rest of the games. Every single one gets named, with
-  BOTH scores, winner's score first.
-- Where a manager's win was carried by one or two big scores, say so and give
-  the numbers. That is the sentence this paragraph exists for.
-- Let the margin pick the verb. Three points is a nail-biter; sixty is not a
-  game. You do not need an adjective for the ones in between.
-- Call each side by its team name, or by the manager's first name if the
-  league background says this league goes by first names, or a mix of the
-  two if it says this league mixes it up. Never a platform username.
+PICKING IT
+{leads_block or "- Nothing has been worked out for you this week: pick from the results."}
+If nothing above is there, or it is weaker than what the results show, the
+story is the week's biggest performance and the game it decided, or the
+game that changed the standings.
 
-THIS IS THE ONE PART OF THE PAPER THAT PLAYS IT STRAIGHT.
-No insults here. None. The jokes belong in the game recaps where there is
-room to earn them; up here they land as snideness about people the reader
-has not been introduced to yet, which is exactly how this paragraph has been
-reading. Report the week. If something is genuinely absurd — a 40-point
-margin, somebody scoring 60 — the number carries it without help.
+HOW IT GOES — three short paragraphs, 120 to 170 words in all:
+1. The lede. One or two sentences that say what happened and why it
+   matters, with the number that proves it. Write it like a newspaper, not
+   a recap: "For the first time since September, The Mid Tier is not alone
+   in first place." Not: "This week saw several close games."
+2. How it happened. The two or three performances that decided it, with
+   numbers, each tied to the manager who started him. What the losing side
+   got wrong, if anything did.
+3. What it means. The standings, the streak, the record, what comes next.
+   End on one dry line that lands because it is true — a fact that reads as
+   a joke. Not an insult, not a question, not a moral.
 
-    LIKE THIS:
-      Steve, powered by 43 from Josh Allen and 29 from Zay Flowers, toppled
-      Mark 161-142. Rick edged Nick 116-113 on Monday night, while Dave put
-      167 on Tom's 100 and never trailed.
+THE VOICE
+The paper's own: dry, confident, specific, never winking. The wit is in
+what you choose to point out and how plainly you say it ("never trailed",
+"has not lost since the leaves changed"), not in name-calling. Nobody is an
+idiot up here; the reader has not been introduced to them yet.
+Call each side by its team name, or by the manager's first name if the
+league background says this league goes by first names, or a mix if it says
+this league mixes it up. Never a platform username.
 
-    NOT LIKE THIS:
-      Another week of questionable decisions in a league that specialises in
-      them. Somebody had to win. Brutal.
-
-One paragraph, flowing prose, no bullets and no headings.
+Mention another game only if it bears on this story (the team that took
+over first place, the rival who also lost). At most one.
 
 Every player in top_performers STARTED, and his points counted for the team
 named beside him. None of them was on a bench. Never say or suggest one was.
 A game decided by more than ten points was not close: never "barely",
-"survived", "edged" or "needed every bit of it" about it.
+"survived", "edged" or "needed every bit of it" about it. Records in the
+possible stories are true; do not work out any others yourself.
 {national_block}
 Week data: {_compact(context)}
 """
@@ -3227,7 +3231,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      commissioner_letter=None,
                                      nfl_notes="", national="",
                                      must_use=None, editor_bits=None,
-                                     call_by=None, name_mix=False):
+                                     call_by=None, name_mix=False,
+                                     story_leads=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -3318,7 +3323,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         tasks["lead_story"] = lambda: generate_lead_story(
             summary, week, league_name, commissioner_name, inside_jokes,
             sys_prompt, model_for("lead_story"), games=games,
-            national=national)
+            national=national, leads=story_leads)
     games_brief = "\n".join(
         f"{gc['ctx']['winner']} beat {gc['ctx']['loser']} "
         f"{gc['ctx']['winner_score']}-{gc['ctx']['loser_score']}. "

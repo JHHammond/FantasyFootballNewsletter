@@ -642,7 +642,7 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
     provider, lid, season = (league["provider"], league["platform_league_id"],
                              league["season"])
     out = {"briefing": "", "lines": [], "memories": {}, "trends": {},
-           "record_book": [], "last_lines": [], "weeks": []}
+           "record_book": [], "last_lines": [], "weeks": [], "leads": []}
     try:
         def fetch(w):
             wd = this_week if w == week else load_week(
@@ -683,6 +683,12 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
         except Exception:  # noqa: BLE001
             out["last_lead"] = []
         out["briefing"] = history.previously_on(results, week, pairs, last_paper)
+        # What the front page could be about (31 Oct). Garnish like the rest.
+        try:
+            out["leads"] = history.story_leads(results, week, pairs)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[history] story leads skipped: {type(exc).__name__}: {exc}",
+                  flush=True)
         out["memories"] = {
             frozenset((m.teams[0].team_name, m.teams[1].team_name)):
                 history.matchup_memory(results, week, a, b, last_paper)
@@ -997,6 +1003,7 @@ def generate_and_store(db, league: dict[str, Any], week: int,
             player_nicknames_for(db, week_data)) if x),
         editor_bits=editor_bits_for(db, season, week, week_data),
         national=_national.writer_facts(stack_up),
+        story_leads=season_so_far.get("leads"),
         must_use=must_use,
         call_by=(first_names_by_team(
                      managers, {m["handle"]: m["team_name"] for m in directory})

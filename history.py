@@ -213,6 +213,101 @@ def previously_on(results: list[Result], week: int,
 #: A streak only becomes a story at three.
 NOTABLE_STREAK = 3
 
+#: Wins separating two teams before a game for the result to count as an
+#: upset on the front page.
+UPSET_GAP = 2
+
+
+def story_leads(results: list[Result], week: int,
+                this_week_pairs: list[tuple[str, str]]) -> list[str]:
+    """What this week's front page could be about (31 Oct), strongest first.
+
+    The top story was a round-up of every score because nothing told the
+    writer which result mattered; asked to choose from a box score, it chose
+    everything. This works out the candidates from the season so far, in
+    plain sentences, so the writer picks one story and builds on it:
+    the leader losing, an upset by record, a streak reaching three or ending,
+    revenge in a rematch, a score that would have won almost any game and
+    lost. Each line is a fact; none is an instruction to use it.
+    """
+    if not results:
+        return []
+    before = team_histories(results, week - 1) if week > 1 else {}
+    after = team_histories(results, week)
+    this = {r.team_id: r for r in results if r.week == week}
+    if not this:
+        return []
+    ranked: list[tuple[int, str]] = []
+
+    top_wins = max((h.wins for h in before.values()), default=0)
+    leaders = [h for h in before.values() if h.wins == top_wins and h.games]
+    fallen = [(h, this[h.team_id]) for h in leaders
+              if top_wins >= 2 and h.team_id in this and this[h.team_id].outcome == "L"]
+    fallen_ids = {h.team_id for h, _ in fallen}
+    if len(fallen) == 1:
+        h, r = fallen[0]
+        alone = "alone at the top" if len(leaders) == 1 else "tied for first"
+        ranked.append((100, f"THE LEADER LOST: {h.team} came in {h.record}, {alone}, "
+                           f"and lost to {r.opp_team} {r.opp_points:.1f}-{r.points:.1f}."))
+    elif fallen:
+        each = "; ".join(f"{h.team} lost to {r.opp_team} {r.opp_points:.1f}-{r.points:.1f}"
+                         for h, r in fallen)
+        who = ("BOTH TEAMS" if len(fallen) == 2 else f"{len(fallen)} TEAMS") + \
+              (" TIED FOR FIRST LOST" if len(fallen) == len(leaders)
+               else f" OF THE {len(leaders)} TIED FOR FIRST LOST")
+        ranked.append((110, f"{who}: all came in {fallen[0][0].record}. {each}."))
+
+    for a_id, b_id in this_week_pairs:
+        ra = this.get(a_id)
+        if not ra or ra.outcome == "T":
+            continue
+        win, lose = (ra, this.get(b_id)) if ra.outcome == "W" else (this.get(b_id), ra)
+        if not win or not lose:
+            continue
+        hw, hl = before.get(win.team_id), before.get(lose.team_id)
+        if hw and hl and hl.wins - hw.wins >= UPSET_GAP and lose.team_id not in fallen_ids:
+            ranked.append((80, f"UPSET: {win.team} ({hw.record} coming in) beat "
+                               f"{lose.team} ({hl.record}) {win.points:.1f}-{win.opp_points:.1f}."))
+        met = meetings(results, win.team_id, lose.team_id, week)
+        if met:
+            last = max(met, key=lambda r: r.week)
+            if last.outcome == "L":
+                ranked.append((60, f"REVENGE: {win.team} lost to {lose.team} in week "
+                                   f"{last.week} ({last.opp_points:.1f}-{last.points:.1f}) "
+                                   f"and won the rematch {win.points:.1f}-{win.opp_points:.1f}."))
+            else:
+                ranked.append((40, f"SWEEP: {win.team} has now beaten {lose.team} twice "
+                                   f"(week {last.week} and this week)."))
+
+    for team_id, h in after.items():
+        r = this.get(team_id)
+        prev = before.get(team_id)
+        if not r:
+            continue
+        if h.streak_len >= NOTABLE_STREAK and h.streak_kind in ("W", "L"):
+            word = "won" if h.streak_kind == "W" else "lost"
+            ranked.append((70 if h.streak_len >= 4 else 50,
+                           f"STREAK: {h.team} has {word} {h.streak_len} straight."))
+        if (prev and prev.streak_len >= NOTABLE_STREAK and prev.streak_kind in ("W", "L")
+                and r.outcome != prev.streak_kind and r.outcome != "T"):
+            word = "winning" if prev.streak_kind == "W" else "losing"
+            ranked.append((75, f"STREAK OVER: {h.team}'s {prev.streak_len}-game {word} "
+                               f"streak ended this week."))
+
+    scores = sorted((r.points for r in this.values()), reverse=True)
+    for r in this.values():
+        if r.outcome == "L" and len(scores) >= 4 and r.points >= scores[1]:
+            ranked.append((65, f"BEST SCORE IN A LOSS: {r.team} put up {r.points:.1f}, "
+                               f"one of the two best scores of the week, and lost to "
+                               f"{r.opp_team} {r.opp_points:.1f}-{r.points:.1f}."))
+
+    seen, out = set(), []
+    for _, line in sorted(ranked, key=lambda x: -x[0]):
+        if line not in seen:
+            seen.add(line)
+            out.append(line)
+    return out[:6]
+
 
 def matchup_memory(results: list[Result], week: int, a_id: str, b_id: str,
                    last_paper: Optional[dict] = None) -> str:

@@ -1719,10 +1719,10 @@ def test_the_lead_prompt_carries_the_players_and_every_result(
                 assert owner not in data, owner
 
 
-def test_the_lead_is_told_to_play_it_straight(swap_client, no_sleeping):
-    """The actual complaint. Jokes belong in the recaps, where there is room
-    to earn them; in the lead they land as snideness about people the reader
-    has not met yet."""
+def test_the_lead_is_one_story_built_on_the_weeks_leads(swap_client, no_sleeping):
+    """31 Oct: the straight round-up of every score was "bland". The lead is
+    one story now, built on what code found in the season so far, in the
+    paper's voice: wit in the facts, still no insults."""
     seen = {}
 
     def behaviour(kwargs):
@@ -1730,12 +1730,16 @@ def test_the_lead_is_told_to_play_it_straight(swap_client, no_sleeping):
         return _reply("x")
 
     swap_client(behaviour)
-    writer.generate_lead_story({}, 2, "The Times", games=_week())
+    leads = ["THE LEADER LOST: Team A came in 6-0, alone at the top, and lost."]
+    writer.generate_lead_story({}, 2, "The Times", games=_week(), leads=leads)
 
     prompt = seen["prompt"]
-    assert "No insults here" in prompt
-    assert "ROUND-UP" in prompt
-    assert "winner's score first" in prompt.lower()
+    assert "ONE STORY, NOT A ROUND-UP" in prompt
+    assert "- THE LEADER LOST: Team A came in 6-0" in prompt
+    assert "Not an insult" in prompt and "name-calling" in prompt
+    # No leads: it still writes, choosing from the results.
+    writer.generate_lead_story({}, 2, "The Times", games=_week())
+    assert "pick from the results" in seen["prompt"]
 
 
 def test_the_lead_survives_a_week_it_cannot_see():

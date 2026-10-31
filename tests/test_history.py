@@ -401,3 +401,47 @@ def test_the_board_carries_records_streaks_and_the_last_meeting():
     assert bool(line["meeting"]) == bool(met)
     # No results passed: no meeting, and nothing breaks.
     assert history.betting_lines(nxt, hist)[0]["meeting"] is None
+
+
+
+def _leads_season(*weeks):
+    """weeks: lists of (team_a, pts_a, team_b, pts_b)."""
+    out = []
+    for w, games in enumerate(weeks, 1):
+        out.append(_week(w, *[(_team(a, pa), _team(b, pb)) for a, pa, b, pb in games]))
+    return history.results_from_weeks(out)
+
+
+def test_story_leads_finds_the_leader_losing_and_the_streak_ending():
+    res = _leads_season(
+        [("top", 130, "a", 100), ("b", 120, "c", 110)],
+        [("top", 130, "b", 100), ("a", 120, "c", 110)],
+        [("top", 130, "c", 100), ("a", 120, "b", 110)],
+        [("top", 100, "c", 140), ("a", 120, "b", 110)])
+    leads = history.story_leads(res, 4, [("top", "c"), ("a", "b")])
+    assert leads[0].startswith("THE LEADER LOST: Team top came in 3-0")
+    assert any(l.startswith("STREAK OVER: Team top's 3-game winning streak") for l in leads)
+    # The leader's loss is not told twice as an upset as well.
+    assert not any(l.startswith("UPSET") and "Team top" in l for l in leads)
+
+
+def test_story_leads_joins_co_leaders_who_both_lost():
+    res = _leads_season(
+        [("x", 130, "a", 100), ("y", 120, "b", 110)],
+        [("x", 130, "b", 100), ("y", 120, "a", 110)],
+        [("x", 100, "a", 140), ("y", 100, "b", 130)])
+    leads = history.story_leads(res, 3, [("x", "a"), ("y", "b")])
+    assert leads[0].startswith("BOTH TEAMS TIED FOR FIRST LOST: all came in 2-0.")
+    assert "Team x lost to Team a 140.0-100.0" in leads[0]
+
+
+def test_story_leads_finds_revenge_and_an_upset():
+    res = _leads_season(
+        [("a", 130, "b", 100), ("c", 120, "d", 110)],
+        [("a", 130, "c", 100), ("b", 120, "d", 110)],
+        [("a", 130, "d", 100), ("c", 120, "b", 110)],
+        [("b", 140, "a", 100), ("c", 120, "d", 110)])
+    leads = history.story_leads(res, 4, [("a", "b"), ("c", "d")])
+    joined = " | ".join(leads)
+    assert "REVENGE: Team b lost to Team a in week 1" in joined
+    assert history.story_leads([], 4, []) == []
