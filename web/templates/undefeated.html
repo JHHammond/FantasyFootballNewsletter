@@ -110,326 +110,155 @@
 </section>
 {% endif %}
 
-{# ================================================================ the countdown #}
-{% set C = u.curve %}
-{% if C %}
-<section class="ar-sec">
-    <h2 class="section-head"><span>The countdown</span></h2>
-    <p class="ar-intro">Teams still perfect after each week, against what flipping a coin for every game would have left. The scale is logarithmic, so every halving takes the same room; the gap between the lines is skill, and some schedule.</p>
-    <figure class="uw-chart">
-        <div class="uw-chart-key" aria-hidden="true">
-            <span class="uw-k-alive">Still perfect</span>
-            <span class="uw-k-coin">A coin</span>
-        </div>
-        <div class="uw-chart-box" id="uw-chart">
-            <svg viewBox="0 0 {{ C.width }} {{ C.height }}" preserveAspectRatio="none" class="uw-chart-svg" role="img"
-                 aria-label="Teams still perfect after each week, on a log scale">
-                {% for t in C.ticks %}<line x1="{{ C.left }}" x2="{{ C.right }}" y1="{{ t.y }}" y2="{{ t.y }}" class="uw-grid{{ ' major' if t.major }}" />{% endfor %}
-                <path d="{{ C.area }}" class="uw-area" />
-                <path d="{{ C.coin }}" class="uw-coin" />
-                <path d="{{ C.path }}" class="uw-line" />
-            </svg>
-            {# Words in HTML over the stretched SVG, so they stay legible on a phone. #}
-            {% for t in C.ticks %}<span class="uw-ytick" style="top:{{ '%.2f'|format(100 * t.y / C.height) }}%">{{ t.label }}</span>{% endfor %}
-            {% for d in C.dots %}
-            <span class="uw-dot{{ ' last' if loop.last }}" style="left:{{ '%.2f'|format(100 * d.x / C.width) }}%;top:{{ '%.2f'|format(100 * d.y / C.height) }}%"></span>
-            <span class="uw-xtick" style="left:{{ '%.2f'|format(100 * d.x / C.width) }}%">{{ 'Start' if d.week == 0 else d.week }}</span>
-            {% if loop.last %}<span class="uw-end" style="left:{{ '%.2f'|format(100 * d.x / C.width) }}%;top:{{ '%.2f'|format(100 * d.y / C.height) }}%">{{ '{:,}'.format(d.n) }}</span>{% endif %}
-            {% endfor %}
-            <span class="uw-coin-end" style="left:{{ '%.2f'|format(100 * C.coin_end.x / C.width) }}%;top:{{ '%.2f'|format(100 * C.coin_end.y / C.height) }}%">{{ u.coin_txt }}</span>
-            <div class="uw-hair" id="uw-hair" hidden><span class="uw-hair-line"></span><div class="uw-hair-card" id="uw-hair-card"></div></div>
-        </div>
-        <figcaption class="uw-chart-foot">Week</figcaption>
-    </figure>
-</section>
-{% endif %}
-
-{# ================================================================ the fallen #}
-{% set FL = u.fallen %}
-{% if FL.n %}
-<section class="ar-sec">
-    <h2 class="section-head"><span>Week {{ u.through }}&rsquo;s fallen</span></h2>
-    <ul class="clippings uw-clips">
-        <li class="clip">
-            <span class="clip-kicker">Lost their first</span>
-            <strong class="ar-clip-num">{{ '{:,}'.format(FL.n) }}</strong>
-            <p>teams were {{ u.through - 1 }}-0 on Sunday morning and aren&rsquo;t now.</p>
-        </li>
-        <li class="clip">
-            <span class="clip-kicker">By less than a field goal</span>
-            <strong class="ar-clip-num">{{ '{:,}'.format(FL.close) }}</strong>
-            <p>of them lost by under three points. Somebody&rsquo;s kicker is getting a strongly worded text.</p>
-        </li>
-        {% set cr = FL.cruel[0] if FL.cruel else none %}
-        {% if cr %}
-        <li class="clip">
-            <span class="clip-kicker">The cruelest</span>
-            <strong class="ar-clip-num">{{ '%.1f'|format(cr.fell_ppr if cr.fell_ppr else cr.fell_points) }}</strong>
-            <p>{{ cr.desc }}{{ tag(cr) }} scored that and lost{% if cr.fell_opp is not none %}, to {{ '%.1f'|format(cr.fell_opp) }} in its own scoring{% endif %}. {{ u.through - 1 }}-0 until it ran into the one team that had more.</p>
-        </li>
-        {% endif %}
-        {% set ne = FL.nearest[0] if FL.nearest else none %}
-        {% if ne and ne.fell_margin is not none %}
-        <li class="clip">
-            <span class="clip-kicker">The closest</span>
-            <strong class="ar-clip-num">{{ 'Tied' if ne.fell_margin == 0 else '%.1f'|format(-ne.fell_margin) }}</strong>
-            <p>{% if ne.fell_margin == 0 %}{{ ne.desc }}{{ tag(ne) }} tied, which counts. Perfect means perfect.{% else %}{{ ne.desc }}{{ tag(ne) }} lost by that much. One more catch.{% endif %}</p>
-        </li>
-        {% endif %}
-    </ul>
-</section>
-{% endif %}
-
-{# ================================================================ the lessons #}
-{% if u.lessons %}
-<section class="ar-sec">
-    <h2 class="section-head"><span>What the unbeaten do differently</span></h2>
-    <p class="ar-intro">Unbeaten teams against winless ones, with the whole country in between. Abandoned rosters are left out of the winless: a team nobody is managing doesn&rsquo;t teach anything about managing.</p>
-    <div class="uw-lessons">
-        {% for l in u.lessons %}
-        <article class="uw-lesson">
-            <h3>{{ l.head }}</h3>
-            <p>{{ l.body }}</p>
-        </article>
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
-
-{# ================================================================ the tape #}
-{% if u.tape %}
-<section class="ar-sec">
-    <h2 class="section-head"><span>The tale of the tape</span></h2>
-    <div class="uw-tape">
-        <div class="uw-legend" aria-hidden="true">
-            <span class="uw-lg-u">Unbeaten <small>{{ '{:,}'.format(u.tape_n.u.n) }}</small></span>
-            <span class="uw-lg-a">The country</span>
-            <span class="uw-lg-w">Winless <small>{{ '{:,}'.format(u.tape_n.w.n) }}</small></span>
-        </div>
-        {% for r in u.tape %}
-        <div class="uw-row">
-            <div class="uw-row-label">{{ r.label }}</div>
-            <div class="uw-track" aria-hidden="true">
-                <span class="uw-span" style="left:{{ [r.pu, r.pw]|min }}%;width:{{ ([r.pu, r.pw]|max) - ([r.pu, r.pw]|min) }}%"></span>
-                {% if r.pa is not none %}<span class="uw-mark uw-mark-a" style="left:{{ r.pa }}%"></span>{% endif %}
-                <span class="uw-mark uw-mark-w" style="left:{{ r.pw }}%"></span>
-                <span class="uw-mark uw-mark-u" style="left:{{ r.pu }}%"></span>
-            </div>
-            <div class="uw-vals"><b class="uw-v-u" title="Unbeaten">{{ r.u }}</b><span class="uw-v-w" title="Winless">{{ r.w }}</span><span class="uw-v-a" title="The country">{{ r.a }}</span>
-                <span class="visually-hidden">: unbeaten {{ r.u }}, winless {{ r.w }}, the country {{ r.a }}</span></div>
-        </div>
-        {% endfor %}
-    </div>
-    {% if u.sources %}
-    <div class="uw-src">
-        <h3 class="uw-sub">Where their starting points came from</h3>
-        {% for r in u.sources %}
-        <div class="uw-src-row uw-src-{{ r.g }}">
-            <span class="uw-src-label">{{ r.label }}</span>
-            <div class="uw-src-bar">
-                {% for p in r.parts if p.w > 0 %}<span class="uw-seg uw-seg-{{ p.key }}" style="width:{{ p.w }}%" title="{{ p.label }}: {{ p.txt }}">{% if p.w >= 9 %}{{ p.txt }}{% endif %}</span>{% endfor %}
-            </div>
-        </div>
-        {% endfor %}
-        <p class="uw-src-key"><span class="uw-sw uw-seg-drafted"></span>Their own draft <span class="uw-sw uw-seg-traded"></span>Trades <span class="uw-sw uw-seg-wire"></span>The wire and free agency</p>
-    </div>
-    {% endif %}
-</section>
-{% endif %}
-
-{# ================================================================ draft day #}
-{% set SL = u.slots %}
-{% if SL or u.builds %}
-<section class="ar-sec">
-    <h2 class="section-head"><span>It starts on draft day</span></h2>
-    {% if SL %}
-    <figure class="uw-slots">
-        <figcaption class="uw-sub">Still perfect, by draft slot</figcaption>
-        <div class="uw-slots-plot">
-            <span class="uw-slots-avg" style="bottom:{{ SL.avg_h }}%"></span>
-            {% for c in SL.cols %}
-            <div class="uw-slot{{ ' best' if SL.best and c.slot == SL.best.slot }}">
-                <span class="uw-slot-val">{{ c.txt }}</span>
-                <span class="uw-slot-bar" style="height:{{ c.h }}%"></span>
-            </div>
+{# ================================================================ head to head
+   John, 30 Oct: the tale of the tape was a lot on one boring chart. One
+   measure per card, swiped (or arrowed) through, unbeaten against winless. #}
+{% if u.h2h %}
+<section class="ar-sec uw-h2h" aria-roledescription="carousel" aria-label="Head to head">
+    <h2 class="section-head"><span>Head to head</span></h2>
+    <p class="ar-intro">The {{ '{:,}'.format(u.unbeaten) }} unbeaten against the {{ '{:,}'.format(S.winless) }} winless, one thing at a time.</p>
+    <div class="uw-deck-wrap">
+        <button type="button" class="uw-deck-nav prev" id="uw-prev" aria-label="Previous card"><svg viewBox="0 0 12 20" aria-hidden="true"><path d="M10 2 2 10l8 8" /></svg></button>
+        <div class="uw-deck" id="uw-deck" tabindex="0">
+            {% for c in u.h2h %}
+            <article class="uw-card uw-card-{{ c.key }}" aria-roledescription="slide" aria-label="{{ loop.index }} of {{ u.h2h|length }}: {{ c.title }}">
+                <h3 class="uw-card-title">{{ c.title }}</h3>
+                <p class="uw-card-unit">{{ c.unit }}</p>
+                {% if c.verdict %}
+                <div class="uw-vbar">{% for v in c.segs if v.n %}<span class="uw-vseg uw-v-{{ v.key }}" style="width:{{ v.w }}%"></span>{% endfor %}</div>
+                <div class="uw-vkey">{% for v in c.segs %}<div class="uw-vkey-item uw-v-{{ v.key }}"><b>{{ '{:,}'.format(v.n) }}</b><span>{{ v.label }}</span></div>{% endfor %}</div>
+                {% else %}
+                <div class="uw-vs">
+                    <div class="uw-vs-u"><b>{{ c.u }}</b><span>Unbeaten</span></div>
+                    <div class="uw-vs-w"><b>{{ c.w }}</b><span>Winless</span></div>
+                </div>
+                {% if c.diverge %}
+                <div class="uw-div" aria-hidden="true">
+                    <span class="uw-div-mid"></span>
+                    <div class="uw-div-row u"><i style="{{ 'right:50%;width:' ~ (-c.du) ~ '%' if c.du < 0 else 'left:50%;width:' ~ c.du ~ '%' }}"></i></div>
+                    <div class="uw-div-row w"><i style="{{ 'right:50%;width:' ~ (-c.dw) ~ '%' if c.dw < 0 else 'left:50%;width:' ~ c.dw ~ '%' }}"></i></div>
+                    <div class="uw-div-axis"><span>Easier</span><span>League average</span><span>Harder</span></div>
+                </div>
+                {% else %}
+                <div class="uw-cbars" aria-hidden="true">
+                    <div class="uw-cbar u"><i style="width:{{ c.wu }}%"></i></div>
+                    <div class="uw-cbar w"><i style="width:{{ c.ww }}%"></i></div>
+                    {% if c.a and c.wa is not none %}<span class="uw-cbar-all" style="left:{{ c.wa }}%"><em>All teams: {{ c.a }}</em></span>{% endif %}
+                </div>
+                {% endif %}
+                {% endif %}
+                <p class="uw-card-line">{{ c.line }}</p>
+                <p class="uw-card-folio">{{ loop.index }} of {{ u.h2h|length }}</p>
+            </article>
             {% endfor %}
         </div>
-        <div class="uw-slots-x">{% for c in SL.cols %}<span>{{ c.slot }}</span>{% endfor %}</div>
-        <p class="uw-note"><span class="uw-dash"></span>Every slot together: {{ SL.avg_txt }}. Each team&rsquo;s first pick, converted to a 12-team draft. {% if SL.best %}Slot {{ SL.best.slot }} has done best: {{ SL.best.u }} of its {{ SL.best.n }} teams are still perfect.{% endif %}</p>
-    </figure>
-    {% endif %}
-    {% if u.builds %}
-    <div class="uw-builds">
-        <h3 class="uw-sub">How they opened</h3>
-        <div class="uw-legend uw-legend-sm" aria-hidden="true">
-            <span class="uw-lg-u">Share of unbeaten</span><span class="uw-lg-a">The country</span><span class="uw-lg-w">Share of winless</span>
-        </div>
-        {% for b in u.builds %}
-        <div class="uw-row uw-row-build">
-            <div class="uw-row-label">{{ b.name }}<small>{{ b.what }}</small></div>
-            <div class="uw-track" aria-hidden="true">
-                <span class="uw-span" style="left:{{ [b.pu, b.pw]|min }}%;width:{{ ([b.pu, b.pw]|max) - ([b.pu, b.pw]|min) }}%"></span>
-                {% if b.pa is not none %}<span class="uw-mark uw-mark-a" style="left:{{ b.pa }}%"></span>{% endif %}
-                <span class="uw-mark uw-mark-w" style="left:{{ b.pw }}%"></span>
-                <span class="uw-mark uw-mark-u" style="left:{{ b.pu }}%"></span>
-            </div>
-            <div class="uw-vals"><b class="uw-v-u" title="Share of unbeaten">{{ b.su }}</b><span class="uw-v-w" title="Share of winless">{{ b.sw }}</span><span class="uw-v-a" title="The country">{{ b.sa }}</span>
-                <span class="visually-hidden">: {{ b.su }} of unbeaten teams, {{ b.sw }} of winless, {{ b.sa }} of the country</span></div>
-            <div class="uw-row-rate"><b>{{ b.rtxt }}</b> still perfect</div>
-        </div>
-        {% endfor %}
+        <button type="button" class="uw-deck-nav next" id="uw-next" aria-label="Next card"><svg viewBox="0 0 12 20" aria-hidden="true"><path d="m2 2 8 8-8 8" /></svg></button>
     </div>
-    {% endif %}
-    {% if u.draft_thread %}
-    <div class="uw-drafted">
-        <h3 class="uw-sub">Drafted by the unbeaten</h3>
-        <p class="uw-note">Players the unbeaten took far more often than everybody else did, decided in August before a game was played.</p>
-        <ol class="uw-plist">
-            {% for p in u.draft_thread[:8] %}
-            <li>{{ face(p) }}<span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>{% if p.adp %}Went around pick {{ '%.0f'|format(p.adp) }}. {% endif %}Drafted by {{ p.su }} of the unbeaten, {{ p.sa }} of everyone.</small></span><span class="uw-p-lift">{{ p.lift_txt }}</span></li>
-            {% endfor %}
-        </ol>
+    <div class="uw-dots" id="uw-dots" role="tablist" aria-label="Choose a card">
+        {% for c in u.h2h %}<button type="button" role="tab" aria-label="{{ c.title }}" class="{{ 'on' if loop.first }}" data-i="{{ loop.index0 }}"></button>{% endfor %}
     </div>
-    {% endif %}
 </section>
 {% endif %}
 
-{# ================================================================ the players #}
-{% if u.thread or u.most %}
+{# ================================================================ the draft
+   John, 30 Oct: "one draft that is like the average draft: who they took in
+   round 1, 2, 3...". #}
+{% if u.board %}
+<section class="ar-sec uw-draft">
+    <h2 class="section-head"><span>The unbeaten draft</span></h2>
+    <p class="ar-intro">Round by round, what the teams still perfect took with each pick, and who they took most. The thin bar under each round is every team in the country.</p>
+    <p class="uw-poskey" aria-hidden="true">{% for p, label in [('QB','Quarterback'),('RB','Running back'),('WR','Receiver'),('TE','Tight end'),('K','Kicker or defense')] %}<span><i class="uw-pos-{{ p }}"></i>{{ label }}</span>{% endfor %}</p>
+    <ol class="uw-board">
+        {% for r in u.board %}
+        {% if loop.index == 11 %}</ol><details class="uw-more"><summary>Rounds 11 to {{ u.board[-1].round }}</summary><ol class="uw-board" start="11">{% endif %}
+        <li class="uw-rd{{ ' lead' if r.lead }}">
+            <span class="uw-rd-n"><small>Round</small>{{ r.round }}</span>
+            <div class="uw-rd-mix">
+                <div class="uw-mixbar" role="img" aria-label="Unbeaten teams in round {{ r.round }}: {% for m in r.mix %}{{ m.pos }} {{ '%.0f'|format(m.u) }}%{{ ', ' if not loop.last }}{% endfor %}">
+                    {% for m in r.mix if m.u > 0 %}<span class="uw-pos-{{ m.pos }}" style="width:{{ m.u }}%">{% if m.u >= 13 %}{{ m.pos }}<em>{{ '%.0f'|format(m.u) }}%</em>{% endif %}</span>{% endfor %}
+                </div>
+                <div class="uw-mixbar thin" aria-hidden="true">
+                    {% for m in r.mix if m.a > 0 %}<span class="uw-pos-{{ m.pos }}" style="width:{{ m.a }}%"></span>{% endfor %}
+                </div>
+                <p class="uw-rd-line">{{ r.line }}</p>
+            </div>
+            <ul class="uw-rd-who">
+                {% for p in r.players %}
+                <li>{{ face(p) }}<span><b>{{ p.name }}</b><small>{{ p.share }} of them</small></span></li>
+                {% endfor %}
+            </ul>
+        </li>
+        {% if loop.last and loop.length > 10 %}</ol></details>{% elif loop.last %}</ol>{% endif %}
+        {% endfor %}
+</section>
+{% endif %}
+
+{# ================================================================ the thread
+   John, 30 Oct: "X percent of everyone" didn't read. Every share now says
+   who it's a share of: unbeaten teams, and all teams. #}
+{% if u.thread %}
 <section class="ar-sec">
     <h2 class="section-head"><span>The common thread</span></h2>
-    <p class="ar-intro">Who the unbeaten have on their rosters now, against how often everyone else does. Fair warning: some of this is hindsight. The teams that are still perfect are the ones who had the players who broke out.</p>
-    {% set lead = u.thread[:4] if u.thread|length >= 2 else u.most[:4] %}
+    <p class="ar-intro">The players the unbeaten have on their rosters now, against how often every team does. Some of it is hindsight: the teams still perfect are the ones who had the breakouts.</p>
     <div class="at-stars uw-stars">
-        {% for p in lead %}
+        {% for p in u.thread %}
         <article class="at-star">
             <figure class="at-star-photo{{ ' at-star-photo-def' if p.position == 'DEF' }}">
                 <span class="at-star-fallback" aria-hidden="true">{{ p.position or '?' }}</span>
                 {% if p.photo %}<img src="{{ p.photo }}" alt="{{ p.name }}" loading="lazy" onerror="this.remove()" />{% endif %}
             </figure>
             <div class="at-star-text">
-                <span class="clip-kicker">{% if p.lift_txt %}{{ p.lift_txt }} the national rate{% else %}On {{ p.su }} of them{% endif %}</span>
+                {% if p.lift_txt %}<span class="clip-kicker">{{ p.lift_txt }} as common on unbeaten teams</span>{% endif %}
                 <h3 class="at-star-name">{{ p.name }}{% if p.position %} <span class="ar-pos">{{ p.position }}</span>{% endif %}</h3>
-                <p class="at-star-line">On {{ p.su }} of unbeaten rosters and {{ p.sa }} of everyone&rsquo;s.</p>
+                <div class="uw-share2">
+                    <div class="u"><span>Unbeaten teams</span><i><b style="width:{{ p.gw }}%"></b></i><em>{{ p.g }}</em></div>
+                    <div class="a"><span>All teams</span><i><b style="width:{{ p.aw }}%"></b></i><em>{{ p.all }}</em></div>
+                </div>
             </div>
         </article>
         {% endfor %}
     </div>
-    <div class="ar-boards ar-boards-2 uw-pboards">
-        {% set rest = (u.thread[4:12] if u.thread|length >= 2 else u.most[4:12]) %}
-        {% if rest %}
-        <article class="ar-board">
-            <h3 class="ar-board-head">Also over-represented</h3>
-            <ol class="uw-plist">
-                {% for p in rest %}<li>{{ face(p) }}<span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>On {{ p.su }} of unbeaten rosters, {{ p.sa }} of everyone&rsquo;s.</small></span><span class="uw-p-lift">{{ p.lift_txt }}</span></li>{% endfor %}
-            </ol>
-        </article>
-        {% endif %}
-        {% if u.kryptonite %}
-        <article class="ar-board uw-kryp">
-            <h3 class="ar-board-head">Found on winless rosters</h3>
-            <ol class="uw-plist">
-                {% for p in u.kryptonite %}<li>{{ face(p) }}<span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>On {{ p.sw }} of winless rosters, {{ p.sa }} of everyone&rsquo;s.</small></span><span class="uw-p-lift">{{ p.liftw_txt }}</span></li>{% endfor %}
-            </ol>
-        </article>
-        {% endif %}
-    </div>
-</section>
-{% endif %}
-
-{# ================================================================ the wire #}
-<section class="ar-sec">
-    <h2 class="section-head"><span>The wire</span></h2>
-    {% set TU, TW = u.tape_n.u, u.tape_n.w %}
-    {% if u.wire_ready and TU.adds is not none %}
-    <section class="figures uw-figs" aria-label="The waiver wire">
-        <div class="figure"><strong>{{ '%.1f'|format(TU.adds) }}</strong><span>pickups per unbeaten team</span></div>
-        <div class="figure"><strong>{{ '%.1f'|format(TW.adds) if TW.adds is not none else '–' }}</strong><span>per winless team</span></div>
-        {% if TU.faab is not none %}<div class="figure"><strong>${{ '%.0f'|format(TU.faab) }}</strong><span>FAAB spent, unbeaten</span></div>{% endif %}
-        {% if TW.faab is not none %}<div class="figure"><strong>${{ '%.0f'|format(TW.faab) }}</strong><span>FAAB spent, winless</span></div>{% endif %}
-    </section>
-    {% else %}
-    <p class="ar-intro">We started keeping every waiver claim this week, won and lost, with the FAAB bid. Once every week of the season is in, this is where the unbeaten&rsquo;s pickups go{% if staff %} (staff: see the note at the bottom){% endif %}.</p>
-    {% endif %}
-    <div class="ar-boards ar-boards-2">
-        {% if u.wire_ready and u.wire_most %}
-        <article class="ar-board">
-            <h3 class="ar-board-head">The pickups that made them</h3>
-            <ol class="uw-plist">
-                {% for p in u.wire_most[:8] %}<li>{{ face(p) }}<span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>Picked up by {{ '{:,}'.format(p.n_u) }} unbeaten team{{ 's' if p.n_u != 1 }}, {{ p.su }} of them.</small></span><span class="uw-p-lift">{{ p.lift_txt or '' }}</span></li>{% endfor %}
-            </ol>
-        </article>
-        {% endif %}
-        {% if u.hot %}
-        <article class="ar-board">
-            <h3 class="ar-board-head">Most added{% if u.hot_week %}, week {{ u.hot_week }}{% endif %}</h3>
-            <ol class="uw-plist">
-                {% for p in u.hot %}<li><span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}<small>{% if p.avg_bid %}${{ '%.0f'|format(p.avg_bid) }} average bid{% else %}No FAAB bids{% endif %}{% if p.failed %}, {{ p.failed }} claim{{ 's' if p.failed != 1 }} lost{% endif %}</small></span><span class="uw-p-lift">{{ '{:,}'.format(p.adds) }}</span></li>{% endfor %}
-            </ol>
-        </article>
-        {% endif %}
-    </div>
-</section>
-
-{# ================================================================ real or not #}
-{% if u.vtot %}
-<section class="ar-sec">
-    <h2 class="section-head"><span>Real, or just lucky?</span></h2>
-    <p class="ar-intro">An unbeaten record says who they played. All-play says how they&rsquo;d do against everybody in their league, every week. A {{ u.through }}-0 team that would have lost half its games against the rest of its league is a pretender with a good schedule.</p>
-    <div class="uw-verdicts">
-        <div class="uw-vbar" role="img" aria-label="{% for v in u.vbar %}{{ v.label }}: {{ v.n }}{{ ', ' if not loop.last }}{% endfor %}">
-            {% for v in u.vbar if v.n %}<span class="uw-vseg uw-v-{{ 'real' if v.key == 'real' else 'mid' if v.key == 'middle' else 'fake' }}" style="width:{{ v.w }}%"></span>{% endfor %}
+    {% set tabs = [] %}
+    {% if u.thread_more %}{% set _ = tabs.append(('more', 'More they share', u.thread_more, 'u')) %}{% endif %}
+    {% if u.wire_most %}{% set _ = tabs.append(('wire', 'Off the waiver wire', u.wire_most, 'wire')) %}{% endif %}
+    {% if u.kryptonite %}{% set _ = tabs.append(('kryp', 'On winless rosters', u.kryptonite, 'w')) %}{% endif %}
+    {% if tabs %}
+    <div class="uw-tabs" data-uw-tabs>
+        <div class="uw-tablist" role="tablist">
+            {% for key, title, rows, kind in tabs %}<button type="button" role="tab" class="{{ 'on' if loop.first }}" data-tab="{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ title }}</button>{% endfor %}
         </div>
-        <div class="uw-vkey">
-            {% for v in u.vbar %}
-            <div class="uw-vkey-item uw-v-{{ 'real' if v.key == 'real' else 'mid' if v.key == 'middle' else 'fake' }}">
-                <b>{{ '{:,}'.format(v.n) }}</b><span>{{ v.label }}</span>
-                <small>{% if v.key == 'real' %}win three in four against their whole league{% elif v.key == 'middle' %}better than half, not dominant{% else %}would lose most weeks to the rest of their league{% endif %}</small>
-            </div>
-            {% endfor %}
+        {% for key, title, rows, kind in tabs %}
+        <div class="uw-panel{{ ' on' if loop.first }}" role="tabpanel" data-panel="{{ key }}">
+            <h3 class="uw-panel-head">{{ title }}</h3>
+            <ol class="uw-plist">
+                {% for p in rows %}
+                <li>{{ face(p) }}
+                    <span class="uw-p-name">{{ p.name }}{% if p.position %}<span class="ar-pos">{{ p.position }}</span>{% endif %}
+                        <small>{% if kind == 'w' %}{{ p.g }} of winless teams have him. {{ p.all }} of all teams do.{% elif kind == 'wire' %}{{ p.g }} of unbeaten teams picked him up. {{ p.all }} of all teams did.{% else %}{{ p.g }} of unbeaten teams have him. {{ p.all }} of all teams do.{% endif %}</small></span>
+                    <span class="uw-p-lift{{ ' w' if kind == 'w' }}">{{ p.lift_txt or '' }}</span></li>
+                {% endfor %}
+            </ol>
         </div>
-        {% if u.verdicts.led_league %}<p class="uw-note">{{ '{:,}'.format(u.verdicts.led_league) }} of the {{ '{:,}'.format(u.unbeaten) }} also lead their league in points.</p>{% endif %}
+        {% endfor %}
     </div>
-    {% set fakes = u.pretenders|selectattr('vcls', 'equalto', 'fake')|list %}
-    {% if fakes %}
-    <h3 class="uw-sub uw-sub-c">The pretenders</h3>
-    <div class="uw-tickets uw-tickets-few">{% for c in fakes[:3] %}{{ ticket(c) }}{% endfor %}</div>
     {% endif %}
 </section>
 {% endif %}
 
-{# ================================================================ the cards #}
-{% if u.cards %}
+{# ================================================================ the last
+   Only once 100 or fewer are left: then every one gets a card, and coming
+   back each Tuesday to see who's gone is the point. #}
+{% if u.cards and u.show_all %}
 <section class="ar-sec">
     {% if u.state == 'none' %}
     <h2 class="section-head"><span>The last to fall</span></h2>
     <p class="ar-intro">Every team that was still perfect going into week {{ S.extinct }}.</p>
-    {% elif u.show_all %}
-    <h2 class="section-head"><span>{% if u.unbeaten == 1 %}The last one standing{% else %}The last {{ u.unbeaten }}{% endif %}</span></h2>
-    <p class="ar-intro">Every unbeaten team in the country, most dominant first. Each one, described and never named. Check back next Tuesday to see who&rsquo;s left.</p>
     {% else %}
-    <h2 class="section-head"><span>The most dominant</span></h2>
-    <p class="ar-intro">The twelve unbeaten teams that would have won the most against everybody in their league. Once {{ 100 }} or fewer are left, every one of them gets a card here. {{ '{:,}'.format(u.unbeaten - 100) }} more have to lose first.</p>
+    <h2 class="section-head"><span>{% if u.unbeaten == 1 %}The last one standing{% else %}The last {{ u.unbeaten }}{% endif %}</span></h2>
+    <p class="ar-intro">Every unbeaten team in the country, most dominant first. Check back next Tuesday to see who&rsquo;s left.</p>
     {% endif %}
     <div class="uw-tickets{{ ' uw-tickets-big' if u.unbeaten <= 10 }}">
-        {% for c in (u.cards if (u.show_all or u.state == 'none') else u.cards[:12]) %}{{ ticket(c, big=u.unbeaten <= 10) }}{% endfor %}
-    </div>
-</section>
-{% endif %}
-
-{# ================================================================ standings #}
-{% if u.standings %}
-<section class="ar-sec">
-    <h2 class="section-head"><span>The country&rsquo;s standings</span></h2>
-    <div class="uw-stand">
-        {% for r in u.standings %}
-        <div class="uw-stand-row uw-stand-{{ r.kind or 'x' }}">
-            <span class="uw-stand-rec">{{ r.rec }}</span>
-            <span class="uw-stand-bar"><i style="width:{{ r.wd }}%"></i></span>
-            <span class="uw-stand-n">{{ '{:,}'.format(r.n) }}</span>
-        </div>
-        {% endfor %}
-        {% if u.tied %}<p class="uw-note">Plus {{ '{:,}'.format(u.tied) }} team{{ 's' if u.tied != 1 }} with a tie.</p>{% endif %}
+        {% for c in u.cards %}{{ ticket(c, big=u.unbeaten <= 10) }}{% endfor %}
     </div>
 </section>
 {% endif %}
@@ -464,7 +293,7 @@
 </section>
 {% endif %}
 
-<script type="application/json" id="uw-data">{{ {"room": u.room, "dots": u.curve.dots if u.curve else [], "teams": u.teams, "through": u.through, "unbeaten": u.unbeaten, "card": card_base, "url": public_base() ~ "/undefeated"}|tojson }}</script>
+<script type="application/json" id="uw-data">{{ {"room": u.room, "teams": u.teams, "through": u.through, "unbeaten": u.unbeaten, "card": card_base, "url": public_base() ~ "/undefeated"}|tojson }}</script>
 <script>
 (function () {
     var D = JSON.parse(document.getElementById("uw-data").textContent);
@@ -500,12 +329,7 @@
             dots.push(c);
         }
         var shown = -1;
-        function country(i) {
-            var r = D.room[i];
-            if (r.week === 0) return D.teams;
-            var d = (D.dots || []).filter(function (x) { return x.week === r.week; })[0];
-            return d ? d.n : 0;
-        }
+        function country(i) { return D.room[i].count; }
         function show(i, animateNum) {
             var r = D.room[i], lit = r.n;
             // A country with any team left keeps at least one seat lit.
@@ -565,33 +389,64 @@
         }
     }
 
-    // ---- the countdown: a crosshair per week ------------------------------
-    var box = document.getElementById("uw-chart");
-    if (box && D.dots && D.dots.length) {
-        var hair = document.getElementById("uw-hair"), card = document.getElementById("uw-hair-card");
-        var W = 720;
-        function at(clientX) {
-            var r = box.getBoundingClientRect(), x = (clientX - r.left) / r.width * W;
-            var best = D.dots[0];
-            D.dots.forEach(function (d) { if (Math.abs(d.x - x) < Math.abs(best.x - x)) best = d; });
-            hair.hidden = false;
-            hair.style.left = (100 * best.x / W) + "%";
-            var coin = best.coin >= 10 ? fmt(best.coin) : best.coin >= 1 ? best.coin.toFixed(1) : "under 1";
-            card.innerHTML = "";
-            var h = document.createElement("b");
-            h.textContent = best.week === 0 ? "Before week 1" : "After week " + best.week;
-            var a = document.createElement("span");
-            a.textContent = fmt(best.n) + " still perfect";
-            var b = document.createElement("small");
-            b.textContent = "A coin: " + coin;
-            card.appendChild(h); card.appendChild(a); card.appendChild(b);
-            hair.classList.toggle("flip", best.x > W * 0.62);
+    // ---- head to head: a deck of cards -----------------------------------
+    // Native scroll-snap does the swiping (touch, trackpads); the arrows,
+    // dots and arrow keys move it one card at a time.
+    var deck = document.getElementById("uw-deck");
+    if (deck) {
+        var cards = deck.querySelectorAll(".uw-card");
+        var dots = document.querySelectorAll("#uw-dots button");
+        var prev = document.getElementById("uw-prev"), next = document.getElementById("uw-next");
+        function current() {
+            var mid = deck.scrollLeft + deck.clientWidth / 2, best = 0, gap = Infinity;
+            cards.forEach(function (c, i) {
+                var d = Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid);
+                if (d < gap) { gap = d; best = i; }
+            });
+            return best;
         }
-        box.addEventListener("mousemove", function (e) { at(e.clientX); });
-        box.addEventListener("mouseleave", function () { hair.hidden = true; });
-        box.addEventListener("touchstart", function (e) { at(e.touches[0].clientX); }, {passive: true});
-        box.addEventListener("touchmove", function (e) { at(e.touches[0].clientX); }, {passive: true});
+        function go(i) {
+            i = Math.max(0, Math.min(cards.length - 1, i));
+            var c = cards[i];
+            deck.scrollTo({left: c.offsetLeft - (deck.clientWidth - c.offsetWidth) / 2,
+                           behavior: calm ? "auto" : "smooth"});
+        }
+        function sync() {
+            var i = current();
+            dots.forEach(function (d, j) {
+                d.classList.toggle("on", j === i);
+                d.setAttribute("aria-selected", j === i ? "true" : "false");
+            });
+            cards.forEach(function (c, j) { c.classList.toggle("on", j === i); });
+            // The deck is as tall as the card in front, not the tallest one.
+            deck.style.height = (cards[i].offsetHeight + 40) + "px";
+            prev.disabled = i === 0;
+            next.disabled = i === cards.length - 1;
+        }
+        var t = null;
+        deck.addEventListener("scroll", function () { clearTimeout(t); t = setTimeout(sync, 60); }, {passive: true});
+        prev.addEventListener("click", function () { go(current() - 1); });
+        next.addEventListener("click", function () { go(current() + 1); });
+        dots.forEach(function (d) { d.addEventListener("click", function () { go(+d.getAttribute("data-i")); }); });
+        deck.addEventListener("keydown", function (e) {
+            if (e.key === "ArrowRight") { e.preventDefault(); go(current() + 1); }
+            if (e.key === "ArrowLeft") { e.preventDefault(); go(current() - 1); }
+        });
+        sync();
     }
+
+    // ---- the common thread's tabs ----------------------------------------
+    // Without JavaScript every list shows, one under another.
+    document.querySelectorAll("[data-uw-tabs]").forEach(function (box) {
+        box.classList.add("js");
+        var tabs = box.querySelectorAll("[data-tab]"), panels = box.querySelectorAll("[data-panel]");
+        tabs.forEach(function (tb) {
+            tb.addEventListener("click", function () {
+                tabs.forEach(function (x) { x.classList.toggle("on", x === tb); x.setAttribute("aria-selected", x === tb ? "true" : "false"); });
+                panels.forEach(function (p) { p.classList.toggle("on", p.getAttribute("data-panel") === tb.getAttribute("data-tab")); });
+            });
+        });
+    });
 
     // ---- share the count ----------------------------------------------------
     var shareBtn = document.getElementById("uw-share"), done = document.getElementById("uw-share-done");

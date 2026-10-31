@@ -182,13 +182,45 @@ def test_the_public_never_sees_a_team_name():
     assert "Secret Name" in repr(uw.build(raw, staff=True))
 
 
-def test_lessons_say_which_way_it_cuts():
-    tape = {"u": {"n": 50, "bench": 20.0, "adds": 4.0, "ppg": 140.0},
-            "w": {"n": 40, "bench": 20.4, "adds": 9.0, "ppg": 95.0},
-            "a": {"n": 900, "ppg": 115.0}}
-    heads = [l["head"] for l in uw.lessons({"tape": tape})]
-    assert "They leave the wire alone." in heads
-    assert "Lineups aren’t the difference." in heads
+def test_head_to_head_is_one_card_a_measure_and_says_which_way_it_cuts():
+    raw = {"tape": {"u": {"n": 50, "ppg": 140.0, "bench": 20.0, "adds": 4.0, "pa_rel": -0.08},
+                    "w": {"n": 40, "ppg": 95.0, "bench": 20.4, "adds": 9.0, "pa_rel": 0.06},
+                    "a": {"n": 900, "ppg": 115.0, "bench": 21.0, "adds": 6.0}},
+           "verdicts": {"real": 30, "middle": 15, "pretender": 5}}
+    cards = {c["key"]: c for c in uw.deck(raw)}
+    assert list(cards) == ["ppg", "pa_rel", "bench", "adds", "real"]   # only what we hold
+    assert cards["ppg"]["line"] == "Unbeaten teams score 45.0 more a week than winless ones."
+    assert "Lineups aren\u2019t what separates them." in cards["bench"]["line"]
+    assert "don\u2019t chase the wire" in cards["adds"]["line"]
+    assert cards["pa_rel"]["du"] < 0 < cards["pa_rel"]["dw"]           # easier, harder
+    assert cards["ppg"]["wu"] > cards["ppg"]["wa"] > cards["ppg"]["ww"]
+    assert [x["n"] for x in cards["real"]["segs"]] == [30, 15, 5]
+
+
+def test_the_draft_board_reads_round_by_round():
+    raw = {"draft_board": [
+        {"round": 1, "n_u": 10, "n_a": 200, "mix_u": {"RB": 7, "WR": 3},
+         "mix_a": {"RB": 100, "WR": 90, "QB": 10},
+         "players": [{"player_key": "4034", "name": "Bijan Robinson", "position": "RB", "u": 4, "a": 30}]},
+        {"round": 2, "n_u": 2, "n_a": 200, "mix_u": {"WR": 2}, "mix_a": {"WR": 200}, "players": []},
+    ]}
+    rows = uw.board(raw)
+    assert [r["round"] for r in rows] == [1]          # a round two teams drafted says nothing
+    r = rows[0]
+    assert r["top"]["pos"] == "RB" and r["lead"]
+    assert r["line"] == "70% took a running back, against 50% of all teams."
+    assert r["players"][0]["share"] == "40%"
+    assert [m["pos"] for m in r["mix"]] == ["QB", "RB", "WR"]
+
+
+def test_the_common_thread_says_who_a_share_is_of():
+    """30 Oct, John: "X percent of everyone" didn't make sense."""
+    p = {"player_key": "x", "name": "Somebody", "position": "WR", "share_u": 0.47,
+         "share_a": 0.14, "share_w": 0.05, "lift": 3.36, "lift_w": 0.36}
+    c = uw._thread_card(p)
+    assert (c["g"], c["all"], c["lift_txt"]) == ("47%", "14%", "3.4x")
+    w = uw._thread_card(p, "w")
+    assert (w["g"], w["lift_txt"]) == ("5%", "0.4x")
 
 
 # --- the share card ------------------------------------------------------------
@@ -254,9 +286,13 @@ def test_the_watch_is_staff_only_until_the_switch(web, monkeypatch):
     monkeypatch.setenv("UNDEFEATED_PUBLIC", "1")
     r = web.get("/undefeated")
     assert r.status_code == 200
-    for words in ("The countdown", "The tale of the tape", "It starts on draft day",
-                  "The common thread", "Real, or just lucky?", "redraft teams"):
+    for words in ("Head to head", "The unbeaten draft", "The common thread",
+                  "of all teams", "redraft teams"):
         assert words in r.text, words
+    # Cut on 30 Oct: the countdown chart, the lessons, the points' sources.
+    for gone in ("The countdown", "What the unbeaten do differently",
+                 "Where their starting points came from", "The tale of the tape"):
+        assert gone not in r.text, gone
     # Invented team names never reach a public page.
     for row in list(demo_db._TEAM_WEEKS.values())[:400]:
         assert f">{row['team_name']}<" not in r.text

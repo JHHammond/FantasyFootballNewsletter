@@ -466,6 +466,38 @@ hotj as (
       from hot h left join public.nfl_players np on np.player_key = h.player_key
      where h.adds > 0
 ),
+-- ------------------------------------- the unbeaten draft, round by round
+-- A team's k-th pick is its round k, whatever the platform numbered it.
+board_picks as (
+    select d.league_id, d.team_id, d.player_key, d.name as dname, d.position as dpos,
+           case when upper(coalesce(d.position, '')) in ('QB', 'RB', 'WR', 'TE', 'K')
+                     then upper(d.position)
+                when upper(coalesce(d.position, '')) in ('DEF', 'DST', 'D/ST') then 'DEF'
+                else 'OTHER' end as pos,
+           tg.is_u,
+           row_number() over (partition by d.league_id, d.team_id
+                              order by d.overall, d.player_key collate "C") as rnd
+      from dp d join tg on tg.league_id = d.league_id and tg.team_id = d.team_id
+     where d.team_id is not null and d.overall > 0 and tg.is_a
+),
+board_rounds as (
+    select rnd, count(*) filter (where is_u) as n_u, count(*) as n_a
+      from board_picks where rnd <= 15 group by rnd
+),
+board_mix as (
+    select rnd, pos, count(*) filter (where is_u) as u, count(*) as a
+      from board_picks where rnd <= 15 group by rnd, pos
+),
+board_pl as (
+    select b.rnd, b.player_key, count(*) filter (where b.is_u) as u, count(*) as a,
+           max(nullif(b.dname, '')) as dname, max(b.dpos) as dpos
+      from board_picks b where b.rnd <= 15 group by b.rnd, b.player_key
+),
+board_plr as (
+    select x.*, row_number() over (partition by x.rnd
+                                   order by x.u desc, x.a desc, x.player_key collate "C") as k
+      from board_pl x where x.u >= 1
+),
 -- -------------------------------------------------------------- the cards
 tcard as (
     select tf.*, json_build_object(
@@ -576,6 +608,21 @@ select json_build_object(
                                     where board = 'wire' and nw >= 3 and na >= 30
                                       and dw > 0 and nw::numeric / dw >= 0.08
                                     order by nw::numeric / na desc, nw desc, player_key collate "C" limit 8) x)))),
+    'draft_board', (select coalesce(json_agg(json_build_object(
+        'round', r.rnd, 'n_u', r.n_u, 'n_a', r.n_a,
+        'mix_u', coalesce((select json_object_agg(m.pos, m.u) from board_mix m
+                            where m.rnd = r.rnd and m.u > 0), '{}'::json),
+        'mix_a', coalesce((select json_object_agg(m.pos, m.a) from board_mix m
+                            where m.rnd = r.rnd and m.a > 0), '{}'::json),
+        'players', coalesce((select json_agg(json_build_object(
+                        'player_key', p.player_key,
+                        'name', coalesce(nullif(np.name, ''), p.dname, p.player_key),
+                        'position', coalesce(np.position, p.dpos),
+                        'nfl_team', np.nfl_team, 'u', p.u, 'a', p.a) order by p.k)
+                        from board_plr p
+                        left join public.nfl_players np on np.player_key = p.player_key
+                       where p.rnd = r.rnd and p.k <= 5), '[]'::json))
+        order by r.rnd), '[]'::json) from board_rounds r),
     'hot', json_build_object(
         'week', (select wk from hot_week),
         'players', (select coalesce(json_agg(c order by adds desc, failed desc, player_key collate "C"), '[]'::json)

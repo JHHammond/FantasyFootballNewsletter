@@ -315,7 +315,12 @@ def _draft(lid: str, teams: list, size: int, season: int,
         # between the 1st and 2nd pick is argued over far less than the
         # gap between the 90th and the 110th.
         rough = max(1.0, 22.0 - p[3]) / 5.0
-        return -(p[3] + rng.gauss(0, rough))
+        # Drafted on value over a replacement, not raw points: everybody
+        # scores 17 from a quarterback, so nobody takes one first; kickers
+        # and defenses go last. Without this the demo's drafts opened
+        # QB-QB and the Undefeated Watch's draft board said so.
+        discount = {"QB": 8.0, "TE": 1.5, "K": 10.0, "DEF": 10.0}.get(p[1], 0.0)
+        return -(p[3] - discount + rng.gauss(0, rough))
 
     drafted.sort(key=opinion)
     out = []

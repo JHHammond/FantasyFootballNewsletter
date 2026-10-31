@@ -61,6 +61,21 @@ CARDS = 100
 REAL = 0.75
 PRETENDER = 0.5
 SKILL = ("QB", "RB", "WR", "TE")
+#: Rounds on the unbeaten draft board.
+BOARD_ROUNDS = 15
+
+
+def _board_pos(p) -> str:
+    """A pick's position for the draft board's mix: the five that matter and
+    defenses under one name (DEF, DST and D/ST all appear)."""
+    p = (p or "").upper()
+    if p in ("QB", "RB", "WR", "TE", "K"):
+        return p
+    if p in ("DEF", "DST", "D/ST"):
+        return "DEF"
+    return "OTHER"
+
+
 #: The opening builds, in the order the page shows them.
 BUILDS = ("rb_rb", "rb_wr", "wr_wr", "zero_rb", "early_qb", "late_qb", "early_te")
 
@@ -507,6 +522,47 @@ def compute(*, team_rows: list[dict], lineup_rows: list[dict], draft_rows: list[
         hot = sorted((h for h in hot if h["adds"] > 0),
                      key=lambda h: (-h["adds"], -h["failed"], h["player_key"].encode()))[:10]
 
+    # -- the unbeaten draft, round by round (30 Oct, John: "one draft that is
+    # like the average draft: who they took in round 1, 2, 3...") -----------
+    # A team's k-th pick is its round k, whatever the platform numbered it,
+    # so a traded pick or a keeper doesn't shift every round after it.
+    board_rows: dict[int, dict] = {}
+    for k, ps in picks_of.items():
+        if k not in T or k not in A:
+            continue
+        ps = sorted(ps, key=lambda d: (int(d["overall"]), d["player_key"].encode()))
+        for i, d in enumerate(ps[:BOARD_ROUNDS]):
+            r = board_rows.setdefault(i + 1, {"n_u": 0, "n_a": 0, "mix_u": {}, "mix_a": {},
+                                              "pl": {}})
+            pos = _board_pos(d.get("position"))
+            r["n_a"] += 1
+            r["mix_a"][pos] = r["mix_a"].get(pos, 0) + 1
+            e = r["pl"].setdefault(d["player_key"], {"u": 0, "a": 0, "names": [], "pos": []})
+            e["a"] += 1
+            if d.get("name"):
+                e["names"].append(d["name"])
+            if d.get("position"):
+                e["pos"].append(d["position"])
+            if k in U:
+                r["n_u"] += 1
+                r["mix_u"][pos] = r["mix_u"].get(pos, 0) + 1
+                e["u"] += 1
+    draft_board = []
+    for rnd in sorted(board_rows):
+        r = board_rows[rnd]
+        top = []
+        for key, e in r["pl"].items():
+            if e["u"] < 1:
+                continue
+            info = nfl_players.get(key) or {}
+            top.append({"player_key": key,
+                        "name": info.get("name") or (max(e["names"]) if e["names"] else None) or key,
+                        "position": info.get("position") or (max(e["pos"]) if e["pos"] else None),
+                        "nfl_team": info.get("nfl_team"), "u": e["u"], "a": e["a"]})
+        top.sort(key=lambda p: (-p["u"], -p["a"], p["player_key"].encode()))
+        draft_board.append({"round": rnd, "n_u": r["n_u"], "n_a": r["n_a"],
+                            "mix_u": r["mix_u"], "mix_a": r["mix_a"], "players": top[:5]})
+
     # -- the cards ------------------------------------------------------------
     def card(t: dict) -> dict:
         f = t["_first"]
@@ -578,6 +634,7 @@ def compute(*, team_rows: list[dict], lineup_rows: list[dict], draft_rows: list[
         "builds": builds,
         "first_pick": first_pick,
         "players": players,
+        "draft_board": draft_board,
         "hot": {"week": wire_week, "players": hot},
         "verdicts": verdicts,
         "cards": [card(t) for t in standing[:CARDS]],
@@ -652,285 +709,159 @@ def describe(c: dict, cap: bool = False) -> str:
     return d(c, cap)
 
 
-def _monotone(pts: list[tuple[float, float]]) -> str:
-    """A smooth path through the points that never overshoots one
-    (Fritsch–Carlson), the curve the trade market's lines use: John wants
-    slightly curved lines, not sharp ones, and a count can't bulge past a
-    real number on the way."""
-    n = len(pts)
-    if n == 0:
-        return ""
-    if n == 1:
-        return f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"
-    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-    d = [(ys[i + 1] - ys[i]) / ((xs[i + 1] - xs[i]) or 1) for i in range(n - 1)]
-    m = [d[0]] + [0.0 if d[i - 1] * d[i] <= 0 else (d[i - 1] + d[i]) / 2
-                  for i in range(1, n - 1)] + [d[-1]]
-    for i in range(n - 1):
-        if d[i] == 0:
-            m[i] = m[i + 1] = 0.0
-            continue
-        a, b = m[i] / d[i], m[i + 1] / d[i]
-        h = a * a + b * b
-        if h > 9:
-            t = 3 / h ** 0.5
-            m[i], m[i + 1] = t * a * d[i], t * b * d[i]
-    out = [f"M{xs[0]:.1f},{ys[0]:.1f}"]
-    for i in range(n - 1):
-        dx = (xs[i + 1] - xs[i]) / 3
-        out.append(f"C{xs[i] + dx:.1f},{ys[i] + m[i] * dx:.1f} "
-                   f"{xs[i + 1] - dx:.1f},{ys[i + 1] - m[i + 1] * dx:.1f} "
-                   f"{xs[i + 1]:.1f},{ys[i + 1]:.1f}")
-    return " ".join(out)
+# ---------------------------------------------------------------------------
+# Head to head (30 Oct, John: the tale of the tape was "a lot of information
+# on one boring chart"; each measure gets its own card, swiped through).
+# ---------------------------------------------------------------------------
+
+def _bars(u, w, a, lo: float = 0.0, hi: Optional[float] = None) -> dict:
+    """Bar widths in percent of one shared scale, from zero."""
+    vals = [v for v in (u, w, a) if v is not None]
+    top = hi if hi is not None else (max(vals) * 1.06 if vals else 1.0) or 1.0
+    W = lambda v: None if v is None else round(100 * max(0.0, v - lo) / (top - lo), 1)  # noqa: E731
+    return {"wu": W(u), "ww": W(w), "wa": W(a)}
 
 
-def curve(survival: list[dict], teams: int, width: int = 720, height: int = 300) -> dict:
-    """The countdown on a log scale: teams still perfect after each week,
-    and what a coin would have left. A straight count halves into the floor
-    by week 5; on a log scale every week gets the same room, and the gap
-    between the two lines is the part skill bought."""
-    import math
-    if not survival or not teams:
-        return {}
-    pts = [(0, teams)] + [(s["week"], s["alive"]) for s in survival]
-    coin = [(k, teams / 2 ** k) for k, _ in pts]
-    lows = [v for _, v in pts if v > 0] + [v for _, v in coin]
-    lo = max(0.5, min(lows) / 1.8)
-    hi = teams * 1.35
-    pad_l, pad_r, pad_t, pad_b = 54, 68, 16, 30
-    pw, ph = width - pad_l - pad_r, height - pad_t - pad_b
-    last = pts[-1][0] or 1
-    X = lambda k: pad_l + pw * k / last  # noqa: E731
-    Y = lambda v: pad_t + ph * (1 - (math.log10(max(v, lo)) - math.log10(lo))  # noqa: E731
-                                / (math.log10(hi) - math.log10(lo)))
-    ticks = []
-    for e in range(0, 7):
-        for m in (1, 3):
-            v = m * 10 ** e
-            if lo <= v <= hi:
-                ticks.append({"y": round(Y(v), 1), "label": f"{v:,}", "major": m == 1})
-    dots = [{"x": round(X(k), 1), "y": round(Y(v), 1), "week": k, "n": v,
-             "coin": round(teams / 2 ** k, 1)} for k, v in pts]
-    alive_path = _monotone([(d["x"], d["y"]) for d in dots])
-    coin_path = _monotone([(X(k), Y(v)) for k, v in coin])
-    area = alive_path + f" L{X(last):.1f},{pad_t + ph:.1f} L{X(0):.1f},{pad_t + ph:.1f} Z"
-    return {"width": width, "height": height, "left": pad_l, "right": width - pad_r,
-            "top": pad_t, "base": pad_t + ph, "ticks": ticks, "dots": dots,
-            "path": alive_path, "area": area, "coin": coin_path,
-            "coin_end": {"x": round(X(last), 1), "y": round(Y(coin[-1][1]), 1)},
-            "xs": [{"x": round(X(k), 1), "label": "Start" if k == 0 else f"Wk {k}"}
-                   for k, _ in pts]}
-
-
-def _rel(u, w) -> float:
-    if u is None or w is None:
-        return 0.0
-    base = max(abs(u), abs(w), 1e-9)
-    return abs(u - w) / base
-
-
-#: The tale of the tape, in order: (key, label, how to print it, which way
-#: is better, a sentence for when the unbeaten lead and one for when they
-#: trail). None for "better" means neither direction is a virtue.
-TAPE = [
-    ("ppg", "Points a week, PPR", "pts", +1),
-    ("allplay", "All-play win rate", "pct", +1),
-    ("pa_rel", "Points against, vs their league", "rel", -1),
-    ("bench", "Points left on the bench a week", "pts", -1),
-    ("perfect", "Perfect lineups", "pct1", +1),
-    ("trades", "Trades made", "num", None),
-    ("adds", "Waiver and free-agent pickups", "num", None),
-    ("failed", "Waiver claims lost", "num", None),
-    ("faab", "FAAB spent", "usd", None),
-    ("drafted", "Starting points from their own draft", "pct", None),
-]
-
-
-def _fmt(v, kind: str) -> str:
-    if v is None:
-        return "–"
-    if kind == "pts":
-        return f"{v:.1f}"
-    if kind == "pct":
-        return _pct(v)
-    if kind == "pct1":
-        return _pct(v, 1)
-    if kind == "rel":
-        if abs(v) < 0.005:
-            return "even"
-        return ("+" if v > 0 else "−") + _pct(abs(v))
-    if kind == "usd":
-        return f"${v:.0f}"
-    return f"{v:.1f}"
-
-
-def tape_rows(tape: dict) -> list[dict]:
-    """Unbeaten, winless and the country on one track per measure: three
-    marks on a line (a dumbbell), which shows a 2-point gap that a bar from
-    zero can't."""
-    U, Wl, A = tape.get("u") or {}, tape.get("w") or {}, tape.get("a") or {}
-    rows = []
-    for key, label, kind, better in TAPE:
-        u, w, a = U.get(key), Wl.get(key), A.get(key)
-        if u is None or w is None:
-            continue
-        vals = [v for v in (u, w, a) if v is not None]
-        # From zero, or symmetric about it: a track stretched between the
-        # three values turns 1.4 against 1.5 trades into a chasm.
-        if min(vals) >= 0:
-            lo, hi = 0.0, (max(vals) * 1.08) or 1.0
-        else:
-            m = max(abs(v) for v in vals) * 1.15 or 1.0
-            lo, hi = -m, m
-        P = lambda v: None if v is None else round(100 * (v - lo) / (hi - lo), 1)  # noqa: E731
-        lead = None if better is None else ((u > w) if better > 0 else (u < w))
-        rows.append({"key": key, "label": label, "u": _fmt(u, kind), "w": _fmt(w, kind),
-                     "a": _fmt(a, kind), "pu": P(u), "pw": P(w), "pa": P(a),
-                     "lead": lead, "gap": _rel(u, w)})
-    return rows
-
-
-def lessons(raw: dict) -> list[dict]:
-    """The three or four things the unbeaten do differently, said out loud.
-    Each one is a number the page already shows; the strongest gaps first,
-    and always honest about direction ("lineups aren’t the difference")."""
+def deck(raw: dict) -> list[dict]:
+    """One card per measure, unbeaten against winless, each with its two
+    numbers, two bars on one scale with every team as a tick, and one
+    sentence that says which way it cuts. Only measures we hold."""
     tape = raw.get("tape") or {}
     U, Wl, A = tape.get("u") or {}, tape.get("w") or {}, tape.get("a") or {}
-    out = []
+    cards = []
 
-    def add(weight, head, body):
-        out.append({"w": weight, "head": head, "body": body})
+    def have(k):
+        return U.get(k) is not None and Wl.get(k) is not None
 
-    if U.get("ppg") is not None and Wl.get("ppg") is not None:
-        add(0.5, "They score. Obviously.",
-            f"{_n(U['ppg'])} a week in PPR against {_n(Wl['ppg'])} for the winless"
-            + (f" and {_n(A['ppg'])} for the country." if A.get("ppg") is not None else "."))
-    if U.get("pa_rel") is not None and Wl.get("pa_rel") is not None:
+    if have("ppg"):
+        u, w, a = U["ppg"], Wl["ppg"], A.get("ppg")
+        cards.append({"key": "ppg", "title": "Points a week", "unit": "in PPR",
+                      "u": f"{u:.1f}", "w": f"{w:.1f}", "a": _n(a), **_bars(u, w, a),
+                      "line": f"Unbeaten teams score {u - w:.1f} more a week than winless ones."})
+    if have("allplay"):
+        u, w, a = U["allplay"], Wl["allplay"], A.get("allplay")
+        cards.append({"key": "allplay", "title": "Against everybody",
+                      "unit": "of games won if they played their whole league every week",
+                      "u": _pct(u), "w": _pct(w), "a": _pct(a), **_bars(u, w, a, hi=1.0),
+                      "line": (f"Play the whole league every week and the unbeaten still win "
+                               f"{_pct(u)}. The winless win {_pct(w)}.")})
+    if have("pa_rel"):
         u, w = U["pa_rel"], Wl["pa_rel"]
-        if u < -0.015:
-            add(_rel(u, w) * 2, "They also drew the easy schedule.",
-                f"Their opponents scored {_pct(-u)} under their own league’s average. "
-                f"The winless faced opponents {_pct(abs(w))} {'over' if w > 0 else 'under'} it. "
-                "Perfection takes some help.")
-        elif u > 0.015:
-            add(_rel(u, w) * 2, "And they did it the hard way.",
-                f"Their opponents scored {_pct(u)} over their own league’s average.")
-    s = raw.get("slots") or []
-    top = [x for x in s if x["slot"] <= 3 and x["n"]]
-    bot = [x for x in s if x["slot"] >= 10 and x["n"]]
-    if top and bot:
-        rt = sum(x["u"] for x in top) / sum(x["n"] for x in top)
-        rb = sum(x["u"] for x in bot) / sum(x["n"] for x in bot)
-        if rt > 0 or rb > 0:
-            if rt >= rb * 1.25:
-                add(min(3.0, (rt - rb) / max(rt, rb) * 2.2), "The draft order matters.",
-                    f"{_pct(rt, 1)} of teams that picked 1st to 3rd are still perfect. "
-                    f"Picking 10th to 12th, {_pct(rb, 1)}.")
-            elif rb >= rt * 1.25:
-                add(min(3.0, (rb - rt) / max(rt, rb) * 2.2), "The turn is winning.",
-                    f"{_pct(rb, 1)} of teams picking 10th to 12th are still perfect, "
-                    f"against {_pct(rt, 1)} of the teams that picked first.")
-            else:
-                add(0.4, "Your draft slot isn’t an excuse.",
-                    f"Teams picking 1st to 3rd ({_pct(rt, 1)} still perfect) and 10th to 12th "
-                    f"({_pct(rb, 1)}) are about level.")
-    if U.get("drafted") is not None and Wl.get("drafted") is not None:
-        u, w = U["drafted"], Wl["drafted"]
-        if u - w > 0.03:
-            add(_rel(u, w) * 3, "They won it on draft day.",
-                f"{_pct(u)} of their starting points came from players they drafted. "
-                f"For the winless, {_pct(w)}.")
-        elif w - u > 0.03:
-            add(_rel(u, w) * 3, "They didn’t trust their draft.",
-                f"Only {_pct(u)} of their starting points came from their own picks, "
-                f"against {_pct(w)} for the winless. The rest came from trades and the wire.")
-    if U.get("bench") is not None and Wl.get("bench") is not None:
-        u, w = U["bench"], Wl["bench"]
-        if w - u > 1.0:
-            add(_rel(u, w) * 2, "They start the right guys.",
-                f"{_n(u)} points a week left on the bench, against {_n(w)} for the winless.")
-        elif abs(w - u) <= 1.0:
-            add(0.3, "Lineups aren’t the difference.",
-                f"Unbeaten teams leave {_n(u)} points a week on the bench. The winless, {_n(w)}.")
-    if U.get("adds") is not None and Wl.get("adds") is not None:
-        u, w = U["adds"], Wl["adds"]
-        if u - w > 0.5:
-            add(_rel(u, w) * 2, "They work the wire.",
-                f"{_n(u)} pickups a team this season, against {_n(w)} for the winless.")
-        elif w - u > 0.5:
-            add(_rel(u, w) * 2, "They leave the wire alone.",
-                f"{_n(u)} pickups a team, against {_n(w)} for the winless. Winners don’t churn.")
-    if U.get("trades") is not None and Wl.get("trades") is not None:
-        u, w = U["trades"], Wl["trades"]
-        if abs(u - w) > 0.3:
-            add(_rel(u, w) * 1.5, "They trade." if u > w else "They don’t need to trade.",
-                f"{_n(u)} trades a team, against {_n(w)} for the winless.")
-    out.sort(key=lambda x: -x["w"])
-    return out[:4]
+        m = max(abs(u), abs(w), 0.01) * 1.25
+        side = lambda v: ("under" if v < 0 else "over")  # noqa: E731
+        cards.append({"key": "pa_rel", "title": "The schedule", "diverge": True,
+                      "unit": "opponents\u2019 points against their league\u2019s average",
+                      "u": ("even" if abs(u) < 0.005 else ("−" if u < 0 else "+") + _pct(abs(u))),
+                      "w": ("even" if abs(w) < 0.005 else ("−" if w < 0 else "+") + _pct(abs(w))),
+                      "a": None,
+                      "du": round(50 * u / m, 1), "dw": round(50 * w / m, 1),
+                      "line": (f"Unbeaten teams\u2019 opponents scored {_pct(abs(u))} {side(u)} their "
+                               f"league\u2019s average. The winless drew opponents {_pct(abs(w))} "
+                               f"{side(w)} it." if abs(u) >= 0.005 else
+                               "Unbeaten teams faced an average schedule. They earned it.")})
+    if have("bench"):
+        u, w, a = U["bench"], Wl["bench"], A.get("bench")
+        diff = w - u
+        cards.append({"key": "bench", "title": "Left on the bench", "unit": "points a week",
+                      "u": f"{u:.1f}", "w": f"{w:.1f}", "a": _n(a), **_bars(u, w, a),
+                      "line": (f"Unbeaten teams start the right players: {diff:.1f} fewer points "
+                               f"a week sitting on the bench." if diff > 1.0 else
+                               "About the same. Lineups aren’t what separates them.")})
+    if have("adds"):
+        u, w, a = U["adds"], Wl["adds"], A.get("adds")
+        cards.append({"key": "adds", "title": "Waiver pickups", "unit": "per team this season",
+                      "u": f"{u:.1f}", "w": f"{w:.1f}", "a": _n(a), **_bars(u, w, a),
+                      "line": ("The unbeaten work the wire harder." if u - w > 0.5 else
+                               "The unbeaten don’t chase the wire. Winners don’t churn."
+                               if w - u > 0.5 else
+                               "Same number of pickups. It’s who, not how many.")})
+    if have("faab"):
+        u, w, a = U["faab"], Wl["faab"], A.get("faab")
+        cards.append({"key": "faab", "title": "FAAB spent", "unit": "per team, in leagues that bid",
+                      "u": f"${u:.0f}", "w": f"${w:.0f}", "a": (f"${a:.0f}" if a is not None else None),
+                      **_bars(u, w, a),
+                      "line": ("They spend it." if u - w > 5 else
+                               "They save it." if w - u > 5 else
+                               "Roughly the same budget, spent on different players.")})
+    if have("trades"):
+        u, w, a = U["trades"], Wl["trades"], A.get("trades")
+        cards.append({"key": "trades", "title": "Trades made", "unit": "per team this season",
+                      "u": f"{u:.1f}", "w": f"{w:.1f}", "a": _n(a), **_bars(u, w, a),
+                      "line": ("They deal." if u - w > 0.3 else
+                               "They don’t need to trade." if w - u > 0.3 else
+                               "Trading isn’t the difference either way.")})
+    v = raw.get("verdicts") or {}
+    tot = sum(int(v.get(k) or 0) for k in ("real", "middle", "pretender"))
+    if tot:
+        segs = [{"key": k, "label": lab, "n": int(v.get(k) or 0),
+                 "w": round(100 * int(v.get(k) or 0) / tot, 1)}
+                for k, lab in (("real", "The real thing"), ("middle", "Doing enough"),
+                               ("pretender", "Pretenders"))]
+        cards.append({"key": "real", "title": "Real, or lucky?", "verdict": True, "segs": segs,
+                      "unit": "every unbeaten team, by how it would do against its whole league",
+                      "line": (f"{segs[0]['n']:,} would win three games in four against anybody in "
+                               f"their league. "
+                               + ("None of them would lose most weeks. No frauds yet."
+                                  if segs[2]["n"] == 0 else
+                                  "One would lose most of them, and is unbeaten on schedule."
+                                  if segs[2]["n"] == 1 else
+                                  f"{segs[2]['n']:,} would lose most of them, and are unbeaten "
+                                  f"on schedule."))})
+    return cards
 
 
-def _sources(tape: dict) -> list[dict]:
-    rows = []
-    for g, label in (("u", "Unbeaten"), ("a", "The country"), ("w", "Winless")):
-        t = tape.get(g) or {}
-        if t.get("drafted") is None:
-            continue
-        parts = [("drafted", "Their own draft", t.get("drafted") or 0.0),
-                 ("traded", "Trades", t.get("traded") or 0.0),
-                 ("wire", "The wire", t.get("wire") or 0.0)]
-        tot = sum(p[2] for p in parts) or 1.0
-        rows.append({"g": g, "label": label,
-                     "parts": [{"key": k, "label": l, "w": round(100 * v / tot, 1),
-                                "txt": _pct(v)} for k, l, v in parts]})
-    return rows
+# ---------------------------------------------------------------------------
+# The unbeaten draft (30 Oct, John: "one draft that is like the average
+# draft: who they took in round 1, 2, 3...").
+# ---------------------------------------------------------------------------
+
+POS_ORDER = ("QB", "RB", "WR", "TE", "K", "DEF", "OTHER")
+POS_NAME = {"QB": "a quarterback", "RB": "a running back", "WR": "a receiver",
+            "TE": "a tight end", "K": "a kicker", "DEF": "a defense", "OTHER": "someone else"}
 
 
-def _slots(raw: dict) -> dict:
-    s = [x for x in raw.get("slots") or []]
-    if not any(x["n"] for x in s):
-        return {}
-    n = sum(x["n"] for x in s)
-    u = sum(x["u"] for x in s)
-    avg = u / n if n else 0
-    top = max((x["rate"] or 0) for x in s) or 0.0001
-    scale = max(top, avg) * 1.15
-    cols = [{**x, "h": round(100 * (x["rate"] or 0) / scale, 1),
-             "txt": _pct(x["rate"], 1) if x["n"] else "–"} for x in s]
-    best = max((x for x in s if x["n"] >= 10), key=lambda x: x["rate"] or 0, default=None)
-    return {"cols": cols, "avg": avg, "avg_h": round(100 * avg / scale, 1),
-            "avg_txt": _pct(avg, 1), "best": best}
-
-
-BUILD_LABEL = {
-    "rb_rb": ("RB, RB", "Two running backs to open"),
-    "rb_wr": ("RB, WR", "One of each in the first two picks"),
-    "wr_wr": ("WR, WR", "Two receivers to open"),
-    "zero_rb": ("Zero RB", "No running back in the first four picks"),
-    "early_qb": ("Early QB", "A quarterback in the first three picks"),
-    "late_qb": ("Late QB", "No quarterback until the 8th pick or later"),
-    "early_te": ("Early TE", "A tight end in the first three picks"),
-    "QB": ("A quarterback", ""), "RB": ("A running back", ""),
-    "WR": ("A receiver", ""), "TE": ("A tight end", ""),
-}
-
-
-def _builds(rows: list[dict]) -> list[dict]:
+def board(raw: dict, min_teams: int = 3) -> list[dict]:
+    """Round by round: what the unbeaten took (the position mix, against
+    every team's), and who (the players they took most in that round)."""
+    from .around import photo
     out = []
-    vals = [v for r in rows for v in (r.get("share_u"), r.get("share_w"), r.get("share_a"))
-            if v is not None]
-    hi = max(vals, default=0) or 1
-    hi = min(1.0, hi * 1.1)
-    for r in rows:
-        if not r.get("n"):
+    for r in raw.get("draft_board") or []:
+        nu, na = int(r.get("n_u") or 0), int(r.get("n_a") or 0)
+        if nu < min_teams or not na:
             continue
-        name, what = BUILD_LABEL.get(r["key"], (r["key"], ""))
-        P = lambda v: None if v is None else round(100 * v / hi, 1)  # noqa: E731
-        su, sw = r.get("share_u"), r.get("share_w")
-        out.append({**r, "name": name, "what": what, "pu": P(su), "pw": P(sw),
-                    "pa": P(r.get("share_a")), "su": _pct(su), "sw": _pct(sw),
-                    "sa": _pct(r.get("share_a")), "rtxt": _pct(r.get("rate"), 1),
-                    "lead": (su or 0) > (sw or 0)})
+        mu, ma = r.get("mix_u") or {}, r.get("mix_a") or {}
+        mix = [{"pos": p, "u": round(100 * mu.get(p, 0) / nu, 1),
+                "a": round(100 * ma.get(p, 0) / na, 1)} for p in POS_ORDER
+               if mu.get(p) or ma.get(p)]
+        top = max(mix, key=lambda m: m["u"]) if mix else None
+        players = [{**p, "photo": photo(p), "share": _pct(p["u"] / nu),
+                    "share_a": _pct(p["a"] / na)} for p in (r.get("players") or [])[:3]]
+        # The round's story: the position they took most, and how that
+        # compares with everybody else in the same round.
+        if top:
+            gap = top["u"] - top["a"]
+            line = (f"{top['u']:.0f}% took {POS_NAME[top['pos']]}"
+                    + (f", against {top['a']:.0f}% of all teams." if abs(gap) >= 5 else
+                       ", about the same as everybody."))
+        else:
+            line = ""
+        out.append({"round": r["round"], "n_u": nu, "mix": mix, "top": top,
+                    "players": players, "line": line,
+                    "lead": bool(top and top["u"] - top["a"] >= 5)})
     return out
+
+
+def _thread_card(p: dict, group: str = "u") -> dict:
+    """A shared player in words anybody can read: 'X% of unbeaten teams have
+    him. Y% of all teams do.' (30 Oct, John: "X percent of everyone" didn't
+    make sense.) `group` is u (unbeaten) or w (winless)."""
+    from .around import photo
+    s = p.get("share_u" if group == "u" else "share_w")
+    a = p.get("share_a")
+    lift = p.get("lift" if group == "u" else "lift_w")
+    return {**p, "photo": photo(p), "g": _pct(s), "all": _pct(a),
+            "gw": round(100 * (s or 0), 1), "aw": round(100 * (a or 0), 1),
+            "lift_txt": (f"{lift:.1f}x" if lift is not None else None)}
 
 
 def _clean(c: dict, staff: bool) -> dict:
@@ -1028,10 +959,11 @@ def build(raw: dict, *, staff: bool = False) -> dict[str, Any]:
     if fell and state != "none":
         deck_bits.append(f"Week {through} took out {fell:,}"
                          + (f", {close:,} of them by less than a field goal." if close else "."))
-    deck = " ".join(deck_bits)
+    deck_txt = " ".join(deck_bits)
 
-    room = [{"week": 0, "n": 1000}] + [
-        {"week": x["week"], "n": int(round(1000 * x["alive"] / teams))} for x in surv]
+    room = [{"week": 0, "n": 1000, "count": teams}] + [
+        {"week": x["week"], "n": int(round(1000 * x["alive"] / teams)), "count": int(x["alive"])}
+        for x in surv]
     in_room = room[-1]["n"]
     if unbeaten and in_room == 0:
         room_line = (f"In a room of 1,000 teams, not even one would still be perfect. "
@@ -1042,62 +974,32 @@ def build(raw: dict, *, staff: bool = False) -> dict[str, Any]:
     else:
         room_line = "In a room of 1,000 teams, nobody is perfect. Nobody in the country is."
 
-    tape = raw.get("tape") or {}
     P = raw.get("players") or {}
-
-    def pcards(rows, key="share_u"):
-        from .around import photo
-        out = []
-        for p in rows or []:
-            out.append({**p, "photo": photo(p),
-                        "su": _pct(p.get("share_u")), "sw": _pct(p.get("share_w")),
-                        "sa": _pct(p.get("share_a")),
-                        "lift_txt": (f"{p['lift']:.1f}x" if p.get("lift") is not None else None),
-                        "liftw_txt": (f"{p['lift_w']:.1f}x" if p.get("lift_w") is not None else None)})
-        return out
-
-    verdicts = raw.get("verdicts") or {}
-    vtot = sum(int(verdicts.get(k) or 0) for k in ("real", "middle", "pretender"))
-    vbar = [{"key": k, "label": lab, "n": int(verdicts.get(k) or 0),
-             "w": round(100 * int(verdicts.get(k) or 0) / vtot, 1) if vtot else 0}
-            for k, lab in (("real", "The real thing"), ("middle", "Doing enough"),
-                           ("pretender", "Pretenders"))]
-    cards = [_ticket(c, staff) for c in raw.get("cards") or []]
-    fallen = raw.get("fallen") or {}
+    R = P.get("rostered") or {}
+    # The four players on the cards: the ones most over-represented among
+    # the unbeaten, or, when too few are left for that to mean anything,
+    # simply the ones most of them have.
+    lead_rows = R.get("thread") if len(R.get("thread") or []) >= 2 else R.get("most")
     wire_ready = bool(s.get("wire_leagues"))
-    hot = raw.get("hot") or {}
-
-    st = raw.get("standings") or []
-    top_n = max((x["n"] for x in st), default=1) or 1
-    standings = [{**x, "rec": f"{x['w']}-{x['l']}", "wd": round(100 * x["n"] / top_n, 1),
-                  "kind": "u" if x["l"] == 0 and x["w"] > 0 else "w" if x["w"] == 0 else ""}
-                 for x in st]
+    cards = [_ticket(c, staff) for c in raw.get("cards") or []]
 
     return {
         "ready": True, "season": raw.get("season"), "through": through,
         "summary": s, "teams": teams, "alive": alive, "unbeaten": unbeaten,
-        "state": state, "done": done, "headline": head, "deck": deck,
+        "state": state, "done": done, "headline": head, "deck": deck_txt,
         "coin": coin, "coin_txt": coin_txt, "over": over,
         "over_txt": (f"{over:.1f}x" if over and over >= 1.05 else None),
-        "fell": fell, "close": close, "share_txt": _pct(alive / teams, 1 if alive / teams < 0.1 else 0),
-        "survival": surv, "curve": curve(surv, teams), "room": room, "room_line": room_line,
-        "lessons": lessons(raw), "tape": tape_rows(tape), "tape_n": tape,
-        "sources": _sources(tape), "slots": _slots(raw),
-        "builds": _builds(raw.get("builds") or []),
-        "first_pick": _builds(raw.get("first_pick") or []),
-        "thread": pcards((P.get("rostered") or {}).get("thread")),
-        "most": pcards((P.get("rostered") or {}).get("most")),
-        "kryptonite": pcards((P.get("rostered") or {}).get("kryptonite")),
-        "draft_thread": pcards((P.get("drafted") or {}).get("thread")),
-        "wire_most": pcards((P.get("wire") or {}).get("most")),
-        "wire_ready": wire_ready, "hot": hot.get("players") or [], "hot_week": hot.get("week"),
-        "verdicts": verdicts, "vbar": vbar, "vtot": vtot,
-        "cards": cards, "show_all": unbeaten <= CARDS,
-        "pretenders": [_ticket(c, staff) for c in raw.get("pretenders") or []],
-        "fallen": {"n": int(fallen.get("n") or 0), "close": int(fallen.get("close") or 0),
-                   "cruel": [_ticket(c, staff) for c in fallen.get("cruel") or []],
-                   "nearest": [_ticket(c, staff) for c in fallen.get("nearest") or []]},
-        "standings": standings, "tied": raw.get("tied") or 0,
+        "fell": fell, "close": close,
+        "room": room, "room_line": room_line,
+        "h2h": deck(raw),
+        "board": board(raw),
+        "thread": [_thread_card(p) for p in (lead_rows or [])[:4]],
+        "thread_more": [_thread_card(p) for p in (lead_rows or [])[4:12]],
+        "kryptonite": [_thread_card(p, "w") for p in R.get("kryptonite") or []],
+        "wire_most": ([_thread_card(p) for p in ((P.get("wire") or {}).get("most") or [])[:8]]
+                      if wire_ready else []),
+        "wire_ready": wire_ready,
+        "cards": cards, "show_all": 0 < unbeaten <= CARDS or state == "none",
     }
 
 
