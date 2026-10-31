@@ -7,8 +7,8 @@ A sample paper, built from a real league week, for showing a sponsor
 - Every team and manager name is replaced with an invented one, so no real
   person in that league appears in a paper sent to a company.
 - The words are written by the real writer (one round of Claude calls).
-- The sponsor's placements are switched on: the lines board, the Over of
-  the Week award and the "by the numbers" box.
+- The sponsor's placements are switched on: the lines board and the "by
+  the numbers" box, each with the offer line. The sponsored award is off.
 
     python -m scripts.sample_paper            # -> output/sample_sponsor_paper.html
     python -m scripts.sample_paper --no-ai    # layout only, no Claude calls
@@ -41,10 +41,11 @@ SPONSOR = {
     "brand": "PrizePicks", "code": "DESK", "link": "https://www.prizepicks.com",
     # Relative to the output file, so the mockup opens from disk with the logo.
     "logo": "../web/static/sponsors/prizepicks.png",
-    "lines": True, "award": True, "numbers": True,
-    "numbers_note": ("Sample: lines here are each player's projection to the "
-                     "half point. Live, they'd be PrizePicks' own Fantasy "
-                     "Score lines."),
+    "offer": "Play $5, get $150 if you win",
+    "lines": True, "numbers": True,
+    "numbers_note": ("Sample: each player's projection to the half point. "
+                     "Live, they'd be PrizePicks' own Fantasy Score "
+                     "projections."),
 }
 
 
@@ -110,6 +111,23 @@ def lines_for_next_week(p, cache, week_data):
         if r.get("matchup_id") is not None:
             pairs.setdefault(r["matchup_id"], []).append(str(r["roster_id"]))
     import history
+    # Records, streaks and earlier meetings, from the same cached weeks.
+    res = []
+    for w in range(1, WEEK + 1):
+        games: dict = {}
+        for r in cache.get(f"matchups:{LEAGUE_ID}:{w}") or []:
+            if r.get("matchup_id") is not None:
+                games.setdefault(r["matchup_id"], []).append(r)
+        for g in games.values():
+            if len(g) != 2:
+                continue
+            for me, them in ((g[0], g[1]), (g[1], g[0])):
+                res.append(history.Result(
+                    week=w, team_id=str(me["roster_id"]), team=names.get(str(me["roster_id"]), ""),
+                    manager="", points=float(me.get("points") or 0),
+                    opp_id=str(them["roster_id"]), opp_team=names.get(str(them["roster_id"]), ""),
+                    opp_manager="", opp_points=float(them.get("points") or 0)))
+    hist = history.team_histories(res, WEEK)
     out = []
     for a, b in [v for v in pairs.values() if len(v) == 2]:
         pa = sum(totals[a]) / len(totals[a])
@@ -119,7 +137,12 @@ def lines_for_next_week(p, cache, week_data):
         out.append({"favorite": names.get(fav, fav), "underdog": names.get(dog, dog),
                     "favorite_points": round(fp, 1), "underdog_points": round(dp, 1),
                     "spread": spread, "pickem": spread == 0,
-                    "total": round((fp + dp) * 2) / 2})
+                    "total": round((fp + dp) * 2) / 2,
+                    "favorite_record": hist[fav].record if fav in hist else "",
+                    "underdog_record": hist[dog].record if dog in hist else "",
+                    "favorite_streak": history._streak_tag(hist.get(fav)),
+                    "underdog_streak": history._streak_tag(hist.get(dog)),
+                    "meeting": history._last_meeting(res, fav, dog, WEEK + 1)})
     return out
 
 

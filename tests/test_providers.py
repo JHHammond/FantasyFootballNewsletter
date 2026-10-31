@@ -1472,3 +1472,19 @@ def test_espn_live_score_is_used_while_total_points_is_still_zero():
     assert _points({"totalPoints": 0, "totalPointsLive": 118.34}) == 118.34
     assert _points({"totalPoints": 121.2, "totalPointsLive": 0}) == 121.2
     assert _points({"totalPoints": 0}) == 0.0
+
+
+def test_a_projection_is_scored_in_the_leagues_own_scoring():
+    """30 Oct: a custom league's projections were Sleeper's stock PPR total,
+    compared against points scored under the league's own rules."""
+    from providers.sleeper import SleeperProvider
+    sp = SleeperProvider.__new__(SleeperProvider)
+    proj = {"9": {"rec": 5.0, "rec_yd": 60.0, "rec_td": 0.5, "pts_ppr": 14.0,
+                  "pts_half_ppr": 11.5, "pts_std": 9.0}}
+    ppr = {"rec": 1, "rec_yd": 0.1, "rec_td": 6}
+    te_premium = {"rec": 1.5, "rec_yd": 0.1, "rec_td": 6}
+    assert sp._projected_points(proj, "9", "ppr", ppr) == 14.0
+    assert sp._projected_points(proj, "9", "ppr", te_premium) == 16.5
+    # Settings unknown: the stock total for the scoring type, as before.
+    assert sp._projected_points(proj, "9", "half_ppr", None) == 11.5
+    assert sp._projected_points(proj, "8", "ppr", ppr) is None

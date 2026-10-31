@@ -444,8 +444,31 @@ def line_key(team_a, team_b) -> str:
     return "-".join(sorted((str(team_a), str(team_b))))
 
 
-def betting_lines(next_week, histories: dict[str, TeamHistory]) -> list[dict]:
+def _streak_tag(h: Optional[TeamHistory]) -> str:
+    """"W4" for four straight wins; nothing for a run of one."""
+    if not h or h.streak_len < 2 or h.streak_kind not in ("W", "L"):
+        return ""
+    return f"{h.streak_kind}{h.streak_len}"
+
+
+def _last_meeting(results, a_id: str, b_id: str, before_week: int) -> Optional[dict]:
+    """The latest earlier game this season between two teams, for the board's
+    lead ticket (30 Oct): who won it and the score, winner's first."""
+    met = meetings(results or [], a_id, b_id, before_week)
+    if not met:
+        return None
+    r = max(met, key=lambda r: r.week)
+    hi, lo = max(r.points, r.opp_points), min(r.points, r.opp_points)
+    winner = (r.team if r.outcome == "W" else r.opp_team if r.outcome == "L" else None)
+    return {"week": r.week, "winner": winner, "score": f"{hi:.1f}\u2013{lo:.1f}"}
+
+
+def betting_lines(next_week, histories: dict[str, TeamHistory],
+                  results: Optional[list] = None) -> list[dict]:
     """A line for every game next week.
+
+    Each carries both teams' season records and streaks, and with `results`
+    the last time they met this season (30 Oct, the redesigned board).
 
     Projected starters first. If a team has no usable projection yet — some
     platforms don't publish next week's until the weekend — BOTH teams in that
@@ -485,6 +508,12 @@ def betting_lines(next_week, histories: dict[str, TeamHistory]) -> list[dict]:
             "favorite_points": fav_pts,
             "underdog_points": dog_pts,
             "basis": basis,
+            "favorite_record": h.record if (h := histories.get(str(fav.team_id))) and h.games else "",
+            "underdog_record": h.record if (h := histories.get(str(dog.team_id))) and h.games else "",
+            "favorite_streak": _streak_tag(histories.get(str(fav.team_id))),
+            "underdog_streak": _streak_tag(histories.get(str(dog.team_id))),
+            "meeting": _last_meeting(results, str(fav.team_id), str(dog.team_id),
+                                     getattr(next_week, "week", 10 ** 6)),
         })
     lines.sort(key=lambda l: -l["spread"])
     return lines

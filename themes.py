@@ -294,7 +294,22 @@ table.stats th { background: #0f1216 !important; color: #8d9bad !important; }
 .obit p, .promo-pitch { color: #ccd5e0 !important; }
 .promo-code { border-color: #16f04e !important; color: #ffffff !important;
               font-family: "Anton", sans-serif !important; font-weight: 400 !important; }
-.line-big { font-family: "Anton", sans-serif !important; font-weight: 400 !important; }
+.line-card { background: #12161d !important; border-color: #2b313c !important; }
+.lc-head { background: #16f04e !important; color: #0b0d10 !important; }
+.lc-head .line-chip { color: #0b0d10 !important; }
+.line-team + .line-team, .lv-side + .lv-side { border-color: #2b313c !important; }
+.lt-spread { font-family: "Anton", sans-serif !important; font-weight: 400 !important;
+             letter-spacing: 0 !important; color: #ffffff; }
+.line-team.fav .lt-spread { color: #16f04e !important; }
+.line-lead .lc-head { background: #16f04e !important; }
+.ll-spread { font-family: "Anton", sans-serif !important; font-weight: 400 !important;
+             letter-spacing: 0 !important; color: #16f04e !important; }
+.ll-name { color: #ffffff !important; font-family: "Barlow Condensed", sans-serif !important;
+           text-transform: uppercase; }
+.ll-bar.fav { background: #16f04e !important; }
+.ll-bar.dog { background: #e9edf2 !important; }
+.ll-meet { border-color: #2b313c !important; color: #ccd5e0; }
+.ll-meet b { color: #16f04e !important; }
 .lt-avatar { border-color: #8d9bad !important; }
 .lt-initial { background: #1c2028 !important; color: #ffffff !important; }
 .line-bar { background: #2b313c !important; }

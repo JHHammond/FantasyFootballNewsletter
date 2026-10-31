@@ -402,8 +402,12 @@ def sponsor_settings(league: dict[str, Any]) -> dict | None:
 
         {"brand": "PrizePicks", "code": "DESK", "link": "https://...",
          "logo": "/static/sponsors/prizepicks.png",
-         "lines": true, "award": true, "numbers": true,
+         "offer": "Play $5, get $150 if you win",
+         "lines": true, "numbers": true,
          "leagues": ["some-public-slug"]}
+
+    "offer" prints in bold at the top of every sponsor box. "award" (the
+    sponsored Over of the Week) is off unless set to true.
 
     "logo" is optional: a site path or a full https address. A site path is
     made absolute here, because a paper is read from storage and in email,
@@ -433,7 +437,7 @@ def sponsor_settings(league: dict[str, Any]) -> dict | None:
 
 def _award_sponsored(league: dict[str, Any]) -> bool:
     cfg = sponsor_settings(league)
-    return bool(cfg and cfg.get("award", True))
+    return bool(cfg and cfg.get("award", False))
 
 
 def _photo_desk(db, season: int, week: int) -> dict:
@@ -688,7 +692,7 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
             upcoming = load_week(provider, lid, season, week + 1,
                                  with_optimizer=False)
             out["lines"] = history.betting_lines(
-                upcoming, history.team_histories(results, week))
+                upcoming, history.team_histories(results, week), results)
         except Exception as exc:  # noqa: BLE001 — season over, or not posted
             print(f"[history] no lines for week {week + 1}: "
                   f"{type(exc).__name__}: {exc}", flush=True)

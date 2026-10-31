@@ -388,3 +388,16 @@ def test_the_kyle_pitts_goes_to_someone_other_than_the_tony_snell():
         [{"team_1": a, "team_2": b, "winner": "B", "margin": 30.0}])
     assert s["tony_snell"]["player"]["name"] == "Zero RB"
     assert s["kyle_pitts"]["player"]["name"] == "Flop WR"
+
+
+def test_the_board_carries_records_streaks_and_the_last_meeting():
+    nxt = _week(4, (_proj_team("carson", 40, 40), _proj_team("will", 30)))
+    hist = history.team_histories(RESULTS, 3)
+    [line] = history.betting_lines(nxt, hist, RESULTS)
+    for side in ("favorite", "underdog"):
+        h = hist.get(str(line[f"{side}_id"]))
+        assert line[f"{side}_record"] == (h.record if h else "")
+    met = history.meetings(RESULTS, line["favorite_id"], line["underdog_id"], 4)
+    assert bool(line["meeting"]) == bool(met)
+    # No results passed: no meeting, and nothing breaks.
+    assert history.betting_lines(nxt, hist)[0]["meeting"] is None

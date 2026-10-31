@@ -960,16 +960,30 @@ def _promo_box(promo):
 #: A paid sponsor's placements (1 Oct: the PrizePicks talks). One dict, or
 #: None for no sponsor at all, which is every paper until one is signed:
 #:   {"brand": "PrizePicks", "code": "DESK", "link": "https://...",
-#:    "lines": True, "award": True, "numbers": True, "numbers_note": "..."}
+#:    "offer": "Play $5, get $150 if you win",
+#:    "lines": True, "numbers": True, "numbers_note": "..."}
+#: The sponsored award ("award") is off unless set to true (John, 30 Oct:
+#: not in the PrizePicks contract, and the awards stay the paper's own).
 #: Each placement carries "Ad" and the small print; nothing about a reader
 #: ever goes to the sponsor.
+#:
+#: The words in every sponsored box follow the contract's DFS glossary
+#: (Exhibit C, 30 Oct): More/Less, never over/under; projection, never
+#: line; tie, never push; no "bet" or "gambling". `test_sponsor_words`
+#: holds every placement to it.
 SPONSOR_SMALL_PRINT = ("Ad. Must be 18+ (19+ or 21+ in some states). Not "
-                       "available in all states. Terms apply. Gambling "
-                       "problem? Call 1-800-GAMBLER.")
+                       "available in all states. Terms apply. Need help? "
+                       "Call 1-800-GAMBLER.")
+
+
+#: Placements a sponsor gets without asking. Anything else, the award in
+#: particular, has to be switched on by name.
+_SPONSOR_DEFAULT_ON = ("lines", "numbers")
 
 
 def _sponsor_on(sponsor, feature):
-    return bool(sponsor and sponsor.get("brand") and sponsor.get(feature, True))
+    return bool(sponsor and sponsor.get("brand")
+                and sponsor.get(feature, feature in _SPONSOR_DEFAULT_ON))
 
 
 def sponsor_logo_url(sponsor):
@@ -1002,12 +1016,14 @@ def sponsor_cta(sponsor, pitch, button="Make your picks"):
         return ""
     code = html_escape(sponsor.get("code") or "")
     link = html_escape(sponsor.get("link") or "")
+    offer = html_escape(sponsor.get("offer") or "")
+    offer_html = f'<span class="sp-offer">{offer}</span>' if offer else ""
     code_html = (f' New players: use code <b class="sp-code">{code}</b>.' if code else "")
     btn = (f'<a class="sp-button" href="{link}" target="_blank" rel="sponsored noopener">'
            f'{html_escape(button)}</a>') if link else ""
     return f"""
             <div class="sp-cta">
-                <div class="sp-cta-text"><b>{html_escape(pitch)}</b>{code_html}</div>
+                <div class="sp-cta-text">{offer_html}<b>{html_escape(pitch)}</b>{code_html}</div>
                 {btn}
             </div>
             <p class="sp-small">{SPONSOR_SMALL_PRINT}</p>"""
@@ -1017,10 +1033,16 @@ def _half(x):
     return round(float(x) * 2) / 2
 
 
+#: How the box splits its six (John, 30 Oct): the four starters who beat
+#: their projection by the most, then the two who missed it by the most.
+NUMBERS_MORE, NUMBERS_LESS = 4, 2
+
+
 def build_numbers_box(team, sponsor=None, n=6):
-    """"By the numbers" (1 Oct): one team's starters against their lines,
-    over or under. The line is the player's projection to the half point
-    unless the sponsor supplies real ones. Kickers and defenses left out:
+    """"By the numbers" (1 Oct): one team's starters against their
+    projections, More or Less (the contract's words, 30 Oct). The
+    projection is rounded to the half point unless the sponsor supplies
+    its own. Kickers and defenses left out:
     nobody argues about them."""
     if not team:
         return ""
@@ -1033,17 +1055,23 @@ def build_numbers_box(team, sponsor=None, n=6):
         if not isinstance(proj, (int, float)) or not isinstance(act, (int, float)) or proj <= 0:
             continue
         line = _half(proj)
-        res = "over" if act > line else "under" if act < line else "push"
+        res = "more" if act > line else "less" if act < line else "tie"
         rows.append((p, line, float(act), res))
-    rows = sorted(rows, key=lambda r: -abs(r[2] - r[1]))[:n]
-    if len(rows) < 3:
+    beat = sorted((r for r in rows if r[3] == "more"), key=lambda r: r[1] - r[2])
+    missed = sorted((r for r in rows if r[3] == "less"), key=lambda r: r[2] - r[1])
+    tied = [r for r in rows if r[3] == "tie"]
+    # Four beats and two misses; a team short of either fills from the other,
+    # so the box still has six when a whole lineup went one way.
+    take_more = min(len(beat), max(NUMBERS_MORE, n - len(missed)))
+    take_less = min(len(missed), n - take_more)
+    picked = beat[:take_more] + missed[:take_less]
+    picked += tied[:n - len(picked)]
+    if len(picked) < 3:
         return ""
-    rows.sort(key=lambda r: -r[1])
-    overs = sum(1 for r in rows if r[3] == "over")
-    unders = sum(1 for r in rows if r[3] == "under")
+    rows = picked
     trs = []
     for p, line, act, res in rows:
-        tag = {"over": "Over", "under": "Under", "push": "Push"}[res]
+        tag = {"more": "More", "less": "Less", "tie": "Tie"}[res]
         trs.append(f"""
                 <tr class="nb-{res}">
                     <td class="nb-name">{html_escape(p.get("name") or "")}<span class="nb-pos">{html_escape((p.get("position") or "").upper())}</span></td>
@@ -1052,19 +1080,19 @@ def build_numbers_box(team, sponsor=None, n=6):
                     <td class="nb-res"><span>{tag}</span></td>
                 </tr>""")
     name = html_escape(get_team_name(team))
-    badge = sponsor_badge(sponsor, "Lines presented by") if _sponsor_on(sponsor, "numbers") else ""
+    badge = sponsor_badge(sponsor) if _sponsor_on(sponsor, "numbers") else ""
     note = html_escape((sponsor or {}).get("numbers_note")
-                       or "Line: each player\u2019s projection, to the half point.")
-    cta = (sponsor_cta(sponsor, "Know your guys better than the line?", "See the board")
+                       or "Projection: each player\u2019s, to the half point.")
+    cta = (sponsor_cta(sponsor, "Know your guys better than the projection?", "See the board")
            if _sponsor_on(sponsor, "numbers") else "")
     return f"""
         <aside class="numbers-box">
             <div class="nb-kicker">By the numbers</div>
             <div class="nb-title">{name}</div>
-            <div class="nb-record">{overs}&ndash;{unders} against the line</div>
+            <div class="nb-record">Who beat their projection, and who didn&rsquo;t</div>
             {badge}
             <table class="nb-table">
-                <thead><tr><th>Player</th><th class="nb-num">Line</th><th class="nb-num">Scored</th><th></th></tr></thead>
+                <thead><tr><th>Player</th><th class="nb-num">Proj.</th><th class="nb-num">Scored</th><th></th></tr></thead>
                 <tbody>{"".join(trs)}</tbody>
             </table>
             <p class="nb-note">{note}</p>
@@ -1227,19 +1255,88 @@ TRADE_VOTE_SCRIPT = r"""<script>
 })();
 </script>"""
 
-def _line_side(name, avatar, points, css, vote=False):
-    """One team on the board. With `vote`, a button the league taps to pick
-    that side (12 Oct) — disabled, and so plain text, until LINE_VOTE_SCRIPT
-    turns voting on, which it does only on the paper's own page."""
+def _rec_html(record, streak):
+    """"6-1 · W4" under a name on the board; nothing when neither is known
+    (papers stored before 30 Oct)."""
+    bits = [html_escape(b) for b in (record, streak) if b]
+    return f'<span class="lt-rec">{" &middot; ".join(bits)}</span>' if bits else ""
+
+
+def _line_side(name, avatar, points, css, spread="", vote=False, rec=""):
+    """One team's row on a game ticket (30 Oct): face, name, projected
+    points, and its side of the spread at the right edge. With `vote`, the
+    whole row is a button the league taps to pick that side (12 Oct) —
+    disabled, and so plain text, until LINE_VOTE_SCRIPT turns voting on,
+    which it does only on the paper's own page."""
     face = (f'<img class="lt-avatar" src="{html_escape(avatar)}" alt="" />' if avatar
             else f'<span class="lt-avatar lt-initial">{html_escape((name or "?")[:1].upper())}</span>')
-    pts = f'<span class="lt-proj">{float(points):.1f}</span>' if isinstance(points, (int, float)) else ""
-    inner = f'{face}<span class="lt-name">{html_escape(name)}</span>{pts}'
+    pts = (f'<span class="lt-proj">{float(points):.1f}<small>proj</small></span>'
+           if isinstance(points, (int, float)) else '<span class="lt-proj"></span>')
+    inner = (f'{face}<span class="lt-who"><span class="lt-name">{html_escape(name)}</span>{rec}</span>'
+             f'{pts}<span class="lt-spread">{spread}</span>')
     if not vote:
         return f'<div class="line-team {css}">{inner}</div>'
     return (f'<button type="button" class="line-team {css} lv-side" data-side="{css}" '
             f'aria-pressed="false" disabled>{inner}'
             f'<span class="lv-mark" aria-hidden="true"></span></button>')
+
+
+def _lead_index(lines):
+    """Which game leads the board (30 Oct): a rematch if there is one, else
+    the closest spread. A close game is the one a league argues about."""
+    return min(range(len(lines)),
+               key=lambda i: (not lines[i].get("meeting"), float(lines[i].get("spread") or 0)))
+
+
+def _lead_side(name, avatar, css, rec, vote):
+    face = (f'<img class="ll-avatar" src="{html_escape(avatar)}" alt="" />' if avatar
+            else f'<span class="ll-avatar lt-initial">{html_escape((name or "?")[:1].upper())}</span>')
+    inner = f'{face}<span class="ll-name">{html_escape(name)}</span>{rec}'
+    if not vote:
+        return f'<div class="line-team ll-side {css}">{inner}</div>'
+    return (f'<button type="button" class="line-team ll-side {css} lv-side" data-side="{css}" '
+            f'aria-pressed="false" disabled>{inner}'
+            f'<span class="lv-mark" aria-hidden="true"></span></button>')
+
+
+def _lead_card(l, ou, attrs, split, vote):
+    """The game of the week, run big: the two teams facing each other across
+    the spread, their projected points as facing bars, and the last time
+    they met."""
+    fav_pts, dog_pts = l.get("favorite_points"), l.get("underdog_points")
+    spread = float(l.get("spread") or 0)
+    big = ("PICK&rsquo;EM" if l.get("pickem") else f"&minus;{spread:g}")
+    by = ("Dead even" if l.get("pickem")
+          else f"{html_escape(l['favorite'])} by {spread:g}")
+    bars = ""
+    if isinstance(fav_pts, (int, float)) and isinstance(dog_pts, (int, float)) and max(fav_pts, dog_pts) > 0:
+        top = max(fav_pts, dog_pts)
+        bars = f"""
+                <div class="ll-bars" aria-label="Projected points">
+                    <div class="ll-bar-cell fav"><b>{float(fav_pts):.1f}</b><span class="ll-bar fav" style="width:{100 * fav_pts / top:.0f}%"></span></div>
+                    <div class="ll-bar-cell dog"><span class="ll-bar dog" style="width:{100 * dog_pts / top:.0f}%"></span><b>{float(dog_pts):.1f}</b></div>
+                </div>
+                <div class="ll-bars-cap">Projected points</div>"""
+    meet = ""
+    m = l.get("meeting")
+    if m:
+        what = (f"{html_escape(m['winner'])} won {html_escape(m['score'])}" if m.get("winner")
+                else f"tied {html_escape(m['score'])}")
+        meet = f'<div class="ll-meet"><b>Rematch.</b> Week {int(m["week"])}: {what}.</div>'
+    rec_f = _rec_html(l.get("favorite_record"), l.get("favorite_streak"))
+    rec_d = _rec_html(l.get("underdog_record"), l.get("underdog_streak"))
+    return f"""
+            <div class="line-card line-lead{' lv' if vote else ''}"{attrs}>
+                <div class="lc-head"><span class="lc-game">Game of the week</span>{ou}</div>
+                <div class="ll-face">
+                    {_lead_side(l["favorite"], l.get("favorite_avatar"), "fav", rec_f, vote)}
+                    <div class="ll-mid"><div class="ll-spread">{big}</div><div class="ll-by">{by}</div></div>
+                    {_lead_side(l["underdog"], l.get("underdog_avatar"), "dog", rec_d, vote)}
+                </div>
+                {bars}
+                {meet}
+                {split}
+            </div>"""
 
 
 def _lines_items(lines, editable=False):
@@ -1256,31 +1353,42 @@ def _lines_items(lines, editable=False):
     if not lines:
         return ""
     vote = not editable
+    lead = _lead_index(lines)
+    lines = [lines[lead]] + lines[:lead] + lines[lead + 1:]
     cards = []
-    for l in lines:
+    for i, l in enumerate(lines, 1):
         fav_pts, dog_pts = l.get("favorite_points"), l.get("underdog_points")
         spread = float(l.get("spread") or 0)
-        big = "PK" if l.get("pickem") else f"&minus;{spread:g}"
+        if l.get("pickem"):
+            fav_sp = dog_sp = "PK"
+        else:
+            fav_sp, dog_sp = f"&minus;{spread:g}", f"+{spread:g}"
         total = l.get("total")
-        ou = f'<span class="line-chip">O/U {float(total):g}</span>' if total else ""
+        ou = (f'<span class="line-chip">More/Less {float(total):g}</span>'
+              if total else "")
         attrs = (f' data-game="{html_escape(line_key_for(l))}"' if vote else "")
         split = ('<div class="lv-split" hidden><div class="lv-bar"><span></span></div>'
                  '<div class="lv-nums"><span class="lv-pf"></span><span class="lv-n">'
                  '</span><span class="lv-pd"></span></div></div>') if vote else ""
+        if i == 1:
+            cards.append(_lead_card(l, ou, attrs, split, vote))
+            continue
+        rec_f = _rec_html(l.get("favorite_record"), l.get("favorite_streak"))
+        rec_d = _rec_html(l.get("underdog_record"), l.get("underdog_streak"))
         cards.append(f"""
             <div class="line-card{' lv' if vote else ''}"{attrs}>
+                <div class="lc-head"><span class="lc-game">Game {i}</span>{ou}</div>
                 <div class="line-teams">
-                    {_line_side(l["favorite"], l.get("favorite_avatar"), fav_pts, "fav", vote)}
-                    <div class="line-big">{big}</div>
-                    {_line_side(l["underdog"], l.get("underdog_avatar"), dog_pts, "dog", vote)}
+                    {_line_side(l["favorite"], l.get("favorite_avatar"), fav_pts, "fav", fav_sp, vote, rec_f)}
+                    {_line_side(l["underdog"], l.get("underdog_avatar"), dog_pts, "dog", dog_sp, vote, rec_d)}
                 </div>
                 {split}
-                {f'<div class="line-foot">{ou}</div>' if ou else ''}
             </div>""")
+    grid = f'<div class="lines-grid">{"".join(cards)}</div>'
     if not vote:
-        return "".join(cards)
+        return grid
     note = '<div class="lv-note" hidden>Tap a team to pick. Closes Thursday.</div>'
-    return note + "".join(cards) + LINE_VOTE_SCRIPT
+    return note + grid + LINE_VOTE_SCRIPT
 
 
 #: The most obituaries the back page prints. history.lowest_starters already
@@ -1366,8 +1474,8 @@ def render_back_page(obituaries=None, promo=None, lines=None,
     if lines_html:
         if _sponsor_on(sponsor, "lines"):
             parts.append(f"""<div class="bp-preview sponsored">
-            <h2 class="bp-label bp-label-sp"><span>Next Week&rsquo;s Lines</span>{sponsor_badge(sponsor)}</h2>
-            <div class="bp-note">Made up from the projections. The Desk takes no bets.</div>
+            <h2 class="bp-label bp-label-sp"><span>Next Week&rsquo;s Projections</span>{sponsor_badge(sponsor)}</h2>
+            <div class="bp-note">Built from each team&rsquo;s projected starters, for arguing about.</div>
             {lines_html}
             {sponsor_cta(sponsor, "Like the board? Pick real players on " + str(sponsor["brand"]) + ".")}</div>""")
         else:
@@ -3835,8 +3943,7 @@ def _render_html(edition, theme=None):
            stretch: a paragraph with air under it reads as a hole. Pure CSS, so the
            PDF gets it too. */
         .bp-obits, .bp-preview {{ display: flex; flex-direction: column; }}
-        .bp-preview > .line-card {{ flex: 1 0 auto; display: flex; flex-direction: column;
-                                   justify-content: center; }}
+        .bp-preview > .lines-grid {{ flex: 1 0 auto; align-content: start; }}
         .bp-preview > .sp-cta {{ flex: none; }}
         .bp-obits > .bp-records {{ flex: 1 0 auto; display: flex; flex-direction: column; }}
         .bp-records > .rb-row {{ flex: 1 0 auto; align-content: center; }}
@@ -3956,20 +4063,81 @@ def _render_html(edition, theme=None):
             .bp-tx .wire {{ column-count: 1; }}
         }}
 
-        .line-card {{ padding: 10px 0 12px; border-bottom: 1px solid #ddd; }}
-        .line-card:last-child {{ border-bottom: 0; }}
-        .line-teams {{ display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }}
-        .line-team {{ display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }}
-        .lt-avatar {{ width: 34px; height: 34px; border-radius: 50%; border: 2px solid #111; object-fit: cover; }}
+        /* NEXT WEEK'S BOARD (30 Oct): one ticket per game, two rows, the
+           spread at the right edge. Tiles across when it has the width,
+           stacks in the back page's column. */
+        .lines-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
+                       gap: 10px; margin-top: 4px; }}
+        .line-card {{ border: 2px solid #111; background: #fffdf8; break-inside: avoid; }}
+        .lc-head {{ display: flex; justify-content: space-between; align-items: center; gap: 8px;
+                    background: #111; color: #fff; padding: 4px 10px 3px; }}
+        .lc-game {{ font-size: 10px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; }}
+        .lc-game, .lc-head .line-chip {{ white-space: nowrap; }}
+        .lc-head .line-chip {{ border: 0; padding: 0; color: #fff; font-size: 10.5px; letter-spacing: 1.2px; }}
+        .line-teams {{ display: flex; flex-direction: column; }}
+        .line-team {{ display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 3.4em;
+                      align-items: center; column-gap: 10px; padding: 8px 10px; text-align: left; }}
+        .line-team + .line-team {{ border-top: 1px dashed #c9c0ad; }}
+        .lt-avatar {{ width: 30px; height: 30px; border-radius: 50%; border: 2px solid #111;
+                      object-fit: cover; box-sizing: border-box; }}
         .lt-initial {{ display: inline-flex; align-items: center; justify-content: center;
-                       font-weight: 800; font-size: 16px; background: #f1ece2; }}
-        .lt-name {{ font-weight: 700; font-size: 13.5px; margin-top: 3px; overflow-wrap: anywhere; }}
-        .lt-proj {{ font-size: 11px; opacity: 0.65; }}
+                       font-weight: 800; font-size: 14px; background: #f1ece2; }}
+        .lt-name {{ font-weight: 800; font-size: 14.5px; line-height: 1.2; min-width: 0;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        .lt-proj {{ font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; opacity: .75;
+                    white-space: nowrap; }}
+        .lt-proj small {{ margin-left: 3px; font-size: 9px; font-weight: 700; letter-spacing: 1px;
+                          text-transform: uppercase; opacity: .8; }}
+        .lt-spread {{ font-size: 22px; font-weight: 900; line-height: 1; text-align: right;
+                      font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }}
+        .line-team.fav .lt-spread {{ color: var(--accent); }}
         .line-team.fav .lt-avatar {{ border-color: var(--accent); }}
-        .line-big {{ font-size: 30px; font-weight: 900; color: var(--accent); letter-spacing: -0.5px; line-height: 1; }}
-        .line-bar {{ height: 7px; background: #d9d4ca; margin: 8px 0 6px; display: flex; }}
-        .line-bar span {{ display: block; height: 100%; background: var(--accent); }}
-        .line-foot {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+        .lt-who {{ display: flex; flex-direction: column; min-width: 0; }}
+        .lt-who .lt-name {{ display: block; }}
+        .lt-rec {{ font-size: 11px; font-weight: 700; letter-spacing: .5px; opacity: .6;
+                   font-variant-numeric: tabular-nums; white-space: nowrap; }}
+        /* The game of the week (30 Oct): spans the board, teams facing off. */
+        .line-lead {{ grid-column: 1 / -1; border-width: 3px; }}
+        .line-lead .lc-head {{ background: var(--accent); }}
+        .ll-face {{ display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+                    align-items: center; gap: 8px; padding: 16px 12px 6px; }}
+        .ll-side {{ display: flex; flex-direction: column; align-items: center; gap: 4px;
+                    text-align: center; min-width: 0; padding: 6px 4px; }}
+        .line-lead .lv-side + .ll-mid + .lv-side, .line-lead .ll-side {{ border: 0; }}
+        .ll-avatar {{ width: 58px; height: 58px; border-radius: 50%; border: 3px solid #111;
+                      object-fit: cover; box-sizing: border-box; font-size: 24px; }}
+        .ll-side.fav .ll-avatar {{ border-color: var(--accent); }}
+        .ll-name {{ font-size: 19px; font-weight: 900; line-height: 1.1; overflow-wrap: break-word;
+                    max-width: 100%; }}
+        .ll-side .lt-rec {{ font-size: 12px; }}
+        .ll-mid {{ text-align: center; padding: 0 4px; }}
+        .ll-spread {{ font-size: 54px; font-weight: 900; line-height: .95; letter-spacing: -1.5px;
+                      color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }}
+        .ll-by {{ margin: 4px auto 0; max-width: 11em; font-size: 10.5px; font-weight: 800; letter-spacing: 1.2px;
+                  line-height: 1.3; text-transform: uppercase; opacity: .7; }}
+        .ll-bars {{ display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 6px 14px 0; }}
+        .ll-bar-cell {{ display: flex; align-items: center; gap: 6px; }}
+        .ll-bar-cell.fav {{ justify-content: flex-end; }}
+        .ll-bar-cell b {{ font-size: 13px; font-weight: 900; font-variant-numeric: tabular-nums; }}
+        .ll-bar {{ display: block; height: 12px; max-width: calc(100% - 46px); }}
+        .ll-bar.fav {{ background: var(--accent); }}
+        .ll-bar.dog {{ background: #111; }}
+        .ll-bars-cap {{ text-align: center; font-size: 9.5px; font-weight: 800; letter-spacing: 1.5px;
+                        text-transform: uppercase; opacity: .55; padding: 4px 0 2px; }}
+        .ll-meet {{ margin: 8px 12px 0; padding: 8px 0 10px; border-top: 1px dashed #c9c0ad;
+                    text-align: center; font-size: 13px; font-style: italic; }}
+        .ll-meet b {{ font-style: normal; text-transform: uppercase; letter-spacing: 1px; font-size: 11px;
+                      color: var(--accent); margin-right: 4px; }}
+        .line-lead .lv-split {{ padding-top: 8px; }}
+        .line-lead .lv-mark {{ grid-column: auto; }}
+        @media (max-width: 480px) {{
+            .ll-spread {{ font-size: 40px; }}
+            .ll-by {{ max-width: 8em; font-size: 9.5px; letter-spacing: .8px; }}
+            .ll-face {{ padding: 12px 8px 4px; gap: 4px; }}
+            .lc-game, .lc-head .line-chip {{ letter-spacing: .8px; }}
+            .ll-name {{ font-size: 16px; }}
+            .ll-avatar {{ width: 46px; height: 46px; }}
+        }}
         .line-chip, .line-tag {{
             font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
             border: 1px solid #111; padding: 2px 6px;
@@ -3977,28 +4145,26 @@ def _render_html(edition, theme=None):
         .line-tag {{ background: #111; color: #fff; }}
         .line-tag.coin {{ background: #c8a200; color: #111; border-color: #c8a200; }}
         /* The league's votes (12 Oct). Inert until LINE_VOTE_SCRIPT opens
-           voting on the paper's own page; until then the teams are text. */
+           voting on the paper's own page; until then the rows are text. */
         .lv-split[hidden], .lv-note[hidden] {{ display: none !important; }}
         .lv-note {{ font-size: 12.5px; font-style: italic; margin: 2px 0 4px; }}
         .lv-side {{ font: inherit; color: inherit; background: none; border: 0; margin: 0;
-                    padding: 6px 4px 4px; border-radius: 8px; width: 100%;
-                    -webkit-tap-highlight-color: transparent; }}
+                    width: 100%; -webkit-tap-highlight-color: transparent; }}
+        .lv-side + .lv-side {{ border-top: 1px dashed #c9c0ad; }}
         .lv-side:disabled {{ color: inherit; opacity: 1; cursor: default; }}
-        .lv-open .lv-side:not(:disabled) {{ cursor: pointer; transition: background .15s, box-shadow .15s; }}
+        .lv-open .lv-side:not(:disabled) {{ cursor: pointer; transition: background .15s; }}
         .lv-open .lv-side:not(:disabled):hover {{ background: rgba(127,127,127,.10); }}
-        .lv-open .lv:not(.voted) .lv-mark::before {{ content: "Tap to pick"; }}
-        .lv-mark {{ display: block; min-height: 15px; margin-top: 4px; font-size: 10px;
-                    font-weight: 700; letter-spacing: 1px; text-transform: uppercase; opacity: .55; }}
-        .lv-side.on {{ box-shadow: inset 0 0 0 2px var(--accent); }}
-        .lv-side.on .lv-mark {{ color: var(--accent); opacity: 1; }}
+        .lv-mark {{ grid-column: 2 / -1; font-size: 10px; font-weight: 800; letter-spacing: 1px;
+                    text-transform: uppercase; color: var(--accent); }}
+        .lv-mark:empty {{ display: none; }}
+        .lv-side.on {{ box-shadow: inset 4px 0 0 var(--accent); background: rgba(127,127,127,.07); }}
         .lv-side.on .lt-avatar {{ border-color: var(--accent); }}
-        .lv-split {{ margin: 8px 0 2px; }}
+        .lv-split {{ padding: 0 10px 8px; }}
         .lv-bar {{ height: 6px; background: #d9d4ca; display: flex; }}
         .lv-bar span {{ display: block; height: 100%; background: var(--accent); transition: width .35s; }}
         .lv-nums {{ display: flex; justify-content: space-between; align-items: baseline;
                     font-size: 12px; font-weight: 700; margin-top: 4px; }}
         .lv-n {{ font-weight: 400; font-size: 11px; opacity: .65; }}
-        .line-foot {{ justify-content: center; margin-top: 6px; }}
         @media print {{ .lv-note, .lv-split, .lv-mark {{ display: none !important; }} }}
         .lines-board {{ padding: 4px 0; }}
         .line-row {{ padding: 9px 0; border-bottom: 1px solid #ddd; }}
@@ -4068,6 +4234,8 @@ def _render_html(edition, theme=None):
                    background: #f0eafc; border: 1px solid #c9b8f2; padding: 10px 12px; border-radius: 4px; color: #16130f; }}
         .sp-cta-text {{ font-size: 13.5px; line-height: 1.4; }}
         .sp-code {{ color: #3d1a8a; letter-spacing: 1px; }}
+        .sp-offer {{ display: block; margin-bottom: 3px; font-size: 19px; font-weight: 900; line-height: 1.15;
+                     letter-spacing: .3px; text-transform: uppercase; color: #3d1a8a; text-wrap: balance; }}
         .sp-button {{ flex-shrink: 0; background: #3d1a8a; color: #fff !important; text-decoration: none;
                       font-size: 12px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase;
                       padding: 9px 12px; border-radius: 3px; }}
@@ -4092,11 +4260,12 @@ def _render_html(edition, theme=None):
         .nb-res {{ text-align: right; padding-left: 8px !important; }}
         .nb-res span {{ display: inline-block; min-width: 44px; text-align: center; font-size: 10px; font-weight: 800;
                         letter-spacing: 1.2px; text-transform: uppercase; padding: 3px 4px; border-radius: 2px; }}
-        .nb-over .nb-res span {{ background: #1d6b2a !important; color: #fff; }}
-        .nb-under .nb-res span {{ background: #b3141c; color: #fff; }}
-        .nb-push .nb-res span {{ background: #777; color: #fff; }}
+        .nb-more .nb-res span {{ background: #1d6b2a !important; color: #fff; }}
+        .nb-less .nb-res span {{ background: #b3141c; color: #fff; }}
+        .nb-tie .nb-res span {{ background: #777; color: #fff; }}
         .nb-note {{ margin: 8px 0 0; font-size: 10.5px; line-height: 1.4; opacity: .7; }}
         .numbers-box .sp-cta {{ flex-direction: column; align-items: stretch; text-align: left; }}
+        .numbers-box .sp-offer {{ font-size: 16px; }}
         .numbers-box .sp-button {{ text-align: center; }}
         @media (max-width: 760px) {{
             .numbers-box {{ float: none; width: auto; margin: 0 0 14px; }}

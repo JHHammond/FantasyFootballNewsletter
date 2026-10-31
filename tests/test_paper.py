@@ -343,8 +343,10 @@ def test_the_back_page_follows_the_sketch():
     assert html.count('class="obit"') == 4
     assert "<b>x</b>" not in html
     assert "Projected 12.0 &ndash; Scored 0.0" in html
-    assert "&minus;7.5" in html and "O/U 245.5" in html
-    assert ">PK<" in html
+    assert "&minus;7.5" in html and "More/Less 245.5" in html
+    # The pick'em leads (closest game) and the other game follows as a row.
+    assert "PICK&rsquo;EM" in html and "Game of the week" in html
+    assert html.index("Game of the week") < html.index("&minus;7.5")
     # John: no commentary on the previews
     assert "Carson covers." not in html
 
@@ -387,7 +389,7 @@ def test_the_board_is_pared_down_to_the_teams_the_spread_and_the_total():
          "favorite_points": 90.0, "underdog_points": 60.0, "pickem": False},
         {"favorite": "C", "underdog": "D", "spread": 1.5, "total": 150.0,
          "favorite_points": 76.0, "underdog_points": 74.5, "pickem": False}], None)
-    assert "90.0" in html and "60.0" in html and "O/U 150" in html
+    assert "90.0" in html and "60.0" in html and "More/Less 150" in html
     assert "favored" not in html and "Biggest spread" not in html
     assert 'class="line-bar"' not in html
 
@@ -396,7 +398,8 @@ def test_a_pickem_names_no_favourite():
     html = newspaper.render_back_page([], None, [
         {"favorite": "Steve", "underdog": "Mark", "spread": 0.5, "pickem": True,
          "favorite_points": 120.2, "underdog_points": 119.8}], None)
-    assert "favored" not in html and ">PK<" in html
+    assert "favored" not in html and "PICK&rsquo;EM" in html and "Dead even" in html
+    assert "Steve by" not in html
 
 
 def test_the_quote_byline_carries_the_team_name():
@@ -542,7 +545,7 @@ def test_a_sponsored_paper_labels_every_placement():
         [{"title": "OVER OF THE WEEK", "body": "x",
           "detail": {"name": "A.J. Brown", "pos": "WR", "photo": "", "team": "Lamb Chops",
                      "stats": [("Projected", "15.4", ""), ("Scored", "35.2", "")]}}],
-        sponsor=SPONSOR)
+        sponsor=dict(SPONSOR, award=True))
     assert "Presented by" in awards and "PrizePicks" in awards and "1-800-GAMBLER" in awards
     assert "A.J. Brown" in awards and "35.2" in awards
     plain = newspaper.render_awards_html([{"title": "OVER OF THE WEEK", "body": "x"}])
@@ -550,7 +553,7 @@ def test_a_sponsored_paper_labels_every_placement():
     lines = [{"favorite": "A", "underdog": "B", "favorite_points": 120.0,
               "underdog_points": 100.0, "spread": 20, "total": 220}]
     back = newspaper.render_back_page(lines=lines, sponsor=SPONSOR)
-    assert "Next Week&rsquo;s Lines" in back and "DESK" in back and "1-800-GAMBLER" in back
+    assert "Next Week&rsquo;s Projections" in back and "DESK" in back and "1-800-GAMBLER" in back
     assert "PrizePicks" not in newspaper.render_back_page(lines=lines)
 
 
@@ -561,9 +564,22 @@ def test_the_numbers_box_calls_each_starter_over_or_under():
         {"name": "Josh Allen", "position": "QB", "projected": 26.7, "actual": 17.7},
         {"name": "Tyler Loop", "position": "K", "projected": 9.7, "actual": 2.0}]}
     html = newspaper.build_numbers_box(team, SPONSOR)
-    assert "1&ndash;2 against the line" in html
     assert "15.5" in html and "35.2" in html and "Tyler Loop" not in html
-    assert html.count("nb-over") == 1 and html.count("nb-under") == 2
+    assert html.count("nb-more") == 1 and html.count("nb-less") == 2   # short of beats: filled
+
+
+def test_the_numbers_box_shows_four_who_beat_it_and_two_who_missed():
+    beats = [(f"Up{i}", 10.0, 10.0 + i) for i in range(1, 7)]        # +1 .. +6
+    misses = [(f"Down{i}", 10.0, 10.0 - i) for i in range(1, 5)]     # -1 .. -4
+    team = {"team_name": "T", "all_starters": [
+        {"name": nm, "position": "WR", "projected": pr, "actual": ac}
+        for nm, pr, ac in beats + misses]}
+    html = newspaper.build_numbers_box(team, SPONSOR)
+    assert html.count("nb-more") == 4 and html.count("nb-less") == 2
+    for nm in ("Up6", "Up5", "Up4", "Up3", "Down4", "Down3"):         # the biggest each way
+        assert f">{nm}<" in html
+    assert ">Up2<" not in html and ">Down2<" not in html
+    assert html.index(">Up6<") < html.index(">Up3<") < html.index(">Down4<")
 
 
 def test_the_over_of_the_week_only_runs_when_sponsored():
@@ -577,8 +593,27 @@ def test_the_over_of_the_week_only_runs_when_sponsored():
         return newspaper.build_edition("P", 1, summary, [], [team], ai,
                                        sponsor=sponsor)["awards_html"]
     assert "OVER OF THE WEEK" not in awards(None)
-    assert "OVER OF THE WEEK" in awards(SPONSOR)
+    assert "OVER OF THE WEEK" not in awards(SPONSOR)       # off unless asked for
+    assert "OVER OF THE WEEK" in awards(dict(SPONSOR, award=True))
     assert "OVER OF THE WEEK" not in awards(dict(SPONSOR, award=False))
+
+
+def test_the_offer_prints_in_every_sponsor_box_with_the_small_print():
+    sp = dict(SPONSOR, offer="Play $5, get $150 if you win")
+    lines = [{"favorite": "A", "underdog": "B", "favorite_points": 120.0,
+              "underdog_points": 100.0, "spread": 20, "total": 220}]
+    team = {"team_name": "Lamb Chops", "all_starters": [
+        {"name": n, "position": "WR", "projected": 10.0, "actual": a}
+        for n, a in (("A", 20.0), ("B", 2.0), ("C", 15.0))]}
+    for html in (newspaper.render_back_page(lines=lines, sponsor=sp),
+                 newspaper.build_numbers_box(team, sp)):
+        assert "Play $5, get $150 if you win" in html
+        assert "1-800-GAMBLER" in html and "DESK" in html
+    # No offer set, no empty slot for one.
+    assert "sp-offer" not in newspaper.render_back_page(lines=lines, sponsor=SPONSOR)
+    # It is escaped like everything else in the paper.
+    bad = newspaper.sponsor_cta(dict(SPONSOR, offer="<script>x</script>"), "p")
+    assert "<script>" not in bad
 
 
 def test_photos_follow_the_story_order_not_the_platforms():
@@ -652,3 +687,46 @@ def test_trade_cards_show_player_photos_and_fall_back_to_an_initial():
     assert 'class="tr-face" src="https://x.test/0.jpg"' in html
     assert "this.style.visibility" in html
     assert 'class="tr-face tr-initial"' in html
+
+
+def test_sponsor_words():
+    """Every sponsored placement keeps to the PrizePicks contract's DFS
+    glossary (Exhibit C): no over/under, line, push, bet, wager, parlay,
+    slip, prop, odds or gambling in anything a reader sees."""
+    import re
+    sp = dict(SPONSOR, offer="Play $5, get $150 if you win")
+    lines = [{"favorite": "A", "underdog": "B", "favorite_points": 120.0,
+              "underdog_points": 100.0, "spread": 20, "total": 220}]
+    team = {"team_name": "Lamb Chops", "all_starters": [
+        {"name": n, "position": "WR", "projected": 10.0, "actual": a}
+        for n, a in (("Ann", 20.0), ("Bea", 2.0), ("Cy", 10.0))]}
+    banned = re.compile(r"\b(over|under|o/u|line|lines|push|bets?|wagers?|"
+                        r"parlays?|slips?|props?|odds|gambling)\b", re.I)
+    for html in (newspaper.render_back_page(lines=lines, sponsor=sp),
+                 newspaper.build_numbers_box(team, sp)):
+        text = re.sub(r"<script.*?</script>|<[^>]+>|1-800-GAMBLER", " ", html, flags=re.S)
+        text = re.sub(r"class=\S+", "", text)
+        assert not banned.search(text), banned.search(text).group(0)
+    assert "Tie" in newspaper.build_numbers_box(team, sp)
+
+
+def test_the_board_leads_with_a_rematch_and_shows_records():
+    lines = [
+        {"favorite": "Big", "underdog": "Small", "spread": 30, "total": 250,
+         "favorite_points": 140.0, "underdog_points": 110.0, "pickem": False,
+         "favorite_record": "6-1", "underdog_record": "1-6",
+         "favorite_streak": "W4", "underdog_streak": "",
+         "meeting": {"week": 3, "winner": "Big", "score": "131.2\u2013118.4"}},
+        {"favorite": "C", "underdog": "D", "spread": 1.5, "total": 240,
+         "favorite_points": 120.8, "underdog_points": 119.2, "pickem": False}]
+    html = newspaper.render_back_page(lines=lines)
+    assert html.index("Game of the week") < html.index(">Big<") < html.index(">C<")
+    assert "Rematch." in html and "Week 3: Big won 131.2\u2013118.4" in html
+    assert "6-1 &middot; W4" in html and ">1-6<" in html
+    assert 'style="width:100%"' in html and 'style="width:79%"' in html   # 110/140
+    # Without a rematch, the closest game leads.
+    plain = [dict(l, meeting=None) for l in lines]
+    html = newspaper.render_back_page(lines=plain)
+    assert html.index("Game of the week") < html.index(">C<") < html.index(">Big<")
+    # Votes still find two sides on every card, the lead included.
+    assert html.count('lv-side" data-side') == 4
