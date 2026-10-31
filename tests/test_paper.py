@@ -607,7 +607,8 @@ def test_the_offer_prints_in_every_sponsor_box_with_the_small_print():
         for n, a in (("A", 20.0), ("B", 2.0), ("C", 15.0))]}
     for html in (newspaper.render_back_page(lines=lines, sponsor=sp),
                  newspaper.build_numbers_box(team, sp)):
-        assert "Play $5, get $150 if you win" in html
+        assert ('Play <span class="sp-amt">$5</span>, get '
+                '<span class="sp-amt">$150</span> if you win') in html
         assert "1-800-GAMBLER" in html and "DESK" in html
     # No offer set, no empty slot for one.
     assert "sp-offer" not in newspaper.render_back_page(lines=lines, sponsor=SPONSOR)

@@ -973,7 +973,7 @@ def _promo_box(promo):
 #: holds every placement to it.
 SPONSOR_SMALL_PRINT = ("Ad. Must be 18+ (19+ or 21+ in some states). Not "
                        "available in all states. Terms apply. Need help? "
-                       "Call 1-800-GAMBLER.")
+                       'Call <span class="sp-nowrap">1-800-GAMBLER</span>.')
 
 
 #: Placements a sponsor gets without asking. Anything else, the award in
@@ -1017,6 +1017,9 @@ def sponsor_cta(sponsor, pitch, button="Make your picks"):
     code = html_escape(sponsor.get("code") or "")
     link = html_escape(sponsor.get("link") or "")
     offer = html_escape(sponsor.get("offer") or "")
+    # The dollar figures carry the offer (John, 31 Oct): each one set in a
+    # solid block so "$5" and "$150" are what the eye lands on.
+    offer = re.sub(r"\$\d+(?:,\d{3})*(?:\.\d+)?", lambda m: f'<span class="sp-amt">{m.group(0)}</span>', offer)
     offer_html = f'<span class="sp-offer">{offer}</span>' if offer else ""
     code_html = (f' New players: use code <b class="sp-code">{code}</b>.' if code else "")
     btn = (f'<a class="sp-button" href="{link}" target="_blank" rel="sponsored noopener">'
@@ -4234,8 +4237,11 @@ def _render_html(edition, theme=None):
                    background: #f0eafc; border: 1px solid #c9b8f2; padding: 10px 12px; border-radius: 4px; color: #16130f; }}
         .sp-cta-text {{ font-size: 13.5px; line-height: 1.4; }}
         .sp-code {{ color: #3d1a8a; letter-spacing: 1px; }}
-        .sp-offer {{ display: block; margin-bottom: 3px; font-size: 19px; font-weight: 900; line-height: 1.15;
-                     letter-spacing: .3px; text-transform: uppercase; color: #3d1a8a; text-wrap: balance; }}
+        .sp-offer {{ display: block; margin-bottom: 8px; font-size: 32px; font-weight: 900; line-height: 1.12;
+                     letter-spacing: -.3px; text-transform: uppercase; color: #3d1a8a; text-wrap: balance; }}
+        .sp-amt {{ display: inline-block; background: #3d1a8a; color: #fff; padding: 0 .14em; line-height: 1.05;
+                   margin: 1px 0; }}
+        .sp-nowrap {{ white-space: nowrap; }}
         .sp-button {{ flex-shrink: 0; background: #3d1a8a; color: #fff !important; text-decoration: none;
                       font-size: 12px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase;
                       padding: 9px 12px; border-radius: 3px; }}
@@ -4265,7 +4271,7 @@ def _render_html(edition, theme=None):
         .nb-tie .nb-res span {{ background: #777; color: #fff; }}
         .nb-note {{ margin: 8px 0 0; font-size: 10.5px; line-height: 1.4; opacity: .7; }}
         .numbers-box .sp-cta {{ flex-direction: column; align-items: stretch; text-align: left; }}
-        .numbers-box .sp-offer {{ font-size: 16px; }}
+        .numbers-box .sp-offer {{ font-size: 25px; }}
         .numbers-box .sp-button {{ text-align: center; }}
         @media (max-width: 760px) {{
             .numbers-box {{ float: none; width: auto; margin: 0 0 14px; }}
