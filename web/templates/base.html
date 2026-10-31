@@ -72,22 +72,29 @@
                 {% set staff_nav = user and user.plan == 'staff' %}
                 {% set show_desk = around_open() or staff_nav %}
                 {% set show_luck = luck_open() or staff_nav %}
+                {# The Undefeated Watch (29 Oct): UNDEFEATED_PUBLIC. The menu
+                   opens once any two of the three are open. #}
+                {% set show_uw = undefeated_open() or staff_nav %}
                 {% set in_around = here.startswith('/around') or here.startswith('/luck') or here.startswith('/undefeated') %}
-                {% if show_desk and show_luck %}
+                {% if [show_desk, show_luck, show_uw]|select|list|length >= 2 %}
                 <div class="nav-drop{{ ' nav-here-drop' if in_around }}">
-                    <a href="/around" class="nav-main nav-drop-btn" aria-haspopup="true" aria-expanded="false">Around the Leagues<svg class="nav-chev" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" /></svg></a>
+                    <a href="{{ '/around' if show_desk else '/luck' }}" class="nav-main nav-drop-btn" aria-haspopup="true" aria-expanded="false">Around the Leagues<svg class="nav-chev" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" /></svg></a>
                     <div class="nav-drop-menu">
+                        {% if show_desk %}
                         <a href="/around" class="nav-drop-item{{ ' on' if here == '/around' }}"><b>The National Desk</b><span>This week across every league: records, fame and shame</span></a>
                         <a href="/around/rank" class="nav-drop-item{{ ' on' if here == '/around/rank' }}"><b>Where does your score rank?</b><span>Your week&rsquo;s score against the whole country</span></a>
                         <a href="/around/players" class="nav-drop-item{{ ' on' if here == '/around/players' }}"><b>The player boards</b><span>Win rates, most started and most benched, every player</span></a>
-                        <a href="/luck" class="nav-drop-item{{ ' on' if here.startswith('/luck') }}"><b>The Luck Index</b><span>How lucky is your team? Your Luck Report, in wins</span></a>
-                        {% if undefeated_open() or staff_nav %}<a href="/undefeated" class="nav-drop-item{{ ' on' if here == '/undefeated' }}"><b>The Undefeated Watch</b><span>Who&rsquo;s still perfect, and what they do differently</span></a>{% endif %}
+                        {% endif %}
+                        {% if show_luck %}<a href="/luck" class="nav-drop-item{{ ' on' if here.startswith('/luck') }}"><b>The Luck Index</b><span>How lucky is your team? Your Luck Report, in wins</span></a>{% endif %}
+                        {% if show_uw %}<a href="/undefeated" class="nav-drop-item{{ ' on' if here == '/undefeated' }}"><b>The Undefeated Watch</b><span>Who&rsquo;s still perfect, and what they do differently</span></a>{% endif %}
                     </div>
                 </div>
                 {% elif show_desk %}
                 <a href="/around" class="nav-main{{ ' nav-here' if here.startswith('/around') }}">Around the Leagues</a>
                 {% elif show_luck %}
                 <a href="/luck" class="nav-main{{ ' nav-here' if here.startswith('/luck') }}">The Luck Index</a>
+                {% elif show_uw %}
+                <a href="/undefeated" class="nav-main{{ ' nav-here' if here.startswith('/undefeated') }}">The Undefeated Watch</a>
                 {% endif %}
                 <div class="nav-drop{{ ' nav-here-drop' if here.startswith('/market') or here == '/team' }}">
                     <a href="/market" class="nav-main nav-drop-btn" aria-haspopup="true" aria-expanded="false">Trade market<svg class="nav-chev" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" /></svg></a>

@@ -193,17 +193,19 @@ def test_lessons_say_which_way_it_cuts():
 
 # --- the share card ------------------------------------------------------------
 
-def _seeded():
+def _seeded(monkeypatch):
+    """The demo's season, offline. monkeypatch, not an assignment: a stub
+    left on the module broke test_around's own check of sleeper_keys."""
     from scripts import demo_around
-    demo_around.sleeper_keys = lambda: {}
+    monkeypatch.setattr(demo_around, "sleeper_keys", lambda: {})
     import random
     demo_around.seed(40, 6, SEASON, random.Random(7))
     return uw.build(demo_db.undefeated(SEASON))
 
 
-def test_the_card_draws_in_every_size():
+def test_the_card_draws_in_every_size(monkeypatch):
     from web import undefeated_card
-    u = _seeded()
+    u = _seeded(monkeypatch)
     for size, dims in undefeated_card.SIZES.items():
         png = undefeated_card.render(u, size=size)
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
@@ -245,7 +247,7 @@ def _staff(client):
 
 
 def test_the_watch_is_staff_only_until_the_switch(web, monkeypatch):
-    _seeded()
+    _seeded(monkeypatch)
     monkeypatch.delenv("UNDEFEATED_PUBLIC", raising=False)
     assert web.get("/undefeated").status_code == 404
     assert web.get("/undefeated/card.png").status_code == 404
@@ -263,7 +265,7 @@ def test_the_watch_is_staff_only_until_the_switch(web, monkeypatch):
 
 
 def test_staff_see_names_and_the_wire_note(web, monkeypatch):
-    _seeded()
+    _seeded(monkeypatch)
     monkeypatch.delenv("UNDEFEATED_PUBLIC", raising=False)
     _staff(web)
     r = web.get("/undefeated")
@@ -403,3 +405,17 @@ def test_the_wire_summary_says_what_is_missing():
     vol = {"weeks": [{"week": 1, "leagues": 900, "adds": 5}, {"week": 3, "leagues": 880, "adds": 7}]}
     s = waivers.summary(vol, 3)
     assert s["missing"] == [2] and not s["complete"] and s["adds"] == 12
+
+
+def test_the_menu_opens_without_the_luck_index(web, monkeypatch):
+    """30 Oct: with the desk and the Watch open but not the Luck Index, the
+    menu collapsed to a plain Around the Leagues link and the Watch was
+    nowhere in it."""
+    monkeypatch.setenv("AROUND_PUBLIC", "1")
+    monkeypatch.delenv("LUCK_PUBLIC", raising=False)
+    monkeypatch.setenv("UNDEFEATED_PUBLIC", "1")
+    page = web.get("/").text
+    assert 'href="/undefeated"' in page and 'href="/luck"' not in page
+    monkeypatch.delenv("UNDEFEATED_PUBLIC", raising=False)
+    page = web.get("/").text
+    assert 'href="/undefeated"' not in page and 'nav-drop-menu' in page  # the market's menu
