@@ -5459,9 +5459,12 @@ def read_paper(request: Request, slug: str, season: int, week: int, embed: int =
         # would count a read every time somebody looked at the landing page.
         html = analytics.beacon_for_paper(html, request.url.path)
 
-    # The compact phone layout, on test (31 Oct): any paper, any league, by
-    # adding ?layout=compact. Layered on at serve time; nothing is stored.
-    if layout == "compact" and not embed:
+    # The compact phone layout (31 Oct), for every paper, old ones included:
+    # it is layered on at serve time and nothing is stored. Its rules only
+    # apply at phone width, so desktop, print and the PDF are unchanged.
+    # ?layout=classic shows the paper without it, to compare or to back out.
+    # Not in the homepage's preview frame.
+    if layout != "classic" and not embed:
         from . import compact
         html = compact.apply(html)
 

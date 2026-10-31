@@ -1,10 +1,9 @@
-"""The compact phone layout, as a test (John, 31 Oct).
+"""The compact phone layout (John, 31 Oct).
 
-Layered onto any stored paper when it is served with ``?layout=compact``,
-so the new design can be judged against real leagues' papers without
-regenerating one. Nothing is stored and nothing changes for anyone who
-doesn't ask for it. Every rule sits inside a phone-width screen query, so
-desktop, print and the PDF are untouched.
+Layered onto every stored paper when it is served, so it reaches papers
+published before it existed without regenerating one. ``?layout=classic``
+serves a paper without it. Nothing is stored. Every rule sits inside a
+phone-width screen query, so desktop, print and the PDF are untouched.
 
 What it does, from the 31 Oct read of Kevlarville week 7 at iPhone size:
 
