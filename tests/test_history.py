@@ -445,3 +445,17 @@ def test_story_leads_finds_revenge_and_an_upset():
     joined = " | ".join(leads)
     assert "REVENGE: Team b lost to Team a in week 1" in joined
     assert history.story_leads([], 4, []) == []
+
+
+
+def test_fraud_season_ranks_records_against_scoring_and_names_a_snapped_streak():
+    res = _leads_season(
+        [("top", 101, "a", 100), ("b", 140, "c", 130)],
+        [("top", 101, "b", 100), ("a", 140, "c", 130)],
+        [("top", 101, "c", 100), ("a", 140, "b", 130)],
+        [("top", 90, "a", 150), ("b", 140, "c", 130)])
+    s = history.fraud_season(res, 4)
+    assert s["Team top"]["record_rank"] == 2      # 3-1, behind 3-1 a on points
+    assert s["Team top"]["pf_rank"] == 4
+    assert s["Team top"]["streak"] == "Its 3-game winning streak ended this week."
+    assert history.fraud_season([], 4) == {}

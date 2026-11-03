@@ -642,7 +642,8 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
     provider, lid, season = (league["provider"], league["platform_league_id"],
                              league["season"])
     out = {"briefing": "", "lines": [], "memories": {}, "trends": {},
-           "record_book": [], "last_lines": [], "weeks": [], "leads": []}
+           "record_book": [], "last_lines": [], "weeks": [], "leads": [],
+           "fraud_season": {}}
     try:
         def fetch(w):
             wd = this_week if w == week else load_week(
@@ -685,6 +686,7 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
         out["briefing"] = history.previously_on(results, week, pairs, last_paper)
         # What the front page could be about (31 Oct). Garnish like the rest.
         try:
+            out["fraud_season"] = history.fraud_season(results, week)
             out["leads"] = history.story_leads(results, week, pairs)
         except Exception as exc:  # noqa: BLE001
             print(f"[history] story leads skipped: {type(exc).__name__}: {exc}",
@@ -930,6 +932,13 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     annotate_draft(games, draft)
 
     season_so_far = _season_briefing(db, league, week, week_data)
+    # Fraud Watch again, now with the season (2 Nov): a record that its
+    # scoring never earned counts against a team.
+    if season_so_far.get("fraud_season"):
+        from storylines import find_fraud
+        fraud, fraud_facts = find_fraud(games, season_so_far["fraud_season"])
+        if fraud:
+            summary["fraud"], summary["fraud_facts"] = fraud, fraud_facts
 
     # DRAFT REGRETS (20 Oct): the draft re-graded with the season so far.
     # Redraft only (_draft_picks is empty otherwise), Week 4 on. Garnish:

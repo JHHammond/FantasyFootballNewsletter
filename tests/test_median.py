@@ -143,20 +143,3 @@ def test_a_record_with_a_tie_keeps_its_place_in_the_standings():
               "team_2": {"team_name": "Good", "record_after": "9-3", "points": 80}}]
     order = [t["team_name"] for t in build_standings(games)]
     assert order == ["Good", "Tied", "Plain", "Bad"]
-
-
-def test_fraud_needs_twice_the_wins_in_a_median_league(tmp_path, monkeypatch):
-    """Fraud watch is "8+ wins and a weak week". In a median league that's
-    only four weeks in, so the bar doubles. Uses the real fixture games."""
-    from providers.compat import week_to_legacy_games
-    from storylines import get_weekly_storylines
-    p = _provider(tmp_path, monkeypatch, median=True)
-    games = week_to_legacy_games(p.get_week("TESTLEAGUE", 2025, 3))
-    for g in games:
-        for side in ("team_1", "team_2"):
-            g[side]["record"] = "9-3"      # would be a fraud candidate at 8+
-    assert get_weekly_storylines(games).get("fraud") is None
-    for g in games:
-        for side in ("team_1", "team_2"):
-            g[side]["record"] = "16-4"
-    assert get_weekly_storylines(games).get("fraud") is not None

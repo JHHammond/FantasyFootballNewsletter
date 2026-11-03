@@ -158,17 +158,7 @@ def get_weekly_storylines(games):
                 biggest_upset_margin = game["margin"]
 
     # --- Fraud ---
-    fraud = None
-    fraud_score = float("inf")
-
-    for team in all_teams:
-        wins = int(team["record"].split("-")[0])
-        # Eight wins means eight weeks of winning; a median league banks two
-        # results a week, so it takes sixteen (20 Oct).
-        need = 16 if team.get("median_result") else 8
-        if wins >= need and team["points"] < fraud_score:
-            fraud = team
-            fraud_score = team["points"]
+    fraud, fraud_facts = find_fraud(games)
 
     # --- Dominance ---
     dominance = None
@@ -227,6 +217,7 @@ def get_weekly_storylines(games):
         "empty_teams": empty_teams,
         "upset": upset,
         "fraud": fraud,
+        "fraud_facts": fraud_facts,
         "dominance": dominance,
         "jerry_jones": jerry_jones,
         "tony_snell": tony_snell,
@@ -342,3 +333,120 @@ def order_games(games, last_lead=(), rivalries=(), commissioner="", photo=None):
             ranked.remove(pick)
             ranked.insert(1, pick)
     return ranked
+
+
+# --- Fraud Watch (2 Nov) --------------------------------------------------------
+#
+# It used to be the lowest scorer among teams with eight wins, and before week
+# nine (nobody has eight) simply the week's lowest score. From week nine that
+# picks a good team having an ordinary week; before it, a bad team being bad.
+# Neither is a fraud. A fraud is a team that fell short of what was expected
+# of it: the projection it missed, the game it was supposed to win, the
+# standing it had, the record its scoring never earned.
+
+def _wins(record) -> int:
+    try:
+        return int(str(record or "0").split("-")[0])
+    except ValueError:
+        return 0
+
+
+def _ordinal(n: int) -> str:
+    return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+def _projected(team) -> float | None:
+    proj = [p.get("projected") for p in team.get("all_starters") or []
+            if isinstance(p.get("projected"), (int, float))]
+    if len(proj) < max(1, len(team.get("all_starters") or []) // 2):
+        return None
+    return round(sum(proj), 1)
+
+
+def find_fraud(games, season=None):
+    """The team that fell furthest short of expectations this week, and the
+    case against it as plain sentences for the writer. (None, []) if nobody
+    fell short at all.
+
+    `season`, when given, is {team name: {"record_rank", "pf_rank",
+    "streak"}} after this week, from the season history: a record that
+    outruns a team's scoring is the oldest fraud there is.
+
+    Expectations, each worth points toward the verdict:
+    - the projection: points short of its starters' projections;
+    - the line: lost a game it was projected to win (+15);
+    - the standing: how high it stood coming in (+2 a place above last), so
+      a contender laying an egg outranks a last-place team doing its usual;
+    - the record: places its record sits above its scoring rank (+3 each);
+    - the result: lost at all (+5).
+    """
+    sides = []
+    for g in games or []:
+        t1, t2 = g.get("team_1") or {}, g.get("team_2") or {}
+        if t1.get("team_name") and t2.get("team_name"):
+            sides += [(t1, t2, g), (t2, t1, g)]
+    if not sides:
+        return None, []
+    n = len(sides)
+    wins_in = {t["team_name"]: _wins(t.get("record")) for t, _, _ in sides}
+    started = any(wins_in.values())
+    season = season or {}
+
+    best, best_score = None, 0.0
+    for team, opp, g in sides:
+        name, opp_name = team["team_name"], opp["team_name"]
+        pts, opp_pts = float(team.get("points") or 0), float(opp.get("points") or 0)
+        lost = g.get("winner") == opp_name
+        proj, opp_proj = _projected(team), _projected(opp)
+        miss = (proj - pts) if proj is not None else 0.0
+        lost_fav = bool(lost and proj is not None and opp_proj is not None and proj > opp_proj)
+        rank_in = 1 + sum(1 for w in wins_in.values() if w > wins_in[name])
+        standing = (n - rank_in) if started else 0
+        s = season.get(name) or {}
+        luck = max(0, (s.get("pf_rank") or 0) - (s.get("record_rank") or 0)) if s else 0
+        if miss < 5 and not lost_fav:
+            continue
+        score = miss + 15 * lost_fav + 2 * standing + 3 * luck + 5 * lost
+        if score > best_score:
+            best_score = score
+            best = (team, opp, g, pts, opp_pts, lost, proj, opp_proj, miss, lost_fav,
+                    rank_in, s)
+    if not best:
+        return None, []
+
+    team, opp, g, pts, opp_pts, lost, proj, opp_proj, miss, lost_fav, rank_in, s = best
+    name, opp_name = team["team_name"], opp["team_name"]
+    after = team.get("record_after") or team.get("record") or ""
+    facts = []
+    if started:
+        facts.append(f"{name} came in {team.get('record')}, {_ordinal(rank_in)} of {n} "
+                     f"in the standings, and is now {after}.")
+    elif after:
+        facts.append(f"{name} is now {after}.")
+    if proj is not None:
+        facts.append(f"Its starters were projected for {proj:.1f}. It scored {pts:.1f}, "
+                     f"{miss:.1f} short.")
+    if lost_fav:
+        facts.append(f"It was projected to beat {opp_name} ({proj:.1f} to {opp_proj:.1f}) "
+                     f"and lost {opp_pts:.1f}-{pts:.1f}.")
+    elif lost:
+        facts.append(f"It lost to {opp_name} {opp_pts:.1f}-{pts:.1f}.")
+    else:
+        facts.append(f"It still beat {opp_name} {pts:.1f}-{opp_pts:.1f}, which flatters it.")
+    if s.get("pf_rank") and s.get("record_rank") and s["pf_rank"] > s["record_rank"]:
+        facts.append(f"Its record is {_ordinal(s['record_rank'])} in the league but its "
+                     f"points scored this season rank {_ordinal(s['pf_rank'])}.")
+    if s.get("streak"):
+        facts.append(str(s["streak"]))
+    misses = sorted(
+        (p for p in team.get("all_starters") or []
+         if isinstance(p.get("projected"), (int, float)) and isinstance(p.get("actual"), (int, float))
+         and p["projected"] - p["actual"] >= 4),
+        key=lambda p: p["actual"] - p["projected"])[:3]
+    for p in misses:
+        facts.append(f"{p.get('name')} ({(p.get('position') or '').upper()}) scored "
+                     f"{p['actual']:.1f} against a {p['projected']:.1f} projection.")
+    gap = team.get("lineup_gap")
+    if isinstance(gap, (int, float)) and gap >= 8:
+        facts.append(f"It left {gap:.1f} points on its bench.")
+    return team, facts

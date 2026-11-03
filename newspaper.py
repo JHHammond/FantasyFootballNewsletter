@@ -2503,6 +2503,12 @@ def build_fraud_case(summary, matchups):
     facts = []
     if record:
         facts.append(("Record", html_escape(str(record))))
+    # What was expected of it (2 Nov): the fraud is picked by how far it
+    # fell short, so the box shows the gap.
+    from storylines import _projected
+    proj = _projected(subject)
+    if proj is not None and proj > pts:
+        facts.append(("Projected", f"{proj:.1f}"))
     facts.append(("This week", f"{pts:.1f}"))
     if rank:
         facts.append(("Rank", f"{ordinal(rank)} of {len(scores)}"))

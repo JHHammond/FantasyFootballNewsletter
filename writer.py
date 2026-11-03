@@ -3024,6 +3024,17 @@ FRAUD_ANGLES = [
 
 
 def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=None, model=None):
+    """The meanest box in the paper (2 Nov, John: "a bit meaner").
+
+    It used to get three things: the team's name, its points and its record
+    coming INTO the week (which is how a 2-6 team was called 2-5), and was
+    told to "name the players who let them down" without being told who
+    they were. Now the team is picked by how far it fell short of
+    expectations (storylines.find_fraud) and the writer gets the whole case:
+    the projection it missed, the game it was supposed to win, where it
+    stood, the record its scoring never earned, the starters who
+    disappeared, the bench.
+    """
     fraud = summary.get("fraud")
     lowest = summary.get("lowest_score", {})
 
@@ -3031,41 +3042,58 @@ def generate_fraud_watch(summary, commissioner_name="", inside_jokes="", system=
     if not subject:
         return "No fraud detected this week. This is suspicious in itself."
 
-    context = {
-        "team_name": subject.get("team_name", "Unknown"),
-        "points": subject.get("points", 0),
-        "record": subject.get("record", ""),
-        "inside_jokes": inside_jokes,
-    }
+    name = subject.get("team_name", "Unknown")
+    facts = list(summary.get("fraud_facts") or []) if fraud else []
+    if not facts:
+        # The week's low score, when nobody fell short of anything.
+        rec = subject.get("record_after") or subject.get("record") or ""
+        facts = [f"{name} is {rec}." if rec else "",
+                 f"It scored {float(subject.get('points') or 0):.1f}, the lowest score of the week."]
+        for pl in sorted((x for x in subject.get("all_starters") or []
+                          if isinstance(x.get("actual"), (int, float))),
+                         key=lambda x: x["actual"])[:3]:
+            facts.append(f"{pl.get('name')} scored {pl['actual']:.1f}.")
+        facts = [f for f in facts if f]
 
-    # A different way in each week (John, 1 Oct: every one opened "the paper
-    # is opening a file on…", and the box should be meaner). Picked from the
-    # team and its score, so a redo of the same week keeps the same angle.
+    # A different way in each week (John, 1 Oct). Picked from the team and its
+    # score, so a redo of the same week keeps the same angle.
     import hashlib
     angle = FRAUD_ANGLES[int(hashlib.sha256(
-        f"{context['team_name']}|{context['points']}".encode()).hexdigest(), 16)
+        f"{name}|{subject.get('points', 0)}".encode()).hexdigest(), 16)
         % len(FRAUD_ANGLES)]
+    owner = (subject.get("owner_name") or "").strip()
     prompt = f"""
-Write the FRAUD WATCH for this week's paper: 3-4 sentences calling this team a
-fraud. Mean, specific and funny. No hedging, no "the Desk is not saying", no
-softening at the end: the box exists to say it.
+Write the FRAUD WATCH: 4 or 5 sentences calling {name} a fraud. This is the
+meanest box in the paper. Write it like the columnist who called this team a
+fraud before anybody else and is enjoying every second of being right. No
+hedging, no "the Desk is not saying", nothing kind at the end, no "to be
+fair": the box exists to say it.
+
+THE CASE — all true, use it:
+{chr(10).join("- " + f for f in facts)}
 
 Open this way: {angle}
 
 Rules:
-- Name the players who let them down and what they scored. Use the game data.
-- Talk to the manager by name at least once.
+- Every punch is a fact from the case: the projection they missed, the game
+  they were supposed to win, the standing they are about to lose, the
+  starter who disappeared and his number. A line that could be about any
+  team is not mean, it is filler.
+- Name at least two of the players above with their numbers.
+- Talk to the manager directly at least once. Call them what the league
+  background says this league calls people; if it gives no first name, use
+  the team name. Never a platform username{f' like "{owner}"' if owner else ''}.
 - Hang one absurd image on a real number.
-- Keep it on the football field: lineup decisions, players, the scoreboard.
-  No files, cases, investigations, evidence, charges, courts, police or
-  crime of any kind, and no money metaphors.
+- Mean about football: lineup calls, players, the scoreboard, the standings.
+  Never about anyone's looks, job, family or life off the field.
+- Keep it on the field: no files, cases, investigations, evidence, charges,
+  courts, police or crime of any kind, and no money metaphors.
 - Do not open with the team's name followed by its record, and do not
   restate the label: never "fraud watch", "under investigation" or
   "opening a file".
-
-Subject: {_compact(context)}
+- Records and numbers only as given above. Do not work out any others.
 """
-    return call_claude(prompt, max_tokens=300, system=system, model=model,
+    return call_claude(prompt, max_tokens=400, system=system, model=model,
                        avoid_tells=True)
 
 

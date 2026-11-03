@@ -218,6 +218,31 @@ NOTABLE_STREAK = 3
 UPSET_GAP = 2
 
 
+def fraud_season(results: list[Result], week: int) -> dict:
+    """{team name: {"record_rank", "pf_rank", "streak"}} after this week, for
+    Fraud Watch (2 Nov): a record that outruns the scoring is a fraud's
+    oldest tell."""
+    hist = team_histories(results or [], week)
+    if not hist:
+        return {}
+    by_record = sorted(hist.values(), key=lambda h: (-h.wins, h.losses, -h.points_for))
+    by_points = sorted(hist.values(), key=lambda h: -h.points_for)
+    before = team_histories(results or [], week - 1) if week > 1 else {}
+    out = {}
+    for h in hist.values():
+        streak = ""
+        prev = before.get(h.team_id)
+        if (prev and prev.streak_kind == "W" and prev.streak_len >= 3
+                and h.streak_kind == "L" and h.streak_len == 1):
+            streak = f"Its {prev.streak_len}-game winning streak ended this week."
+        elif h.streak_len >= 2 and h.streak_kind in ("W", "L"):
+            streak = (f"It has {'won' if h.streak_kind == 'W' else 'lost'} "
+                      f"{h.streak_len} straight.")
+        out[h.team] = {"record_rank": 1 + by_record.index(h),
+                       "pf_rank": 1 + by_points.index(h), "streak": streak}
+    return out
+
+
 def story_leads(results: list[Result], week: int,
                 this_week_pairs: list[tuple[str, str]]) -> list[str]:
     """What this week's front page could be about (31 Oct), strongest first.

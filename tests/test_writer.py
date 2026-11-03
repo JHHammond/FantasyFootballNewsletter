@@ -3067,3 +3067,28 @@ def test_classifieds_are_told_which_players_are_taken(swap_client, no_sleeping):
     assert "Lamar Jackson, Zay Flowers" in seen["prompt"]
     writer.generate_classifieds({}, [ctx])
     assert "Do not build an ad" not in seen["prompt"]
+
+
+
+def test_fraud_watch_gets_the_whole_case(swap_client, no_sleeping):
+    seen = {}
+
+    def behaviour(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply("x")
+
+    swap_client(behaviour)
+    summary = {"fraud": {"team_name": "Contender", "points": 70.0, "record": "5-2",
+                         "record_after": "5-3", "owner_name": "mike_h22"},
+               "fraud_facts": ["Contender came in 5-2, 1st of 8 in the standings, and is now 5-3.",
+                               "Lamar Jackson (QB) scored 0.0 against a 20.5 projection."]}
+    writer.generate_fraud_watch(summary)
+    prompt = seen["prompt"]
+    assert "meanest box in the paper" in prompt
+    assert "- Lamar Jackson (QB) scored 0.0 against a 20.5 projection." in prompt
+    assert 'Never a platform username like "mike_h22"' in prompt
+    assert "Never about anyone's looks, job, family" in prompt
+    # The low-score fallback says the record AFTER the week, not before it.
+    writer.generate_fraud_watch({"lowest_score": {"team_name": "Low", "points": 81.0,
+                                                  "record": "2-5", "record_after": "2-6"}})
+    assert "Low is 2-6." in seen["prompt"] and "2-5" not in seen["prompt"]
