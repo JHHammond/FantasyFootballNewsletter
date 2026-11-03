@@ -58,12 +58,33 @@ SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 #: the writer does not import the history module).
 OBITUARY_COUNT = 4
 
-#: The copy desk's model (2 Nov). The small one: half the price, and the
-#: rules it would bend (rounding, style, "unsupported") are enforced in code
-#: by acceptable_fix whatever writes the fixes. What it may do worse is
-#: notice errors, so it is one environment variable from going back:
-#: WRITER_CHECK_MODEL=claude-sonnet-5 on Render, no deploy.
-CHECK_MODEL = os.getenv("WRITER_CHECK_MODEL", SMALL_MODEL)
+#: The copy desk's model (2 Nov). The main one: on the small model it once
+#: "fixed" a true sentence into a false one (two players called Washington).
+#: The cost is held down by what it is sent instead (see CHECK_BUDGET_CHARS).
+CHECK_MODEL = os.getenv("WRITER_CHECK_MODEL", MODEL)
+
+#: The most prose one fact check reads, in characters (about 1,600 tokens a
+#: thousand words). John's budget is two to three cents a paper whatever the
+#: league size; past this the short pieces drop out of the check first.
+CHECK_BUDGET_CHARS = int(os.getenv("WRITER_CHECK_BUDGET", "20000"))
+
+#: A sentence worth checking says something a fact could contradict.
+_CHECKABLE = re.compile(
+    r"\d|\b(?:again|revenge|rematch|last|first|second|third|fourth|place|basement|"
+    r"bottom|top|streak|straight|upset|favou?red|projected|projection|bench|benched|"
+    r"outscor\w*|most|half|every|only|won|win|wins|lost|loss|beat|beats|record|week|"
+    r"undefeated|winless|zero|nothing|season|leads?|leader)\b", re.I)
+
+
+def checkable_sentences(text: str) -> list[str]:
+    """The sentences of a piece that make a claim a fact could contradict;
+    the jokes in between are not sent (2 Nov, to keep the check in budget)."""
+    out = []
+    for para in (text or "").split("\n"):
+        for sent in re.split(r"(?<=[.!?])\s+", para.strip()):
+            if sent and _CHECKABLE.search(sent):
+                out.append(sent.strip())
+    return out
 
 #: WHICH CALLS GO TO THE CHEAP MODEL.
 #:
@@ -1742,7 +1763,9 @@ Wrong means a fact below contradicts it:
 Rounding is not an error (13.8 may be "14"). Jokes, voice and opinions are
 never errors.
 
-List ONLY sentences you are changing, at most four per piece. Never list a
+Each piece is given as its checkable sentences, one per line.
+List ONLY sentences you are changing, at most eight in all, the most
+important first. Never list a
 sentence to say it is fine, and never fix style, wording, repetition or
 vagueness: that is not this desk's job. Never add a new fact. To cut a
 sentence (only for "outside"), give "new" as "".
@@ -1850,12 +1873,32 @@ def _bench_lines(team) -> str:
     return _player_facts((team or {}).get("all_bench"))
 
 
-def fact_sheet(game_contexts, summary=None, season_facts: str = "", games=None) -> str:
+def _mentioned(players, text_low: str) -> list:
+    """Only the players the paper names: the full lineups were most of the
+    sheet, and a player nobody wrote about cannot be misreported."""
+    if not text_low:
+        return list(players or [])
+    keep = []
+    for pl in players or []:
+        name = (pl.get("name") or "").strip()
+        last = name.split()[-1].lower() if name else ""
+        if name and (name.lower() in text_low or
+                     (len(last) > 2 and re.search(r"\b" + re.escape(last) + r"\b", text_low))):
+            keep.append(pl)
+    return keep
+
+
+def fact_sheet(game_contexts, summary=None, season_facts: str = "", games=None,
+               mentioned_in: str = "", names_by_team=None) -> str:
     """The facts a fact check reads against: every result with both
     records, every starter's points and projection, the loser's bench, who
     Fraud Watch names, and the season briefing (records, streaks, earlier
     meetings with their winners)."""
     out = []
+    text_low = (mentioned_in or "").lower()
+    if names_by_team:
+        out.append("WHO'S WHO (the only names these people go by): " + "; ".join(
+            f"{t} = {n}" for t, n in names_by_team.items() if t and n) + ".")
     for i, gc in enumerate(game_contexts or []):
         ctx = gc.get("ctx", gc)
         m = float(ctx.get("margin") or 0)
@@ -1870,10 +1913,10 @@ def fact_sheet(game_contexts, summary=None, season_facts: str = "", games=None) 
             # loser's costly bench calls, true sentences about the winner's
             # bench were "corrected").
             for t in (g.get("team_1"), g.get("team_2")):
-                start = _player_facts((t or {}).get("all_starters"))
+                start = _player_facts(_mentioned((t or {}).get("all_starters"), text_low))
                 if start:
-                    out.append(f"  {t.get('team_name')} starters: {start}")
-                bench = _bench_lines(t)
+                    out.append(f"  {t.get('team_name')} starters named in the paper: {start}")
+                bench = _player_facts(_mentioned((t or {}).get("all_bench"), text_low))
                 if bench:
                     out.append(f"  {t.get('team_name')} bench (did not count): {bench}")
         else:
@@ -1965,7 +2008,10 @@ def fact_check(pieces: dict, facts: str, system=None, model=None) -> dict:
     pieces = {k: v for k, v in (pieces or {}).items() if isinstance(v, str) and v.strip()}
     if not pieces or not (facts or "").strip():
         return pieces
-    body = "\n\n".join(f"[{k}]\n{v}" for k, v in pieces.items())
+    claims = {k: checkable_sentences(v) for k, v in pieces.items()}
+    body = "\n\n".join(f"[{k}]\n" + "\n".join(v) for k, v in claims.items() if v)
+    if not body:
+        return pieces
     prompt = f"""{FACT_CHECK_RULES}
 
 THE FACTS:
@@ -1976,7 +2022,8 @@ THE PIECES:
     try:
         _ledger.checking = True
         try:
-            raw = call_claude(prompt, max_tokens=3000, system=system,
+            raw = call_claude(prompt, max_tokens=1500,
+                              system=system or "You are a newspaper's copy desk.",
                               model=model or MODEL, attempts=2, grow=False)
         finally:
             _ledger.checking = False
@@ -2034,6 +2081,19 @@ Each is caught and rewritten after you, so getting it right now is the job:
 4. A projection is a "projection", never his "number". Players are never
    each other's backup, handcuff or teammate. No "here's the thing", no "the
    wire", no "according to reports"{banned}.
+5. Facts only as given (2 Nov: each of these was printed and was wrong):
+   - No comparison with "most lineups", "half the league" or any team not
+     in this story unless the comparison is in the facts you were given.
+   - A bench never "outscored the starting lineup", "the opponent" or "the
+     roster" unless those totals are given. Name the bench player and his
+     points instead.
+   - An earlier meeting only as the season facts give it: who won, the
+     score. No "again" and no "revenge" unless that team lost it.
+   - "Last place", "first", "the basement", "the bottom" only as the
+     standings say. "Came in" means the record before this week's game.
+   - The loser lost. Never write that a losing team "found a way to win".
+   - Call people only by names the league background gives. Never invent
+     a nickname, a middle name or a second name for anybody.
 Fix silently and reply with the finished text only."""
 
 
@@ -2503,6 +2563,7 @@ def strip_title_line(text: str) -> str:
     letters = [c for c in bare if c.isalpha()]
     is_title = (
         "\n" not in first and (
+            (len(bare.split()) <= 8 and not re.search(r"\d", bare)) or
             first.startswith("#")
             or (first.startswith("**") and first.endswith("**"))
             or (letters and sum(c.isupper() for c in letters) / len(letters) > 0.8)
@@ -3022,6 +3083,10 @@ THE STANDING AWARDS (the winner is decided — just write it):
 {("The week, for deciding the league's own awards:" + chr(10) + games_brief) if custom and games_brief else ""}
 
 Inside jokes: {inside_jokes}
+
+Facts only as given: a losing team lost (never "found a way to win"), a
+bench never "outscored" a lineup unless both totals are above, and no
+comparison with other teams that is not above.
 
 Format as a JSON array and nothing else:
 [{{"title": "TONY SNELL WINDSPRINT AWARD", "body": "...", "winner": "team name"}}, ...]
@@ -3664,7 +3729,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      must_use=None, editor_bits=None,
                                      call_by=None, name_mix=False,
                                      story_leads=None, season_facts="",
-                                     running_jokes=None, people=None):
+                                     running_jokes=None, people=None,
+                                     names_by_team=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -3927,15 +3993,18 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # corrected stories. Six calls (one a piece) cost $0.15; one call for the
     # whole paper cost $0.03 and missed things a closer read caught. So: the
     # front page and short pieces together, and the recaps two at a time.
-    facts = fact_sheet(game_contexts, summary, season_facts, games)
+    #
+    # 2 Nov, final shape: ONE call on the main model, inside John's budget of
+    # two to three cents whatever the league size. It reads only the
+    # sentences that make a claim, the facts only for players the paper
+    # names, and past CHECK_BUDGET_CHARS the short pieces drop out first.
     groups = []
     short = {}
     if results.get("lead_story") and not letter:
         short["lead_story"] = results["lead_story"]
-    bodies = [i for i in range(len(game_contexts)) if results.get(f"matchup_body_{i}")]
-    for n in range(0, len(bodies), 2):
-        groups.append({f"matchup_body_{i}": results[f"matchup_body_{i}"]
-                       for i in bodies[n:n + 2]})
+    for i in range(len(game_contexts)):
+        if results.get(f"matchup_body_{i}"):
+            short[f"matchup_body_{i}"] = results[f"matchup_body_{i}"]
     for i, t in enumerate(results.get("game_teasers") or []):
         short[f"teaser_{i}"] = t
     if isinstance(results.get("fraud_watch"), str):
@@ -3946,6 +4015,23 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     for i, c in enumerate(results.get("classifieds") or []):
         if isinstance(c, dict) and c.get("body"):
             short[f"classified_{i}"] = c["body"]
+    # Inside the budget: the short pieces go first, the recaps and lead last.
+    order = [k for k in ("lead_story", "fraud_watch") if k in short]
+    order += [k for k in short if k.startswith("matchup_body_")]
+    order += [k for k in short if k not in order]
+    kept, size = {}, 0
+    for k in order:
+        n = sum(len(x) for x in checkable_sentences(short[k]))
+        if size + n > CHECK_BUDGET_CHARS and kept:
+            continue
+        kept[k], size = short[k], size + n
+    if len(kept) < len(short):
+        print(f"[writer] fact check over budget; left out: "
+              f"{', '.join(k for k in short if k not in kept)}", flush=True)
+    short = kept
+    facts = fact_sheet(game_contexts, summary, season_facts, games,
+                       mentioned_in=" ".join(short.values()),
+                       names_by_team=names_by_team)
     if short:
         groups.append(short)
     checked = {}
@@ -3953,7 +4039,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         with ThreadPoolExecutor(max_workers=16) as executor:
             def check(group):
                 adopt_ledger(ledger)      # 2 Nov: uncounted without this
-                return fact_check(group, facts, sys_prompt, CHECK_MODEL)
+                return fact_check(group, facts, None, CHECK_MODEL)
             for done in executor.map(check, groups):
                 checked.update(done)
         for key, text in checked.items():

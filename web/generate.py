@@ -964,6 +964,8 @@ def generate_and_store(db, league: dict[str, Any], week: int,
             "streak, a rematch, somebody repeating last week's mistake). "
             "Never list records, and never write \"earlier this season\".\n"
             + season_so_far["briefing"]
+            + ("\n" + "\n".join(season_so_far.get("coming_in") or [])
+               if season_so_far.get("coming_in") else "")
             + ("\n\n" + league_context if league_context else ""))
 
     # HOW THE LEAGUE PICKED (12 Oct): readers voted on last paper's lines;
@@ -1024,6 +1026,8 @@ def generate_and_store(db, league: dict[str, Any], week: int,
                       + [{"text": e["entry"], "kind": "lore"}
                          for e in lore_entries[:MAX_LORE_IN_PROMPT] if e.get("entry")],
         people=[m.get("display_name") for m in (managers or []) if m.get("display_name")],
+        names_by_team=first_names_by_team(
+            managers, {m["handle"]: m["team_name"] for m in directory}),
         season_facts="\n".join(x for x in (
             season_so_far.get("briefing") or "",
             "\n".join(season_so_far.get("coming_in") or [])) if x),

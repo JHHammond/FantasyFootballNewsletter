@@ -2534,6 +2534,9 @@ def test_league_context_lives_in_a_cached_system_block(swap_client, no_sleeping)
     writer.generate_full_newspaper_content(
         "The Kevlarville Times", 3, GAMES, SUMMARY, inside_jokes=lore)
 
+    # The copy desk is the one call without the league's system prompt: it
+    # gets a names list instead (2 Nov).
+    seen = [k for k in seen if "You are the copy desk" not in k["messages"][0]["content"]]
     assert seen
     for k in seen:
         blocks = k["system"]
@@ -3010,8 +3013,10 @@ def test_a_title_line_above_the_lead_is_dropped():
                   "# Will Smith Ends the World", "**Will Smith Ends the World**",
                   "Will Smith ends the world"):
         assert writer.strip_title_line(title + "\n\n" + body) == body
-    # A real opening paragraph stays, short or not; a one-paragraph lead stays.
-    assert writer.strip_title_line("Will won.\n\n" + body).startswith("Will won.")
+    # A real opening with a number in it stays; a one-paragraph lead stays.
+    assert writer.strip_title_line("Will won by 65.\n\n" + body).startswith("Will won by 65.")
+    # A short line with no number is a title, full stop or not (2 Nov).
+    assert writer.strip_title_line("Will Dave the punching bag no more.\n\n" + body) == body
     assert writer.strip_title_line("JUST ONE PARAGRAPH") == "JUST ONE PARAGRAPH"
 
 
@@ -3108,7 +3113,7 @@ def test_a_cut_off_fact_check_keeps_its_finished_fixes(swap_client, no_sleeping)
     swap_client(behaviour)
     out = writer.fact_check({"lead_story": "Will lost. Will is 2-5."}, "Will is 2-6.")
     assert out["lead_story"] == "Will lost. Will is 2-6."
-    assert calls == [3000]                         # no bigger retries
+    assert calls == [1500]                         # no bigger retries
 
 
 def test_a_fix_that_changes_nothing_is_ignored(swap_client, no_sleeping):
@@ -3195,26 +3200,6 @@ def test_the_second_live_runs_non_errors_are_dropped_too():
 
 
 
-def test_the_paper_is_checked_front_first_then_recaps_two_at_a_time(swap_client, no_sleeping):
-    prompts = []
-
-    def behaviour(kwargs):
-        content = kwargs["messages"][0]["content"]
-        if "You are the copy desk" in content:
-            prompts.append(content)
-            return _reply('{"fixes": []}')
-        return _reply("Some generated prose.")
-
-    swap_client(behaviour)
-    writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY)
-    n = len(GAMES)
-    assert len(prompts) == 1 + (n + 1) // 2
-    front = [p for p in prompts if "[lead_story]" in p]
-    assert len(front) == 1 and "[matchup_body_0]" not in front[0]
-    for p in prompts:
-        assert p.count("[matchup_body_") <= 2
-
-
 def _ctx(w, l, wr, lr, ws=120.0, ls=100.0):
     return {"ctx": {"winner": w, "loser": l, "winner_record": wr, "loser_record": lr,
                     "winner_score": ws, "loser_score": ls}}
@@ -3262,7 +3247,7 @@ def test_the_copy_desk_runs_on_the_check_model(swap_client, no_sleeping):
     swap_client(behaviour)
     writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY)
     assert models and set(models) == {writer.CHECK_MODEL}
-    assert writer.CHECK_MODEL == writer.SMALL_MODEL      # unless WRITER_CHECK_MODEL says
+    assert writer.CHECK_MODEL == writer.MODEL            # unless WRITER_CHECK_MODEL says
 
 
 def test_awards_survive_a_sentence_around_their_json(swap_client, no_sleeping):
@@ -3299,3 +3284,60 @@ def test_obituaries_skip_the_weeks_award_winners(swap_client, no_sleeping):
                                                    obituaries=dead)
     names = [o["player"] for o in paper["obituaries"]]
     assert "Dead One" not in names and len(names) == 4
+
+
+
+def test_the_paper_is_checked_in_one_call_inside_a_budget(swap_client, no_sleeping):
+    prompts = []
+
+    def behaviour(kwargs):
+        content = kwargs["messages"][0]["content"]
+        if "You are the copy desk" in content:
+            prompts.append(content)
+            return _reply('{"fixes": []}')
+        return _reply("Some generated prose about week 3 and a 120-100 win.")
+
+    swap_client(behaviour)
+    writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY,
+                                           names_by_team={"Team A": "Will"})
+    assert len(prompts) == 1
+    assert "[lead_story]" in prompts[0] and "[matchup_body_0]" in prompts[0]
+    assert "WHO'S WHO" in prompts[0]
+
+
+def test_only_claims_are_sent_and_only_named_players():
+    sents = writer.checkable_sentences(
+        "Will won 156-114. What a day. Carson lost again. Pure poetry, honestly.")
+    assert sents == ["Will won 156-114.", "Carson lost again."]
+    gc = [{"ctx": {"winner": "A", "loser": "B", "winner_score": 1, "loser_score": 0, "margin": 1}}]
+    games = [{"team_1": {"team_name": "A", "all_starters": [
+                 {"name": "Tyler Allgeier", "position": "RB", "actual": 36.1, "projected": 8.3},
+                 {"name": "Nobody Mentioned", "position": "WR", "actual": 3.0, "projected": 9.0}],
+                         "all_bench": []},
+              "team_2": {"team_name": "B", "all_starters": [], "all_bench": []}}]
+    sheet = writer.fact_sheet(gc, {}, "", games, mentioned_in="Allgeier went off.",
+                              names_by_team={"A": "Will", "B": "Carson"})
+    assert "Tyler Allgeier RB 36.1" in sheet and "Nobody Mentioned" not in sheet
+    assert "WHO'S WHO (the only names these people go by): A = Will; B = Carson." in sheet
+
+
+def test_over_budget_the_short_pieces_drop_out_first(swap_client, no_sleeping, monkeypatch):
+    prompts = []
+
+    def behaviour(kwargs):
+        content = kwargs["messages"][0]["content"]
+        if "You are the copy desk" in content:
+            prompts.append(content)
+            return _reply('{"fixes": []}')
+        return _reply("Week 3 ended 120-100 and the bench had 14. " * 6)
+
+    monkeypatch.setattr(writer, "CHECK_BUDGET_CHARS", 900)
+    swap_client(behaviour)
+    writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY)
+    assert "[lead_story]" in prompts[0]
+    assert "[classified_" not in prompts[0] and "[teaser_" not in prompts[0]
+
+
+def test_every_prose_prompt_carries_the_fact_rules():
+    assert "Never invent" in writer.LAST_CHECK and "found a way to win" in writer.LAST_CHECK
+    assert "most lineups" in writer.LAST_CHECK
