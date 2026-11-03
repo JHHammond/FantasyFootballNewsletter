@@ -24,11 +24,10 @@
 
         <div class="pub-actions">
             <div class="pub-share">
-                <input class="pub-link" type="text" readonly
-                       value="{{ public_base() }}/p/{{ league.public_slug }}"
-                       aria-label="Share link" onfocus="this.select()" />
-                <button type="button" class="btn btn-primary" id="copy-btn"
-                        data-link="{{ public_base() }}/p/{{ league.public_slug }}">Copy link</button>
+                <button type="button" class="btn btn-primary pub-sharebtn" id="share-btn"
+                        data-link="{{ public_base() }}/p/{{ league.public_slug }}"
+                        data-text="Week {{ week }} of {{ paper_name }} is out."><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V2M5.5 6.5 10 2l4.5 4.5M4 11v6h12v-6"/></svg>Share the paper</button>
+                <span class="pub-url">{{ public_base()|replace('https://', '')|replace('http://', '') }}/p/{{ league.public_slug }}</span>
             </div>
             <div class="pub-tools">
                 <details class="edit-menu">
@@ -51,29 +50,101 @@
     </div>
 </div>
 
+{# The same share sheet as the Luck Report (2 Nov, John: replace the copy-link
+   box with "the one that better mimics a real phone share"). A phone opens
+   its own share sheet; a computer gets this one. #}
+<div class="lr-sheet" id="lr-sheet" hidden>
+    <div class="lr-sheet-back" data-close></div>
+    <div class="lr-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="lr-sheet-h">
+        <div class="lr-sheet-head">
+            <div class="lr-sheet-thumb lr-sheet-paper" aria-hidden="true">W{{ week }}</div>
+            <div class="lr-sheet-who">
+                <b id="lr-sheet-h">{{ paper_name }}</b>
+                <span>Week {{ week }} &middot; no sign-in, no app</span>
+                <small>{{ public_base()|replace('https://', '')|replace('http://', '') }}/p/{{ league.public_slug }}</small>
+            </div>
+            <button type="button" class="lr-sheet-x" data-close aria-label="Close">&times;</button>
+        </div>
+        <div class="lr-sheet-apps">
+            <a class="lr-app" data-to="sms" href="#"><i><svg viewBox="0 0 24 24"><path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 17.5H9l-4.5 3.5v-3.5H4A1.5 1.5 0 0 1 2.5 16V7A1.5 1.5 0 0 1 4 5.5z"/></svg></i>Text</a>
+            <a class="lr-app" data-to="whatsapp" href="#" target="_blank" rel="noopener"><i><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 0 0-7.4 12.7L3.5 20.5l4.4-1.1A8.5 8.5 0 1 0 12 3.5z"/></svg></i>WhatsApp</a>
+            <a class="lr-app" data-to="x" href="#" target="_blank" rel="noopener"><i><svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h10"/></svg></i>X</a>
+            <a class="lr-app" data-to="facebook" href="#" target="_blank" rel="noopener"><i><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M8 13.5l3 3 5-7"/></svg></i>Facebook</a>
+            <a class="lr-app" data-to="email" href="#"><i><svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg></i>Email</a>
+        </div>
+        <ul class="lr-sheet-list">
+            <li><button type="button" data-to="copy"><span>Copy link</span><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></button></li>
+            <li><a data-to="open" href="{{ paper_url }}" target="_blank" rel="noopener"><span>Open the paper</span><svg viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5 11 13M18 14v5.5H4.5V6H10"/></svg></a></li>
+        </ul>
+    </div>
+</div>
+
 <div class="paper-frame">
     <iframe src="{{ preview_url or paper_url }}" title="{{ paper_name }} Week {{ week }}"></iframe>
 </div>
 
 <script>
-document.getElementById('copy-btn').addEventListener('click', async function () {
-    const link = this.dataset.link;
-    if (window.cdEvent) cdEvent('link_copied', 'published');
-    const original = this.textContent;
-    try {
-        await navigator.clipboard.writeText(link);
-    } catch (err) {
-        // Older browsers, or a page not served over https.
-        const tmp = document.createElement('textarea');
-        tmp.value = link;
-        document.body.appendChild(tmp);
-        tmp.select();
-        document.execCommand('copy');
-        document.body.removeChild(tmp);
+(function () {
+    var btn = document.getElementById('share-btn'), sheet = document.getElementById('lr-sheet');
+    var url = btn.dataset.link, text = btn.dataset.text, lastFocus = null;
+    function counted(how) { if (window.cdEvent) cdEvent(how === 'copy' ? 'link_copied' : 'paper_shared', 'published-' + how); }
+    function copy(label) {
+        var done = function () { label.textContent = 'Link copied'; setTimeout(function () { label.textContent = 'Copy link'; }, 2200); };
+        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(url).then(done, fallback); }
+        else fallback();
+        function fallback() {
+            // Older browsers, or a page not served over https.
+            var tmp = document.createElement('textarea'); tmp.value = url;
+            document.body.appendChild(tmp); tmp.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(tmp); done();
+        }
     }
-    this.textContent = 'Copied';
-    setTimeout(() => { this.textContent = original; }, 1800);
-});
+    function openSheet() {
+        lastFocus = document.activeElement;
+        var msg = encodeURIComponent(text + ' ' + url);
+        var links = {
+            sms: 'sms:?&body=' + msg,
+            whatsapp: 'https://wa.me/?text=' + msg,
+            x: 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(url),
+            facebook: 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(url),
+            email: 'mailto:?subject=' + encodeURIComponent(text) + '&body=' + msg
+        };
+        sheet.querySelectorAll('.lr-app').forEach(function (a) { a.setAttribute('href', links[a.getAttribute('data-to')]); });
+        sheet.hidden = false;
+        requestAnimationFrame(function () { sheet.classList.add('open'); });
+        document.documentElement.classList.add('lr-sheet-lock');
+        var first = sheet.querySelector('.lr-app'); if (first) first.focus();
+    }
+    function closeSheet() {
+        if (sheet.hidden) return;
+        sheet.classList.remove('open');
+        document.documentElement.classList.remove('lr-sheet-lock');
+        setTimeout(function () { sheet.hidden = true; }, 220);
+        if (lastFocus && lastFocus.focus) lastFocus.focus();
+    }
+    sheet.addEventListener('click', function (e) {
+        if (e.target.closest('[data-close]')) { closeSheet(); return; }
+        var t = e.target.closest('[data-to]');
+        if (!t) return;
+        var to = t.getAttribute('data-to');
+        if (to === 'copy') copy(t.querySelector('span'));
+        counted(to);
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSheet(); });
+    btn.addEventListener('click', function () {
+        // A phone has its own share sheet; use it. Desktop browsers mostly don't.
+        var touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+        if (navigator.share && touch) {
+            navigator.share({title: text, text: text, url: url}).then(function () { counted('native'); }, function (err) {
+                if (err && err.name === 'AbortError') return;   // they closed it
+                openSheet();
+            });
+            return;
+        }
+        openSheet();
+    });
+})();
 
 // Links in the paper leave the frame (John, 27 Oct: "See the whole chart"
 // opened the market inside this page's preview). Anything that isn't a jump

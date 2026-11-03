@@ -733,11 +733,13 @@ def test_published_page_frames_the_paper(client, league):
     assert f"/p/{league['public_slug']}/2025/week-3" in r.text
 
 
-def test_published_page_has_a_copy_button(client, league):
+def test_published_page_has_a_share_sheet(client, league):
     demo_db.save_paper(league["id"], 3, 2025, "p", "u", {})
     r = client.get("/l/secret-admin-token/published/3")
-    assert "copy-btn" in r.text
-    assert "clipboard" in r.text
+    assert 'id="share-btn"' in r.text and 'id="lr-sheet"' in r.text
+    assert "navigator.share" in r.text and "clipboard" in r.text
+    assert 'data-to="copy"' in r.text and 'data-to="sms"' in r.text
+    assert "copy-btn" not in r.text
 
 
 def test_published_page_requires_the_token(client, league):
