@@ -1340,21 +1340,52 @@ def leagues_for_weekly_send() -> list[dict[str, Any]]:
         nothing. A league with no owner whose typed email is a paying
         customer's is theirs.
       * ONE PAPER PER REAL LEAGUE per owner, however many times it was added.
+
+    3 Nov, two more, after the Week 8 run crashed with "Bad Request":
+      * The owners' ids went into ONE `user_id=in.(...)` filter, which is part
+        of the URL. Enough paying customers made the URL too long for the
+        API gateway. Now asked OWNER_ID_BATCH ids at a time.
+      * Every query here was a single request, and the API returns at most
+        1,000 rows per request — past that, leagues were dropped silently.
+        Now every one is paged.
     """
     import plans
-    owners = (client().table("users").select("*")
-              .in_("plan", [plans.PAID, plans.STAFF]).execute().data or [])
+    owners = _paged_query(lambda: client().table("users").select("*")
+                          .in_("plan", [plans.PAID, plans.STAFF]))
     owners = {u["id"]: u for u in owners if plans.plan_for(u).auto_send}
     if not owners:
         return []
-    linked = (client().table("leagues").select("*")
-              .in_("user_id", list(owners)).execute().data or [])
+    ids = list(owners)
+    linked: list[dict[str, Any]] = []
+    for i in range(0, len(ids), OWNER_ID_BATCH):
+        batch = ids[i:i + OWNER_ID_BATCH]
+        linked += _paged_query(lambda batch=batch: client().table("leagues")
+                               .select("*").in_("user_id", batch))
     by_email = {(u.get("email") or "").strip().lower(): u for u in owners.values()}
-    unlinked = [l for l in (client().table("leagues").select("*")
-                            .is_("user_id", "null")
-                            .not_.is_("owner_email", "null").execute().data or [])
+    unlinked = [l for l in _paged_query(lambda: client().table("leagues").select("*")
+                                        .is_("user_id", "null")
+                                        .not_.is_("owner_email", "null"))
                 if (l.get("owner_email") or "").strip().lower() in by_email]
     return _weekly_rows(linked, unlinked, owners, by_email)
+
+
+#: Ids per `in.(...)` filter. A uuid is 36 characters; 100 of them keeps the
+#: URL near 4 KB, well under what the API gateway accepts.
+OWNER_ID_BATCH = 100
+
+
+def _paged_query(build, page: int = 1000) -> list[dict[str, Any]]:
+    """Every row of a query, a page at a time. `build` makes a fresh query
+    (filters applied, no range) for each page. The API stops at 1,000 rows
+    per request, so a single .execute() silently drops the rest."""
+    out: list[dict[str, Any]] = []
+    start = 0
+    while True:
+        rows = build().range(start, start + page - 1).execute().data or []
+        out.extend(rows)
+        if len(rows) < page:
+            return out
+        start += page
 
 
 def _weekly_rows(linked, unlinked, owners, by_email) -> list[dict[str, Any]]:
