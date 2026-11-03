@@ -1720,11 +1720,17 @@ Rounding is not an error (13.8 may be "14"). Jokes, voice and opinions are
 never errors.
 
 List ONLY sentences you are changing, at most four per piece. Never list a
-sentence to say it is fine. Keep "why" under eight words. Never add a new
-fact. To cut a sentence, give "new" as "".
+sentence to say it is fine, and never fix style, wording, repetition or
+vagueness: that is not this desk's job. Never add a new fact. To cut a
+sentence (only for "outside"), give "new" as "".
+
+Every fix names its kind, one of: score, record, streak, week, meeting,
+team, bench, impossible, margin, contradiction, outside. A fix that is none
+of these is not a fix.
 
 Reply with JSON only:
-{"fixes": [{"piece": "<piece name>", "old": "<the sentence exactly as printed>",
+{"fixes": [{"piece": "<piece name>", "kind": "<kind>",
+            "old": "<the sentence exactly as printed>",
             "new": "<the corrected sentence>", "why": "<under eight words>"}]}
 Reply {"fixes": []} if nothing is contradicted."""
 
@@ -1772,6 +1778,44 @@ def fact_sheet(game_contexts, summary=None, season_facts: str = "", games=None) 
     if (season_facts or "").strip():
         out.append("THE SEASON (records here are after this week):\n" + season_facts.strip())
     return "\n".join(out)
+
+
+#: The only errors the copy desk may fix. A fix without one of these kinds is
+#: dropped: on the first live runs (2 Nov) the desk also "fixed" rounding,
+#: wording, repetition and anything not in its facts, and no prompt line
+#: stopped it.
+FIX_KINDS = frozenset({"score", "record", "streak", "week", "meeting", "team",
+                       "bench", "impossible", "margin", "contradiction", "outside"})
+
+_NOT_AN_ERROR = re.compile(
+    r"unsupported|not (?:in|from) (?:the |this )?(?:facts|data)|invent|fabricat|"
+    r"vague|clarif|wording|duplicate|repeat|not required|no change|matches|style",
+    re.I)
+
+_NUM = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _only_rounding(old: str, new: str) -> bool:
+    """True when the fix changes nothing but numbers, each by less than one
+    ("49.8, not 50"): the paper rounds, and that is not an error."""
+    if _NUM.sub("#", old) != _NUM.sub("#", new):
+        return False
+    a, b = _NUM.findall(old), _NUM.findall(new)
+    return len(a) == len(b) and all(abs(float(x) - float(y)) < 1.0 for x, y in zip(a, b))
+
+
+def acceptable_fix(item: dict) -> bool:
+    """Whether a copy-desk fix is one this paper takes."""
+    old = (item.get("old") or "").strip()
+    new = (item.get("new") or "").strip()
+    kind = (item.get("kind") or "").strip().lower()
+    if not old or new == old or kind not in FIX_KINDS:
+        return False
+    if _NOT_AN_ERROR.search(item.get("why") or ""):
+        return False
+    if not new and kind != "outside":          # only an outside stat is cut
+        return False
+    return not _only_rounding(old, new)
 
 
 def _parse_fixes(raw: str) -> list:
@@ -1825,11 +1869,12 @@ THE PIECES:
         key = item.get("piece")
         old = (item.get("old") or "").strip()
         new = (item.get("new") or "").strip()
-        if new == old:                     # "no change needed", listed anyway
+        if not acceptable_fix(item):
             continue
         if key not in out or not old or old not in re.sub(r"\s+", " ", out[key]) and old not in out[key]:
             continue
-        print(f"[writer] fact check {key}: {item.get('why') or 'fixed'}", flush=True)
+        print(f"[writer] fact check {key} ({item.get('kind')}): "
+              f"{item.get('why') or 'fixed'}", flush=True)
         fixed = _replace_loosely(out[key], old, new)
         out[key] = re.sub(r"[ \t]{2,}", " ", fixed).strip()
     return out

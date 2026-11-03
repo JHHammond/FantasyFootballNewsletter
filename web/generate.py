@@ -687,6 +687,7 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
         # What the front page could be about (31 Oct). Garnish like the rest.
         try:
             out["fraud_season"] = history.fraud_season(results, week)
+            out["coming_in"] = history.coming_in(results, week)
             out["leads"] = history.story_leads(results, week, pairs)
         except Exception as exc:  # noqa: BLE001
             print(f"[history] story leads skipped: {type(exc).__name__}: {exc}",
@@ -1013,7 +1014,9 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         editor_bits=editor_bits_for(db, season, week, week_data),
         national=_national.writer_facts(stack_up),
         story_leads=season_so_far.get("leads"),
-        season_facts=season_so_far.get("briefing") or "",
+        season_facts="\n".join(x for x in (
+            season_so_far.get("briefing") or "",
+            "\n".join(season_so_far.get("coming_in") or [])) if x),
         must_use=must_use,
         call_by=(first_names_by_team(
                      managers, {m["handle"]: m["team_name"] for m in directory})

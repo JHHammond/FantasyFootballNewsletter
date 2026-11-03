@@ -218,6 +218,23 @@ NOTABLE_STREAK = 3
 UPSET_GAP = 2
 
 
+def coming_in(results: list[Result], week: int) -> list[str]:
+    """Each team's record and streak as it stood BEFORE this week, for the
+    copy desk (2 Nov): with only the records after, a three-game winning
+    streak that ended this week was invisible, and a true sentence about it
+    was cut as invented."""
+    if week <= 1:
+        return []
+    out = []
+    for h in sorted(team_histories(results or [], week - 1).values(), key=lambda h: h.team):
+        line = f"{h.team} came into this week {h.record}"
+        if h.streak_len >= 2 and h.streak_kind in ("W", "L"):
+            line += (f", having {'won' if h.streak_kind == 'W' else 'lost'} "
+                     f"{h.streak_len} straight")
+        out.append(line + ".")
+    return out
+
+
 def fraud_season(results: list[Result], week: int) -> dict:
     """{team name: {"record_rank", "pf_rank", "streak"}} after this week, for
     Fraud Watch (2 Nov): a record that outruns the scoring is a fraud's

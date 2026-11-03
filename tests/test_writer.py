@@ -3034,7 +3034,7 @@ def test_the_fact_check_changes_only_the_wrong_sentence(swap_client, no_sleeping
     def behaviour(kwargs):
         seen["prompt"] = kwargs["messages"][0]["content"]
         return _reply(json.dumps({"fixes": [
-            {"piece": "fraud_watch", "old": "At 2-5 and fading fast, he is done.",
+            {"piece": "fraud_watch", "kind": "record", "old": "At 2-5 and fading fast, he is done.",
              "new": "At 2-6 and fading fast, he is done.", "why": "record"},
             {"piece": "fraud_watch", "old": "A sentence that is not there.", "new": "x"},
             {"piece": "nope", "old": "x", "new": "y"}]}))
@@ -3100,7 +3100,7 @@ def test_a_cut_off_fact_check_keeps_its_finished_fixes(swap_client, no_sleeping)
 
     def behaviour(kwargs):
         calls.append(kwargs["max_tokens"])
-        reply = _reply('{"fixes": [{"piece": "lead_story", "old": "Will is 2-5.", '
+        reply = _reply('{"fixes": [{"piece": "lead_story", "kind": "record", "old": "Will is 2-5.", '
                        '"new": "Will is 2-6.", "why": "record"}, {"piece": "lead_st')
         reply.stop_reason = "max_tokens"
         return reply
@@ -3127,3 +3127,38 @@ def test_the_fact_sheet_has_both_benches():
     assert "Champ bench (did not count): Adonai Mitchell WR 18.0 (proj 9.0)" in sheet
     assert "Mike bench (did not count): Rashee Rice WR 18.0" in sheet
     assert "THE FACTS ARE INCOMPLETE" in writer.FACT_CHECK_RULES
+
+
+
+def test_the_copy_desk_takes_errors_and_nothing_else():
+    """The fixes from the 2 Nov live run, each kept or thrown out."""
+    ok = writer.acceptable_fix
+    fix = lambda kind, old, new, why="": {"kind": kind, "old": old, "new": new, "why": why}
+    # Real errors.
+    assert ok(fix("record", "Chase is 2-5.", "Chase is 2-6."))
+    assert ok(fix("meeting", "lost to them again", "beat them", "won week 1"))
+    assert ok(fix("team", "London let Mike down.", "London let Champ down."))
+    assert ok(fix("outside", "Dead last among all 56 lineups.", ""))
+    # Rounding, in either direction.
+    assert not ok(fix("score", "a 50-point win in week 1", "a 49.8-point win in week 1"))
+    assert not ok(fix("score", "Tuten went for 30.", "Tuten went for 29.9."))
+    assert not ok(fix("score", "missed by 7", "missed by 7.2"))
+    # "Not in the facts", style, and fixes with no kind.
+    assert not ok(fix("score", "a", "b", "stat line not from this data"))
+    assert not ok(fix("streak", "a", "b", "no winning streak fact given, don't invent"))
+    assert not ok(fix("contradiction", "a", "b", "duplicate sentence, already stated once"))
+    assert not ok(fix("", "a", "b", "clarify margin"))
+    assert not ok(fix("wording", "a", "b"))
+    # A cut is only for an outside-the-league stat.
+    assert not ok(fix("score", "Something true.", ""))
+
+
+def test_the_copy_desk_is_told_streaks_coming_in():
+    import history
+    from tests.test_history import _leads_season
+    res = _leads_season(
+        [("a", 130, "b", 100)], [("a", 130, "b", 100)], [("a", 130, "b", 100)],
+        [("a", 90, "b", 100)])
+    lines = history.coming_in(res, 4)
+    assert "Team a came into this week 3-0, having won 3 straight." in lines
+    assert history.coming_in(res, 1) == []
