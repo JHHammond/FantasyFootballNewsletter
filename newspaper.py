@@ -4242,8 +4242,10 @@ def _render_html(edition, theme=None):
         .sp-cta-text {{ font-size: 13.5px; line-height: 1.4; }}
         /* The offer gets the room first (2 Nov): when it would be squeezed
            beside the button, the button drops underneath instead. */
+        /* A min-width, not a flex-basis: in a stacked box (the numbers box,
+           a phone) a 320px basis became 320px of HEIGHT (2 Nov). */
         .sp-cta {{ flex-wrap: wrap; }}
-        .sp-cta-text {{ flex: 1 1 320px; min-width: 0; }}
+        .sp-cta-text {{ flex: 1 1 auto; min-width: min(100%, 320px); }}
         .sp-code {{ color: #3d1a8a; letter-spacing: 1px; }}
         .sp-offer {{ display: block; margin-bottom: 8px; font-size: 32px; font-weight: 900; line-height: 1.12;
                      letter-spacing: -.3px; text-transform: uppercase; color: #3d1a8a; text-wrap: balance; }}

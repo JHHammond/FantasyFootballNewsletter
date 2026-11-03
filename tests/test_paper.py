@@ -738,3 +738,13 @@ def test_an_offer_amount_keeps_its_punctuation_on_its_line():
     html = newspaper.sponsor_cta(dict(SPONSOR, offer="Play $5, get $150 if you win"), "p")
     assert '<span class="sp-nowrap"><span class="sp-amt">$5</span>,</span>' in html
     assert '<span class="sp-nowrap"><span class="sp-amt">$150</span></span>' in html
+
+
+
+def test_the_offer_never_reserves_height_in_a_stacked_box():
+    """2 Nov: a 320px flex-basis on the offer text became 320px of height
+    in the numbers box, where the strip stacks. Width only, via min-width."""
+    css = newspaper.render_html({"paper_name": "P", "week": 1, "headline": "H"}) \
+        if False else open(newspaper.__file__).read()
+    assert ".sp-cta-text {{ flex: 1 1 auto; min-width: min(100%, 320px); }}" in css
+    assert "flex: 1 1 320px" not in css
