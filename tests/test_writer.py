@@ -3247,3 +3247,19 @@ def test_an_obituary_never_calls_a_player_by_a_managers_first_name():
     assert "Will." not in out[0]["body"].split("Survived")[0]
     assert "Reichard" in out[0]["body"]
     assert "Zay" in out[1]["body"] or "Flowers" in out[1]["body"]
+
+
+
+def test_the_copy_desk_runs_on_the_check_model(swap_client, no_sleeping):
+    models = []
+
+    def behaviour(kwargs):
+        if "You are the copy desk" in kwargs["messages"][0]["content"]:
+            models.append(kwargs["model"])
+            return _reply('{"fixes": []}')
+        return _reply("Some generated prose.")
+
+    swap_client(behaviour)
+    writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY)
+    assert models and set(models) == {writer.CHECK_MODEL}
+    assert writer.CHECK_MODEL == writer.SMALL_MODEL      # unless WRITER_CHECK_MODEL says

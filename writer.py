@@ -54,6 +54,13 @@ MODEL = os.getenv("WRITER_MODEL", "claude-sonnet-5")
 #: The model for the mechanical calls — see SMALL_MODEL_TASKS below.
 SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 
+#: The copy desk's model (2 Nov). The small one: half the price, and the
+#: rules it would bend (rounding, style, "unsupported") are enforced in code
+#: by acceptable_fix whatever writes the fixes. What it may do worse is
+#: notice errors, so it is one environment variable from going back:
+#: WRITER_CHECK_MODEL=claude-sonnet-5 on Render, no deploy.
+CHECK_MODEL = os.getenv("WRITER_CHECK_MODEL", SMALL_MODEL)
+
 #: WHICH CALLS GO TO THE CHEAP MODEL.
 #:
 #: Output is 60% of a paper's bill, measured rather than assumed, and the
@@ -3905,7 +3912,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         with ThreadPoolExecutor(max_workers=16) as executor:
             def check(group):
                 adopt_ledger(ledger)      # 2 Nov: uncounted without this
-                return fact_check(group, facts, sys_prompt, model_for("lead_story"))
+                return fact_check(group, facts, sys_prompt, CHECK_MODEL)
             for done in executor.map(check, groups):
                 checked.update(done)
         for key, text in checked.items():
