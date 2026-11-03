@@ -1004,6 +1004,7 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         editor_bits=editor_bits_for(db, season, week, week_data),
         national=_national.writer_facts(stack_up),
         story_leads=season_so_far.get("leads"),
+        season_facts=season_so_far.get("briefing") or "",
         must_use=must_use,
         call_by=(first_names_by_team(
                      managers, {m["handle"]: m["team_name"] for m in directory})

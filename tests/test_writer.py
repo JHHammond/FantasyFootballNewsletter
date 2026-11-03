@@ -3013,3 +3013,57 @@ def test_a_title_line_above_the_lead_is_dropped():
     # A real opening paragraph stays, short or not; a one-paragraph lead stays.
     assert writer.strip_title_line("Will won.\n\n" + body).startswith("Will won.")
     assert writer.strip_title_line("JUST ONE PARAGRAPH") == "JUST ONE PARAGRAPH"
+
+
+
+def test_the_fact_sheet_carries_results_records_fraud_and_the_season():
+    gc = [{"ctx": {"winner": "A", "loser": "B", "winner_score": 131.2, "loser_score": 81.0,
+                   "margin": 50.2, "winner_record": "6-2", "loser_record": "2-6",
+                   "winner_lineup": ["Warren RB 21.3 (proj 12.0)"], "loser_lineup": []}}]
+    sheet = writer.fact_sheet(gc, {"fraud": {"team_name": "B"}},
+                              "This week was a rematch: in week 1 B beat A 189.4-139.6.")
+    assert "A beat B 131.2-81.0, a margin of 50.2 (not close)" in sheet
+    assert "A 6-2, B 2-6" in sheet and "Warren RB 21.3" in sheet
+    assert "FRAUD WATCH in this paper names B" in sheet
+    assert "in week 1 B beat A" in sheet
+
+
+def test_the_fact_check_changes_only_the_wrong_sentence(swap_client, no_sleeping):
+    seen = {}
+
+    def behaviour(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply(json.dumps({"fixes": [
+            {"piece": "fraud_watch", "old": "At 2-5 and fading fast, he is done.",
+             "new": "At 2-6 and fading fast, he is done.", "why": "record"},
+            {"piece": "fraud_watch", "old": "A sentence that is not there.", "new": "x"},
+            {"piece": "nope", "old": "x", "new": "y"}]}))
+
+    swap_client(behaviour)
+    out = writer.fact_check(
+        {"fraud_watch": "Four straight losses. At 2-5 and fading fast, he is done."},
+        "B is 2-6.")
+    assert out["fraud_watch"] == "Four straight losses. At 2-6 and fading fast, he is done."
+    assert "You are the copy desk" in seen["prompt"] and "B is 2-6." in seen["prompt"]
+
+
+def test_a_failed_fact_check_prints_the_piece_as_written(swap_client, no_sleeping):
+    swap_client(lambda kwargs: _reply("not json"))
+    text = {"lead_story": "Will won by 49.5."}
+    assert writer.fact_check(text, "facts") == text
+
+
+def test_classifieds_are_told_which_players_are_taken(swap_client, no_sleeping):
+    seen = {}
+
+    def behaviour(kwargs):
+        seen["prompt"] = kwargs["messages"][0]["content"]
+        return _reply("[]")
+
+    swap_client(behaviour)
+    ctx = {"winner": "A", "loser": "B", "winner_score": 120.0, "loser_score": 100.0}
+    writer.generate_classifieds({}, [ctx], taken=["Lamar Jackson", "Zay Flowers", "Lamar Jackson"])
+    assert "Do not build an ad on any of them" in seen["prompt"]
+    assert "Lamar Jackson, Zay Flowers" in seen["prompt"]
+    writer.generate_classifieds({}, [ctx])
+    assert "Do not build an ad" not in seen["prompt"]

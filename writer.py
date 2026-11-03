@@ -1679,6 +1679,112 @@ Reply with JSON only, no other text:
         return text
 
 
+# ---------------------------------------------------------------------------
+# THE FACT CHECK (2 Nov)
+#
+# The Hands Times, week 8: a recap said a team "got run out of the building
+# 189.4-139.6 style again" when it had WON that week-one game; Fraud Watch
+# gave a 2-6 team a 2-5 record; a receiver "caught a 128-yard touchdown"; a
+# teaser said one team "edges" another by fifty. Every right number was in
+# the prompt. The writer is a good writer and a careless reporter, so a
+# second reader goes over the finished prose against the facts, and changes
+# only the sentences that are wrong. Like fix_tells: if it fails for any
+# reason, the paper prints as written.
+# ---------------------------------------------------------------------------
+
+FACT_CHECK_RULES = """You are the copy desk. Check every factual claim in each piece below
+against THE FACTS. Change ONLY sentences that are wrong, and change as few
+words as you can. Wrong means:
+- a score, margin, record, streak, rank or week number the facts contradict;
+- who won an earlier meeting, or the claim that something happened "again"
+  when it did not;
+- a player's points or projection that differ from the facts;
+- a football impossibility (a touchdown longer than 99 yards, a negative
+  number of catches);
+- a word that misdescribes a margin: "edged", "barely", "survived",
+  "nail-biter" or "close" for a game decided by more than ten points;
+  "blowout" or "rout" for one decided by less than ten; "upset" when the
+  winner's record coming in was as good as or better than the loser's;
+- a statement that contradicts another part of this paper given in the
+  facts (a story saying a team is no fraud when Fraud Watch names it);
+- a comparison with teams or lineups outside this league that does not
+  say so plainly ("dead-last among all 56 lineups"): cut it.
+A claim the facts neither confirm nor contradict (a yardage, an injury,
+something from the NFL games themselves) is left alone. Never touch jokes,
+voice, opinions or anything that is not wrong. Never add a new fact. To cut
+a sentence, give "new" as "".
+
+Reply with JSON only:
+{"fixes": [{"piece": "<piece name>", "old": "<the sentence exactly as printed>",
+            "new": "<the corrected sentence>", "why": "<a few words>"}]}
+Reply {"fixes": []} if nothing is wrong."""
+
+
+def fact_sheet(game_contexts, summary=None, season_facts: str = "") -> str:
+    """The facts a fact check reads against: every result with both
+    records, every starter's points and projection, the loser's bench, who
+    Fraud Watch names, and the season briefing (records, streaks, earlier
+    meetings with their winners)."""
+    out = []
+    for i, gc in enumerate(game_contexts or []):
+        ctx = gc.get("ctx", gc)
+        m = float(ctx.get("margin") or 0)
+        out.append(f"GAME {i + 1}: {ctx.get('winner')} beat {ctx.get('loser')} "
+                   f"{ctx.get('winner_score')}-{ctx.get('loser_score')}, a margin of "
+                   f"{m:.1f} ({'close' if m <= 10 else 'not close'}). Records after this "
+                   f"week: {ctx.get('winner')} {ctx.get('winner_record') or '?'}, "
+                   f"{ctx.get('loser')} {ctx.get('loser_record') or '?'}.")
+        for side in ("winner", "loser"):
+            lines = ctx.get(f"{side}_lineup") or []
+            if lines:
+                out.append(f"  {ctx.get(side)}: " + "; ".join(str(x) for x in lines))
+    fraud = (summary or {}).get("fraud") or {}
+    name = fraud.get("team_name") if isinstance(fraud, dict) else None
+    if name:
+        out.append(f"FRAUD WATCH in this paper names {name} as this week's fraud.")
+    if (season_facts or "").strip():
+        out.append("THE SEASON (records here are after this week):\n" + season_facts.strip())
+    return "\n".join(out)
+
+
+def fact_check(pieces: dict, facts: str, system=None, model=None) -> dict:
+    """{piece name: text} -> the same, with wrong sentences corrected.
+    One call for the lot; anything that goes wrong leaves the text as it was."""
+    pieces = {k: v for k, v in (pieces or {}).items() if isinstance(v, str) and v.strip()}
+    if not pieces or not (facts or "").strip():
+        return pieces
+    body = "\n\n".join(f"[{k}]\n{v}" for k, v in pieces.items())
+    prompt = f"""{FACT_CHECK_RULES}
+
+THE FACTS:
+{facts}
+
+THE PIECES:
+{body}"""
+    try:
+        _ledger.fixing = True
+        try:
+            raw = call_claude(prompt, max_tokens=1500, system=system,
+                              model=model or MODEL, attempts=2)
+        finally:
+            _ledger.fixing = False
+        data = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+    except Exception as exc:  # noqa: BLE001 — the pieces stand as written
+        print(f"[writer] !! fact check skipped ({type(exc).__name__})", flush=True)
+        return pieces
+    out = dict(pieces)
+    for item in data.get("fixes") or []:
+        key = item.get("piece")
+        old = (item.get("old") or "").strip()
+        new = (item.get("new") or "").strip()
+        if key not in out or not old or old not in re.sub(r"\s+", " ", out[key]) and old not in out[key]:
+            continue
+        print(f"[writer] fact check {key}: {item.get('why') or 'fixed'}", flush=True)
+        fixed = _replace_loosely(out[key], old, new)
+        out[key] = re.sub(r"[ \t]{2,}", " ", fixed).strip()
+    return out
+
+
 def redraft_instruction(tells: list[str]) -> str:
     quoted = "\n".join(f"  - {t}" for t in tells[:4])
     return f"""
@@ -2818,7 +2924,8 @@ BEST: 1, 2 or 3
 
 
 def generate_classifieds(summary, game_contexts, commissioner_name="",
-                         inside_jokes="", system=None, count=3, model=None):
+                         inside_jokes="", system=None, count=3, model=None,
+                         taken=()):
     """Small ads written about this week, for the back page.
 
     These used to be four fixed strings in ads.py — "WANTED: ONE COMPETENT
@@ -2844,6 +2951,14 @@ def generate_classifieds(summary, game_contexts, commissioner_name="",
 
     low = summary.get("lowest_score", {})
     high = summary.get("highest_score", {})
+    # One fact, one place (2 Nov: Lamar Jackson's zero ran five times in one
+    # paper). These players already have an award or an obituary; the ads
+    # find somebody else.
+    taken = [t for t in dict.fromkeys(taken or ()) if t]
+    taken_block = (
+        "\nThese players already have an award or an obituary elsewhere in the "
+        "paper. Do not build an ad on any of them; find another subject:\n"
+        + ", ".join(taken) + "\n") if taken else ""
 
     raw = call_claude(f"""
 Write {count} newspaper classified ads for the back page of this week's paper.
@@ -2860,7 +2975,7 @@ Lowest score: {low.get('team_name', '?')} {low.get('points', 0):.0f}
 Each one needs a real detail from above — a manager, a player, a number. A
 classified that could run in any league's paper is the thing we are replacing,
 so if it would still make sense next week, it is wrong.
-
+{taken_block}
 Keep the heading under 8 words and the body under 30. The contact line is a
 short sign-off like "Inquire within" or "No reasonable offer refused".
 
@@ -3259,7 +3374,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      nfl_notes="", national="",
                                      must_use=None, editor_bits=None,
                                      call_by=None, name_mix=False,
-                                     story_leads=None):
+                                     story_leads=None, season_facts=""):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -3367,9 +3482,13 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     if group_chat_items:
         tasks["group_chat"] = lambda: generate_group_chat(
             group_chat_items, sys_prompt, model_for("group_chat"))
+    taken = [((summary.get(k) or {}).get("player") or {}).get("name")
+             for k in ("tony_snell", "kyle_pitts", "nick_foles")]
+    taken += [(o or {}).get("player") or (o or {}).get("name") for o in (obituaries or [])]
+    taken = [t for t in taken if isinstance(t, str)]
     tasks["classifieds"] = lambda: generate_classifieds(
         summary, [gc["ctx"] for gc in game_contexts], commissioner_name,
-        inside_jokes, sys_prompt, model=model_for("classifieds"))
+        inside_jokes, sys_prompt, model=model_for("classifieds"), taken=taken)
     # Build full team list for power rankings (all teams, not just winners).
     # Each team carries its best and worst performance, because a ranking
     # comment with only a score behind it can only ever restate the score —
@@ -3496,6 +3615,51 @@ def generate_full_newspaper_content(league_name, week, games, summary,
             for future in as_completed(futures):
                 future.result()
         print(f"[writer] recap retry {time.time() - stage:.1f}s")
+        stage = time.time()
+
+    # THE FACT CHECK (2 Nov), before the headlines so they are written from
+    # corrected stories. The long pieces each get a reader of their own, the
+    # short ones share one; all at once.
+    facts = fact_sheet(game_contexts, summary, season_facts)
+    groups = []
+    if results.get("lead_story") and not letter:
+        groups.append({"lead_story": results["lead_story"]})
+    for i in range(len(game_contexts)):
+        if results.get(f"matchup_body_{i}"):
+            groups.append({f"matchup_body_{i}": results[f"matchup_body_{i}"]})
+    short = {}
+    for i, t in enumerate(results.get("game_teasers") or []):
+        short[f"teaser_{i}"] = t
+    if isinstance(results.get("fraud_watch"), str):
+        short["fraud_watch"] = results["fraud_watch"]
+    for i, a in enumerate(results.get("awards") or []):
+        if isinstance(a, dict) and a.get("body"):
+            short[f"award_{i}"] = a["body"]
+    for i, c in enumerate(results.get("classifieds") or []):
+        if isinstance(c, dict) and c.get("body"):
+            short[f"classified_{i}"] = c["body"]
+    if short:
+        groups.append(short)
+    checked = {}
+    if facts and groups:
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            for done in executor.map(
+                    lambda g: fact_check(g, facts, sys_prompt, model_for("lead_story")),
+                    groups):
+                checked.update(done)
+        for key, text in checked.items():
+            if key.startswith("teaser_"):
+                i = int(key.split("_")[1])
+                results["game_teasers"][i] = text
+            elif key.startswith("award_"):
+                i = int(key.split("_")[1])
+                results["awards"][i] = dict(results["awards"][i], body=text)
+            elif key.startswith("classified_"):
+                i = int(key.split("_")[1])
+                results["classifieds"][i] = dict(results["classifieds"][i], body=text)
+            else:
+                results[key] = text
+        print(f"[writer] fact check ({len(groups)} calls) {time.time() - stage:.1f}s")
         stage = time.time()
 
     if letter:
