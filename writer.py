@@ -54,6 +54,10 @@ MODEL = os.getenv("WRITER_MODEL", "claude-sonnet-5")
 #: The model for the mechanical calls — see SMALL_MODEL_TASKS below.
 SMALL_MODEL = os.getenv("WRITER_SMALL_MODEL", "claude-haiku-4-5")
 
+#: How many obituaries a paper prints (history.OBITUARY_COUNT, kept here so
+#: the writer does not import the history module).
+OBITUARY_COUNT = 4
+
 #: The copy desk's model (2 Nov). The small one: half the price, and the
 #: rules it would bend (rounding, style, "unsupported") are enforced in code
 #: by acceptable_fix whatever writes the fixes. What it may do worse is
@@ -2259,6 +2263,10 @@ def clean_headline(text):
     line = line.strip().strip('"\u201c\u201d\'*').rstrip(".").strip()
     if not line or len(line.split()) > HEADLINE_MAX_WORDS:
         return ""
+    # "131-" at the end of one line and "94" on the next (2 Nov): word
+    # joiners either side of a score's hyphen stop the break, and print
+    # nothing.
+    line = re.sub(r"(\d)\s*[-\u2013]\s*(\d)", "\\1\u2060-\u2060\\2", line)
     return line.upper()
 
 
@@ -2946,6 +2954,26 @@ def _custom_award_lines(custom, games_brief):
     return lines
 
 
+def _json_array(raw) -> list:
+    """The first JSON array in a reply, fenced, wrapped in a sentence or not."""
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    try:
+        value = json.loads(text)
+        return value if isinstance(value, list) else []
+    except ValueError:
+        pass
+    start, end = text.find("["), text.rfind("]")
+    if start == -1 or end <= start:
+        return []
+    try:
+        value = json.loads(text[start:end + 1])
+        return value if isinstance(value, list) else []
+    except ValueError:
+        return []
+
+
 def generate_awards(summary, commissioner_name="", inside_jokes="", system=None,
                     model=None, custom_awards=None, games_brief=""):
     """The standing four, plus the league's own custom awards."""
@@ -2993,24 +3021,23 @@ THE STANDING AWARDS (the winner is decided — just write it):
 {("THE LEAGUE'S OWN AWARDS (write these too, using the title in quotes):" + chr(10) + chr(10).join(custom)) if custom else ""}
 {("The week, for deciding the league's own awards:" + chr(10) + games_brief) if custom and games_brief else ""}
 
+Inside jokes: {inside_jokes}
+
 Format as a JSON array and nothing else:
 [{{"title": "TONY SNELL WINDSPRINT AWARD", "body": "...", "winner": "team name"}}, ...]
 "winner" is always the exact TEAM NAME the award went to (for the league's own awards, the team
 you chose, or "" if unclaimed).
-
-Inside jokes: {inside_jokes}
 """
     raw = call_claude(prompt, max_tokens=2400, system=system, model=model)
-    cleaned = (raw or "").strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    try:
-        parsed = json.loads(cleaned)
-        out = [a for a in parsed if isinstance(a, dict) and a.get("title")]
-        if out:
-            return [_with_fixed_intro(a) for a in out]
-    except Exception:  # noqa: BLE001
-        pass
+    # The array wherever it sits (2 Nov: the league notes used to come after
+    # the format line, the reply grew a sentence around its JSON, and the
+    # whole section fell back to bare facts).
+    parsed = _json_array(raw)
+    out = [a for a in parsed if isinstance(a, dict) and a.get("title")]
+    if out:
+        return [_with_fixed_intro(a) for a in out]
+    print("[writer] !! awards reply was not a JSON array; printing the facts",
+          flush=True)
     # Fallback: the facts themselves, so the section never prints empty.
     return [_with_fixed_intro({"title": t, "body": facts[t] + "."})
             for t, _, _ in STANDING_AWARDS if facts.get(t)]
@@ -3215,7 +3242,15 @@ Return ONLY a JSON array, no markdown:
         return []
 
     ads = []
+    # One fact, one place, enforced (2 Nov: told the taken players, the small
+    # model built ads on two of them anyway). An ad naming one is dropped;
+    # the house ads fill a short page.
+    surnames = [t.split()[-1].lower() for t in taken if len(t.split()) > 1]
     for item in parsed[:count]:
+        text = f"{(item or {}).get('heading', '')} {(item or {}).get('body', '')}".lower() \
+            if isinstance(item, dict) else ""
+        if any(re.search(r"\b" + re.escape(n) + r"\b", text) for n in surnames):
+            continue
         if isinstance(item, dict) and item.get("heading") and item.get("body"):
             ads.append({
                 "heading": str(item["heading"])[:80],
@@ -3705,6 +3740,12 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # `call_by` is {team name: first name}, set only when the league goes by
     # first names: the two bits of the paper filled in by code rather than by
     # the writer need it, since they never see the league background.
+    # Not an award winner a second time (2 Nov: Lamar and Zay each had an
+    # award and an obituary). generate.py sends a few spare candidates.
+    award_names = {((summary.get(k) or {}).get("player") or {}).get("name")
+                   for k in ("tony_snell", "kyle_pitts", "nick_foles")}
+    obituaries = [o for o in (obituaries or [])
+                  if (o or {}).get("name") not in award_names][:OBITUARY_COUNT]
     obituary_notices = (generate_obituaries(obituaries, call_by=call_by,
                                             mix=name_mix,
                                             people=list(people or [])

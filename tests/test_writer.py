@@ -3263,3 +3263,39 @@ def test_the_copy_desk_runs_on_the_check_model(swap_client, no_sleeping):
     writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY)
     assert models and set(models) == {writer.CHECK_MODEL}
     assert writer.CHECK_MODEL == writer.SMALL_MODEL      # unless WRITER_CHECK_MODEL says
+
+
+def test_awards_survive_a_sentence_around_their_json(swap_client, no_sleeping):
+    swap_client(lambda kwargs: _reply(
+        'Here are the awards:\n[{"title": "TONY SNELL WINDSPRINT AWARD", '
+        '"body": "Lamar went down on the first drive.", "winner": "Mike"}]\nHope these work!'))
+    summary = {"tony_snell": {"player": {"name": "Lamar Jackson", "actual": 0.0, "projected": 20.5},
+                              "team": {"team_name": "Mike"}}}
+    out = writer.generate_awards(summary, inside_jokes="RUNNING JOKES THIS PIECE MAY USE: x")
+    assert "Lamar went down on the first drive." in out[0]["body"]
+
+
+def test_a_score_in_a_headline_never_splits_at_its_hyphen():
+    h = writer.clean_headline("Cam Ward sits, Colby wallops superchaser 131-94")
+    assert "131⁠-⁠94" in h
+    assert writer.clean_headline("Champ rolls 188 - 119").endswith("188⁠-⁠119")
+
+
+def test_classifieds_drop_an_ad_on_a_taken_player(swap_client, no_sleeping):
+    swap_client(lambda kwargs: _reply(json.dumps([
+        {"heading": "WANTED: QB WITH PULSE", "body": "Mike started Lamar Jackson again.", "contact": "Mike"},
+        {"heading": "LOST: 44 POINTS", "body": "Alex's bench had them.", "contact": "Alex"}])))
+    ctx = {"winner": "A", "loser": "B", "winner_score": 120.0, "loser_score": 100.0}
+    ads = writer.generate_classifieds({}, [ctx], taken=["Lamar Jackson"])
+    assert [a["heading"] for a in ads] == ["LOST: 44 POINTS"]
+
+
+def test_obituaries_skip_the_weeks_award_winners(swap_client, no_sleeping):
+    swap_client(lambda kwargs: _reply("Some generated prose."))
+    summary = dict(SUMMARY, tony_snell={"player": {"name": "Dead One"}, "team": {}})
+    dead = [{"name": n, "points": 0.0, "team": "A"} for n in
+            ("Dead One", "Two Guy", "Three Guy", "Four Guy", "Five Guy")]
+    paper = writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, summary,
+                                                   obituaries=dead)
+    names = [o["player"] for o in paper["obituaries"]]
+    assert "Dead One" not in names and len(names) == 4
