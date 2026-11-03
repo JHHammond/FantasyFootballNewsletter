@@ -5468,6 +5468,12 @@ def read_paper(request: Request, slug: str, season: int, week: int, embed: int =
         from . import compact
         html = compact.apply(html)
 
+    # A way into the rest of the site at the end of every paper (2 Nov),
+    # layered on the same way. Not in the homepage's preview frame.
+    if not embed:
+        from . import house_footer
+        html = house_footer.apply(html)
+
     return HTMLResponse(
         content=html,
         # Editions never change once published.

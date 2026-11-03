@@ -6499,3 +6499,19 @@ def test_the_papers_page_shows_each_papers_latest_edition(client, league):
     demo_db.save_paper(league["id"], 3, 2025, path, url, {"headline": "THE WOKE AGENDA FALLS AGAIN"})
     html = client.get("/account").text
     assert "THE WOKE AGENDA FALLS AGAIN" in html and 'href="/l/secret-admin-token"' in html
+
+
+def test_every_paper_ends_with_a_way_into_the_site(client, league, monkeypatch):
+    monkeypatch.delenv("LUCK_PUBLIC", raising=False)
+    monkeypatch.setenv("RANKINGS_PUBLIC", "1")
+    demo_db.save_paper(league["id"], 3, 2025, "p", "u", {})
+    demo_db._STORAGE[demo_db.storage_path(league["public_slug"], 2025, 3)] = (
+        "<html><head></head><body><main><h1>P</h1></main></body></html>")
+    html = client.get(f"/p/{league['public_slug']}/2025/week-3").text
+    assert 'id="house-footer"' in html and html.count('id="house-footer"') == 1
+    assert html.index('id="house-footer"') < html.index("</main>")
+    assert 'href="/?from=paper"' in html and "Explore the site" in html
+    assert 'href="/market?from=paper"' in html and 'href="/rankings?from=paper"' in html
+    assert "/luck?from=paper" not in html          # not public yet, so no link
+    embed = client.get(f"/p/{league['public_slug']}/2025/week-3?embed=1").text
+    assert "house-footer" not in embed
