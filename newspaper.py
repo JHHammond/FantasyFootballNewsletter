@@ -342,9 +342,16 @@ def build_subheadline(summary):
     parts = []
 
     if closest:
-        parts.append(
-            f"{safe(closest.get('winner'), 'Somebody')} survived by {float(closest.get('margin', 0)):.1f}"
-        )
+        # The verb follows the margin (2 Nov: "survived by 25.1" over the
+        # week's closest game, which was not close).
+        margin = float(closest.get('margin', 0) or 0)
+        who = safe(closest.get('winner'), 'Somebody')
+        if margin <= 3:
+            parts.append(f"{who} edged it by {margin:.1f}")
+        elif margin <= 10:
+            parts.append(f"{who} survived by {margin:.1f}")
+        else:
+            parts.append(f"No game closer than {margin:.1f}")
 
     if blowout:
         parts.append(
@@ -2462,7 +2469,11 @@ def build_week_ticker(summary):
     if blowout:
         cells.append(cell("Biggest blowout", f"{float(blowout.get('margin') or 0):.1f}",
                           "pts", _game_line(blowout)))
-    if dominance and dominance.get("team"):
+    # Most dominant only when it is news: when it names the same team as the
+    # high score or the blowout, it was the same fact twice (2 Nov).
+    dom_name = get_team_name(dominance["team"]) if dominance and dominance.get("team") else ""
+    if dom_name and dom_name not in (get_team_name(highest) if highest else "",
+                                     (blowout or {}).get("winner") or ""):
         cells.append(cell("Most dominant", f"{get_team_points(dominance['team']):.1f}",
                           "", html_escape(get_team_name(dominance["team"]))))
     if not cells:

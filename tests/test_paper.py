@@ -748,3 +748,24 @@ def test_the_offer_never_reserves_height_in_a_stacked_box():
         if False else open(newspaper.__file__).read()
     assert ".sp-cta-text {{ flex: 1 1 auto; min-width: min(100%, 320px); }}" in css
     assert "flex: 1 1 320px" not in css
+
+
+
+def test_the_dateline_verb_follows_the_margin():
+    def sub(m):
+        return newspaper.build_subheadline({"closest_game": {"winner": "A", "margin": m}})
+    assert sub(1.5) == "A edged it by 1.5"
+    assert sub(7.0) == "A survived by 7.0"
+    assert sub(25.1) == "No game closer than 25.1"
+
+
+def test_most_dominant_is_left_out_when_it_repeats_the_high_score():
+    team = {"team_name": "Champ", "points": 188.3}
+    other = {"team_name": "Other", "points": 150.0}
+    base = {"highest_score": team, "biggest_blowout": {"winner": "Champ", "margin": 70.6}}
+    html = newspaper.build_week_ticker(dict(base, dominance={"team": team, "margin": 70.6}))
+    assert "Most dominant" not in html
+    html = newspaper.build_week_ticker(dict(base, highest_score=other,
+                                             biggest_blowout={"winner": "X", "margin": 9},
+                                             dominance={"team": team, "margin": 70.6}))
+    assert "Most dominant" in html

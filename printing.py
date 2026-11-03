@@ -680,8 +680,10 @@ html, body { margin: 0 !important; padding: 0 !important; }
 .print-button, .ce-bar, .subscribe-form, .image-slot-empty, .ce-remove,
 button:not(.lv-side), input, select, textarea { display: none !important; }
 .image-wrap, .image-wrap-editing { resize: none !important; }
-/* The trade ballot (20 Oct) is for the page, not the file. */
+/* The trade ballot (20 Oct) is for the page, not the file. Nor is "Tap a
+   team to pick" (2 Nov): nothing in a PDF can be tapped. */
 .tv-row { display: none !important; }
+.lv-note { display: none !important; }
 /* It is a file, not ink on a sheet: print every colour, exactly as on screen. */
 * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 .print-footer {
