@@ -1280,20 +1280,29 @@ class Ledger:
     def __init__(self):
         self.calls = []
         self.fix_calls = []
+        self.check_calls = []
         self._lock = threading.Lock()
 
     def add(self, model, usage):
         with self._lock:
             self.calls.append((model, usage))
-            if getattr(_ledger, "fixing", False):
+            if getattr(_ledger, "checking", False):
+                self.check_calls.append((model, usage))
+            elif getattr(_ledger, "fixing", False):
                 self.fix_calls.append((model, usage))
 
-    def fix_cost(self) -> float:
-        saved, self.calls = self.calls, self.fix_calls
+    def _cost_of(self, calls) -> float:
+        saved, self.calls = self.calls, calls
         try:
             return self.cost()
         finally:
             self.calls = saved
+
+    def fix_cost(self) -> float:
+        return self._cost_of(self.fix_calls)
+
+    def check_cost(self) -> float:
+        return self._cost_of(self.check_calls)
 
     def cost(self) -> float:
         total = 0.0
@@ -1323,6 +1332,9 @@ class Ledger:
         models = ", ".join(f"{n}x {m}" for m, n in sorted(per_model.items()))
         fixes = (f"; tell fixes: {len(self.fix_calls)} calls, ${self.fix_cost():.4f}"
                  if self.fix_calls else "; tell fixes: none")
+        if self.check_calls:
+            fixes += (f"; fact check: {len(self.check_calls)} calls, "
+                      f"${self.check_cost():.4f}")
         return (f"${self.cost():.4f}  ({len(self.calls)} calls: {models}; "
                 f"{fresh:,} in, {read:,} cached, {out:,} out{fixes})")
 
@@ -1854,12 +1866,12 @@ THE FACTS:
 THE PIECES:
 {body}"""
     try:
-        _ledger.fixing = True
+        _ledger.checking = True
         try:
             raw = call_claude(prompt, max_tokens=2400, system=system,
                               model=model or MODEL, attempts=2, grow=False)
         finally:
-            _ledger.fixing = False
+            _ledger.checking = False
         fixes = _parse_fixes(raw)
     except Exception as exc:  # noqa: BLE001 — the pieces stand as written
         print(f"[writer] !! fact check skipped ({type(exc).__name__})", flush=True)
@@ -3773,9 +3785,10 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     checked = {}
     if facts and groups:
         with ThreadPoolExecutor(max_workers=16) as executor:
-            for done in executor.map(
-                    lambda g: fact_check(g, facts, sys_prompt, model_for("lead_story")),
-                    groups):
+            def check(group):
+                adopt_ledger(ledger)      # 2 Nov: uncounted without this
+                return fact_check(group, facts, sys_prompt, model_for("lead_story"))
+            for done in executor.map(check, groups):
                 checked.update(done)
         for key, text in checked.items():
             if key.startswith("teaser_"):

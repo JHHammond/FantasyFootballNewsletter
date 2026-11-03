@@ -3162,3 +3162,18 @@ def test_the_copy_desk_is_told_streaks_coming_in():
     lines = history.coming_in(res, 4)
     assert "Team a came into this week 3-0, having won 3 straight." in lines
     assert history.coming_in(res, 1) == []
+
+
+
+def test_the_fact_check_is_counted_on_its_own_line(swap_client, no_sleeping):
+    def reply(kwargs):
+        r = _reply('{"fixes": []}')
+        r.usage = type("U", (), {"input_tokens": 5000, "output_tokens": 100,
+                                 "cache_read_input_tokens": 0,
+                                 "cache_creation_input_tokens": 0})()
+        return r
+    swap_client(reply)
+    ledger = writer.start_ledger()
+    writer.fact_check({"lead_story": "Will won."}, "facts", model="claude-sonnet-5")
+    line = ledger.summary()
+    assert "fact check: 1 calls, $0.0110" in line and "tell fixes: none" in line
