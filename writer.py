@@ -1778,10 +1778,17 @@ Every fix names its kind, one of: score, record, streak, week, meeting,
 team, bench, impossible, margin, contradiction, comparison, name, outside. A fix that is none
 of these is not a fix.
 
+Every fix quotes, in "fact", the words from THE FACTS that the sentence
+contradicts, copied exactly (a name and its number is enough). A fix you
+cannot back with a quote is not a fix. Only an "outside" fix may leave
+"fact" empty.
+
 Reply with JSON only:
 {"fixes": [{"piece": "<piece name>", "kind": "<kind>",
             "old": "<the sentence exactly as printed>",
-            "new": "<the corrected sentence>", "why": "<under eight words>"}]}
+            "new": "<the corrected sentence>",
+            "fact": "<the words from THE FACTS it contradicts>",
+            "why": "<under eight words>"}]}
 Reply {"fixes": []} if nothing is contradicted."""
 
 
@@ -1950,7 +1957,8 @@ FIX_KINDS = frozenset({"score", "record", "streak", "week", "meeting", "team",
 _NOT_AN_ERROR = re.compile(
     r"unsupported|not (?:in|from) (?:the |this )?(?:facts|data)|invent|fabricat|"
     r"vague|clarif|wording|duplicate|repeat|not required|no change|matches|style|"
-    r"omit|missing|to add|no fact|not supported|doesn.t say|not stated|precis|exact|flat",
+    r"omit|missing|to add|no fact|not supported|doesn.t say|not stated|precis|exact|flat|"
+    r"\bcheck\b|confus|not relevant|no error|is correct|was correct|ambiguous|unclear",
     re.I)
 
 _NUM = re.compile(r"-?\d+(?:\.\d+)?")
@@ -1972,8 +1980,19 @@ def _only_rounding(old: str, new: str) -> bool:
     return len(set(wa) ^ set(wb)) <= 3
 
 
-def acceptable_fix(item: dict) -> bool:
-    """Whether a copy-desk fix is one this paper takes."""
+def _norm(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").lower()).strip()
+
+
+def acceptable_fix(item: dict, facts: str | None = None) -> bool:
+    """Whether a copy-desk fix is one this paper takes. With `facts`, the
+    fix must quote words that really are in them (2 Nov: a "fix" called a
+    starter a bench player, another corrected a sentence its own arithmetic
+    agreed with; neither could have quoted a fact)."""
+    if facts is not None and (item.get("kind") or "").strip().lower() != "outside":
+        quote = _norm(item.get("fact") or "")
+        if len(quote) < 6 or quote not in _norm(facts):
+            return False
     old = (item.get("old") or "").strip()
     new = (item.get("new") or "").strip()
     kind = (item.get("kind") or "").strip().lower()
@@ -2041,7 +2060,7 @@ THE PIECES:
         key = item.get("piece")
         old = (item.get("old") or "").strip()
         new = (item.get("new") or "").strip()
-        if not acceptable_fix(item):
+        if not acceptable_fix(item, facts):
             continue
         if key not in out or not old or old not in re.sub(r"\s+", " ", out[key]) and old not in out[key]:
             continue

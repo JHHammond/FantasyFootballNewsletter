@@ -3040,7 +3040,7 @@ def test_the_fact_check_changes_only_the_wrong_sentence(swap_client, no_sleeping
         seen["prompt"] = kwargs["messages"][0]["content"]
         return _reply(json.dumps({"fixes": [
             {"piece": "fraud_watch", "kind": "record", "old": "At 2-5 and fading fast, he is done.",
-             "new": "At 2-6 and fading fast, he is done.", "why": "record"},
+             "new": "At 2-6 and fading fast, he is done.", "fact": "B is 2-6", "why": "record"},
             {"piece": "fraud_watch", "old": "A sentence that is not there.", "new": "x"},
             {"piece": "nope", "old": "x", "new": "y"}]}))
 
@@ -3106,7 +3106,7 @@ def test_a_cut_off_fact_check_keeps_its_finished_fixes(swap_client, no_sleeping)
     def behaviour(kwargs):
         calls.append(kwargs["max_tokens"])
         reply = _reply('{"fixes": [{"piece": "lead_story", "kind": "record", "old": "Will is 2-5.", '
-                       '"new": "Will is 2-6.", "why": "record"}, {"piece": "lead_st')
+                       '"new": "Will is 2-6.", "fact": "Will is 2-6", "why": "record"}, {"piece": "lead_st')
         reply.stop_reason = "max_tokens"
         return reply
 
@@ -3350,3 +3350,17 @@ def test_the_copy_desk_takes_comparisons_and_wrong_names():
                "new": "That gap was worth 16 of the 38-point margin.", "why": "16.3 < 37.7"})
     assert ok({"kind": "name", "old": "Chase's old win over this team.",
                "new": "Alex's old win over this team.", "why": "Woke Agenda is Alex"})
+
+
+
+def test_a_fix_must_quote_a_fact_that_is_really_there():
+    facts = "GAME 3: A beat B 156.7-123.0.\n  B starters named in the paper: Bijan Robinson RB 7.6 (proj 21.9)"
+    fix = {"kind": "score", "old": "Robinson put up 9.", "new": "Robinson put up 7.6.",
+           "why": "Robinson scored 7.6"}
+    assert writer.acceptable_fix(dict(fix, fact="Bijan Robinson RB 7.6"), facts)
+    assert not writer.acceptable_fix(dict(fix, fact="Bijan Robinson bench 7.6"), facts)   # not there
+    assert not writer.acceptable_fix(fix, facts)                                           # no quote
+    assert writer.acceptable_fix({"kind": "outside", "old": "Last of all 56 lineups.",
+                                  "new": "", "why": "outside stat"}, facts)
+    assert not writer.acceptable_fix(dict(fix, fact="Bijan Robinson RB 7.6",
+                                          why="Robinson is bench player, confusing"), facts)
