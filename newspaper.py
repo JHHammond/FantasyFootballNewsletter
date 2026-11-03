@@ -1019,7 +1019,11 @@ def sponsor_cta(sponsor, pitch, button="Make your picks"):
     offer = html_escape(sponsor.get("offer") or "")
     # The dollar figures carry the offer (John, 31 Oct): each one set in a
     # solid block so "$5" and "$150" are what the eye lands on.
-    offer = re.sub(r"\$\d+(?:,\d{3})*(?:\.\d+)?", lambda m: f'<span class="sp-amt">{m.group(0)}</span>', offer)
+    # The amount and any punctuation straight after it stay on one line:
+    # "$5" then ", GET" on the next line was the 2 Nov desktop bug.
+    offer = re.sub(r"(\$\d+(?:,\d{3})*(?:\.\d+)?)([,.;:!?]?)",
+                   lambda m: (f'<span class="sp-nowrap"><span class="sp-amt">{m.group(1)}</span>'
+                              f'{m.group(2)}</span>'), offer)
     offer_html = f'<span class="sp-offer">{offer}</span>' if offer else ""
     code_html = (f' New players: use code <b class="sp-code">{code}</b>.' if code else "")
     btn = (f'<a class="sp-button" href="{link}" target="_blank" rel="sponsored noopener">'
@@ -4236,6 +4240,10 @@ def _render_html(edition, theme=None):
         .sp-cta {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px;
                    background: #f0eafc; border: 1px solid #c9b8f2; padding: 10px 12px; border-radius: 4px; color: #16130f; }}
         .sp-cta-text {{ font-size: 13.5px; line-height: 1.4; }}
+        /* The offer gets the room first (2 Nov): when it would be squeezed
+           beside the button, the button drops underneath instead. */
+        .sp-cta {{ flex-wrap: wrap; }}
+        .sp-cta-text {{ flex: 1 1 320px; min-width: 0; }}
         .sp-code {{ color: #3d1a8a; letter-spacing: 1px; }}
         .sp-offer {{ display: block; margin-bottom: 8px; font-size: 32px; font-weight: 900; line-height: 1.12;
                      letter-spacing: -.3px; text-transform: uppercase; color: #3d1a8a; text-wrap: balance; }}

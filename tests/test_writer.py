@@ -3001,3 +3001,15 @@ def test_a_mix_it_up_league_alternates_names_in_the_obituaries():
         dead, call_by={"Sell the Falcons": "Will"}, mix=True)
     named = ["Will" in o["body"] for o in out]
     assert named == [False, True, False, True]
+
+
+
+def test_a_title_line_above_the_lead_is_dropped():
+    body = "For seven weeks, Will was last.\n\nThen he won by 65."
+    for title in ("WILL SMITH ENDS THE WORLD, OR AT LEAST CARSON'S WEEK",
+                  "# Will Smith Ends the World", "**Will Smith Ends the World**",
+                  "Will Smith ends the world"):
+        assert writer.strip_title_line(title + "\n\n" + body) == body
+    # A real opening paragraph stays, short or not; a one-paragraph lead stays.
+    assert writer.strip_title_line("Will won.\n\n" + body).startswith("Will won.")
+    assert writer.strip_title_line("JUST ONE PARAGRAPH") == "JUST ONE PARAGRAPH"

@@ -607,8 +607,8 @@ def test_the_offer_prints_in_every_sponsor_box_with_the_small_print():
         for n, a in (("A", 20.0), ("B", 2.0), ("C", 15.0))]}
     for html in (newspaper.render_back_page(lines=lines, sponsor=sp),
                  newspaper.build_numbers_box(team, sp)):
-        assert ('Play <span class="sp-amt">$5</span>, get '
-                '<span class="sp-amt">$150</span> if you win') in html
+        assert ('Play <span class="sp-nowrap"><span class="sp-amt">$5</span>,</span> get '
+                '<span class="sp-nowrap"><span class="sp-amt">$150</span></span> if you win') in html
         assert "1-800-GAMBLER" in html and "DESK" in html
     # No offer set, no empty slot for one.
     assert "sp-offer" not in newspaper.render_back_page(lines=lines, sponsor=SPONSOR)
@@ -731,3 +731,10 @@ def test_the_board_leads_with_a_rematch_and_shows_records():
     assert html.index("Game of the week") < html.index(">C<") < html.index(">Big<")
     # Votes still find two sides on every card, the lead included.
     assert html.count('lv-side" data-side') == 4
+
+
+
+def test_an_offer_amount_keeps_its_punctuation_on_its_line():
+    html = newspaper.sponsor_cta(dict(SPONSOR, offer="Play $5, get $150 if you win"), "p")
+    assert '<span class="sp-nowrap"><span class="sp-amt">$5</span>,</span>' in html
+    assert '<span class="sp-nowrap"><span class="sp-amt">$150</span></span>' in html

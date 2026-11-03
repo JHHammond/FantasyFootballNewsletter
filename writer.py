@@ -2115,7 +2115,11 @@ If nothing above is there, or it is weaker than what the results show, the
 story is the week's biggest performance and the game it decided, or the
 game that changed the standings.
 
-HOW IT GOES — three short paragraphs, 120 to 170 words in all:
+HOW IT GOES — three short paragraphs, 90 to 130 words in all. It sits
+beside a photo and the standings on a newspaper front page, so length is
+a layout constraint, not a target: shorter is better than longer.
+Start with the first sentence of the story. No title, no headline, no
+heading line of any kind: the headline is written separately.
 1. The lede. One or two sentences that say what happened and why it
    matters, with the number that proves it. Write it like a newspaper, not
    a recap: "For the first time since September, The Mid Tier is not alone
@@ -2147,8 +2151,31 @@ possible stories are true; do not work out any others yourself.
 {national_block}
 Week data: {_compact(context)}
 """
-    return call_claude(prompt, max_tokens=2400, system=system, model=model,
-                       avoid_tells=True)
+    return strip_title_line(call_claude(prompt, max_tokens=2400, system=system,
+                                        model=model, avoid_tells=True))
+
+
+def strip_title_line(text: str) -> str:
+    """Drop a title the model put above the story (2 Nov: "WILL SMITH ENDS
+    THE WORLD, OR AT LEAST CARSON'S WEEK" printed as the story's first line,
+    under a headline that already said it). A first paragraph counts as a
+    title when it is a markdown heading, a line in bold, all capitals, or
+    short with no full stop. Only ever the first paragraph, and never the
+    whole story."""
+    import re
+    parts = re.split(r"\n\s*\n", (text or "").strip())
+    if len(parts) < 2:
+        return (text or "").strip()
+    first = parts[0].strip()
+    bare = re.sub(r"^#{1,6}\s*|^\*\*|\*\*$|^__|__$", "", first).strip()
+    letters = [c for c in bare if c.isalpha()]
+    is_title = (
+        "\n" not in first and (
+            first.startswith("#")
+            or (first.startswith("**") and first.endswith("**"))
+            or (letters and sum(c.isupper() for c in letters) / len(letters) > 0.8)
+            or (len(bare.split()) <= 14 and not re.search(r"[.!?\"”]$", bare))))
+    return "\n\n".join(parts[1:]).strip() if is_title else (text or "").strip()
 
 
 #: What a headline actually needs. Everything else in a game context is two
