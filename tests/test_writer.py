@@ -3092,3 +3092,38 @@ def test_fraud_watch_gets_the_whole_case(swap_client, no_sleeping):
     writer.generate_fraud_watch({"lowest_score": {"team_name": "Low", "points": 81.0,
                                                   "record": "2-5", "record_after": "2-6"}})
     assert "Low is 2-6." in seen["prompt"] and "2-5" not in seen["prompt"]
+
+
+
+def test_a_cut_off_fact_check_keeps_its_finished_fixes(swap_client, no_sleeping):
+    calls = []
+
+    def behaviour(kwargs):
+        calls.append(kwargs["max_tokens"])
+        reply = _reply('{"fixes": [{"piece": "lead_story", "old": "Will is 2-5.", '
+                       '"new": "Will is 2-6.", "why": "record"}, {"piece": "lead_st')
+        reply.stop_reason = "max_tokens"
+        return reply
+
+    swap_client(behaviour)
+    out = writer.fact_check({"lead_story": "Will lost. Will is 2-5."}, "Will is 2-6.")
+    assert out["lead_story"] == "Will lost. Will is 2-6."
+    assert calls == [2400]                         # no bigger retries
+
+
+def test_a_fix_that_changes_nothing_is_ignored(swap_client, no_sleeping):
+    swap_client(lambda kwargs: _reply('{"fixes": [{"piece": "lead_story", "old": "Will won.", '
+                                      '"new": "Will won.", "why": "no change needed"}]}'))
+    assert writer.fact_check({"lead_story": "Will won."}, "x") == {"lead_story": "Will won."}
+
+
+def test_the_fact_sheet_has_both_benches():
+    team = lambda n, bench: {"team_name": n, "all_bench": [
+        {"name": b, "position": "WR", "actual": 18.0, "projected": 9.0} for b in bench]}
+    gc = [{"ctx": {"winner": "Champ", "loser": "Mike", "winner_score": 188.3, "loser_score": 117.7,
+                   "margin": 70.6, "winner_lineup": [], "loser_lineup": []}}]
+    games = [{"team_1": team("Champ", ["Adonai Mitchell"]), "team_2": team("Mike", ["Rashee Rice"])}]
+    sheet = writer.fact_sheet(gc, {}, "", games)
+    assert "Champ bench (did not count): Adonai Mitchell WR 18.0 (proj 9.0)" in sheet
+    assert "Mike bench (did not count): Rashee Rice WR 18.0" in sheet
+    assert "THE FACTS ARE INCOMPLETE" in writer.FACT_CHECK_RULES

@@ -1692,35 +1692,55 @@ Reply with JSON only, no other text:
 # reason, the paper prints as written.
 # ---------------------------------------------------------------------------
 
-FACT_CHECK_RULES = """You are the copy desk. Check every factual claim in each piece below
-against THE FACTS. Change ONLY sentences that are wrong, and change as few
-words as you can. Wrong means:
-- a score, margin, record, streak, rank or week number the facts contradict;
-- who won an earlier meeting, or the claim that something happened "again"
-  when it did not;
-- a player's points or projection that differ from the facts;
-- a football impossibility (a touchdown longer than 99 yards, a negative
-  number of catches);
-- a word that misdescribes a margin: "edged", "barely", "survived",
-  "nail-biter" or "close" for a game decided by more than ten points;
-  "blowout" or "rout" for one decided by less than ten; "upset" when the
-  winner's record coming in was as good as or better than the loser's;
-- a statement that contradicts another part of this paper given in the
-  facts (a story saying a team is no fraud when Fraud Watch names it);
+FACT_CHECK_RULES = """You are the copy desk. Check each piece below against THE FACTS and
+correct only what THE FACTS directly contradict.
+
+THE FACTS ARE INCOMPLETE. They hold this week's fantasy scores, both
+lineups and benches, records and earlier meetings this season. They do not
+hold NFL yardage, catches, injuries, game situations, past seasons or
+league history. A player, number or claim that is simply not in the facts
+is NOT wrong and is NOT "unsupported": leave it exactly as it is. Change a
+sentence only when a fact below says something different.
+
+Wrong means a fact below contradicts it:
+- a fantasy score, margin, record, streak, rank, projection or week number;
+- who won an earlier meeting this season, or "again" for something the
+  season facts show did not happen before;
+- a player put on the wrong team, or called a starter when the facts list
+  him on the bench (or the other way round);
+- a football impossibility (a touchdown longer than 99 yards);
+- a margin word: "edged", "barely", "survived", "nail-biter" or "close" for
+  a game decided by more than ten; "blowout" or "rout" for under ten;
+  "upset" when the winner's record was as good as the loser's;
+- a story contradicting this paper (saying a team is no fraud when Fraud
+  Watch names it);
 - a comparison with teams or lineups outside this league that does not
-  say so plainly ("dead-last among all 56 lineups"): cut it.
-A claim the facts neither confirm nor contradict (a yardage, an injury,
-something from the NFL games themselves) is left alone. Never touch jokes,
-voice, opinions or anything that is not wrong. Never add a new fact. To cut
-a sentence, give "new" as "".
+  explain itself ("dead-last among all 56 lineups"): cut it.
+Rounding is not an error (13.8 may be "14"). Jokes, voice and opinions are
+never errors.
+
+List ONLY sentences you are changing, at most four per piece. Never list a
+sentence to say it is fine. Keep "why" under eight words. Never add a new
+fact. To cut a sentence, give "new" as "".
 
 Reply with JSON only:
 {"fixes": [{"piece": "<piece name>", "old": "<the sentence exactly as printed>",
-            "new": "<the corrected sentence>", "why": "<a few words>"}]}
-Reply {"fixes": []} if nothing is wrong."""
+            "new": "<the corrected sentence>", "why": "<under eight words>"}]}
+Reply {"fixes": []} if nothing is contradicted."""
 
 
-def fact_sheet(game_contexts, summary=None, season_facts: str = "") -> str:
+def _bench_lines(team) -> str:
+    out = []
+    for pl in (team or {}).get("all_bench") or []:
+        if isinstance(pl.get("actual"), (int, float)) and pl.get("name"):
+            proj = pl.get("projected")
+            out.append(f"{pl['name']} {(pl.get('position') or '').upper()} "
+                       f"{pl['actual']:.1f}" + (f" (proj {proj:.1f})"
+                                                if isinstance(proj, (int, float)) else ""))
+    return "; ".join(out)
+
+
+def fact_sheet(game_contexts, summary=None, season_facts: str = "", games=None) -> str:
     """The facts a fact check reads against: every result with both
     records, every starter's points and projection, the loser's bench, who
     Fraud Watch names, and the season briefing (records, streaks, earlier
@@ -1737,7 +1757,14 @@ def fact_sheet(game_contexts, summary=None, season_facts: str = "") -> str:
         for side in ("winner", "loser"):
             lines = ctx.get(f"{side}_lineup") or []
             if lines:
-                out.append(f"  {ctx.get(side)}: " + "; ".join(str(x) for x in lines))
+                out.append(f"  {ctx.get(side)} starters: " + "; ".join(str(x) for x in lines))
+        # Both benches, whole (2 Nov): with only the loser's costly bench
+        # calls, the desk "corrected" true sentences about the winner's.
+        g = (games or [])[i] if i < len(games or []) else None
+        for t in ((g or {}).get("team_1"), (g or {}).get("team_2")):
+            bench = _bench_lines(t)
+            if bench:
+                out.append(f"  {t.get('team_name')} bench (did not count): {bench}")
     fraud = (summary or {}).get("fraud") or {}
     name = fraud.get("team_name") if isinstance(fraud, dict) else None
     if name:
@@ -1745,6 +1772,27 @@ def fact_sheet(game_contexts, summary=None, season_facts: str = "") -> str:
     if (season_facts or "").strip():
         out.append("THE SEASON (records here are after this week):\n" + season_facts.strip())
     return "\n".join(out)
+
+
+def _parse_fixes(raw: str) -> list:
+    """Every complete fix object in a reply, even one cut off part-way: a
+    reply that ran out of room still has its finished fixes."""
+    raw = raw or ""
+    try:
+        data = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+        if isinstance(data, dict) and isinstance(data.get("fixes"), list):
+            return [f for f in data["fixes"] if isinstance(f, dict)]
+    except ValueError:
+        pass
+    found, dec = [], json.JSONDecoder()
+    for m in re.finditer(r'\{\s*"piece"', raw):
+        try:
+            obj, _ = dec.raw_decode(raw[m.start():])
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            found.append(obj)
+    return found
 
 
 def fact_check(pieces: dict, facts: str, system=None, model=None) -> dict:
@@ -1764,19 +1812,21 @@ THE PIECES:
     try:
         _ledger.fixing = True
         try:
-            raw = call_claude(prompt, max_tokens=1500, system=system,
-                              model=model or MODEL, attempts=2)
+            raw = call_claude(prompt, max_tokens=2400, system=system,
+                              model=model or MODEL, attempts=2, grow=False)
         finally:
             _ledger.fixing = False
-        data = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+        fixes = _parse_fixes(raw)
     except Exception as exc:  # noqa: BLE001 — the pieces stand as written
         print(f"[writer] !! fact check skipped ({type(exc).__name__})", flush=True)
         return pieces
     out = dict(pieces)
-    for item in data.get("fixes") or []:
+    for item in fixes:
         key = item.get("piece")
         old = (item.get("old") or "").strip()
         new = (item.get("new") or "").strip()
+        if new == old:                     # "no change needed", listed anyway
+            continue
         if key not in out or not old or old not in re.sub(r"\s+", " ", out[key]) and old not in out[key]:
             continue
         print(f"[writer] fact check {key}: {item.get('why') or 'fixed'}", flush=True)
@@ -1823,7 +1873,7 @@ Fix silently and reply with the finished text only."""
 
 
 def call_claude(prompt, max_tokens=400, system=None, attempts=3,
-                model=None, avoid_tells=False):
+                model=None, avoid_tells=False, grow=True):
     """Make a single call to the Claude API and return the text response.
 
     `system` is passed explicitly rather than read from a module global because
@@ -1888,6 +1938,13 @@ def call_claude(prompt, max_tokens=400, system=None, attempts=3,
             # was counting on. More room first; if there is no more to give,
             # end on the last whole sentence rather than half a word.
             if getattr(message, "stop_reason", None) == "max_tokens":
+                # A list of fixes is useful cut off: what it finished stands
+                # (2 Nov: the fact check grew 1500 -> 3000 -> 4800 and the
+                # paper sat waiting). The caller reads what is there.
+                if not grow:
+                    print(f"[writer] !! cut off at {max_tokens} tokens; using "
+                          f"what was finished.", flush=True)
+                    return text
                 if max_tokens < MAX_OUTPUT_TOKENS:
                     bigger = min(max_tokens * 2, MAX_OUTPUT_TOKENS)
                     print(f"[writer] !! a response was cut off at "
@@ -3648,7 +3705,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # THE FACT CHECK (2 Nov), before the headlines so they are written from
     # corrected stories. The long pieces each get a reader of their own, the
     # short ones share one; all at once.
-    facts = fact_sheet(game_contexts, summary, season_facts)
+    facts = fact_sheet(game_contexts, summary, season_facts, games)
     groups = []
     if results.get("lead_story") and not letter:
         groups.append({"lead_story": results["lead_story"]})
