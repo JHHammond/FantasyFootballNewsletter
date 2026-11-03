@@ -44,11 +44,23 @@ def esc(value) -> str:
     return _html.escape(_html.unescape(str(value)), quote=True)
 
 
+_SCORE_HYPHEN = re.compile(r"(?<=\d)-(?=\d)")
+
+
+def _keep_scores_whole(html: str) -> str:
+    """"6-" at the end of one line and "2" on the next (2 Nov). Word joiners
+    either side of the hyphen in a record or score, in text only, never
+    inside a tag (an image address can have digits either side of a dash)."""
+    parts = re.split(r"(<[^>]+>)", html)
+    return "".join(p if p.startswith("<") else _SCORE_HYPHEN.sub("\u2060-\u2060", p)
+                   for p in parts)
+
+
 def prose(value) -> str:
     if not value:
         return ""
     from web.sanitize import clean_html
-    return clean_html(str(value), max_length=60000)
+    return _keep_scores_whole(clean_html(str(value), max_length=60000))
 
 
 def safe(value, fallback=""):

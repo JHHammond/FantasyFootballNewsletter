@@ -3341,3 +3341,12 @@ def test_over_budget_the_short_pieces_drop_out_first(swap_client, no_sleeping, m
 def test_every_prose_prompt_carries_the_fact_rules():
     assert "Never invent" in writer.LAST_CHECK and "found a way to win" in writer.LAST_CHECK
     assert "most lineups" in writer.LAST_CHECK
+
+
+
+def test_the_copy_desk_takes_comparisons_and_wrong_names():
+    ok = writer.acceptable_fix
+    assert ok({"kind": "comparison", "old": "That gap was worth more than your margin.",
+               "new": "That gap was worth 16 of the 38-point margin.", "why": "16.3 < 37.7"})
+    assert ok({"kind": "name", "old": "Chase's old win over this team.",
+               "new": "Alex's old win over this team.", "why": "Woke Agenda is Alex"})

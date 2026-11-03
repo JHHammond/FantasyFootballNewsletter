@@ -1758,6 +1758,10 @@ Wrong means a fact below contradicts it:
   "upset" when the winner's record was as good as the loser's;
 - a story contradicting this paper (saying a team is no fraud when Fraud
   Watch names it);
+- a comparison the numbers contradict: a 16.3-point swap is not "worth
+  more than" a 37.7-point margin; a streak a team just extended was not
+  "ended";
+- a manager's name used for the wrong team (WHO'S WHO says who is who);
 - a comparison with teams or lineups outside this league that does not
   explain itself ("dead-last among all 56 lineups"): cut it.
 Rounding is not an error (13.8 may be "14"). Jokes, voice and opinions are
@@ -1771,7 +1775,7 @@ vagueness: that is not this desk's job. Never add a new fact. To cut a
 sentence (only for "outside"), give "new" as "".
 
 Every fix names its kind, one of: score, record, streak, week, meeting,
-team, bench, impossible, margin, contradiction, outside. A fix that is none
+team, bench, impossible, margin, contradiction, comparison, name, outside. A fix that is none
 of these is not a fix.
 
 Reply with JSON only:
@@ -1940,7 +1944,8 @@ def fact_sheet(game_contexts, summary=None, season_facts: str = "", games=None,
 #: wording, repetition and anything not in its facts, and no prompt line
 #: stopped it.
 FIX_KINDS = frozenset({"score", "record", "streak", "week", "meeting", "team",
-                       "bench", "impossible", "margin", "contradiction", "outside"})
+                       "bench", "impossible", "margin", "contradiction",
+                       "comparison", "name", "outside"})
 
 _NOT_AN_ERROR = re.compile(
     r"unsupported|not (?:in|from) (?:the |this )?(?:facts|data)|invent|fabricat|"

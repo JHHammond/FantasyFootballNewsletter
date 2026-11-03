@@ -769,3 +769,11 @@ def test_most_dominant_is_left_out_when_it_repeats_the_high_score():
                                              biggest_blowout={"winner": "X", "margin": 9},
                                              dominance={"team": team, "margin": 70.6}))
     assert "Most dominant" in html
+
+
+
+def test_records_and_scores_in_prose_never_split_at_the_hyphen():
+    html = newspaper.prose('<p>Colby sits at 6-2 after a 132.2-94.4 win. '
+                           '<a href="https://x.com/2026-11-02">More</a></p>')
+    assert "6\u2060-\u20602" in html and "132.2\u2060-\u206094.4" in html
+    assert 'href="https://x.com/2026-11-02"' in html          # never inside a tag
