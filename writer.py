@@ -1747,15 +1747,21 @@ Reply with JSON only:
 Reply {"fixes": []} if nothing is contradicted."""
 
 
-def _bench_lines(team) -> str:
+def _player_facts(players) -> str:
+    """"Josh Allen QB 17.7 (proj 24.2); ..." — the copy desk's compact line.
+    Half the tokens of the writer's format, which the desk does not need."""
     out = []
-    for pl in (team or {}).get("all_bench") or []:
+    for pl in players or []:
         if isinstance(pl.get("actual"), (int, float)) and pl.get("name"):
             proj = pl.get("projected")
             out.append(f"{pl['name']} {(pl.get('position') or '').upper()} "
                        f"{pl['actual']:.1f}" + (f" (proj {proj:.1f})"
                                                 if isinstance(proj, (int, float)) else ""))
     return "; ".join(out)
+
+
+def _bench_lines(team) -> str:
+    return _player_facts((team or {}).get("all_bench"))
 
 
 def fact_sheet(game_contexts, summary=None, season_facts: str = "", games=None) -> str:
@@ -1772,23 +1778,31 @@ def fact_sheet(game_contexts, summary=None, season_facts: str = "", games=None) 
                    f"{m:.1f} ({'close' if m <= 10 else 'not close'}). Records after this "
                    f"week: {ctx.get('winner')} {ctx.get('winner_record') or '?'}, "
                    f"{ctx.get('loser')} {ctx.get('loser_record') or '?'}.")
-        for side in ("winner", "loser"):
-            lines = ctx.get(f"{side}_lineup") or []
-            if lines:
-                out.append(f"  {ctx.get(side)} starters: " + "; ".join(str(x) for x in lines))
-        # Both benches, whole (2 Nov): with only the loser's costly bench
-        # calls, the desk "corrected" true sentences about the winner's.
         g = (games or [])[i] if i < len(games or []) else None
-        for t in ((g or {}).get("team_1"), (g or {}).get("team_2")):
-            bench = _bench_lines(t)
-            if bench:
-                out.append(f"  {t.get('team_name')} bench (did not count): {bench}")
+        if g:
+            # Both lineups and both benches, whole (2 Nov: with only the
+            # loser's costly bench calls, true sentences about the winner's
+            # bench were "corrected").
+            for t in (g.get("team_1"), g.get("team_2")):
+                start = _player_facts((t or {}).get("all_starters"))
+                if start:
+                    out.append(f"  {t.get('team_name')} starters: {start}")
+                bench = _bench_lines(t)
+                if bench:
+                    out.append(f"  {t.get('team_name')} bench (did not count): {bench}")
+        else:
+            for side in ("winner", "loser"):
+                lines = ctx.get(f"{side}_lineup") or []
+                if lines:
+                    out.append(f"  {ctx.get(side)} starters: " + "; ".join(str(x) for x in lines))
     fraud = (summary or {}).get("fraud") or {}
     name = fraud.get("team_name") if isinstance(fraud, dict) else None
     if name:
         out.append(f"FRAUD WATCH in this paper names {name} as this week's fraud.")
-    if (season_facts or "").strip():
-        out.append("THE SEASON (records here are after this week):\n" + season_facts.strip())
+    season = "\n".join(l for l in (season_facts or "").splitlines()
+                       if l.strip() and not l.startswith("Last week's"))
+    if season:
+        out.append("THE SEASON:\n" + season)
     return "\n".join(out)
 
 
@@ -1801,19 +1815,27 @@ FIX_KINDS = frozenset({"score", "record", "streak", "week", "meeting", "team",
 
 _NOT_AN_ERROR = re.compile(
     r"unsupported|not (?:in|from) (?:the |this )?(?:facts|data)|invent|fabricat|"
-    r"vague|clarif|wording|duplicate|repeat|not required|no change|matches|style",
+    r"vague|clarif|wording|duplicate|repeat|not required|no change|matches|style|"
+    r"omit|missing|to add|no fact|not supported|doesn.t say|not stated|precis|exact|flat",
     re.I)
 
 _NUM = re.compile(r"-?\d+(?:\.\d+)?")
 
 
 def _only_rounding(old: str, new: str) -> bool:
-    """True when the fix changes nothing but numbers, each by less than one
-    ("49.8, not 50"): the paper rounds, and that is not an error."""
-    if _NUM.sub("#", old) != _NUM.sub("#", new):
+    """True when the fix only nudges numbers, each by less than one ("49.8,
+    not 50"; "67.6, not flat 68"), give or take a word or two around them:
+    the paper rounds, and that is not an error."""
+    a = [float(x) for x in _NUM.findall(old)]
+    b = [float(x) for x in _NUM.findall(new)]
+    if not a or len(a) != len(b):
         return False
-    a, b = _NUM.findall(old), _NUM.findall(new)
-    return len(a) == len(b) and all(abs(float(x) - float(y)) < 1.0 for x, y in zip(a, b))
+    moved = [(x, y) for x, y in zip(a, b) if x != y]
+    if not moved or any(abs(x - y) >= 1.0 for x, y in moved):
+        return False
+    wa = _NUM.sub("#", old.lower()).split()
+    wb = _NUM.sub("#", new.lower()).split()
+    return len(set(wa) ^ set(wb)) <= 3
 
 
 def acceptable_fix(item: dict) -> bool:
@@ -1868,7 +1890,7 @@ THE PIECES:
     try:
         _ledger.checking = True
         try:
-            raw = call_claude(prompt, max_tokens=2400, system=system,
+            raw = call_claude(prompt, max_tokens=3000, system=system,
                               model=model or MODEL, attempts=2, grow=False)
         finally:
             _ledger.checking = False
@@ -3760,16 +3782,16 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         stage = time.time()
 
     # THE FACT CHECK (2 Nov), before the headlines so they are written from
-    # corrected stories. The long pieces each get a reader of their own, the
-    # short ones share one; all at once.
+    # corrected stories. ONE call for the whole paper: six calls sent the
+    # fact sheet six times and cost $0.15 a paper, as much as the writing.
     facts = fact_sheet(game_contexts, summary, season_facts, games)
     groups = []
+    short = {}
     if results.get("lead_story") and not letter:
-        groups.append({"lead_story": results["lead_story"]})
+        short["lead_story"] = results["lead_story"]
     for i in range(len(game_contexts)):
         if results.get(f"matchup_body_{i}"):
-            groups.append({f"matchup_body_{i}": results[f"matchup_body_{i}"]})
-    short = {}
+            short[f"matchup_body_{i}"] = results[f"matchup_body_{i}"]
     for i, t in enumerate(results.get("game_teasers") or []):
         short[f"teaser_{i}"] = t
     if isinstance(results.get("fraud_watch"), str):

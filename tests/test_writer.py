@@ -3108,7 +3108,7 @@ def test_a_cut_off_fact_check_keeps_its_finished_fixes(swap_client, no_sleeping)
     swap_client(behaviour)
     out = writer.fact_check({"lead_story": "Will lost. Will is 2-5."}, "Will is 2-6.")
     assert out["lead_story"] == "Will lost. Will is 2-6."
-    assert calls == [2400]                         # no bigger retries
+    assert calls == [3000]                         # no bigger retries
 
 
 def test_a_fix_that_changes_nothing_is_ignored(swap_client, no_sleeping):
@@ -3177,3 +3177,32 @@ def test_the_fact_check_is_counted_on_its_own_line(swap_client, no_sleeping):
     writer.fact_check({"lead_story": "Will won."}, "facts", model="claude-sonnet-5")
     line = ledger.summary()
     assert "fact check: 1 calls, $0.0110" in line and "tell fixes: none" in line
+
+
+
+def test_the_second_live_runs_non_errors_are_dropped_too():
+    ok = writer.acceptable_fix
+    assert not ok({"kind": "score", "old": "won by a flat 68", "new": "won by 67.6",
+                   "why": "margin is 67.6, not flat 68"})
+    assert not ok({"kind": "score", "old": "Irving ran wild.", "new": "Irving ran wild for 21.",
+                   "why": "Irving's fantasy score was omitted, not wrong to add"})
+    assert not ok({"kind": "score", "old": "a 12-point favorite", "new": "a favorite",
+                   "why": "no fact supports 12-point favorite claim"})
+    assert ok({"kind": "bench", "old": "a swap worth 26 points", "new": "a swap worth 9.4 points",
+               "why": "bench swap value was 9.4"})
+
+
+def test_the_whole_paper_is_checked_in_one_call(swap_client, no_sleeping):
+    prompts = []
+
+    def behaviour(kwargs):
+        content = kwargs["messages"][0]["content"]
+        if "You are the copy desk" in content:
+            prompts.append(content)
+            return _reply('{"fixes": []}')
+        return _reply("Some generated prose.")
+
+    swap_client(behaviour)
+    writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY)
+    assert len(prompts) == 1
+    assert "[lead_story]" in prompts[0] and "[matchup_body_0]" in prompts[0]
