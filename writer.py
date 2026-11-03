@@ -1760,6 +1760,81 @@ def _player_facts(players) -> str:
     return "; ".join(out)
 
 
+def _record_wins_losses(record) -> tuple:
+    try:
+        w, l = str(record or "").split("-")[:2]
+        return int(w), int(l)
+    except ValueError:
+        return (0, 0)
+
+
+def assign_running_jokes(jokes, game_contexts, call_by=None) -> dict:
+    """{piece key: [joke texts]} — every running joke handed to exactly one
+    piece of the paper (2 Nov: the last-place punishment ran in three recaps
+    and Fraud Watch, because the league background told every piece to bring
+    it up and every piece is written at the same time, blind to the others).
+
+    The punishment goes to the recap of the last-place team's game. A lore
+    entry that names a team or a person goes to that team's recap; the rest
+    are dealt round the recaps, fewest first. Nothing goes to the lead, which
+    plays it straight."""
+    out: dict = {}
+    if not jokes or not game_contexts:
+        return out
+    ctxs = [gc.get("ctx", gc) for gc in game_contexts]
+    keys = [f"matchup_body_{i}" for i in range(len(ctxs))]
+    load = {k: 0 for k in keys}
+
+    def give(key, text):
+        out.setdefault(key, []).append(text)
+        load[key] = load.get(key, 0) + 1
+
+    def lightest():
+        return min(keys, key=lambda k: (load[k], keys.index(k)))
+
+    # The bottom of the table after this week.
+    rows = []
+    for i, c in enumerate(ctxs):
+        for side in ("winner", "loser"):
+            rows.append((_record_wins_losses(c.get(f"{side}_record")),
+                         float(c.get(f"{side}_score") or 0), i))
+    last = min(rows, key=lambda r: (r[0][0], -r[0][1], r[1]))[2] if rows else None
+
+    for j in jokes:
+        text = (j.get("text") if isinstance(j, dict) else str(j) or "").strip()
+        if not text:
+            continue
+        if isinstance(j, dict) and j.get("kind") == "punishment" and last is not None:
+            give(keys[last], text)
+            continue
+        low = text.lower()
+        hit = None
+        for i, c in enumerate(ctxs):
+            teams = [c.get("winner"), c.get("loser")]
+            names = teams + [(call_by or {}).get(t) for t in teams]
+            if any(n and len(n) > 2 and re.search(r"\b" + re.escape(n.lower()) + r"\b", low)
+                   for n in names):
+                hit = keys[i]
+                break
+        give(hit or lightest(), text)
+    return out
+
+
+def running_jokes_note(key, assigned: dict) -> str:
+    """The line each piece gets: the running jokes that are its to use, and
+    the ones that belong to other pieces this week."""
+    mine = assigned.get(key) or []
+    others = [t for k, ts in assigned.items() if k != key for t in ts]
+    parts = []
+    if mine:
+        parts.append("RUNNING JOKES THIS PIECE MAY USE, if they fit the week (the "
+                     "only piece in this paper that may): " + " | ".join(mine))
+    if others:
+        parts.append("RUNNING JOKES THAT BELONG TO OTHER PIECES THIS WEEK: do not "
+                     "use or allude to any of these here: " + " | ".join(others))
+    return "\n".join(parts)
+
+
 def _bench_lines(team) -> str:
     return _player_facts((team or {}).get("all_bench"))
 
@@ -3228,6 +3303,7 @@ Rules:
   restate the label: never "fraud watch", "under investigation" or
   "opening a file".
 - Records and numbers only as given above. Do not work out any others.
+{chr(10) + inside_jokes if inside_jokes and "RUNNING JOKES" in inside_jokes else ""}
 """
     return call_claude(prompt, max_tokens=400, system=system, model=model,
                        avoid_tells=True)
@@ -3416,7 +3492,7 @@ def _first_name(d) -> str:
 
 
 def generate_obituaries(dead, system=None, model=None, call_by=None,
-                        mix=False):
+                        mix=False, people=()):
     """Short, deadpan death notices for the week's lowest-scoring starters.
 
     No model call since 23 Sep — John: "simple if-then logic", a rotating set
@@ -3451,7 +3527,14 @@ def generate_obituaries(dead, system=None, model=None, call_by=None,
         if not mix or i % 2:
             manager = (call_by or {}).get(manager) or manager
         stadium = STADIUMS.get((d.get("nfl_team") or "").upper())
-        fill = {"first": _first_name(d), "manager": manager, "stadium": stadium,
+        first = _first_name(d)
+        # "Lights out for Will" about kicker Will Reichard, in a league with
+        # a manager called Will (2 Nov): the surname when the first name
+        # belongs to somebody in the league.
+        firsts = {str(n).split()[0].lower() for n in (people or ()) if str(n).strip()}
+        if first.lower() in firsts and " " in (d.get("name") or "").strip():
+            first = d["name"].strip().split()[-1]
+        fill = {"first": first, "manager": manager, "stadium": stadium,
                 "points": f"{float(d.get('points') or 0):.1f}"}
         closers = OBIT_CLOSERS_AT if stadium else OBIT_CLOSERS
         body = " ".join(line.format(**fill) for line in (
@@ -3538,7 +3621,8 @@ def generate_full_newspaper_content(league_name, week, games, summary,
                                      nfl_notes="", national="",
                                      must_use=None, editor_bits=None,
                                      call_by=None, name_mix=False,
-                                     story_leads=None, season_facts=""):
+                                     story_leads=None, season_facts="",
+                                     running_jokes=None, people=None):
     """
     Master function — generates all AI content for the newspaper.
     Fires all API calls in parallel using ThreadPoolExecutor for speed.
@@ -3615,8 +3699,18 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # first names: the two bits of the paper filled in by code rather than by
     # the writer need it, since they never see the league background.
     obituary_notices = (generate_obituaries(obituaries, call_by=call_by,
-                                            mix=name_mix)
+                                            mix=name_mix,
+                                            people=list(people or [])
+                                            + list((call_by or {}).values()))
                         if obituaries else [])
+
+    # Each running joke to one piece (2 Nov). `jokes_for(key)` is what each
+    # piece gets in place of the bare "see LEAGUE BACKGROUND".
+    assigned_jokes = assign_running_jokes(running_jokes, game_contexts, call_by)
+
+    def jokes_for(key):
+        note = running_jokes_note(key, assigned_jokes)
+        return "\n".join(x for x in (inside_jokes, note) if x)
 
     # Top-level tasks. The front headline is NOT here: it is written after
     # the lead story, from it — see the second wave below.
@@ -3627,7 +3721,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     letter = (commissioner_letter or "").strip()
     if not letter:
         tasks["lead_story"] = lambda: generate_lead_story(
-            summary, week, league_name, commissioner_name, inside_jokes,
+            summary, week, league_name, commissioner_name, jokes_for("lead_story"),
             sys_prompt, model_for("lead_story"), games=games,
             national=national, leads=story_leads)
     games_brief = "\n".join(
@@ -3640,9 +3734,9 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     # calling anything would count as a success and hide a total outage.
     if any(award_facts(summary).values()) or custom_awards:
         tasks["awards"] = lambda: generate_awards(
-            summary, commissioner_name, inside_jokes, sys_prompt, model_for("awards"),
+            summary, commissioner_name, jokes_for("awards"), sys_prompt, model_for("awards"),
             custom_awards=custom_awards, games_brief=games_brief)
-    tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, inside_jokes, sys_prompt, model_for("fraud_watch"))
+    tasks["fraud_watch"] = lambda: generate_fraud_watch(summary, commissioner_name, jokes_for("fraud_watch"), sys_prompt, model_for("fraud_watch"))
     if group_chat_items:
         tasks["group_chat"] = lambda: generate_group_chat(
             group_chat_items, sys_prompt, model_for("group_chat"))
@@ -3652,7 +3746,7 @@ def generate_full_newspaper_content(league_name, week, games, summary,
     taken = [t for t in taken if isinstance(t, str)]
     tasks["classifieds"] = lambda: generate_classifieds(
         summary, [gc["ctx"] for gc in game_contexts], commissioner_name,
-        inside_jokes, sys_prompt, model=model_for("classifieds"), taken=taken)
+        jokes_for("classifieds"), sys_prompt, model=model_for("classifieds"), taken=taken)
     # Build full team list for power rankings (all teams, not just winners).
     # Each team carries its best and worst performance, because a ranking
     # comment with only a score behind it can only ever restate the score —
@@ -3682,14 +3776,14 @@ def generate_full_newspaper_content(league_name, week, games, summary,
 
     # 3. AI teaser hooks for left column — one call for all games
     tasks["game_teasers"] = lambda: generate_game_teasers(
-        [gc["ctx"] for gc in game_contexts], commissioner_name, inside_jokes,
+        [gc["ctx"] for gc in game_contexts], commissioner_name, jokes_for("game_teasers"),
         sys_prompt, model_for("game_teasers")
     )
 
     # Per-game tasks — headline and body for each game
     for i, game_data in enumerate(game_contexts):
         ctx = game_data["ctx"]
-        tasks[f"matchup_body_{i}"] = lambda c=ctx, k=f"matchup_body_{i}": generate_matchup_body(c, commissioner_name, inside_jokes, sys_prompt, model_for(k))
+        tasks[f"matchup_body_{i}"] = lambda c=ctx, k=f"matchup_body_{i}": generate_matchup_body(c, commissioner_name, jokes_for(k), sys_prompt, model_for(k))
 
     results = {}
     failures = {}
@@ -3782,16 +3876,18 @@ def generate_full_newspaper_content(league_name, week, games, summary,
         stage = time.time()
 
     # THE FACT CHECK (2 Nov), before the headlines so they are written from
-    # corrected stories. ONE call for the whole paper: six calls sent the
-    # fact sheet six times and cost $0.15 a paper, as much as the writing.
+    # corrected stories. Six calls (one a piece) cost $0.15; one call for the
+    # whole paper cost $0.03 and missed things a closer read caught. So: the
+    # front page and short pieces together, and the recaps two at a time.
     facts = fact_sheet(game_contexts, summary, season_facts, games)
     groups = []
     short = {}
     if results.get("lead_story") and not letter:
         short["lead_story"] = results["lead_story"]
-    for i in range(len(game_contexts)):
-        if results.get(f"matchup_body_{i}"):
-            short[f"matchup_body_{i}"] = results[f"matchup_body_{i}"]
+    bodies = [i for i in range(len(game_contexts)) if results.get(f"matchup_body_{i}")]
+    for n in range(0, len(bodies), 2):
+        groups.append({f"matchup_body_{i}": results[f"matchup_body_{i}"]
+                       for i in bodies[n:n + 2]})
     for i, t in enumerate(results.get("game_teasers") or []):
         short[f"teaser_{i}"] = t
     if isinstance(results.get("fraud_watch"), str):

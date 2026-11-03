@@ -459,3 +459,12 @@ def test_fraud_season_ranks_records_against_scoring_and_names_a_snapped_streak()
     assert s["Team top"]["pf_rank"] == 4
     assert s["Team top"]["streak"] == "Its 3-game winning streak ended this week."
     assert history.fraud_season([], 4) == {}
+
+
+
+def test_the_standings_line_runs_top_to_bottom_and_marks_last_place():
+    res = _leads_season([("a", 130, "b", 100), ("c", 120, "d", 110)],
+                        [("a", 130, "c", 100), ("b", 120, "d", 110)])
+    [line] = history.standings_lines(res, 2)
+    assert line.startswith("STANDINGS after this week: 1. Team a 2-0;")
+    assert line.endswith("4. Team d 0-2 (last place).")

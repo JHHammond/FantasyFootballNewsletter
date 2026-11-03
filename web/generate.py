@@ -284,9 +284,10 @@ def build_league_context(league: dict[str, Any], lore_entries: list,
 
     if league.get("punishment"):
         parts.append(
-            f"LAST PLACE PUNISHMENT: {league['punishment']} — bring this up "
-            f"whenever a team is bad enough to be in danger of it. It is the "
-            f"single funniest thing about this league."
+            f"LAST PLACE PUNISHMENT: {league['punishment']} — the single "
+            f"funniest thing about this league, so it is used ONCE a week, in "
+            f"the one piece told it has it. Every piece is told whether it "
+            f"does (2 Nov: it ran four times in one paper)."
         )
 
     if lore_entries:
@@ -687,7 +688,8 @@ def _season_briefing(db, league: dict[str, Any], week: int, this_week) -> dict:
         # What the front page could be about (31 Oct). Garnish like the rest.
         try:
             out["fraud_season"] = history.fraud_season(results, week)
-            out["coming_in"] = history.coming_in(results, week)
+            out["coming_in"] = (history.standings_lines(results, week)
+                                + history.coming_in(results, week))
             out["leads"] = history.story_leads(results, week, pairs)
         except Exception as exc:  # noqa: BLE001
             print(f"[history] story leads skipped: {type(exc).__name__}: {exc}",
@@ -1014,6 +1016,13 @@ def generate_and_store(db, league: dict[str, Any], week: int,
         editor_bits=editor_bits_for(db, season, week, week_data),
         national=_national.writer_facts(stack_up),
         story_leads=season_so_far.get("leads"),
+        # Running jokes, each handed to one piece (2 Nov): the punishment
+        # and the lore that reaches the prompt.
+        running_jokes=([{"text": league["punishment"], "kind": "punishment"}]
+                       if league.get("punishment") else [])
+                      + [{"text": e["entry"], "kind": "lore"}
+                         for e in lore_entries[:MAX_LORE_IN_PROMPT] if e.get("entry")],
+        people=[m.get("display_name") for m in (managers or []) if m.get("display_name")],
         season_facts="\n".join(x for x in (
             season_so_far.get("briefing") or "",
             "\n".join(season_so_far.get("coming_in") or [])) if x),

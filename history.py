@@ -218,6 +218,23 @@ NOTABLE_STREAK = 3
 UPSET_GAP = 2
 
 
+def standings_lines(results: list[Result], week: int) -> list[str]:
+    """The table after this week, top to bottom, for the copy desk (2 Nov:
+    two recaps called a 7th- and a 6th-place team "last place", and the
+    front page said a last-place team had climbed off the bottom). Ties on
+    record are ordered by points scored, and the bottom record is marked."""
+    hist = team_histories(results or [], week)
+    if not hist:
+        return []
+    order = sorted(hist.values(), key=lambda h: (-h.wins, h.losses, -h.points_for))
+    worst = (order[-1].wins, order[-1].losses)
+    lines = []
+    for i, h in enumerate(order, 1):
+        tag = " (last place)" if (h.wins, h.losses) == worst else ""
+        lines.append(f"{i}. {h.team} {h.record}{tag}")
+    return ["STANDINGS after this week: " + "; ".join(lines) + "."]
+
+
 def coming_in(results: list[Result], week: int) -> list[str]:
     """Each team's record and streak as it stood BEFORE this week, for the
     copy desk (2 Nov): with only the records after, a three-game winning

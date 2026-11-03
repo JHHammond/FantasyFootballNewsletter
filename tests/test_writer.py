@@ -3192,7 +3192,10 @@ def test_the_second_live_runs_non_errors_are_dropped_too():
                "why": "bench swap value was 9.4"})
 
 
-def test_the_whole_paper_is_checked_in_one_call(swap_client, no_sleeping):
+
+
+
+def test_the_paper_is_checked_front_first_then_recaps_two_at_a_time(swap_client, no_sleeping):
     prompts = []
 
     def behaviour(kwargs):
@@ -3204,5 +3207,43 @@ def test_the_whole_paper_is_checked_in_one_call(swap_client, no_sleeping):
 
     swap_client(behaviour)
     writer.generate_full_newspaper_content("The Kevlarville Times", 3, GAMES, SUMMARY)
-    assert len(prompts) == 1
-    assert "[lead_story]" in prompts[0] and "[matchup_body_0]" in prompts[0]
+    n = len(GAMES)
+    assert len(prompts) == 1 + (n + 1) // 2
+    front = [p for p in prompts if "[lead_story]" in p]
+    assert len(front) == 1 and "[matchup_body_0]" not in front[0]
+    for p in prompts:
+        assert p.count("[matchup_body_") <= 2
+
+
+def _ctx(w, l, wr, lr, ws=120.0, ls=100.0):
+    return {"ctx": {"winner": w, "loser": l, "winner_record": wr, "loser_record": lr,
+                    "winner_score": ws, "loser_score": ls}}
+
+
+def test_each_running_joke_goes_to_one_piece():
+    games = [_ctx("Champ", "Mike", "8-0", "5-3"), _ctx("Will FC", "Carson", "1-7", "5-3"),
+             _ctx("Colby", "Chase", "6-2", "1-7", ls=90.0)]
+    jokes = [{"text": "Last place pays for the trophy engraving.", "kind": "punishment"},
+             {"text": "Carson still thinks he won the 2023 title.", "kind": "lore"},
+             {"text": "Nobody trusts a kicker.", "kind": "lore"}]
+    out = writer.assign_running_jokes(jokes, games, {"Carson": "Carson"})
+    # The punishment: the last-place team's game (Chase 1-7 scored 90, below Will FC's 1-7).
+    assert out["matchup_body_2"][0].startswith("Last place pays")
+    assert out["matchup_body_1"] == ["Carson still thinks he won the 2023 title."]
+    assert out["matchup_body_0"] == ["Nobody trusts a kicker."]          # dealt to the lightest
+    assert sum(len(v) for v in out.values()) == 3
+    note = writer.running_jokes_note("matchup_body_0", out)
+    assert "MAY USE" in note and "Nobody trusts a kicker." in note
+    assert "do not use or allude" in note and "trophy engraving" in note
+    lead = writer.running_jokes_note("lead_story", out)
+    assert "MAY USE" not in lead and "trophy engraving" in lead
+    assert writer.assign_running_jokes([], games) == {}
+
+
+def test_an_obituary_never_calls_a_player_by_a_managers_first_name():
+    dead = [{"name": "Will Reichard", "position": "K", "points": 0.0, "team": "JJLT"},
+            {"name": "Zay Flowers", "position": "WR", "points": 0.0, "team": "Chase FC"}]
+    out = writer.generate_obituaries(dead, people=["Will", "Carson"])
+    assert "Will." not in out[0]["body"].split("Survived")[0]
+    assert "Reichard" in out[0]["body"]
+    assert "Zay" in out[1]["body"] or "Flowers" in out[1]["body"]
