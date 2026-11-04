@@ -3364,3 +3364,9 @@ def test_a_fix_must_quote_a_fact_that_is_really_there():
                                   "new": "", "why": "outside stat"}, facts)
     assert not writer.acceptable_fix(dict(fix, fact="Bijan Robinson RB 7.6",
                                           why="Robinson is bench player, confusing"), facts)
+
+
+def test_a_place_that_names_a_team_is_hyphenated():
+    assert writer.clean_headline("Last place Will ends skid").startswith("LAST-PLACE WILL")
+    assert "IN LAST PLACE AGAIN" in writer.clean_headline("Will stays in last place again")
+    assert "TO FIRST PLACE" in writer.clean_headline("Back to first place for Dan")

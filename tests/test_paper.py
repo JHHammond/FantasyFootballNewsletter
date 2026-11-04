@@ -777,3 +777,9 @@ def test_records_and_scores_in_prose_never_split_at_the_hyphen():
                            '<a href="https://x.com/2026-11-02">More</a></p>')
     assert "6\u2060-\u20602" in html and "132.2\u2060-\u206094.4" in html
     assert 'href="https://x.com/2026-11-02"' in html          # never inside a tag
+
+
+def test_a_plural_streak_takes_a_plural_verb():
+    import newspaper
+    out = newspaper.prose("<p>Seven straight losses ends today. Three straight wins is nice.</p>")
+    assert "losses end today" in out and "wins are nice" in out

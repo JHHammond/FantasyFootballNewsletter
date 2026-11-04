@@ -32,8 +32,19 @@ COMPACT_CSS = """
       white-space: nowrap; letter-spacing: 0 !important; }
   .masthead .edition-line { font-size: 10px !important; margin-top: 4px !important; padding-top: 4px !important; }
   .above-fold { padding-top: 12px !important; }
-  .above-fold .headline { font-size: 23px !important; line-height: 1.1 !important; letter-spacing: 0 !important;
-      margin-bottom: 8px !important; }
+  /* The front headline (4 Nov, John: "it just doesn't really look like the
+     main headline"; picked mockup A). Half again the size of a story
+     headline, lines evened out so a score never sits alone, a red label
+     above and a short rule below instead of the full-width underline. */
+  .above-fold { text-align: center; }
+  .above-fold .headline { font-size: clamp(26px, 8vw, 32px) !important; line-height: 1 !important;
+      letter-spacing: -.3px !important; text-wrap: balance; overflow-wrap: break-word;
+      border-bottom: 0 !important; padding: 0 2px !important; margin: 0 auto !important; max-width: none !important; }
+  .cx-kicker { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 4px 0 9px;
+      font: 700 11.5px "Barlow Condensed", "Arial Narrow", Arial, sans-serif; letter-spacing: 2.6px;
+      text-transform: uppercase; color: var(--accent, #c40000); }
+  .cx-kicker::before, .cx-kicker::after { content: ""; width: 30px; height: 1px; background: currentColor; }
+  .cx-headrule { width: 54px; height: 3px; background: var(--accent, #c40000); margin: 13px auto 14px; }
   .above-fold .dateline-bar { display: none !important; }
   .image-wrap img { aspect-ratio: 16 / 10 !important; }
   .image-wrap { float: none !important; width: auto !important; margin: 0 0 12px !important; }
@@ -173,6 +184,25 @@ COMPACT_JS = """
       if (/^\\s+$/.test(w) || (i && SMALL.test(w))) return w;
       return w.replace(/[a-z]/, function (c) { return c.toUpperCase(); });
     }).join("");
+  }
+  // The front headline: "Week 8 · Cover story" above, a short rule below,
+  // and "LAST PLACE WILL ENDS" read as a team, not a typo (4 Nov).
+  var front = document.querySelector(".above-fold .headline");
+  if (front && !document.querySelector(".cx-kicker")) {
+    if (front.children.length === 0) {
+      front.textContent = front.textContent.replace(/(^|[^A-Za-z]\s?)(\w+)\s+(place)\s+(?=[A-Za-z])/i, function (m, pre, a, b) {
+        if (!/^(last|first|second|third)$/i.test(a) || /\b(in|to|of|from|into)\s*$/i.test(pre)) return m;
+        return pre + a + "-" + b + " ";
+      });
+    }
+    var week = ((document.querySelector(".above-fold .dateline-bar span") || {}).textContent || "").trim();
+    var k = document.createElement("div");
+    k.className = "cx-kicker";
+    k.textContent = (/^Week \d+$/.test(week) ? week + " \u00b7 " : "") + "Cover story";
+    front.parentNode.insertBefore(k, front);
+    var r = document.createElement("div");
+    r.className = "cx-headrule"; r.setAttribute("aria-hidden", "true");
+    front.parentNode.insertBefore(r, front.nextSibling);
   }
   document.querySelectorAll(".story-headline").forEach(function (h) {
     if (h.children.length === 0) h.textContent = titleCase(h.textContent.trim());

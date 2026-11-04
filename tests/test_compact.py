@@ -29,3 +29,10 @@ def test_compact_only_touches_phone_screens():
 
 def test_the_paper_is_unchanged_without_the_flag():
     assert "compact-layout" not in PAPER
+
+
+def test_the_front_headline_gets_a_label_and_a_rule():
+    from web import compact
+    out = compact.apply("<html><head></head><body><div class=\"above-fold\"><h2 class=\"headline\">X</h2></div></body></html>")
+    assert "cx-kicker" in out and "cx-headrule" in out and "Cover story" in out
+    assert "text-wrap: balance" in out

@@ -2351,6 +2351,10 @@ def clean_headline(text):
     # joiners either side of a score's hyphen stop the break, and print
     # nothing.
     line = re.sub(r"(\d)\s*[-\u2013]\s*(\d)", "\\1\u2060-\u2060\\2", line)
+    # "Last place Will ends skid" reads as "will ends" (4 Nov). Hyphenated
+    # when it names a team, not when it's where a team is ("in last place").
+    line = re.sub(r"(?<!\bin )(?<!\bto )(?<!\bof )(?<!\bfrom )\b(last|first|second|third) place (?=[A-Za-z])",
+                  r"\1-place ", line, flags=re.I)
     return line.upper()
 
 

@@ -56,11 +56,23 @@ def _keep_scores_whole(html: str) -> str:
                    for p in parts)
 
 
+# "Seven straight losses ends" (4 Nov): a plural streak takes a plural verb.
+_STREAK_VERB = re.compile(r"\b((?:straight|consecutive) (?:losses|wins|defeats|victories)) "
+                          r"(ends|snaps|is|was|comes|has)\b")
+_PLURAL = {"ends": "end", "snaps": "snap", "is": "are", "was": "were", "comes": "come", "has": "have"}
+
+
+def _streak_agrees(html: str) -> str:
+    parts = re.split(r"(<[^>]+>)", html)
+    return "".join(p if p.startswith("<") else
+                   _STREAK_VERB.sub(lambda m: f"{m.group(1)} {_PLURAL[m.group(2)]}", p) for p in parts)
+
+
 def prose(value) -> str:
     if not value:
         return ""
     from web.sanitize import clean_html
-    return _keep_scores_whole(clean_html(str(value), max_length=60000))
+    return _streak_agrees(_keep_scores_whole(clean_html(str(value), max_length=60000)))
 
 
 def safe(value, fallback=""):
