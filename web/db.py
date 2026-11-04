@@ -2096,10 +2096,21 @@ def drafts_ready() -> bool:
 
 
 def draft_scan_league_ids(season: int) -> set:
-    """Leagues already asked about their draft this season."""
-    res = (client().table("draft_scans").select("league_id")
-           .eq("season", int(season)).execute())
-    return {r["league_id"] for r in (res.data or [])}
+    """Leagues already asked about their draft this season. Paged (3 Nov):
+    unpaged, PostgREST stops at 1,000 rows, so past 1,000 drafted leagues
+    every other league looked undrafted, and every week of every collection
+    run asked all of them for their draft again."""
+    out: set = set()
+    start, page = 0, 1000
+    while True:
+        res = (client().table("draft_scans").select("league_id")
+               .eq("season", int(season))
+               .order("league_id").range(start, start + page - 1).execute())
+        rows = res.data or []
+        out.update(r["league_id"] for r in rows)
+        if len(rows) < page:
+            return out
+        start += page
 
 
 def adp(season: int, min_drafts: int = 20) -> dict[str, Any]:
