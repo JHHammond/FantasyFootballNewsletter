@@ -139,6 +139,16 @@ GATES = {
 PAYWALL_STEPS = [("gate_seen", "Seen"), ("gate_hit", "Hit"), ("upgrade_clicked", "Clicked"),
                  ("checkout_started", "Checkout")]
 
+#: The sponsor's links in a paper, by the box they sit in (4 Nov), with how
+#: /staff/stats labels them. web/sponsor_clicks.py reads the box in the browser.
+SPONSOR_PLACEMENTS = {
+    "lines": "Next Week's Projections",
+    "numbers": "By the numbers box",
+    "award": "Sponsored award",
+    "promo": "Promo code box",
+    "other": "Elsewhere in the paper",
+}
+
 #: What a browser may report through POST /e, and from where. Anything else is
 #: dropped, so the endpoint can't be used to write arbitrary rows.
 CLIENT_EVENTS = {
@@ -147,6 +157,7 @@ CLIENT_EVENTS = {
     "gate_seen": set(GATES),
     "gate_hit": set(GATES),
     "upgrade_clicked": set(GATES),
+    "sponsor_click": set(SPONSOR_PLACEMENTS),
 }
 
 
@@ -185,3 +196,58 @@ def weekly_table(rows: list[dict], weeks: int = 8) -> list[dict]:
         seen = w.get("connect_viewed", 0)
         w["connect_rate"] = round(100 * w.get("league_connected", 0) / seen) if seen else None
     return out
+
+
+def sponsor_table(clicks: list[dict], weekly: list[dict], days: int = 28) -> dict:
+    """Sponsor link presses for /staff/stats (4 Nov).
+
+    `clicks` are raw sponsor_click events (league_id, props, occurred_at);
+    `weekly` is weekly_table()'s output, for the paper reads beside them.
+    Returns totals for the last `days`, one row per placement, and one row
+    per week (Monday start, Eastern, newest first) with presses per 1,000
+    paper reads.
+    """
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+    eastern = ZoneInfo("America/New_York")
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    total = last_7 = 0
+    leagues: set = set()
+    by_place: dict[str, dict] = {}
+    by_week: dict[str, dict] = {}
+    for e in clicks or []:
+        try:
+            when = datetime.fromisoformat(str(e.get("occurred_at")).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        place = (e.get("props") or {}).get("where") or "other"
+        lg = e.get("league_id")
+        day = when.astimezone(eastern).date()
+        start = (day - timedelta(days=day.weekday())).isoformat()
+        w = by_week.setdefault(start, {"week_start": start, "clicks": 0, "leagues": set()})
+        w["clicks"] += 1
+        if lg:
+            w["leagues"].add(lg)
+        if when < since:
+            continue
+        total += 1
+        last_7 += when >= week_ago
+        if lg:
+            leagues.add(lg)
+        r = by_place.setdefault(place, {"where": place, "label": SPONSOR_PLACEMENTS.get(place, place),
+                                        "clicks": 0, "leagues": set()})
+        r["clicks"] += 1
+        if lg:
+            r["leagues"].add(lg)
+    reads = {w["week_start"]: int(w.get("paper_read") or 0) for w in weekly or []}
+    weeks = []
+    for start in sorted(set(by_week) | set(reads), reverse=True)[:8]:
+        w = by_week.get(start, {"clicks": 0, "leagues": set()})
+        r = reads.get(start, 0)
+        weeks.append({"week_start": start, "clicks": w["clicks"], "leagues": len(w["leagues"]),
+                      "reads": r, "per_1000": round(1000 * w["clicks"] / r, 1) if r else None})
+    places = sorted(({**r, "leagues": len(r["leagues"])} for r in by_place.values()),
+                    key=lambda r: (-r["clicks"], r["where"]))
+    return {"total": total, "last_7": last_7, "leagues": len(leagues), "days": days,
+            "placements": places, "weeks": weeks}

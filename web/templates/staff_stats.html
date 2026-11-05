@@ -82,6 +82,32 @@
 </section>
 <p class="card-sub" style="margin-top:12px;">{{ "{:,}".format(s.paywall.paid) }} subscribed and {{ "{:,}".format(s.paywall.cancelled) }} cancelled in the same 28 days. <b>Seen</b> is a lock scrolled into view (once a page view); <b>Hit</b> is somebody running into a limit, like a seventh player on the chart; <b>Clicked</b> is a press on the button or sign-up link by that lock; <b>Checkout</b> is the trip to Stripe it started. Signed-out clicks go to sign-up, so Clicked can run ahead of Checkout.</p>
 
+<div class="stat-section">Sponsor clicks, last 28 days</div>
+<section class="card" style="padding:0; overflow-x:auto;">
+    <table class="stat-table">
+        <tr><th>Placement</th><th>Clicks</th><th>Leagues</th></tr>
+        {% for r in s.sponsor.placements %}
+        <tr><td>{{ r.label }}</td><td>{{ "{:,}".format(r.clicks) }}</td><td>{{ "{:,}".format(r.leagues) }}</td></tr>
+        {% else %}
+        <tr><td colspan="3">No clicks yet. Counting started 4 Nov 2026.</td></tr>
+        {% endfor %}
+        {% if s.sponsor.placements %}
+        <tr><td><b>Total</b></td><td><b>{{ "{:,}".format(s.sponsor.total) }}</b></td><td><b>{{ "{:,}".format(s.sponsor.leagues) }}</b></td></tr>
+        {% endif %}
+    </table>
+</section>
+<section class="card" style="padding:0; overflow-x:auto; margin-top:12px;">
+    <table class="stat-table">
+        <tr><th>Week of</th><th>Clicks</th><th>Leagues</th><th>Paper reads</th><th>Clicks / 1,000 reads</th></tr>
+        {% for w in s.sponsor.weeks %}
+        <tr><td>{{ w.week_start }}</td><td>{{ "{:,}".format(w.clicks) }}</td><td>{{ "{:,}".format(w.leagues) }}</td><td>{{ "{:,}".format(w.reads) }}</td><td>{{ w.per_1000 if w.per_1000 is not none else "—" }}</td></tr>
+        {% else %}
+        <tr><td colspan="5">No weeks yet.</td></tr>
+        {% endfor %}
+    </table>
+</section>
+<p class="card-sub" style="margin-top:12px;">{{ "{:,}".format(s.sponsor.last_7) }} in the last 7 days. A click is a press on any sponsor link in a paper (the button, the logo or the code), so one reader tapping twice counts twice. Bots and link previews are left out, and the homepage&rsquo;s preview of a paper doesn&rsquo;t count. The links still go straight to the sponsor; these are presses, not sign-ups, which only the sponsor can see. Weeks start Monday, Eastern.</p>
+
 <div class="stat-section">By week, this season</div>
 <section class="card" style="padding:0;">
     <table class="stat-table">

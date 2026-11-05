@@ -1304,6 +1304,7 @@ def staff_stats(fresh: bool = False) -> dict:
         platforms[l.get("provider") or "?"] = platforms.get(l.get("provider") or "?", 0) + 1
     latest = by_week.get(week) or {"papers": 0, "views": 0}
     campaign = f"{season}-w{week}"
+    funnel = safe(lambda: analytics.weekly_table(db.events_weekly(8)), [])
     out = {
         "season": season, "week": week,
         "users": len(users),
@@ -1332,7 +1333,10 @@ def staff_stats(fresh: bool = False) -> dict:
         "reminders_sent": safe(lambda: len(db.reminders_sent(campaign))),
         "optouts": safe(lambda: len(db.email_optouts())),
         "by_week": [by_week[w] for w in sorted(by_week)],
-        "funnel": safe(lambda: analytics.weekly_table(db.events_weekly(8)), []),
+        "funnel": funnel,
+        "sponsor": safe(lambda: analytics.sponsor_table(db.sponsor_clicks(56), funnel),
+                        {"total": 0, "last_7": 0, "leagues": 0, "days": 28,
+                         "placements": [], "weeks": []}),
         "paywall": safe(lambda: analytics.gate_table(db.gate_report(28)), {"rows": [], "paid": 0, "cancelled": 0}),
         "paywall_steps": analytics.PAYWALL_STEPS,
         "funnel_steps": analytics.FUNNEL,
@@ -5474,6 +5478,12 @@ def read_paper(request: Request, slug: str, season: int, week: int, embed: int =
         from . import house_footer
         html = house_footer.apply(html)
 
+    # Presses on the sponsor's links (4 Nov), counted through POST /e. The
+    # links themselves are untouched. Not in the homepage's preview frame.
+    if not embed:
+        from . import sponsor_clicks
+        html = sponsor_clicks.apply(html)
+
     return HTMLResponse(
         content=html,
         # Editions never change once published.
@@ -5492,14 +5502,33 @@ CLIENT_EVENTS_PER_HOUR = 120
 _client_event_hits: dict[str, list[float]] = {}
 
 
+_PAPER_PATH = re.compile(r"^/p/([A-Za-z0-9_-]{1,120})/(\d{4})/week-(\d{1,2})$")
+
+
+def _paper_from_path(request: Request, path: str) -> tuple:
+    """(league id, {season, week}) for a paper's own path, as a sponsor press
+    reports it (4 Nov). (None, {}) for anything else; never raises."""
+    m = _PAPER_PATH.match(path or "")
+    if not m or analytics.is_bot(request.headers.get("user-agent")):
+        return None, {}
+    try:
+        league = db.league_by_public_slug(m.group(1))
+    except Exception:  # noqa: BLE001 — a counter never fails
+        league = None
+    return (league or {}).get("id"), {"season": int(m.group(2)), "week": int(m.group(3))}
+
+
 @app.post("/e", include_in_schema=False)
-def client_event(request: Request, n: str = Form(""), where: str = Form("")):
+def client_event(request: Request, n: str = Form(""), where: str = Form(""),
+                 paper: str = Form("")):
     if where in analytics.CLIENT_EVENTS.get(n, ()):
         ip, now = _client_ip(request), time.time()
         hits = [t for t in _client_event_hits.get(ip, []) if now - t < 3600]
         if len(hits) < CLIENT_EVENTS_PER_HOUR:
             hits.append(now)
-            _log(request, n, where=where)
+            league_id, extra = (_paper_from_path(request, paper) if n == "sponsor_click"
+                                else (None, {}))
+            _log(request, n, league_id, where=where, **extra)
         _client_event_hits[ip] = hits
         if len(_client_event_hits) > 50_000:
             _client_event_hits.clear()

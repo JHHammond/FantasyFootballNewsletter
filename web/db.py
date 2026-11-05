@@ -479,6 +479,17 @@ def gate_report(days: int = 28) -> list[dict[str, Any]]:
     return client().rpc("gate_report", {"p_days": int(days)}).execute().data or []
 
 
+def sponsor_clicks(days: int = 56) -> list[dict[str, Any]]:
+    """Every sponsor_click event in the last `days`, raw (4 Nov). Few enough
+    to read whole; analytics.sponsor_table() does the counting."""
+    from datetime import datetime, timedelta, timezone
+    since = (datetime.now(timezone.utc) - timedelta(days=max(int(days), 1))).isoformat()
+    return _paged_query(lambda: client().table("events")
+                        .select("league_id, props, occurred_at")
+                        .eq("name", "sponsor_click").gte("occurred_at", since)
+                        .order("occurred_at"))
+
+
 def events_weekly(weeks: int = 8) -> list[dict[str, Any]]:
     """Counts per event per week (Monday start, Eastern), newest first."""
     return client().rpc("events_weekly", {"p_weeks": int(weeks)}).execute().data or []

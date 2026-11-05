@@ -263,6 +263,13 @@ def gate_report(days: int = 28) -> list[dict[str, Any]]:
     return [{"gate": g, "name": n, "events": c} for (g, n), c in sorted(counts.items())]
 
 
+def sponsor_clicks(days: int = 56) -> list[dict[str, Any]]:
+    from datetime import datetime, timedelta, timezone
+    since = datetime.now(timezone.utc) - timedelta(days=max(int(days), 1))
+    return [dict(e) for e in list(_EVENTS) if e["name"] == "sponsor_click"
+            and datetime.fromisoformat(str(e["occurred_at"]).replace("Z", "+00:00")) >= since]
+
+
 def events_weekly(weeks: int = 8) -> list[dict[str, Any]]:
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
