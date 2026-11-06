@@ -6515,3 +6515,68 @@ def test_every_paper_ends_with_a_way_into_the_site(client, league, monkeypatch):
     assert "/luck?from=paper" not in html          # not public yet, so no link
     embed = client.get(f"/p/{league['public_slug']}/2025/week-3?embed=1").text
     assert "house-footer" not in embed
+
+
+# ---------------------------------------------------------------------------
+# No ads for paying owners (6 Nov: PrizePicks okayed it)
+# ---------------------------------------------------------------------------
+
+_SPONSOR_JSON = '{"brand": "PrizePicks", "code": "DESK", "link": "https://example.com"}'
+
+
+def test_ticking_no_ads_turns_them_off_but_a_free_form_never_does(
+        client, league, free_league, monkeypatch):
+    monkeypatch.setattr(webapp, "rerender_season", lambda db, lg: 0)
+    client.post("/l/secret-admin-token/settings", data={"paper_name": "X", "ads_off": "on"})
+    assert demo_db._LEAGUES[league["id"]].get("ads_off") is True
+    client.post("/l/secret-admin-token/settings", data={"paper_name": "X"})
+    assert demo_db._LEAGUES[league["id"]].get("ads_off") is False
+    # A free owner posting the box straight at the form gets nothing.
+    client.post("/l/free-admin-token/settings", data={"paper_name": "Y", "ads_off": "on"})
+    assert not demo_db._LEAGUES[free_league["id"]].get("ads_off")
+
+
+def test_the_sponsor_leaves_only_a_paying_owners_paper(league, free_league, monkeypatch):
+    from web import generate
+    monkeypatch.setenv("PAPER_SPONSOR", _SPONSOR_JSON)
+    assert generate.sponsor_for(demo_db, league)            # paid, box not ticked
+    demo_db.update_league(league["id"], {"ads_off": True})
+    paid = demo_db.league_by_admin_token("secret-admin-token")
+    assert generate.sponsor_for(demo_db, paid) is None
+    assert generate.promo_for(demo_db, paid) is None
+    # The box alone is not enough: a free (or lapsed) owner keeps the sponsor.
+    demo_db.update_league(free_league["id"], {"ads_off": True})
+    free = demo_db.league_by_admin_token("free-admin-token")
+    assert generate.sponsor_for(demo_db, free)
+    # A lapsed subscription puts the sponsor back without touching the box.
+    demo_db.set_plan(paid["user_id"], plan="paid", status="canceled")
+    assert generate.sponsor_for(demo_db, paid)
+
+
+def test_switching_ads_reaches_papers_already_published(client, league, monkeypatch):
+    seen = []
+    monkeypatch.setattr(webapp, "rerender_season", lambda db, lg: seen.append(lg["id"]))
+    client.post("/l/secret-admin-token/settings", data={"paper_name": "X", "ads_off": "on"})
+    assert seen == [league["id"]]
+    # Saving again without changing it doesn't re-render everything.
+    client.post("/l/secret-admin-token/settings", data={"paper_name": "X", "ads_off": "on"})
+    assert seen == [league["id"]]
+
+
+def test_rerender_replaces_the_stored_html_and_nothing_else(league, monkeypatch):
+    from web import generate
+    demo_db.save_paper(league["id"], 3, 2025, "path", "url", {"headline": "H"})
+    demo_db.save_paper(league["id"], 4, 2025, "path", "url", {})   # no prose: skipped
+    before = dict(demo_db.get_paper(league["id"], 2025, 3))
+    monkeypatch.setattr(generate, "_published_html",
+                        lambda db, lg, week, ai: (f"<p>week {week} {ai['headline']}</p>", None))
+    assert generate.rerender_season(demo_db, league) == 1
+    assert demo_db._STORAGE[demo_db.storage_path(league["public_slug"], 2025, 3)] == "<p>week 3 H</p>"
+    assert demo_db.get_paper(league["id"], 2025, 3) == before
+
+
+def test_the_manage_page_offers_no_ads_and_locks_it_for_free(client, league, free_league):
+    paid = client.get("/l/secret-admin-token").text
+    assert 'name="ads_off"' in paid and "An ad-free paper is part of" not in paid
+    free = client.get("/l/free-admin-token").text
+    assert "An ad-free paper is part of" in free

@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from markupsafe import Markup  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -86,6 +86,7 @@ from .generate import (  # noqa: E402
     public_base_url,
     render_and_store,
     render_editable,
+    rerender_season,
 )
 
 # DEMO_MODE=1 swaps Supabase for an in-memory store, so the whole app can be
@@ -4234,9 +4235,11 @@ def _save_managers(league: dict, handle: list, display_name: list,
 @app.post("/l/{token}/settings")
 def update_settings(
     token: str,
+    background: BackgroundTasks,
     paper_name: str = Form(""),
     commissioner: str = Form(""),
     auto_send: str = Form(""),
+    ads_off: str = Form(""),
     format: str = Form("redraft"),
     tone: str = Form("standard"),
     theme: str = Form("tabloid"),
@@ -4259,10 +4262,18 @@ def update_settings(
         wants = auto_send == "on"
         delivery = {"auto_send": wants, "auto_send_off": not wants}
 
+    # No ads (6 Nov, PrizePicks okayed it for paying customers). Same rule as
+    # delivery: a free form arrives with the box disabled and so empty, and
+    # that is never read as an answer either way.
+    ads = {}
+    if plan.ad_free:
+        ads = {"ads_off": ads_off == "on"}
+
     fields = {
         "paper_name": paper_name.strip() or None,
         "commissioner_name": commissioner.strip(),
         **delivery,
+        **ads,
         "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
         "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
         "theme": plans.resolve_theme(plan, themes.resolve(theme)),
@@ -4271,9 +4282,19 @@ def update_settings(
     }
     try:
         db.update_league(league["id"], fields)
-    except Exception:  # noqa: BLE001 — migration 018 not run yet
+    except Exception:  # noqa: BLE001 — migration 018 or 069 not run yet
         fields.pop("auto_send_off", None)
+        fields.pop("ads_off", None)
         db.update_league(league["id"], fields)
+        ads = {}
+
+    # Papers already in the group chat follow the switch too: re-rendered from
+    # their saved prose after the redirect, no Claude call.
+    if ads and bool(league.get("ads_off")) != ads["ads_off"]:
+        background.add_task(rerender_season, db, _require_league(token))
+        return RedirectResponse(
+            f"/l/{token}?notice=Saved.+This+season%27s+papers+are+being+updated"
+            f"+-+give+it+a+minute.#settings", status_code=303)
     return RedirectResponse(f"/l/{token}?notice=Saved.#settings", status_code=303)
 
 

@@ -436,8 +436,40 @@ def sponsor_settings(league: dict[str, Any]) -> dict | None:
     return cfg
 
 
-def _award_sponsored(league: dict[str, Any]) -> bool:
-    cfg = sponsor_settings(league)
+def ads_off(db, league: dict[str, Any]) -> bool:
+    """Has a paying owner taken the sponsor out of this league's paper?
+
+    (6 Nov: PrizePicks okayed it for paying customers.) Two things must both
+    hold: the owner ticked the box (`leagues.ads_off`, migration 069), and the
+    owner is on a plan that allows it right now. The box survives a lapsed
+    subscription, so the ads come back while it is lapsed and go again on
+    renewal without anybody ticking anything.
+
+    Fails toward printing the sponsor: a paper with an ad it shouldn't have is
+    a support email, a paid placement silently missing from a free league's
+    paper is a breach of the contract."""
+    if not league.get("ads_off") or not league.get("user_id"):
+        return False
+    try:
+        owner = db.user_by_id(league["user_id"])
+    except Exception:  # noqa: BLE001
+        return False
+    import plans
+    return plans.plan_for(owner).ad_free
+
+
+def sponsor_for(db, league: dict[str, Any]) -> dict | None:
+    """sponsor_settings, unless this league's owner has opted out."""
+    return None if ads_off(db, league) else sponsor_settings(league)
+
+
+def promo_for(db, league: dict[str, Any]) -> dict | None:
+    """The back-page referral box, unless this league's owner has opted out."""
+    return None if ads_off(db, league) else promo_settings()
+
+
+def _award_sponsored(db, league: dict[str, Any]) -> bool:
+    cfg = sponsor_for(db, league)
     return bool(cfg and cfg.get("award", False))
 
 
@@ -460,14 +492,8 @@ def _photo_desk(db, season: int, week: int) -> dict:
     return desk
 
 
-def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
-                     *, is_edit: bool = False) -> dict[str, Any]:
-    """Render a paper from existing prose and store it.
-
-    Used by generation AND by editing. Re-fetches the week's stats — cached, and
-    a completed week never changes — but makes no Claude call, so editing costs
-    nothing and takes about a second.
-    """
+def _published_html(db, league: dict[str, Any], week: int, ai_content: dict):
+    """(html, week_data) for the copy of a paper that goes in the bucket."""
     season = league["season"]
     paper_name = paper_name_for(league)
 
@@ -489,12 +515,25 @@ def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
         # object that gets stored, or it would be taken fresh every render and
         # freeze nothing.
         publisher_ads=_snapshot_publisher_ads(db, ai_content, season, week),
-        promo=promo_settings(),
+        promo=promo_for(db, league),
         photo_desk=_photo_desk(db, season, week),
-        sponsor=sponsor_settings(league),
+        sponsor=sponsor_for(db, league),
     )
     edition["paper_name"] = paper_name
-    html = render_html(edition, theme=league.get("theme"))
+    return render_html(edition, theme=league.get("theme")), week_data
+
+
+def render_and_store(db, league: dict[str, Any], week: int, ai_content: dict,
+                     *, is_edit: bool = False) -> dict[str, Any]:
+    """Render a paper from existing prose and store it.
+
+    Used by generation AND by editing. Re-fetches the week's stats — cached, and
+    a completed week never changes — but makes no Claude call, so editing costs
+    nothing and takes about a second.
+    """
+    season = league["season"]
+    paper_name = paper_name_for(league)
+    html, week_data = _published_html(db, league, week, ai_content)
 
     path, public_url = db.upload_paper(league["public_slug"], season, week, html)
     db.save_paper(league["id"], week, season, path, public_url, ai_content,
@@ -539,16 +578,44 @@ def render_editable(db, league: dict[str, Any], week: int, ai_content: dict) -> 
         # are actually publishing. It carries no edit hooks — it is not theirs
         # to edit — and this render is never stored, so nothing is frozen here.
         publisher_ads=_snapshot_publisher_ads(db, dict(ai_content), season, week),
-        promo=promo_settings(),
+        promo=promo_for(db, league),
         # The staff photo desk, same as the published render (2 Oct: the
         # editor showed the platform's headshots instead, so the photos
         # changed under the commissioner while he edited, and changed back
         # on publish).
         photo_desk=_photo_desk(db, season, week),
-        sponsor=sponsor_settings(league),
+        sponsor=sponsor_for(db, league),
     )
     edition["paper_name"] = paper_name
     return render_html(edition, theme=league.get("theme"))
+
+
+def rerender_season(db, league: dict[str, Any]) -> int:
+    """Re-render this season's stored papers in place, from their saved prose.
+
+    For a change that should reach papers already sent round — the ad-free
+    switch (6 Nov), so a link in the group chat from Week 5 loses its sponsor
+    boxes too. No Claude call. Only the HTML in the bucket is replaced (same
+    path, upserted): the row, its edit history and the Around the Leagues
+    rows are untouched, so this is neither an edit nor a regeneration.
+    Returns how many papers were re-rendered; a paper that fails is logged
+    and left as it was."""
+    done = 0
+    for paper in db.list_papers(league["id"]):
+        if paper.get("season") != league["season"]:
+            continue
+        try:
+            row = db.get_paper(league["id"], paper["season"], paper["week"])
+            ai_content = dict((row or {}).get("ai_cache") or {})
+            if not ai_content:
+                continue
+            html, _ = _published_html(db, league, paper["week"], ai_content)
+            db.upload_paper(league["public_slug"], paper["season"], paper["week"], html)
+            done += 1
+        except Exception as exc:  # noqa: BLE001
+            print(f"[rerender] {league.get('public_slug')} week {paper.get('week')}: "
+                  f"{type(exc).__name__}: {exc}", flush=True)
+    return done
 
 
 def _custom_awards_for_writer(db, league: dict[str, Any], directory: list) -> list:
@@ -903,7 +970,7 @@ def generate_and_store(db, league: dict[str, Any], week: int,
     summary = get_weekly_storylines(games)
     # The Over of the Week is a sponsor's award (John, 1 Oct): written only
     # when a sponsor has it switched on.
-    if not _award_sponsored(league):
+    if not _award_sponsored(db, league):
         summary.pop("over_of_week", None)
 
     # The week's data is the one place the app holds the real list of who is in

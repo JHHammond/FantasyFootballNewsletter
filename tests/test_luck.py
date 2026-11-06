@@ -495,6 +495,6 @@ def test_one_share_button_and_a_share_sheet_for_browsers_without_one(web, monkey
     assert page.count('class="lr-sharebtn lr-share-btn') == 2            # the verdict and the last card
     assert "Story image</a>" not in page and 'class="lr-copy"' not in page
     assert 'id="lr-sheet"' in page and 'data-to="copy"' in page
-    assert f'href="/luck/{lg['public_slug']}/card/b.png?size=story"' in page   # saved from this site, any host
+    assert f'href="/luck/{lg["public_slug"]}/card/b.png?size=story"' in page   # saved from this site, any host
     # the picture is fetched before the tap, so the phone's sheet opens from the tap itself
     assert "setTimeout(loadPicture" in page and "navigator.share(data)" in page

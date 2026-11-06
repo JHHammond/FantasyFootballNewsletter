@@ -391,6 +391,18 @@
             </span>
         </label>
         {% if not plan.auto_send %}{{ upgrade_note(lock_reasons.auto_send, billing_enabled()) }}{% endif %}
+        <label class="check{% if not plan.ad_free %} locked-option{% endif %}">
+            <input type="checkbox" name="ads_off"
+                   {% if not plan.ad_free %}disabled{% endif %}
+                   {% if plan.ad_free and league.ads_off %}checked{% endif %} />
+            <span>
+                No ads in my paper.{% if not plan.ad_free %}{{ lock(lock_reasons.ad_free) }}{% endif %}
+                <span class="check-help">
+                    Takes the sponsor boxes out of this league's paper,
+                    including the papers you've already sent round.
+                </span>
+            </span>
+        </label>
         <button type="submit" class="btn">Save</button>
     </form>
 </section>

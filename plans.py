@@ -92,6 +92,11 @@ class Plan:
     #: Putting your own photos in the paper.
     photo_uploads: bool
 
+    #: Taking the sponsor's placements out of this league's paper (6 Nov:
+    #: PrizePicks agreed). An option the owner turns on, not a default: a paid
+    #: league still carries the sponsor until somebody ticks the box.
+    ad_free: bool = False
+
 
 PLANS: dict[str, Plan] = {
     FREE: Plan(
@@ -114,6 +119,7 @@ PLANS: dict[str, Plan] = {
         themes=None,
         auto_send=True,
         photo_uploads=True,
+        ad_free=True,
     ),
     STAFF: Plan(
         key=STAFF,
@@ -126,6 +132,7 @@ PLANS: dict[str, Plan] = {
         themes=None,
         auto_send=True,
         photo_uploads=True,
+        ad_free=True,
     ),
 }
 
@@ -211,6 +218,7 @@ LOCK_REASONS = {
     "leagues": f"Running more than one league is part of {PRICE_TEXT}.",
     "auto_send": f"Sending itself every week is part of {PRICE_TEXT}.",
     "photo_uploads": f"Putting your own photos in is part of {PRICE_TEXT}.",
+    "ad_free": f"An ad-free paper is part of {PRICE_TEXT}.",
     "generations": f"{PRICE_TEXT} gets you five redos a week.",
     "trial": "Your three free papers are used. Upgrade to keep the presses running.",
 }
