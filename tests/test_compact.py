@@ -136,3 +136,10 @@ def test_only_this_week_and_fraud_watch_keep_a_black_bar():
 def test_how_you_stack_up_matches_the_week_in_numbers():
     css, js = compact.COMPACT_CSS, compact.COMPACT_JS
     assert ".stack-up .stack-big" in css and '".stack-up .col-section-label"' in js
+
+
+def test_the_number_grids_start_left_and_never_wrap_a_figure():
+    css = compact.COMPACT_CSS
+    assert "align-self: flex-start !important" in css      # the desktop grid pushed labels right
+    big = css[css.index(".stack-up .stack-big {"):]
+    assert "white-space: nowrap" in big[:big.index("}")]   # "Top 24%" broke onto two lines

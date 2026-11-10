@@ -163,6 +163,12 @@ COMPACT_CSS = """
       font-size: 34px !important; line-height: 1 !important; color: var(--accent, #c40000) !important; margin: 0 !important; }
   .front-col .wk-board .wk-who { order: 2; font-style: normal !important; font-size: 13px !important; line-height: 1.3 !important;
       color: #3f3a33 !important; margin: 0 !important; }
+  /* The desktop rules place these on a grid ("num label" / "num who") with
+     the label pushed to the end; in a column that put the label at the right
+     edge and the number in the middle (9 Nov). Everything starts left. */
+  .front-col .wk-board .wk-label, .front-col .wk-board .wk-num, .front-col .wk-board .wk-who {
+      align-self: flex-start !important; text-align: left !important; min-width: 0 !important; grid-area: auto !important; }
+  .front-col .wk-board .wk-unit { display: none !important; }
   .cx-dark .front-col .wk-board .wk-label { color: #b9c2cf !important; }
   .cx-dark .front-col .wk-board .wk-who { color: #b9c2cf !important; }
 
@@ -173,7 +179,7 @@ COMPACT_CSS = """
       margin: 4px 0 2px !important; }
   .stack-up .stack-row { display: flex !important; align-items: center; gap: 14px; padding: 11px 0 !important;
       border-bottom: 1px solid #e4e0d8 !important; }
-  .stack-up .stack-big { flex: none; width: 104px; font-family: "Anton", Impact, sans-serif !important;
+  .stack-up .stack-big { flex: none; width: auto; min-width: 104px; white-space: nowrap; font-family: "Anton", Impact, sans-serif !important;
       font-weight: 400 !important; font-size: 28px !important; line-height: 1 !important;
       color: var(--accent, #c40000) !important; }
   .stack-up .stack-row > span:last-child { font-size: 14px !important; line-height: 1.35; color: #3f3a33; }
