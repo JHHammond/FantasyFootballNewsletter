@@ -86,3 +86,24 @@ def test_a_paper_is_cached_for_a_minute_not_an_hour():
     from web import app as webapp
     src = inspect.getsource(webapp.read_paper)
     assert '"public, max-age=60"' in src and "s-maxage" not in src
+
+
+def test_both_stories_of_a_pair_get_a_label():
+    js = compact.COMPACT_JS
+    assert 'querySelectorAll(".story-card .story-headline")' in js
+    assert 'h.closest(".paired-col")' in js
+
+
+def test_standings_and_week_in_numbers_are_restyled():
+    css, js = compact.COMPACT_CSS, compact.COMPACT_JS
+    assert ".cx-st-rank" in css and "cx-st-src" in js
+    num = css[css.index(".front-col .wk-board .wk-num"):]
+    assert "var(--accent, #c40000)" in num[:num.index("}")]      # every number red
+    st = js[js.index("Standings (9 Nov)"):js.index("Medal colours")]
+    assert "innerHTML" not in st                                  # team names stay text
+
+
+def test_a_paragraph_starting_with_a_number_sign_is_not_a_heading():
+    import newspaper
+    out = newspaper.md("Para one.\n\n#1 Pick Jeremiah Smith is still 2-7.")
+    assert "#1 Pick Jeremiah Smith" in out and "<h1" not in out

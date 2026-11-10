@@ -21,6 +21,10 @@ What it does, from the 31 Oct read of Kevlarville week 7 at iPhone size:
   black Anton bar, then per game the same label its story carries, the
   teaser in Anton capitals and one score line, with a red stripe down the
   side of every row.
+- Standings (9 Nov, mockup S2 with the rank in the box): one row per team,
+  its league rank in a black box (red for first), the record on the right,
+  the streak and this week's points underneath. The Week in Numbers
+  (mockup S3): a big red number, an Anton label, the teams under it.
 - Rules and white space instead of boxes: the scorebar, the award cards
   and the ranking cards lose their frames. Fraud Watch keeps its box; it
   is meant to stand apart.
@@ -75,6 +79,10 @@ COMPACT_CSS = """
       font-size: clamp(30px, 9.4vw, 38px) !important; line-height: 1.02 !important;
       letter-spacing: .2px !important; text-transform: uppercase !important; text-wrap: balance;
       overflow-wrap: break-word; margin: 0 0 6px !important; }
+  /* The pair's two stories stack on a phone: no side rule between them, the
+     same air as between any two stories (9 Nov). */
+  .paired-col { border-right: 0 !important; padding-right: 0 !important; }
+  .paired-col + .paired-col { margin-top: 26px !important; }
   .cx-tag { border-top: 5px solid var(--accent, #c40000); padding-top: 10px; margin: 0 0 6px;
       font: 700 12px "Barlow Condensed", "Arial Narrow", Arial, sans-serif; letter-spacing: 2.4px;
       text-transform: uppercase; color: var(--accent, #c40000); }
@@ -88,10 +96,44 @@ COMPACT_CSS = """
   .col-section-label.cx-week-head { background: #111 !important; color: #fff !important; border: 0 !important;
       padding: 8px 12px !important; display: flex; justify-content: space-between; align-items: baseline;
       font-family: "Anton", Impact, "Arial Narrow", sans-serif !important; font-weight: 400 !important;
-      font-size: 22px !important; letter-spacing: .4px !important; margin-bottom: 0 !important; }
+      font-size: 22px !important; letter-spacing: .4px !important; margin: 30px 0 0 !important; }
   .cx-week-head::after { content: attr(data-count); font: 600 12px "Barlow Condensed", "Arial Narrow", sans-serif;
       letter-spacing: 1.6px; color: #bdbdbd; }
   .col-story.cx-week { padding: 0 !important; }
+
+  /* Standings (9 Nov). The table stays in the page for the script to read,
+     hidden; the rows are built beside it. */
+  table.stats.cx-st-src { display: none !important; }
+  .cx-st-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #ddd; }
+  .cx-st-rank { flex: none; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
+      background: #111; color: #fff; font-family: "Anton", Impact, sans-serif; font-size: 24px; }
+  .cx-st-row:first-child .cx-st-rank { background: var(--accent, #c40000); }
+  .cx-st-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .cx-st-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .cx-st-name { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cx-st-rec { flex: none; font-family: "Anton", Impact, sans-serif; font-size: 19px; }
+  .cx-st-sub { font: 600 12.5px "Barlow Condensed", "Arial Narrow", sans-serif; letter-spacing: 1.2px;
+      text-transform: uppercase; color: #6b665e; }
+  .cx-st-sub .cx-st-l { color: var(--accent, #c40000); }
+  .cx-st-sub .cx-st-w { color: #111; }
+  .cx-dark .cx-st-name, .cx-dark .cx-st-rec, .cx-dark .cx-st-sub .cx-st-w { color: #f2f4f7; }
+  .cx-dark .cx-st-rank { background: #f2f4f7; color: #0b0d10; }
+  .cx-dark .cx-st-row { border-bottom-color: #2b313c; }
+
+  /* The Week in Numbers (9 Nov). */
+  .front-col .wk-board { border: 0 !important; margin: 30px 0 0 !important; }
+  .front-col .wk-board .wk-head { background: #111 !important; color: #fff !important; border: 0 !important;
+      padding: 8px 12px !important; margin: 0 !important; font-family: "Anton", Impact, sans-serif !important;
+      font-weight: 400 !important; font-size: 22px !important; letter-spacing: .4px !important; }
+  .front-col .wk-board .wk-cell { grid-template-columns: 104px minmax(0, 1fr) !important; column-gap: 14px !important;
+      padding: 12px 0 !important; border-bottom: 1px solid #ddd !important; }
+  .front-col .wk-board .wk-num { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important;
+      font-size: 40px !important; line-height: 1 !important; color: var(--accent, #c40000) !important; }
+  .front-col .wk-board .wk-label { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important;
+      font-size: 17px !important; letter-spacing: .3px !important; color: #111 !important; }
+  .front-col .wk-board .wk-who { font-style: normal !important; font-size: 13.5px !important; color: #3f3a33 !important; }
+  .cx-dark .front-col .wk-board .wk-label { color: #f2f4f7 !important; }
+  .cx-dark .front-col .wk-board .wk-who { color: #b9c2cf !important; }
   .cx-tw { display: flex; gap: 12px; padding: 13px 0; color: inherit; text-decoration: none !important; }
   /* One colour for every stripe (9 Nov, John). */
   .cx-tw-bar { flex: none; width: 4px; background: var(--accent, #c40000); }
@@ -278,10 +320,14 @@ COMPACT_JS = """
     return m ? { w: +m[1], l: +m[2], t: +(m[3] || 0) } : null;
   }
   function pct(r) { var g = r.w + r.l + r.t; return g ? (r.w + r.t / 2) / g : null; }
-  document.querySelectorAll(".story-card").forEach(function (card) {
-    var h = card.querySelector(".story-headline");
-    var bar = card.querySelector(".story-scorebar");
-    if (!h || !bar || card.querySelector(".cx-tag")) return;
+  // One label per STORY, not per block: games 3 and 4 print as a pair inside
+  // one .story-card, each in its own .paired-col (9 Nov: the second of the
+  // pair had no label and so no rule between it and the story above).
+  document.querySelectorAll(".story-card .story-headline").forEach(function (h) {
+    var card = h.closest(".paired-col") || h.closest(".story-card");
+    var bar = card && card.querySelector(".story-scorebar");
+    var prev = h.previousElementSibling;
+    if (!bar || (prev && prev.classList.contains("cx-tag"))) return;
     var by = parseFloat(((bar.querySelector(".sm-num") || {}).textContent || "").trim());
     var label;
     if (!(by > 0)) {
@@ -375,6 +421,48 @@ COMPACT_JS = """
     row.classList.add("cx-week");
     row.textContent = "";
     row.appendChild(box);
+  });
+  // Standings (9 Nov): one row per team, read off the printed table.
+  var weekNo = ((document.querySelector(".above-fold .dateline-bar span") || {}).textContent || "").trim();
+  document.querySelectorAll(".col-section-label").forEach(function (h) {
+    if (!/^\\s*standings\\s*$/i.test(h.textContent)) return;
+    var table = h.nextElementSibling;
+    if (!table || !table.matches("table.stats") || table.classList.contains("cx-st-src")) return;
+    var list = document.createElement("div");
+    list.className = "cx-st";
+    table.querySelectorAll("tbody tr").forEach(function (tr) {
+      var td = tr.querySelectorAll("td");
+      if (td.length < 4) return;
+      var name = ((tr.querySelector(".team-cell span") || td[1]).textContent || "").trim();
+      var streak = tr.querySelector(".streak");
+      var title = streak ? (streak.getAttribute("title") || "") : "";
+      var sm = title.match(/^(Won|Lost) (\\d+)/);
+      var row = document.createElement("div"); row.className = "cx-st-row";
+      var rank = document.createElement("span"); rank.className = "cx-st-rank";
+      rank.textContent = (td[0].textContent || "").trim();
+      var main = document.createElement("div"); main.className = "cx-st-main";
+      var top = document.createElement("div"); top.className = "cx-st-top";
+      var nm = document.createElement("span"); nm.className = "cx-st-name"; nm.textContent = name;
+      var rc = document.createElement("span"); rc.className = "cx-st-rec"; rc.textContent = (td[2].textContent || "").trim();
+      top.appendChild(nm); top.appendChild(rc);
+      var sub = document.createElement("span"); sub.className = "cx-st-sub";
+      if (sm) {
+        var sw = document.createElement("span");
+        sw.className = sm[1] === "Won" ? "cx-st-w" : "cx-st-l";
+        sw.textContent = sm[1] + " " + sm[2];
+        sub.appendChild(sw);
+        sub.appendChild(document.createTextNode(" \\u00b7 "));
+      }
+      sub.appendChild(document.createTextNode((td[3].textContent || "").trim() + " this week"));
+      main.appendChild(top); main.appendChild(sub);
+      row.appendChild(rank); row.appendChild(main);
+      list.appendChild(row);
+    });
+    if (!list.children.length) return;
+    table.classList.add("cx-st-src");
+    table.parentNode.insertBefore(list, table);
+    h.classList.add("cx-week-head");
+    if (/^Week \\d+$/.test(weekNo)) h.setAttribute("data-count", "After " + weekNo.toLowerCase());
   });
   document.querySelectorAll(".col-section-label").forEach(function (h) {
     if (!/^\s*this week\s*$/i.test(h.textContent)) return;

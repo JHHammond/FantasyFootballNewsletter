@@ -102,6 +102,11 @@ def md(text):
         return ""
     if raw.startswith("<"):
         return prose(raw)
+    # A paragraph that opens on a team called "#1 Pick ..." is a heading to
+    # Markdown, which needs no space after the #; the sanitizer then dropped
+    # the heading tag and printed "1 Pick ..." in the wrong size (9 Nov).
+    # A # straight before a digit is never a heading in a paper about scores.
+    raw = re.sub(r"(?m)^([ \t]*)#(?=\d)", r"\1\\#", raw)
     return prose(markdown.markdown(raw))
 
 
