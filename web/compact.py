@@ -187,6 +187,35 @@ COMPACT_CSS = """
       letter-spacing: 1.2px; text-transform: uppercase; color: #8a6d00 !important; margin: 6px 0 0 !important; }
   .cx-dark .stack-up .stack-row > span:last-child, .cx-dark .stack-up .stack-sub { color: #b9c2cf !important; }
 
+  /* Weekly Awards (9 Nov, the simpler mockup). The award's name in red
+     condensed capitals, not Anton; a small round photo; the numbers on one
+     ruled line, "PROJECTED 20.5 -> SCORED 0.0". */
+  .award-card { border-top: 0 !important; border-bottom: 1px solid #ddd !important; padding: 18px 0 20px !important; }
+  .award-card .award-head { border: 0 !important; margin: 0 !important; padding: 0 !important; }
+  .award-card .award-title { font: 700 19px "Barlow Condensed", "Arial Narrow", sans-serif !important;
+      letter-spacing: 2.2px !important; text-transform: uppercase !important; color: var(--accent, #c40000) !important;
+      border: 0 !important; margin: 0 !important; padding: 0 !important; }
+  .award-card .award-desc { font-style: italic !important; font-size: 13.5px !important; color: #555 !important;
+      margin: 2px 0 12px !important; }
+  .award-card .aw-figure { display: flex !important; align-items: center; gap: 12px; margin: 0 !important; }
+  .award-card .aw-photo { width: 46px !important; height: 46px !important; border-radius: 50% !important;
+      border: 1.5px solid #111 !important; }
+  .award-card .aw-name { font-size: 17px !important; font-weight: 700 !important; line-height: 1.2; }
+  .award-card .aw-pos { background: none !important; color: #6b665e !important; border: 0 !important;
+      padding: 0 !important; margin-left: 4px !important; font: 400 14px Georgia, serif !important; letter-spacing: 0 !important; }
+  .award-card .aw-pos::before { content: "\00b7 "; }
+  .award-card .aw-team { font: 400 14px Georgia, serif !important; letter-spacing: 0 !important;
+      text-transform: none !important; opacity: 1 !important; color: #6b665e; }
+  .award-card .aw-stats.cx-aw-line { display: flex !important; align-items: baseline; flex-wrap: wrap; gap: 6px 16px;
+      margin: 12px 0 2px !important; padding: 8px 0; border-top: 1px solid #e4e0d8; border-bottom: 1px solid #e4e0d8; }
+  .award-card .cx-aw-line .aw-stat { flex-direction: row !important; align-items: baseline; gap: 6px; }
+  .award-card .cx-aw-line .aw-stat span { font: 700 11px "Barlow Condensed", "Arial Narrow", sans-serif !important;
+      letter-spacing: 1.6px !important; opacity: 1 !important; color: #6b665e; }
+  .award-card .cx-aw-line .aw-stat b { font: 700 20px Georgia, serif !important; }
+  .award-card .cx-aw-line .aw-stat.cx-arrow::before { content: "\2192"; color: #999; margin-right: 4px; }
+  .award-card .award-body { margin-top: 12px !important; }
+  .cx-dark .award-card .aw-team, .cx-dark .award-card .aw-pos, .cx-dark .cx-aw-line .aw-stat span { color: #b9c2cf !important; }
+
   /* Fraud Watch (9 Nov). */
   .fraud-callout { margin: 30px 0 0 !important; padding: 0 !important; background: none !important;
       border: 2px solid #111 !important; }
@@ -548,6 +577,30 @@ COMPACT_JS = """
     if (!(n > 0)) return;
     el.textContent = String(n);
     el.classList.add(n === 1 ? "cx-rank-top" : "cx-rank-plain");
+  });
+  // Weekly Awards (9 Nov): the numbers move out from beside the photo onto
+  // their own line under it; Projected -> Scored gets an arrow; "Short by"
+  // goes, since the two numbers already show the gap.
+  document.querySelectorAll(".award-card .aw-figure").forEach(function (fig) {
+    var stats = fig.querySelector(".aw-stats");
+    if (!stats || stats.classList.contains("cx-aw-line")) return;
+    var cells = stats.querySelectorAll(".aw-stat");
+    var labels = Array.prototype.map.call(cells, function (c) {
+      return ((c.querySelector("span") || {}).textContent || "").trim().toLowerCase();
+    });
+    cells.forEach(function (c, i) {
+      if (labels[i] === "short by" && labels.indexOf("projected") >= 0 && labels.indexOf("scored") >= 0) c.remove();
+      if (labels[i] === "scored" && labels[i - 1] === "projected") {
+        c.classList.add("cx-arrow");
+        var num = function (el) { return parseFloat(((el.querySelector("b") || {}).textContent || "").replace(/[^\\d.-]/g, "")); };
+        if (num(c) < num(cells[i - 1])) c.classList.add("down");   // short of it: the score in red
+      }
+    });
+    stats.classList.add("cx-aw-line");
+    fig.parentNode.insertBefore(stats, fig.nextSibling);
+  });
+  document.querySelectorAll(".section-title-full").forEach(function (h) {
+    if (/^\\s*weekly awards\\s*$/i.test(h.textContent)) h.classList.add("cx-rule-head");
   });
   document.querySelectorAll(".stack-up .col-section-label").forEach(function (h) {
     h.classList.add("cx-rule-head");

@@ -20,6 +20,8 @@ point order and augmenting when a slot is contested is provably optimal.
 
 from __future__ import annotations
 
+from typing import Callable, Optional
+
 from .models import BENCH_SLOTS, PlayerLine, Team, WeekData, can_fill_slot_any
 
 
@@ -49,12 +51,19 @@ def _try_assign(
     return False
 
 
-def optimal_lineup(team: Team, roster_slots: list[str]) -> tuple[float, list[PlayerLine]]:
+def optimal_lineup(team: Team, roster_slots: list[str],
+                   value: Optional[Callable[[PlayerLine], float]] = None,
+                   ) -> tuple[float, list[PlayerLine]]:
     """Return (best possible score, the lineup that achieves it).
 
     Considers every player on the roster -- starters and bench alike -- because
     the whole point is to find the lineup the manager should have set.
+
+    `value` scores a player (default: the points he scored). The betting
+    lines pass his projection instead, to find the best lineup a roster can
+    field NEXT week (9 Nov).
     """
+    value = value or (lambda p: p.points)
     slots = [s for s in roster_slots if s not in BENCH_SLOTS]
     if not slots:
         return 0.0, []
@@ -62,13 +71,13 @@ def optimal_lineup(team: Team, roster_slots: list[str]) -> tuple[float, list[Pla
     # Real players only; empty slots can't be assigned to anything.
     players = [p for p in team.all_players if p.player_id]
     # Descending points: greedy in this order is optimal over a transversal matroid.
-    players.sort(key=lambda p: p.points, reverse=True)
+    players.sort(key=value, reverse=True)
 
     slot_owner: list[int | None] = [None] * len(slots)
 
     for idx, player in enumerate(players):
         # A negative-scoring player never improves the total; leave the slot empty.
-        if player.points <= 0:
+        if value(player) <= 0:
             continue
         _try_assign(idx, players, slots, slot_owner, set())
 
@@ -78,7 +87,7 @@ def optimal_lineup(team: Team, roster_slots: list[str]) -> tuple[float, list[Pla
         if player_idx is None:
             continue
         chosen = players[player_idx]
-        total += chosen.points
+        total += value(chosen)
         # Copy so we don't mutate the real lineup's slot assignment.
         best_lineup.append(
             PlayerLine(

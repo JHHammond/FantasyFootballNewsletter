@@ -579,8 +579,34 @@ def load_season(fetch_week: Callable[[int], Any], through_week: int) -> list[Res
 # Next week's lines
 # ---------------------------------------------------------------------------
 
-def projected_total(team) -> Optional[float]:
-    """The sum of a team's starters' projections, if it has any."""
+#: Players who won't play, whatever their projection says.
+_WONT_PLAY = {"out", "ir", "injured reserve", "injury_reserve", "suspended", "pup", "nfi"}
+
+
+def _projection(p) -> float:
+    if (p.injury_status or "").strip().lower() in _WONT_PLAY or p.slot in ("IR", "TAXI"):
+        return 0.0
+    return float(p.projected) if isinstance(p.projected, (int, float)) else 0.0
+
+
+def projected_total(team, roster_slots=None) -> Optional[float]:
+    """What a team should score next week.
+
+    With the league's slots (9 Nov): the BEST lineup its whole roster can
+    field on next week's projections. The lineup set on the platform today is
+    usually last week's, byes and injuries included, so summing it priced
+    every team with a player on bye as a blowout loser. Players ruled out or
+    on IR count as zero. Needs a projection in at least half the slots.
+
+    Without slots: the starters as set, the old way.
+    """
+    slots = [s for s in (roster_slots or []) if s not in ("BN", "IR", "TAXI")]
+    if slots:
+        from providers.optimizer import optimal_lineup
+        total, best = optimal_lineup(team, list(roster_slots), value=_projection)
+        if len(best) < max(1, len(slots) // 2):
+            return None
+        return round(total, 1)
     projections = [p.projected for p in team.lineup
                    if p.player_id and isinstance(p.projected, (int, float))]
     if len(projections) < max(1, len(team.lineup) // 2):
@@ -624,15 +650,16 @@ def betting_lines(next_week, histories: dict[str, TeamHistory],
     Each carries both teams' season records and streaks, and with `results`
     the last time they met this season (30 Oct, the redesigned board).
 
-    Projected starters first. If a team has no usable projection yet — some
+    Each team's best lineup on next week's projections first (9 Nov). If a team has no usable projection yet — some
     platforms don't publish next week's until the weekend — BOTH teams in that
     game fall back to points per game, so a line never compares one team's
     projection with the other's average.
     """
     lines = []
+    slots = getattr(getattr(next_week, "league", None), "roster_slots", None)
     for m in getattr(next_week, "matchups", []) or []:
         a, b = m.teams
-        pa, pb = projected_total(a), projected_total(b)
+        pa, pb = projected_total(a, slots), projected_total(b, slots)
         basis = "projection"
         if pa is None or pb is None:
             ha, hb = histories.get(str(a.team_id)), histories.get(str(b.team_id))

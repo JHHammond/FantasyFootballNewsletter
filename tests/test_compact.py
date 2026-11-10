@@ -143,3 +143,9 @@ def test_the_number_grids_start_left_and_never_wrap_a_figure():
     assert "align-self: flex-start !important" in css      # the desktop grid pushed labels right
     big = css[css.index(".stack-up .stack-big {"):]
     assert "white-space: nowrap" in big[:big.index("}")]   # "Top 24%" broke onto two lines
+
+
+def test_awards_are_simpler():
+    css, js = compact.COMPACT_CSS, compact.COMPACT_JS
+    assert ".award-card .award-title { font: 700 19px" in css
+    assert "cx-aw-line" in js and "cx-arrow" in js and "weekly awards" in js
