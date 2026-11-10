@@ -6600,7 +6600,7 @@ def test_the_ads_note_is_only_for_the_paying_owner_and_staff(league, free_league
     note = webapp._ads_note_for(None, lg)
     assert "Only you can see this" in note and "/l/secret-admin-token#settings" in note
     out = webapp._insert_ads_note(paper, note)
-    assert out.index("</aside>") < out.index("cx-adnote") < out.index("<p>y</p>")
+    assert out.index("sp-badge") < out.index("cx-adnote") < out.index("</aside>")   # inside the box
     # A reader who isn't the owner sees nothing.
     monkeypatch.setattr(webapp, "current_user", lambda request: None)
     assert webapp._ads_note_for(None, lg) == ""

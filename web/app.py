@@ -5475,7 +5475,7 @@ def _ads_note_for(request: Request, league: dict) -> str:
     return f"""
 <div class="cx-adnote" role="note">
   <style>
-    .cx-adnote {{ margin: 10px 0 18px; border: 1.5px dashed #8a8f96; background: #f6f6f4; color: #111;
+    .cx-adnote {{ margin: 14px 0 0; border: 1.5px dashed #8a8f96; background: #f6f6f4; color: #111;
                  padding: 12px 14px; font-family: Georgia, serif; text-align: left; }}
     .cx-adnote-tag {{ display: block; font: 700 11px "Barlow Condensed", "Arial Narrow", sans-serif;
                      letter-spacing: 1.8px; text-transform: uppercase; color: #6b665e; margin-bottom: 6px; }}
@@ -5493,14 +5493,14 @@ def _ads_note_for(request: Request, league: dict) -> str:
 
 
 def _insert_ads_note(html: str, note: str) -> str:
-    """Right under the By the Numbers box when the paper has one; otherwise
-    under the first sponsored element. Unchanged when there is no sponsor."""
+    """At the foot of the By the Numbers box, INSIDE it, when that box carries
+    the sponsor: the phone layout moves the box below its story, and a note
+    placed after it stayed behind under the scorebar (10 Nov). Unchanged when
+    there is no sponsored box."""
     i = html.find('class="numbers-box"')
-    if i != -1 and "sp-badge" in html[i:html.find("</aside>", i)]:
-        end = html.find("</aside>", i)
-        if end != -1:
-            end += len("</aside>")
-            return html[:end] + note + html[end:]
+    end = html.find("</aside>", i) if i != -1 else -1
+    if end != -1 and "sp-badge" in html[i:end]:
+        return html[:end] + note + html[end:]
     return html
 
 
