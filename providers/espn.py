@@ -540,6 +540,13 @@ class ESPNProvider(FantasyProvider):
             if manager is None:
                 manager = Manager(manager_id=str(team_id),
                                   display_name="Unknown Manager")
+            # ESPN has no member photos; the picture a manager sets is the
+            # TEAM's logo (teams[].logo, a full URL). Used wherever the paper
+            # shows a team's face (9 Nov), https only.
+            logo = meta.get("logo")
+            if isinstance(logo, str) and logo.startswith("https://"):
+                from dataclasses import replace as _replace
+                manager = _replace(manager, avatar_url=logo)
 
             lineup, bench = self._roster_lines(side, meta, week)
             record = records.get(int(team_id), {"wins": 0, "losses": 0, "ties": 0})

@@ -50,6 +50,7 @@ from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from markupsafe import Markup  # noqa: E402
+from html import escape as _html_escape  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -5442,6 +5443,67 @@ def league_papers(request: Request, slug: str, subscribed: int = 0, error: str =
                    subscribed=bool(subscribed), error=error)
 
 
+def _ads_note_for(request: Request, league: dict) -> str:
+    """The "you can turn these ads off" note, or "" for everybody else."""
+    try:
+        viewer = current_user(request)
+    except Exception:  # noqa: BLE001
+        return ""
+    if not viewer:
+        return ""
+    viewer_plan = plans.plan_for(viewer)
+    is_staff = viewer_plan.key == plans.STAFF
+    is_owner = bool(league.get("user_id")) and league.get("user_id") == viewer.get("id")
+    if not (is_staff or (is_owner and viewer_plan.ad_free)):
+        return ""
+    from .generate import ads_off
+    if ads_off(db, league):
+        return ""
+    link = ""
+    if is_owner:
+        try:
+            mine = next((l for l in db.leagues_for_user(viewer["id"])
+                         if l.get("id") == league["id"]), None)
+        except Exception:  # noqa: BLE001
+            mine = None
+        if mine and mine.get("admin_token"):
+            link = f"/l/{mine['admin_token']}#settings"
+    tag = "Staff preview &middot; only staff can see this" if (is_staff and not is_owner) \
+        else "Only you can see this"
+    button = (f'<a class="cx-adnote-btn" href="{_html_escape(link)}">Turn off ads in Settings &rarr;</a>'
+              if link else "")
+    return f"""
+<div class="cx-adnote" role="note">
+  <style>
+    .cx-adnote {{ margin: 10px 0 18px; border: 1.5px dashed #8a8f96; background: #f6f6f4; color: #111;
+                 padding: 12px 14px; font-family: Georgia, serif; text-align: left; }}
+    .cx-adnote-tag {{ display: block; font: 700 11px "Barlow Condensed", "Arial Narrow", sans-serif;
+                     letter-spacing: 1.8px; text-transform: uppercase; color: #6b665e; margin-bottom: 6px; }}
+    .cx-adnote p {{ margin: 0 0 10px; font-size: 14.5px; line-height: 1.45; }}
+    .cx-adnote-btn {{ display: inline-block; border: 1.5px solid #111; padding: 8px 12px; color: #111 !important;
+                     text-decoration: none; font: 700 12.5px "Barlow Condensed", "Arial Narrow", sans-serif;
+                     letter-spacing: 1.6px; text-transform: uppercase; }}
+    @media print {{ .cx-adnote {{ display: none !important; }} }}
+  </style>
+  <span class="cx-adnote-tag">{tag}</span>
+  <p>You&rsquo;re a paying member, so you can take the PrizePicks ads out of this paper,
+     including the papers you&rsquo;ve already sent round.</p>
+  {button}
+</div>"""
+
+
+def _insert_ads_note(html: str, note: str) -> str:
+    """Right under the By the Numbers box when the paper has one; otherwise
+    under the first sponsored element. Unchanged when there is no sponsor."""
+    i = html.find('class="numbers-box"')
+    if i != -1 and "sp-badge" in html[i:html.find("</aside>", i)]:
+        end = html.find("</aside>", i)
+        if end != -1:
+            end += len("</aside>")
+            return html[:end] + note + html[end:]
+    return html
+
+
 @app.get("/p/{slug}/{season}/week-{week}", response_class=HTMLResponse)
 def read_paper(request: Request, slug: str, season: int, week: int, embed: int = 0,
                layout: str = ""):
@@ -5505,6 +5567,15 @@ def read_paper(request: Request, slug: str, season: int, week: int, embed: int =
         from . import sponsor_clicks
         html = sponsor_clicks.apply(html)
 
+    # A note under the sponsor's box for the one reader who can switch it
+    # off (10 Nov): the league's owner, signed in, on a plan with no-ads.
+    # Staff see it on any paper, marked as a preview. Never cached publicly.
+    personal = False
+    if not embed:
+        note = _ads_note_for(request, league)
+        if note:
+            html, personal = _insert_ads_note(html, note), True
+
     return HTMLResponse(
         content=html,
         # A minute, not an hour (9 Nov). Papers DO change after they're
@@ -5513,7 +5584,7 @@ def read_paper(request: Request, slug: str, season: int, week: int, embed: int =
         # meant a reader kept the old copy for an hour after any of those, and
         # s-maxage would have let a shared cache (Cloudflare, if the record
         # ever goes orange-cloud) keep it for a day.
-        headers={"Cache-Control": "public, max-age=60"},
+        headers={"Cache-Control": "private, no-store" if personal else "public, max-age=60"},
     )
 
 

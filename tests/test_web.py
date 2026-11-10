@@ -6590,3 +6590,24 @@ def test_a_paying_league_never_carries_the_lines_ad(league, free_league, monkeyp
     assert paid and paid.get("lines") is False          # the rest of the sponsor stays
     free = generate.sponsor_for(demo_db, free_league)
     assert free and free.get("lines") is not False
+
+
+def test_the_ads_note_is_only_for_the_paying_owner_and_staff(league, free_league, monkeypatch):
+    paper = '<p>x</p><aside class="numbers-box"><span class="sp-badge">PrizePicks</span></aside><p>y</p>'
+    owner = demo_db.user_by_id(league["user_id"])
+    lg = demo_db.league_by_admin_token("secret-admin-token")
+    monkeypatch.setattr(webapp, "current_user", lambda request: owner)
+    note = webapp._ads_note_for(None, lg)
+    assert "Only you can see this" in note and "/l/secret-admin-token#settings" in note
+    out = webapp._insert_ads_note(paper, note)
+    assert out.index("</aside>") < out.index("cx-adnote") < out.index("<p>y</p>")
+    # A reader who isn't the owner sees nothing.
+    monkeypatch.setattr(webapp, "current_user", lambda request: None)
+    assert webapp._ads_note_for(None, lg) == ""
+    # Staff see it on any paper, without the owner's link.
+    staff = {"id": "staff-x", "plan": "staff"}
+    monkeypatch.setattr(webapp, "current_user", lambda request: staff)
+    note = webapp._ads_note_for(None, lg)
+    assert "Staff preview" in note and "/l/" not in note
+    # No sponsor in the paper: nothing inserted.
+    assert webapp._insert_ads_note("<p>plain</p>", note) == "<p>plain</p>"

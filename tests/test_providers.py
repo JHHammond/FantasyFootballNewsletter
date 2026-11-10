@@ -1488,3 +1488,22 @@ def test_a_projection_is_scored_in_the_leagues_own_scoring():
     # Settings unknown: the stock total for the scoring type, as before.
     assert sp._projected_points(proj, "9", "half_ppr", None) == 11.5
     assert sp._projected_points(proj, "8", "ppr", ppr) is None
+
+
+def test_an_espn_team_logo_is_its_managers_photo(monkeypatch):
+    """ESPN members have no photo; the picture a manager sets is the team's
+    logo (9 Nov). https only."""
+    import copy
+    from providers.espn import ESPNProvider
+    from tests import fixtures_espn as f
+    teams = copy.deepcopy(f.TEAMS)
+    teams[0]["logo"] = "https://g.espncdn.com/lm-static/logo.png"
+    teams[1]["logo"] = "javascript:alert(1)"
+    monkeypatch.setattr(f, "TEAMS", teams)
+    provider = ESPNProvider()
+    provider._get = (lambda lid, season, views, params=None, fantasy_filter=None:
+                     f.fake_get(lid, season, views, params, fantasy_filter))
+    week = provider.get_week(f.LEAGUE_ID, f.SEASON, 2)
+    by_id = {t.team_id: t for t in week.teams}
+    assert by_id[str(teams[0]["id"])].manager.avatar_url == "https://g.espncdn.com/lm-static/logo.png"
+    assert by_id[str(teams[1]["id"])].manager.avatar_url is None
