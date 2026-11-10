@@ -216,6 +216,58 @@ COMPACT_CSS = """
   .award-card .award-body { margin-top: 12px !important; }
   .cx-dark .award-card .aw-team, .cx-dark .award-card .aw-pos, .cx-dark .cx-aw-line .aw-stat span { color: #b9c2cf !important; }
 
+  /* Next week's lines (9 Nov): every game left versus right like the game
+     of the week, smaller; no header bars; a red ring only on the side you
+     picked. The vote buttons and the vote script are untouched. */
+  .lines-grid { display: block !important; }
+  .line-card { border: 0 !important; border-top: 2px solid #111 !important; background: none !important;
+      margin: 22px 0 0 !important; padding: 8px 0 0 !important; }
+  .line-card.line-lead { border-top: 4px solid var(--accent, #c40000) !important; margin-top: 10px !important; }
+  .line-card .lc-head { background: none !important; color: #555 !important; padding: 0 0 4px !important;
+      font: 700 12px "Barlow Condensed", "Arial Narrow", sans-serif !important; letter-spacing: 2px !important;
+      text-transform: uppercase; }
+  .line-card .lc-head .line-chip { color: #555 !important; font: inherit !important; letter-spacing: inherit !important; }
+  .line-card.line-lead .lc-game { color: var(--accent, #c40000); }
+  .line-teams.cx-ln { flex-direction: row !important; align-items: flex-start; gap: 6px; padding: 4px 0 8px; }
+  .cx-ln .line-team { flex: 1 1 0; min-width: 0; display: flex !important; flex-direction: column; align-items: center;
+      gap: 3px; text-align: center !important; padding: 0 !important; border: 0 !important; box-shadow: none !important;
+      background: none !important; }
+  .cx-ln .lt-avatar { width: 38px !important; height: 38px !important; border: 1.5px solid #111 !important; }
+  .cx-ln .lt-who { align-items: center; }
+  .cx-ln .lt-name { font-size: 13.5px !important; font-weight: 700 !important; white-space: normal !important;
+      overflow-wrap: break-word; }
+  .cx-ln .lt-rec, .cx-ln .lt-proj { font-size: 11.5px !important; font-weight: 400 !important; letter-spacing: 0 !important;
+      color: #6b665e; opacity: 1 !important; }
+  .cx-ln .lt-proj small { font-size: 11.5px !important; font-weight: 400 !important; letter-spacing: 0 !important;
+      text-transform: none !important; opacity: 1 !important; }
+  .cx-ln .lt-spread { display: none !important; }
+  .cx-ln-mid { flex: none; width: 92px; display: flex; flex-direction: column; align-items: center; padding-top: 8px; }
+  .cx-ln-sp { font-family: "Anton", Impact, sans-serif; font-size: 24px; line-height: 1; color: var(--accent, #c40000); }
+  .cx-ln-by { font: 700 10px "Barlow Condensed", "Arial Narrow", sans-serif; letter-spacing: 1.4px; text-transform: uppercase;
+      color: #6b665e; text-align: center; margin-top: 3px; overflow-wrap: break-word; max-width: 100%; }
+  .line-lead .ll-face { padding: 6px 0 4px !important; gap: 6px !important; }
+  .line-lead .ll-side { box-shadow: none !important; background: none !important; padding: 0 !important; }
+  .line-lead .ll-avatar { width: 52px !important; height: 52px !important; border: 2px solid #111 !important; }
+  .line-lead .ll-name { font-size: 15px !important; font-weight: 700 !important; }
+  .line-lead .ll-side .lt-rec { font-size: 12.5px !important; font-weight: 400 !important; opacity: 1 !important; color: #6b665e; }
+  .line-lead .ll-spread { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important;
+      font-size: 30px !important; letter-spacing: 0 !important; }
+  .line-lead .ll-by { font: 700 10.5px "Barlow Condensed", "Arial Narrow", sans-serif !important; letter-spacing: 1.6px !important; }
+  .line-lead .ll-bars, .line-lead .ll-bars-cap { display: none !important; }
+  .line-lead .ll-meet { border: 0 !important; margin: 4px 0 0 !important; padding: 0 0 8px !important; font-style: normal !important;
+      font-size: 13.5px !important; color: #3f3a33; }
+  .line-card .lv-side.on .lt-avatar, .line-card .lv-side.on .ll-avatar,
+  .line-card .lv-side[aria-pressed="true"] .lt-avatar, .line-card .lv-side[aria-pressed="true"] .ll-avatar {
+      border-color: var(--accent, #c40000) !important; }
+  .line-card .lv-mark { font: 700 10.5px "Barlow Condensed", "Arial Narrow", sans-serif !important; letter-spacing: 1.4px !important; }
+  .line-card .lv-split { padding: 4px 0 0 !important; }
+  .line-card .lv-bar { height: 4px !important; }
+  .line-card .lv-nums { font-size: 11.5px !important; }
+  .cx-dark .cx-ln .lt-rec, .cx-dark .cx-ln .lt-proj, .cx-dark .cx-ln-by, .cx-dark .line-card .lc-head,
+  .cx-dark .line-card .lc-head .line-chip, .cx-dark .line-lead .ll-side .lt-rec { color: #b9c2cf !important; }
+  .cx-dark .line-card { border-top-color: #f2f4f7 !important; }
+  .cx-dark .cx-ln .lt-avatar, .cx-dark .line-lead .ll-avatar { border-color: #8d9bad !important; }
+
   /* Fraud Watch (9 Nov). */
   .fraud-callout { margin: 30px 0 0 !important; padding: 0 !important; background: none !important;
       border: 2px solid #111 !important; }
@@ -577,6 +629,36 @@ COMPACT_JS = """
     if (!(n > 0)) return;
     el.textContent = String(n);
     el.classList.add(n === 1 ? "cx-rank-top" : "cx-rank-plain");
+  });
+  // Next week's lines (9 Nov): each game left versus right, the spread in
+  // the middle. The sides are the vote buttons; they move, nothing else.
+  document.querySelectorAll(".line-card:not(.line-lead) .line-teams").forEach(function (teams) {
+    if (teams.classList.contains("cx-ln")) return;
+    var fav = teams.querySelector(".line-team.fav"), dog = teams.querySelector(".line-team.dog");
+    if (!fav || !dog) return;
+    var sp = ((fav.querySelector(".lt-spread") || {}).textContent || "").trim();
+    var who = ((fav.querySelector(".lt-name") || {}).textContent || "").trim();
+    var pk = !sp || /^pk$/i.test(sp);
+    var mid = document.createElement("div"); mid.className = "cx-ln-mid";
+    var a = document.createElement("span"); a.className = "cx-ln-sp"; a.textContent = pk ? "PICK\u2019EM" : sp;
+    var b = document.createElement("span"); b.className = "cx-ln-by"; b.textContent = pk ? "Dead even" : who + " favored";
+    mid.appendChild(a); mid.appendChild(b);
+    teams.insertBefore(mid, dog);
+    teams.classList.add("cx-ln");
+  });
+  // The game of the week: its projected points move under the names, in
+  // place of the facing bars.
+  document.querySelectorAll(".line-lead").forEach(function (card) {
+    if (card.classList.contains("cx-ln-lead")) return;
+    card.classList.add("cx-ln-lead");
+    ["fav", "dog"].forEach(function (side) {
+      var pts = ((card.querySelector(".ll-bar-cell." + side + " b") || {}).textContent || "").trim();
+      var el = card.querySelector(".ll-side." + side);
+      if (!pts || !el) return;
+      var rec = el.querySelector(".lt-rec");
+      if (!rec) { rec = document.createElement("span"); rec.className = "lt-rec"; el.insertBefore(rec, el.querySelector(".lv-mark")); }
+      rec.textContent = (rec.textContent ? rec.textContent + " \u00b7 " : "") + pts + " proj";
+    });
   });
   // Weekly Awards (9 Nov): the numbers move out from beside the photo onto
   // their own line under it; Projected -> Scored gets an arrow; "Short by"

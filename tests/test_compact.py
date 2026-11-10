@@ -149,3 +149,10 @@ def test_awards_are_simpler():
     css, js = compact.COMPACT_CSS, compact.COMPACT_JS
     assert ".award-card .award-title { font: 700 19px" in css
     assert "cx-aw-line" in js and "cx-arrow" in js and "weekly awards" in js
+
+
+def test_every_line_is_left_versus_right():
+    css, js = compact.COMPACT_CSS, compact.COMPACT_JS
+    assert ".cx-ln-mid" in css and ".line-lead .ll-bars" in css
+    ln = js[js.index("Next week's lines (9 Nov)"):js.index("Weekly Awards (9 Nov)")]
+    assert "innerHTML" not in ln and "insertBefore(mid, dog)" in ln
