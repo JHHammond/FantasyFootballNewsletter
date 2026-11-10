@@ -10,12 +10,17 @@ What it does, from the 31 Oct read of Kevlarville week 7 at iPhone size:
 - A one-line nameplate and a smaller front headline, so the first screen
   reaches the lead story. The dateline's three-fact summary goes; the
   "This Week" list right under it says the same.
-- Story headlines in title case at a size that fits two or three lines,
-  instead of four lines of capitals. Genre tags (COMEDY, DRAMA) go.
+- Game story headlines in tabloid capitals (9 Nov, John picked mockup G4:
+  "it needs to pop"): Anton, under a red rule and a label that says what
+  kind of game it was ("Upset · by 9.6"). Genre tags (COMEDY, DRAMA) go.
 - Each game story shows its first stretch with a "Keep reading" fold. The
   lead story on the front is never folded (9 Nov, John).
 - Photos keep their own shape (9 Nov): uploads are square and are shown
   whole, never cropped to a banner.
+- This Week (9 Nov, John: mockup T2a without numbers, T2c's stripe): a
+  black Anton bar, then per game the same label its story carries, the
+  teaser in Anton capitals and one score line, with a red stripe down the
+  side of every row.
 - Rules and white space instead of boxes: the scorebar, the award cards
   and the ranking cards lose their frames. Fraud Watch keeps its box; it
   is meant to stand apart.
@@ -63,14 +68,43 @@ COMPACT_CSS = """
 
   /* 2. Headlines and labels */
   .story-label { display: none !important; }
-  .story-headline { font-size: 23px !important; line-height: 1.14 !important; letter-spacing: -.2px !important;
-      text-transform: none !important; margin-bottom: 4px !important; }
-  .story-headline-brief, .story-headline-small { font-size: 20px !important; }
+  /* Game story headlines (9 Nov, mockup G4). Anton is loaded by the
+     script, phone only; Impact stands in until it arrives. */
+  .story-card .story-headline, .story-headline-brief, .story-headline-small {
+      font-family: "Anton", Impact, "Arial Narrow", sans-serif !important; font-weight: 400 !important;
+      font-size: clamp(30px, 9.4vw, 38px) !important; line-height: 1.02 !important;
+      letter-spacing: .2px !important; text-transform: uppercase !important; text-wrap: balance;
+      overflow-wrap: break-word; margin: 0 0 6px !important; }
+  .cx-tag { border-top: 5px solid var(--accent, #c40000); padding-top: 10px; margin: 0 0 6px;
+      font: 700 12px "Barlow Condensed", "Arial Narrow", Arial, sans-serif; letter-spacing: 2.4px;
+      text-transform: uppercase; color: var(--accent, #c40000); }
   .story-subhead { font-size: 12.5px !important; color: #555 !important; font-style: normal !important; }
   .col-story-teaser { color: #444 !important; font-style: normal !important; }
   .col-story-headline, .col-story-headline a { font-size: 16px !important; text-transform: none !important;
       letter-spacing: 0 !important; }
   .col-story { padding: 8px 0 !important; }
+
+  /* This Week (9 Nov). Built by the script from the existing rows. */
+  .col-section-label.cx-week-head { background: #111 !important; color: #fff !important; border: 0 !important;
+      padding: 8px 12px !important; display: flex; justify-content: space-between; align-items: baseline;
+      font-family: "Anton", Impact, "Arial Narrow", sans-serif !important; font-weight: 400 !important;
+      font-size: 22px !important; letter-spacing: .4px !important; margin-bottom: 0 !important; }
+  .cx-week-head::after { content: attr(data-count); font: 600 12px "Barlow Condensed", "Arial Narrow", sans-serif;
+      letter-spacing: 1.6px; color: #bdbdbd; }
+  .col-story.cx-week { padding: 0 !important; }
+  .cx-tw { display: flex; gap: 12px; padding: 13px 0; color: inherit; text-decoration: none !important; }
+  /* One colour for every stripe (9 Nov, John). */
+  .cx-tw-bar { flex: none; width: 4px; background: var(--accent, #c40000); }
+  .cx-tw-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .cx-tw-tag { font: 700 11.5px "Barlow Condensed", "Arial Narrow", sans-serif; letter-spacing: 2px;
+      text-transform: uppercase; color: #555; }
+  .cx-hot .cx-tw-tag { color: var(--accent, #c40000); }
+  .cx-tw-teaser { font-family: "Anton", Impact, "Arial Narrow", sans-serif; font-size: 19px; line-height: 1.08;
+      letter-spacing: .2px; text-transform: uppercase; color: #111; overflow-wrap: break-word; }
+  .cx-tw-score { font-size: 13.5px; color: #555; line-height: 1.35; }
+  .cx-tw-score b { color: #111; }
+  .cx-dark .cx-tw-teaser, .cx-dark .cx-tw-score b { color: #f2f4f7; }
+  .cx-dark .cx-tw-score, .cx-dark .cx-tw-tag { color: #b9c2cf; }
 
   /* 3. Rules, not boxes */
   .story-scorebar { background: none !important; border: 0 !important; border-top: 1px solid #111 !important;
@@ -168,7 +202,6 @@ COMPACT_CSS = """
   .col-story-headline a, .teaser-link { color: #111 !important; }
 
   /* Proximity: tight inside a group, clear air between groups. */
-  .story-headline { margin-bottom: 2px !important; }
   .full-section, .back-page > div { margin-top: 28px !important; }
   .col-story { padding: 10px 0 !important; border-bottom: 1px solid #ddd !important; }
 
@@ -197,10 +230,21 @@ COMPACT_JS = """
 (function () {
   if (!window.matchMedia || !matchMedia("screen and (max-width: 760px)").matches) return;
   var SMALL = /^(a|an|and|as|at|but|by|for|in|of|on|or|the|to|vs\\.?|def\\.?)$/;
+  // Football abbreviations stay in capitals: "Dead QB Spot", not "Dead Qb Spot".
+  var CAPS = /^(qb|rb|wr|te|k|dst|d\\/st|idp|ppr|td|tds|ot|ir|nfl|mvp|ol)(\\d*\\W*)$/;
+  if (!document.getElementById("cx-anton")) {
+    var f = document.createElement("link");
+    f.id = "cx-anton"; f.rel = "stylesheet";
+    f.href = "https://fonts.googleapis.com/css2?family=Anton&display=swap";
+    document.head.appendChild(f);
+  }
   function titleCase(t) {
     if (t !== t.toUpperCase()) return t;            // already mixed case
     return t.toLowerCase().split(/(\\s+)/).map(function (w, i) {
-      if (/^\\s+$/.test(w) || (i && SMALL.test(w))) return w;
+      if (/^\\s+$/.test(w)) return w;
+      var c = w.match(CAPS);
+      if (c) return c[1].toUpperCase() + c[2];
+      if (i && SMALL.test(w)) return w;
       return w.replace(/[a-z]/, function (c) { return c.toUpperCase(); });
     }).join("");
   }
@@ -225,6 +269,36 @@ COMPACT_JS = """
   }
   document.querySelectorAll(".story-headline").forEach(function (h) {
     if (h.children.length === 0) h.textContent = titleCase(h.textContent.trim());
+  });
+  // The label over each game story's headline (9 Nov): what kind of game it
+  // was, read off the scorebar. Records there are AFTER the game, so one
+  // result is taken back off each side to compare them at kickoff.
+  function rec(el) {
+    var m = ((el || {}).textContent || "").match(/(\d+)-(\d+)(?:-(\d+))?/);
+    return m ? { w: +m[1], l: +m[2], t: +(m[3] || 0) } : null;
+  }
+  function pct(r) { var g = r.w + r.l + r.t; return g ? (r.w + r.t / 2) / g : null; }
+  document.querySelectorAll(".story-card").forEach(function (card) {
+    var h = card.querySelector(".story-headline");
+    var bar = card.querySelector(".story-scorebar");
+    if (!h || !bar || card.querySelector(".cx-tag")) return;
+    var by = parseFloat(((bar.querySelector(".sm-num") || {}).textContent || "").trim());
+    var label;
+    if (!(by > 0)) {
+      label = "Tie";
+    } else {
+      var w = rec(bar.querySelector(".st-win .st-rec")), l = rec(bar.querySelector(".st-lose .st-rec"));
+      var upset = false;
+      if (w && l && w.w > 0 && l.l > 0) {
+        var before = pct({ w: w.w - 1, l: w.l, t: w.t }), other = pct({ w: l.w, l: l.l - 1, t: l.t });
+        upset = before !== null && other !== null && before < other;
+      }
+      var kind = upset ? "Upset" : by < 5 ? "Nail-biter" : by >= 30 ? "Blowout" : "Final";
+      label = kind + " \u00b7 by " + by.toFixed(1);
+    }
+    var t = document.createElement("div");
+    t.className = "cx-tag"; t.textContent = label;
+    h.parentNode.insertBefore(t, h);
   });
   var bg = getComputedStyle(document.querySelector(".page") || document.body).backgroundColor;
   var rgb = (bg.match(/\d+/g) || [255, 255, 255]).slice(0, 3).map(Number);
@@ -262,6 +336,51 @@ COMPACT_JS = """
   });
   document.querySelectorAll(".story-subhead").forEach(function (el) {
     el.textContent = el.textContent.replace(/\s*\|\s*([\d.]+)\s*-\s*([\d.]+)\s*$/, ", $1–$2");
+  });
+  // This Week (9 Nov): rebuilt from each row's own text. A row whose story
+  // has a label takes that label, so an upset reads the same in both places.
+  var weekRows = document.querySelectorAll(".col-story");
+  weekRows.forEach(function (row) {
+    var body = row.querySelector(".col-story-body"), head = row.querySelector(".col-story-headline");
+    if (!body || !head || row.classList.contains("cx-week")) return;
+    var sc = (body.textContent || "").replace(/\s+/g, " ")
+      .match(/([\d.]+)\s*[\u2014\u2013-]\s*([\d.]+).*?([\d.]+)\s*$/);
+    if (!sc) return;
+    var names = (head.textContent || "").trim().split(" def. ");
+    var link = head.querySelector("a");
+    var by = parseFloat(sc[3]);
+    var label = null, target = link && document.getElementById((link.getAttribute("href") || "").slice(1));
+    var tag = target && target.previousElementSibling;
+    if (tag && tag.classList.contains("cx-tag")) label = tag.textContent;
+    if (!label) label = !(by > 0) ? "Tie" : (by < 5 ? "Nail-biter" : by >= 30 ? "Blowout" : "Final") + " \u00b7 by " + by.toFixed(1);
+    var teaser = row.querySelector(".col-story-teaser");
+    var box = document.createElement(link ? "a" : "div");
+    box.className = "cx-tw";
+    if (link) box.href = link.getAttribute("href");
+    var bar = document.createElement("span"); bar.className = "cx-tw-bar"; bar.setAttribute("aria-hidden", "true");
+    var main = document.createElement("div"); main.className = "cx-tw-main";
+    var t = document.createElement("span"); t.className = "cx-tw-tag"; t.textContent = label;
+    main.appendChild(t);
+    if (teaser && teaser.textContent.trim()) {
+      var tz = document.createElement("span"); tz.className = "cx-tw-teaser"; tz.textContent = teaser.textContent.trim();
+      main.appendChild(tz);
+    }
+    var line = document.createElement("span"); line.className = "cx-tw-score";
+    var win = document.createElement("b"); win.textContent = (names[0] || "") + " " + sc[1];
+    line.appendChild(win);
+    line.appendChild(document.createTextNode(" \u00b7 " + (names[1] || "") + " " + sc[2]));
+    main.appendChild(line);
+    box.appendChild(bar); box.appendChild(main);
+    if (/^(Upset|Nail-biter|Blowout)/.test(label)) row.classList.add("cx-hot");
+    row.classList.add("cx-week");
+    row.textContent = "";
+    row.appendChild(box);
+  });
+  document.querySelectorAll(".col-section-label").forEach(function (h) {
+    if (!/^\s*this week\s*$/i.test(h.textContent)) return;
+    var n = document.querySelectorAll(".col-story.cx-week").length;
+    h.classList.add("cx-week-head");
+    if (n) h.setAttribute("data-count", n + (n === 1 ? " game" : " games"));
   });
   // Medal colours for the top three ranks; ink for the rest.
   document.querySelectorAll(".ranking-card-rank").forEach(function (el) {

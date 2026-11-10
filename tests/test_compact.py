@@ -56,3 +56,25 @@ def test_a_folded_story_still_wraps_around_its_photo():
     fold = css[css.index(".cx-fold {"):]
     fold = fold[:fold.index("}")]
     assert fold.index("overflow: hidden") < fold.index("overflow: clip")
+
+
+def test_game_story_headlines_are_tabloid_capitals_with_a_label():
+    css, js = compact.COMPACT_CSS, compact.COMPACT_JS
+    assert '"Anton"' in css and "text-transform: uppercase !important" in css
+    assert ".cx-tag" in css and "cx-tag" in js
+    assert "Upset" in js and "Nail-biter" in js and "Blowout" in js
+    assert "family=Anton" in js and "family=Anton" not in css   # loaded on phones only
+
+
+def test_position_abbreviations_stay_capitalised():
+    assert "qb|rb|wr|te" in compact.COMPACT_JS
+
+
+def test_this_week_is_rebuilt_as_tabloid_teasers():
+    css, js = compact.COMPACT_CSS, compact.COMPACT_JS
+    assert ".cx-tw-teaser" in css and "font-size: 19px" in css
+    assert ".cx-hot .cx-tw-bar" not in css and "cx-week-head" in css   # one stripe colour
+    # Rows take their story's label, and names are set as text, never markup.
+    assert 'classList.contains("cx-tag")' in js
+    tw = js[js.index("This Week (9 Nov)"):js.index("Medal colours")]
+    assert "innerHTML" not in tw
