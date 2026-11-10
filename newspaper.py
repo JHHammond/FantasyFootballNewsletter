@@ -2511,7 +2511,7 @@ def build_week_ticker(summary):
             f'<div class="wk-cells">{"".join(cells)}</div></div>')
 
 
-def build_fraud_case(summary, matchups):
+def build_fraud_case(summary, matchups, standings=None):
     """The case file at the top of Fraud Watch (1 Oct): the team under
     investigation, its record, its score and where that score ranked. The
     same subject the writer was given: the fraud if there is one, else the
@@ -2525,6 +2525,11 @@ def build_fraud_case(summary, matchups):
     scores = [get_team_points(g.get(side) or {}) for g in matchups or []
               for side in ("team_1", "team_2") if (g.get(side) or {}).get("team_name")]
     rank = (1 + sum(1 for x in scores if x > pts)) if scores else None
+    # Its place in the standings, as printed on the front (9 Nov, John: "it
+    # should be your place in the standings"). The week's score rank read as
+    # a standings place, and contradicted the write-up beside it.
+    names = [get_team_name(t) for t in standings or []]
+    place = names.index(name) + 1 if name in names else None
 
     def ordinal(n):
         return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
@@ -2539,8 +2544,10 @@ def build_fraud_case(summary, matchups):
     if proj is not None and proj > pts:
         facts.append(("Projected", f"{proj:.1f}"))
     facts.append(("This week", f"{pts:.1f}"))
-    if rank:
-        facts.append(("Rank", f"{ordinal(rank)} of {len(scores)}"))
+    if place:
+        facts.append(("Standings", f"{ordinal(place)} of {len(names)}"))
+    elif rank:
+        facts.append(("Scored", f"{ordinal(rank)} of {len(scores)}"))
     facts_html = "".join(f'<div class="fc-fact"><span>{k}</span><b>{v}</b></div>'
                          for k, v in facts)
     avatar = get_team_avatar(subject)
@@ -2901,7 +2908,10 @@ def build_edition(league_name, week, summary, matchups, power_rankings,
         "front_left_html": front_left_html,
         "matchup_stories_html": matchup_stories_html,
         "fraud_watch": fraud_watch,
-        "fraud_case_html": build_fraud_case(summary, matchups),
+        "fraud_case_html": build_fraud_case(
+            summary, matchups,
+            apply_order(build_standings(matchups),
+                        (ai_content or {}).get("standings_order"), "team_name")),
         "stats_rows": build_stats_box(summary),
         "power_rankings_html": build_power_rankings(
             power_rankings,

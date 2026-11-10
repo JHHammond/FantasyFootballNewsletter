@@ -670,11 +670,10 @@ class SleeperProvider(FantasyProvider):
         managers: dict[str, Manager] = {}
         user_teams = _user_team_names(users)
         for u in users:
-            avatar = u.get("avatar")
             managers[u["user_id"]] = Manager(
                 manager_id=u["user_id"],
                 display_name=u.get("display_name") or "Unknown Manager",
-                avatar_url=f"{AVATAR_URL}/{avatar}" if avatar else None,
+                avatar_url=_team_avatar(u),
                 is_commissioner=u["user_id"] in league.commissioner_ids,
             )
 
@@ -905,6 +904,22 @@ class SleeperProvider(FantasyProvider):
                           or display.get(r.get("owner_id"))
                           or f"Team {rid}")
         return names
+
+
+def _team_avatar(user: dict):
+    """The picture Sleeper shows for this manager's team in this league.
+
+    A team photo a manager uploads for the league lives in
+    users[].metadata.avatar, as a full URL; users[].avatar is the account's
+    own picture, which for most people is Sleeper's default robot. Reading only
+    the second printed robots for six of eight teams in a league where seven
+    had set a photo (9 Nov). The team photo wins; https only.
+    """
+    team = ((user or {}).get("metadata") or {}).get("avatar")
+    if isinstance(team, str) and team.startswith("https://"):
+        return team
+    avatar = (user or {}).get("avatar")
+    return f"{AVATAR_URL}/{avatar}" if avatar else None
 
 
 def _user_team_names(users) -> dict:

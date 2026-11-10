@@ -25,6 +25,9 @@ What it does, from the 31 Oct read of Kevlarville week 7 at iPhone size:
   its league rank in a black box (red for first), the record on the right,
   the streak and this week's points underneath. The Week in Numbers
   (mockup S3): a big red number, an Anton label, the teams under it.
+- Fraud Watch and Power Rankings (9 Nov): a black bar over each, the stamp
+  a flat red label, the case file's facts in one row of Anton numbers; the
+  rankings as thin rows with a small rank, the team's photo and the verdict.
 - Rules and white space instead of boxes: the scorebar, the award cards
   and the ranking cards lose their frames. Fraud Watch keeps its box; it
   is meant to stand apart.
@@ -93,7 +96,7 @@ COMPACT_CSS = """
   .col-story { padding: 8px 0 !important; }
 
   /* This Week (9 Nov). Built by the script from the existing rows. */
-  .col-section-label.cx-week-head { background: #111 !important; color: #fff !important; border: 0 !important;
+  .col-section-label.cx-week-head, .section-title-full.cx-week-head { background: #111 !important; color: #fff !important; border: 0 !important;
       padding: 8px 12px !important; display: flex; justify-content: space-between; align-items: baseline;
       font-family: "Anton", Impact, "Arial Narrow", sans-serif !important; font-weight: 400 !important;
       font-size: 22px !important; letter-spacing: .4px !important; margin: 30px 0 0 !important; }
@@ -147,6 +150,49 @@ COMPACT_CSS = """
   .cx-tw-score b { color: #111; }
   .cx-dark .cx-tw-teaser, .cx-dark .cx-tw-score b { color: #f2f4f7; }
   .cx-dark .cx-tw-score, .cx-dark .cx-tw-tag { color: #b9c2cf; }
+
+  /* Fraud Watch (9 Nov). */
+  .fraud-callout { margin: 30px 0 0 !important; padding: 0 !important; background: none !important;
+      border: 2px solid #111 !important; }
+  .fraud-callout .fc-head { background: #111; margin: 0 !important; padding: 8px 12px !important; border: 0 !important; }
+  .fraud-callout .fc-head .fraud-callout-label { color: #fff !important; border: 0 !important; padding: 0 !important;
+      margin: 0 !important; font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important;
+      font-size: 22px !important; letter-spacing: .4px !important; }
+  .fraud-callout .fc-stamp { transform: none !important; border: 0 !important; background: var(--accent, #c40000);
+      color: #fff !important; padding: 3px 8px !important; font: 700 12px "Barlow Condensed", "Arial Narrow", sans-serif !important;
+      letter-spacing: 2px !important; }
+  .fraud-callout .fc-file { background: none !important; border: 0 !important; margin: 0 !important;
+      padding: 16px 14px 0 !important; gap: 12px !important; }
+  .fraud-callout .fc-face { width: 52px !important; height: 52px !important; }
+  .fraud-callout .fc-tag { font: 700 11.5px "Barlow Condensed", "Arial Narrow", sans-serif !important; letter-spacing: 2px !important;
+      color: var(--accent, #c40000) !important; }
+  .fraud-callout .fc-name { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important;
+      font-size: 30px !important; line-height: 1.02 !important; text-transform: uppercase; }
+  .fraud-callout .fc-facts { flex: 1 1 100% !important; display: grid !important;
+      grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 0 !important;
+      border-top: 1px solid #111; border-bottom: 1px solid #111; }
+  .fraud-callout .fc-fact { padding: 10px 6px 8px; gap: 3px; border-left: 1px solid #ddd; }
+  .fraud-callout .fc-fact:first-child { border-left: 0; padding-left: 0; }
+  .fraud-callout .fc-fact span { font: 700 10.5px "Barlow Condensed", "Arial Narrow", sans-serif !important;
+      letter-spacing: 1.4px !important; opacity: 1 !important; color: #555; }
+  .fraud-callout .fc-fact b { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important;
+      font-size: 24px !important; line-height: 1; }
+  .fraud-callout .fc-fact.cx-red b { color: var(--accent, #c40000); }
+  .fraud-callout .fraud-callout-body { padding: 14px 14px 16px !important; }
+  .cx-dark .fraud-callout { border-color: #f2f4f7 !important; }
+  .cx-dark .fraud-callout .fc-fact span { color: #b9c2cf; }
+
+  /* Power Rankings (9 Nov): thin rows, the team's photo, a small rank. */
+  .ranking-card { grid-template-columns: 22px 32px minmax(0, 1fr) !important; padding: 8px 0 !important;
+      border-bottom-color: #e4e0d8 !important; }
+  .ranking-card-rank { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important;
+      font-size: 20px !important; color: #111 !important; text-align: center; }
+  .ranking-card-rank.cx-rank-top { color: var(--accent, #c40000) !important; }
+  .ranking-card > img { width: 32px !important; height: 32px !important; border-width: 1.5px !important; }
+  .ranking-card-name { font-size: 15px !important; font-weight: 700 !important; line-height: 1.2 !important; }
+  .ranking-card-comment { font-style: normal !important; font-size: 12.5px !important; color: #5a554d !important; }
+  .cx-dark .ranking-card-rank { color: #f2f4f7 !important; }
+  .cx-dark .ranking-card-comment { color: #b9c2cf !important; }
 
   /* 3. Rules, not boxes */
   .story-scorebar { background: none !important; border: 0 !important; border-top: 1px solid #111 !important;
@@ -470,10 +516,23 @@ COMPACT_JS = """
     h.classList.add("cx-week-head");
     if (n) h.setAttribute("data-count", n + (n === 1 ? " game" : " games"));
   });
-  // Medal colours for the top three ranks; ink for the rest.
+  // Power rankings (9 Nov): the number alone, red for first, ink for the
+  // rest; a black bar over the section like the others.
   document.querySelectorAll(".ranking-card-rank").forEach(function (el) {
     var n = parseInt((el.textContent || "").replace("#", ""), 10);
-    if (n > 3) el.classList.add("cx-rank-plain");
+    if (!(n > 0)) return;
+    el.textContent = String(n);
+    el.classList.add(n === 1 ? "cx-rank-top" : "cx-rank-plain");
+  });
+  document.querySelectorAll(".section-title-full").forEach(function (h) {
+    if (!/^\\s*power rankings\\s*$/i.test(h.textContent)) return;
+    h.classList.add("cx-week-head");
+    if (/^Week \\d+$/.test(weekNo)) h.setAttribute("data-count", weekNo);
+  });
+  // Fraud Watch (9 Nov): this week's score in red, like the mockup.
+  document.querySelectorAll(".fraud-callout .fc-fact").forEach(function (f) {
+    var k = ((f.querySelector("span") || {}).textContent || "").trim().toLowerCase();
+    if (k === "this week") f.classList.add("cx-red");
   });
   // Three rows of the record book and the wire, then "Show all".
   function showThree(rows, label) {

@@ -107,3 +107,18 @@ def test_a_paragraph_starting_with_a_number_sign_is_not_a_heading():
     import newspaper
     out = newspaper.md("Para one.\n\n#1 Pick Jeremiah Smith is still 2-7.")
     assert "#1 Pick Jeremiah Smith" in out and "<h1" not in out
+
+
+def test_a_sleeper_team_photo_beats_the_account_picture():
+    from providers.sleeper import _team_avatar, AVATAR_URL
+    photo = "https://sleepercdn.com/uploads/abc.jpg"
+    assert _team_avatar({"avatar": "robot", "metadata": {"avatar": photo}}) == photo
+    assert _team_avatar({"avatar": "robot", "metadata": {}}) == f"{AVATAR_URL}/robot"
+    assert _team_avatar({"avatar": None, "metadata": {"avatar": "javascript:x"}}) is None
+
+
+def test_fraud_watch_and_power_rankings_are_restyled():
+    css, js = compact.COMPACT_CSS, compact.COMPACT_JS
+    assert ".fraud-callout .fc-stamp" in css and "transform: none" in css
+    assert ".ranking-card-rank.cx-rank-top" in css and "cx-rank-top" in js
+    assert "power rankings" in js
