@@ -36,3 +36,23 @@ def test_the_front_headline_gets_a_label_and_a_rule():
     out = compact.apply("<html><head></head><body><div class=\"above-fold\"><h2 class=\"headline\">X</h2></div></body></html>")
     assert "cx-kicker" in out and "cx-headrule" in out and "Cover story" in out
     assert "text-wrap: balance" in out
+
+
+def test_the_lead_story_is_never_folded():
+    assert "Read the full story" not in compact.COMPACT_JS
+    assert 'querySelectorAll(".story-card .story-body")' in compact.COMPACT_JS
+
+
+def test_photos_keep_their_own_shape_on_a_phone():
+    css = compact.COMPACT_CSS
+    assert "16 / 10" not in css and "4 / 3" not in css
+    assert "aspect-ratio: auto !important" in css and "object-fit: contain !important" in css
+
+
+def test_a_folded_story_still_wraps_around_its_photo():
+    # overflow: hidden makes a new formatting context, which refuses to flow
+    # around a float; clip must come after it so it wins where supported.
+    css = compact.COMPACT_CSS
+    fold = css[css.index(".cx-fold {"):]
+    fold = fold[:fold.index("}")]
+    assert fold.index("overflow: hidden") < fold.index("overflow: clip")

@@ -12,7 +12,10 @@ What it does, from the 31 Oct read of Kevlarville week 7 at iPhone size:
   "This Week" list right under it says the same.
 - Story headlines in title case at a size that fits two or three lines,
   instead of four lines of capitals. Genre tags (COMEDY, DRAMA) go.
-- Each game story shows its first paragraph with a "Keep reading" fold.
+- Each game story shows its first stretch with a "Keep reading" fold. The
+  lead story on the front is never folded (9 Nov, John).
+- Photos keep their own shape (9 Nov): uploads are square and are shown
+  whole, never cropped to a banner.
 - Rules and white space instead of boxes: the scorebar, the award cards
   and the ranking cards lose their frames. Fraud Watch keeps its box; it
   is meant to stand apart.
@@ -46,7 +49,16 @@ COMPACT_CSS = """
   .cx-kicker::before, .cx-kicker::after { content: ""; width: 30px; height: 1px; background: currentColor; }
   .cx-headrule { width: 54px; height: 3px; background: var(--accent, #c40000); margin: 13px auto 14px; }
   .above-fold .dateline-bar { display: none !important; }
-  .image-wrap img { aspect-ratio: 16 / 10 !important; }
+  /* Photos whole, in their own shape (9 Nov, John: "all photos that I add
+     are square and should be fully displayed"). Overrides the 16:10 crop
+     this layout used to force, the front photo's 4:3 crop, and the front's
+     column-matching stretch, which do nothing useful in one column. */
+  .image-wrap img, .front-col-center .image-wrap img,
+  .front-page.fp-fit .front-col-center > .image-wrap > img {
+      aspect-ratio: auto !important; height: auto !important; width: 100% !important;
+      object-fit: contain !important; flex: none !important; }
+  .front-page.fp-fit .front-col-center > .image-wrap {
+      flex: none !important; min-height: 0 !important; max-height: none !important; }
   .image-wrap { float: none !important; width: auto !important; margin: 0 0 12px !important; }
 
   /* 2. Headlines and labels */
@@ -74,10 +86,17 @@ COMPACT_CSS = """
      eleven lines, fading out into the page, then a real button. The fade
      is a mask on the text, so it works on every theme's paper, dark
      Gameday included. */
-  .cx-fold { max-height: var(--cx-h, 300px) !important; overflow: hidden !important; position: relative;
+  /* overflow: clip, not hidden (9 Nov). "hidden" starts a new formatting
+     context, and one of those won't flow around a float, so the folded text
+     of the story with the small photo sat in a narrow column beside it, and
+     only wrapped under the photo once opened. "clip" crops the same way and
+     leaves the wrap alone. "hidden" stays first as the fallback for a
+     browser without "clip" (Safari before 16). */
+  .cx-fold { max-height: var(--cx-h, 300px) !important; overflow: hidden !important;
+      overflow: clip !important; position: relative;
       -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%);
       mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%); }
-  .cx-more { display: flex; align-items: center; justify-content: center; gap: 8px;
+  .cx-more { clear: both; display: flex; align-items: center; justify-content: center; gap: 8px;
       width: 100%; min-height: 48px; margin: 4px 0 6px; padding: 12px 16px;
       background: #111; color: #fff; border: 0; border-radius: 6px; cursor: pointer;
       font: inherit; font-size: 14px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase;
@@ -230,9 +249,8 @@ COMPACT_JS = """
     });
     el.parentNode.insertBefore(b, el.nextSibling);
   }
-  document.querySelectorAll(".lead-story").forEach(function (lead) {
-    fold(lead, 9, "Read the full story");
-  });
+  // The lead story is never folded (9 Nov, John): it's the story the
+  // paper is about, so it reads in full by default.
   document.querySelectorAll(".story-card .story-body").forEach(function (body) {
     fold(body, 11, "Keep reading");
   });
