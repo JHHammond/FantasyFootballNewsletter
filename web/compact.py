@@ -203,7 +203,7 @@ COMPACT_CSS = """
   .award-card .aw-name { font-size: 17px !important; font-weight: 700 !important; line-height: 1.2; }
   .award-card .aw-pos { background: none !important; color: #6b665e !important; border: 0 !important;
       padding: 0 !important; margin-left: 4px !important; font: 400 14px Georgia, serif !important; letter-spacing: 0 !important; }
-  .award-card .aw-pos::before { content: "\00b7 "; }
+  .award-card .aw-pos::before { content: "· "; }
   .award-card .aw-team { font: 400 14px Georgia, serif !important; letter-spacing: 0 !important;
       text-transform: none !important; opacity: 1 !important; color: #6b665e; }
   .award-card .aw-stats.cx-aw-line { display: flex !important; align-items: baseline; flex-wrap: wrap; gap: 6px 16px;
@@ -212,7 +212,7 @@ COMPACT_CSS = """
   .award-card .cx-aw-line .aw-stat span { font: 700 11px "Barlow Condensed", "Arial Narrow", sans-serif !important;
       letter-spacing: 1.6px !important; opacity: 1 !important; color: #6b665e; }
   .award-card .cx-aw-line .aw-stat b { font: 700 20px Georgia, serif !important; }
-  .award-card .cx-aw-line .aw-stat.cx-arrow::before { content: "\2192"; color: #999; margin-right: 4px; }
+  .award-card .cx-aw-line .aw-stat.cx-arrow::before { content: "→"; color: #999; margin-right: 4px; }
   .award-card .award-body { margin-top: 12px !important; }
   .cx-dark .award-card .aw-team, .cx-dark .award-card .aw-pos, .cx-dark .cx-aw-line .aw-stat span { color: #b9c2cf !important; }
 
@@ -459,7 +459,7 @@ COMPACT_JS = """
   if (front && !document.querySelector(".cx-kicker")) {
     if (front.children.length === 0) {
       front.textContent = front.textContent.replace(/(^|[^A-Za-z]\s?)(\w+)\s+(place)\s+(?=[A-Za-z])/i, function (m, pre, a, b) {
-        if (!/^(last|first|second|third)$/i.test(a) || /\b(in|to|of|from|into)\s*$/i.test(pre)) return m;
+        if (!/^(last|first|second|third)$/i.test(a) || /\\b(in|to|of|from|into)\s*$/i.test(pre)) return m;
         return pre + a + "-" + b + " ";
       });
     }

@@ -156,3 +156,11 @@ def test_every_line_is_left_versus_right():
     assert ".cx-ln-mid" in css and ".line-lead .ll-bars" in css
     ln = js[js.index("Next week's lines (9 Nov)"):js.index("Weekly Awards (9 Nov)")]
     assert "innerHTML" not in ln and "insertBefore(mid, dog)" in ln
+
+
+def test_the_styles_carry_no_control_characters():
+    # "\\00b7" in a plain Python string is a NUL and "b7" (9 Nov: the award
+    # boxes printed a box glyph and "b7"); "\\b" is a backspace. Real
+    # characters, and doubled backslashes, only.
+    bad = [c for c in compact.COMPACT_CSS + compact.COMPACT_JS if ord(c) < 32 and c not in "\t\n\r"]
+    assert not bad
