@@ -76,7 +76,7 @@ def test_this_week_is_rebuilt_as_tabloid_teasers():
     assert ".cx-hot .cx-tw-bar" not in css and "cx-week-head" in css   # one stripe colour
     # Rows take their story's label, and names are set as text, never markup.
     assert 'classList.contains("cx-tag")' in js
-    tw = js[js.index("This Week (9 Nov)"):js.index("Medal colours")]
+    tw = js[js.index("This Week (9 Nov)"):js.index("Power rankings (9 Nov)")]
     assert "innerHTML" not in tw
 
 
@@ -97,9 +97,11 @@ def test_both_stories_of_a_pair_get_a_label():
 def test_standings_and_week_in_numbers_are_restyled():
     css, js = compact.COMPACT_CSS, compact.COMPACT_JS
     assert ".cx-st-rank" in css and "cx-st-src" in js
+    assert "#b8930b" in css and "#8a8f96" in css and "#a0612d" in css   # gold, silver, bronze
+    assert "this week" not in js[js.index("Standings (9 Nov)"):js.index("cx-st-src")]  # no points
     num = css[css.index(".front-col .wk-board .wk-num"):]
     assert "var(--accent, #c40000)" in num[:num.index("}")]      # every number red
-    st = js[js.index("Standings (9 Nov)"):js.index("Medal colours")]
+    st = js[js.index("Standings (9 Nov)"):js.index("Power rankings (9 Nov)")]
     assert "innerHTML" not in st                                  # team names stay text
 
 
@@ -122,3 +124,15 @@ def test_fraud_watch_and_power_rankings_are_restyled():
     assert ".fraud-callout .fc-stamp" in css and "transform: none" in css
     assert ".ranking-card-rank.cx-rank-top" in css and "cx-rank-top" in js
     assert "power rankings" in js
+
+
+def test_only_this_week_and_fraud_watch_keep_a_black_bar():
+    css, js = compact.COMPACT_CSS, compact.COMPACT_JS
+    assert ".front-col .wk-board .wk-head" in css and "cx-rule-head" in js
+    assert js.count('classList.add("cx-week-head")') == 1      # This Week only
+    assert ".fraud-callout .fc-head { background: #111" in css
+
+
+def test_how_you_stack_up_matches_the_week_in_numbers():
+    css, js = compact.COMPACT_CSS, compact.COMPACT_JS
+    assert ".stack-up .stack-big" in css and '".stack-up .col-section-label"' in js
