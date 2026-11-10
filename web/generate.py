@@ -448,7 +448,13 @@ def ads_off(db, league: dict[str, Any]) -> bool:
     Fails toward printing the sponsor: a paper with an ad it shouldn't have is
     a support email, a paid placement silently missing from a free league's
     paper is a breach of the contract."""
-    if not league.get("ads_off") or not league.get("user_id"):
+    return bool(league.get("ads_off")) and owner_pays(db, league)
+
+
+def owner_pays(db, league: dict[str, Any]) -> bool:
+    """Is this league's owner on a paying plan right now? False on any doubt,
+    for the same reason as above."""
+    if not league.get("user_id"):
         return False
     try:
         owner = db.user_by_id(league["user_id"])
@@ -459,8 +465,16 @@ def ads_off(db, league: dict[str, Any]) -> bool:
 
 
 def sponsor_for(db, league: dict[str, Any]) -> dict | None:
-    """sponsor_settings, unless this league's owner has opted out."""
-    return None if ads_off(db, league) else sponsor_settings(league)
+    """sponsor_settings, unless this league's owner has opted out.
+
+    A paying league never carries the sponsor's box under next week's lines,
+    opted out or not (9 Nov, John): the board prints as the plain preview."""
+    if ads_off(db, league):
+        return None
+    sponsor = sponsor_settings(league)
+    if sponsor and owner_pays(db, league):
+        sponsor = dict(sponsor, lines=False)
+    return sponsor
 
 
 def promo_for(db, league: dict[str, Any]) -> dict | None:

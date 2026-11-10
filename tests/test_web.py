@@ -6580,3 +6580,13 @@ def test_the_manage_page_offers_no_ads_and_locks_it_for_free(client, league, fre
     assert 'name="ads_off"' in paid and "An ad-free paper is part of" not in paid
     free = client.get("/l/free-admin-token").text
     assert "An ad-free paper is part of" in free
+
+
+
+def test_a_paying_league_never_carries_the_lines_ad(league, free_league, monkeypatch):
+    from web import generate
+    monkeypatch.setenv("PAPER_SPONSOR", _SPONSOR_JSON)
+    paid = generate.sponsor_for(demo_db, league)
+    assert paid and paid.get("lines") is False          # the rest of the sponsor stays
+    free = generate.sponsor_for(demo_db, free_league)
+    assert free and free.get("lines") is not False
