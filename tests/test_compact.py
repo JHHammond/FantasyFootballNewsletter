@@ -78,3 +78,11 @@ def test_this_week_is_rebuilt_as_tabloid_teasers():
     assert 'classList.contains("cx-tag")' in js
     tw = js[js.index("This Week (9 Nov)"):js.index("Medal colours")]
     assert "innerHTML" not in tw
+
+
+def test_a_paper_is_cached_for_a_minute_not_an_hour():
+    # Edits, the no-ads switch and this layout all change a served paper.
+    import inspect
+    from web import app as webapp
+    src = inspect.getsource(webapp.read_paper)
+    assert '"public, max-age=60"' in src and "s-maxage" not in src

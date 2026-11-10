@@ -5507,8 +5507,13 @@ def read_paper(request: Request, slug: str, season: int, week: int, embed: int =
 
     return HTMLResponse(
         content=html,
-        # Editions never change once published.
-        headers={"Cache-Control": "public, max-age=3600, s-maxage=86400"},
+        # A minute, not an hour (9 Nov). Papers DO change after they're
+        # published: an edit, the no-ads switch re-rendering a season, and the
+        # phone layout layered on here at serve time. An hour's browser cache
+        # meant a reader kept the old copy for an hour after any of those, and
+        # s-maxage would have let a shared cache (Cloudflare, if the record
+        # ever goes orange-cloud) keep it for a day.
+        headers={"Cache-Control": "public, max-age=60"},
     )
 
 
