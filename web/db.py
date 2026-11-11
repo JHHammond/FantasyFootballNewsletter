@@ -2175,6 +2175,15 @@ def league_ids_with_paper(season: int, week: int) -> set[str]:
     return {r["league_id"] for r in rows}
 
 
+def paper_weeks_by_league(season: int) -> dict[str, set]:
+    """{league id: {weeks it has a paper for}} for the whole season, in one
+    paged read. The reminder uses it to leave out one-and-done accounts."""
+    out: dict[str, set] = {}
+    for r in _paged("newspapers", "league_id, week", season=int(season)):
+        out.setdefault(r["league_id"], set()).add(int(r["week"]))
+    return out
+
+
 def email_optouts() -> set[str]:
     """Everyone who must never get a reminder: the reminder opt-outs, plus
     anyone who unsubscribed from a league's paper emails (6 Oct: "no one who

@@ -349,3 +349,53 @@ def test_the_test_send_is_one_copy_of_each_version(monkeypatch, trial_store):
     assert len(sent) == 3
     assert "last free edition" in sent[1][1]
     assert "4.99" not in sent[2][1] and "free edition" not in sent[2][1]
+
+
+# --- One paper in weeks 1 to 5, then nothing (10 Nov) -----------------------
+
+def _paper(league, week):
+    demo_db.save_paper(league["id"], week, SEASON, "p", "u", {})
+
+
+def test_one_paper_in_the_first_five_weeks_and_gone_is_left_out():
+    for n, who in enumerate(("one", "two", "three", "four"), 1):
+        _paper(_league(who.title(), owner_email=f"{who}@x.com"), n)
+    _paper(_league("Five", user=_user("five@x.com")), 5)
+    _league("Never", owner_email="never@x.com")          # no paper at all: still asked
+    _paper(_league("Six", owner_email="six@x.com"), 6)    # came in later: still asked
+    back = _league("Back", owner_email="back@x.com")      # a second paper, ever: still asked
+    _paper(back, 1)
+    _paper(back, 2)
+
+    left_out: set = set()
+    people = {p["email"] for p in reminders.audience(demo_db, SEASON, 9, left_out)}
+    assert people == {"never@x.com", "six@x.com", "back@x.com"}
+    assert left_out == {f"{w}@x.com" for w in ("one", "two", "three", "four", "five")}
+
+
+def test_one_and_done_is_counted_per_person_not_per_league():
+    u = _user("both@x.com")
+    _paper(_league("Old", user=u), 3)        # one paper here...
+    other = _league("Other", user=u)         # ...but a regular over here
+    _paper(other, 7)
+    _paper(other, 8)
+    [p] = reminders.audience(demo_db, SEASON, 9)
+    assert sorted(l["league_name"] for l in p["leagues"]) == ["Old", "Other"]
+
+
+def test_unreadable_papers_leave_nobody_out(monkeypatch):
+    _paper(_league("Three", owner_email="three@x.com"), 3)
+
+    def boom(season):
+        raise RuntimeError("no papers table today")
+    monkeypatch.setattr(demo_db, "paper_weeks_by_league", boom)
+    assert [p["email"] for p in reminders.audience(demo_db, SEASON, 9)] == ["three@x.com"]
+
+
+def test_the_dry_run_says_how_many_were_left_out():
+    _paper(_league("Three", owner_email="three@x.com"), 3)
+    _league("Never", owner_email="never@x.com")
+    lines = []
+    report = reminders.send(demo_db, SEASON, 9, dry_run=True, log=lines.append)
+    assert report["audience"] == 1 and report["left_out"] == 1
+    assert any("left out: 1" in l for l in lines)

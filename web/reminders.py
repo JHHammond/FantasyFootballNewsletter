@@ -13,7 +13,11 @@ league is claimed, the address typed when it was created otherwise — minus:
   * leagues that already have a paper for the week (they came back already),
   * anybody who unsubscribed from a reminder (email_optouts),
   * anybody already reminded for this week (reminders_sent), so a second run
-    only picks up what the first one missed.
+    only picks up what the first one missed,
+  * anybody who made one paper all season, for any of weeks 1 to 5, and
+    never made another (John, 10 Nov): they looked once and left, and one
+    more reminder isn't going to change that. A second paper, ever, puts
+    them back on the list.
 One email per address, listing every league of theirs that is waiting.
 
 It is marketing mail: an unsubscribe link, the List-Unsubscribe headers, and
@@ -91,8 +95,43 @@ def teasers_for(rows: list[dict[str, Any]]) -> dict:
     return out
 
 
-def audience(db, season: int, week: int) -> list[dict[str, Any]]:
-    """[{email, leagues: [{name, admin_token, teasers}]}], one per address."""
+#: One paper, made for one of these weeks, and nothing since: no reminder
+#: (John, 10 Nov; first weeks 3 and 4, then 1 to 5 the same evening).
+ONE_AND_DONE_WEEKS = frozenset({1, 2, 3, 4, 5})
+
+
+def _owner_email(league: dict, users: dict) -> str:
+    owner = users.get(league.get("user_id") or "")
+    email = (owner or {}).get("email") or league.get("owner_email") or ""
+    return email.strip().lower()
+
+
+def one_and_done(db, season: int, week: int, leagues: list[dict],
+                 users: dict) -> set[str]:
+    """Addresses whose whole season is a single paper, for one of weeks 1-5.
+
+    Counted per ADDRESS across every league of theirs, not per league: someone
+    with one old paper in one league and a run of papers in another is a
+    regular, and so is anybody who has already made this week's. Empty if the
+    papers can't be read, which sends to everybody, as before."""
+    try:
+        papers = db.paper_weeks_by_league(season)
+    except Exception:  # noqa: BLE001
+        return set()
+    weeks: dict[str, list[int]] = {}
+    for league in leagues:
+        email = _owner_email(league, users)
+        if "@" in email:
+            weeks.setdefault(email, []).extend(papers.get(league["id"], ()))
+    return {e for e, ws in weeks.items()
+            if len(ws) == 1 and ws[0] in ONE_AND_DONE_WEEKS and ws[0] < int(week)}
+
+
+def audience(db, season: int, week: int,
+             left_out: Optional[set] = None) -> list[dict[str, Any]]:
+    """[{email, leagues: [{name, admin_token, teasers}]}], one per address.
+    Pass a set as `left_out` to learn which one-and-done addresses were
+    dropped (the dry run prints the count)."""
     from .generate import paper_name_for
 
     users = {u["id"]: u for u in db.all_users()}
@@ -120,15 +159,20 @@ def audience(db, season: int, week: int) -> list[dict[str, Any]]:
 
     by_email: dict[str, list[dict[str, Any]]] = {}
     market_only = db.market_only_league_ids(season)   # 058: no paper, so no nudge
-    for league in db.leagues_for_reminders(season):
+    leagues = db.leagues_for_reminders(season)
+    gone = one_and_done(db, season, week, leagues, users)
+    for league in leagues:
         if league["id"] in done or league["id"] in market_only or not league.get("admin_token"):
             continue
         owner = users.get(league.get("user_id") or "")
         if owner and plans.plan_for(owner).key in (plans.PAID, plans.STAFF):
             continue
-        email = ((owner or {}).get("email") or league.get("owner_email") or "")
-        email = email.strip().lower()
+        email = _owner_email(league, users)
         if "@" not in email or email in paying or email in skip:
+            continue
+        if email in gone:
+            if left_out is not None:
+                left_out.add(email)
             continue
         key = (league.get("provider"), str(league.get("platform_league_id")))
         trial_left = None
@@ -152,10 +196,13 @@ def send(db, season: int, week: int, *, dry_run: bool = False,
          test_to: str = "", log: Callable[[str], None] = print,
          sleep: Callable[[float], None] = time.sleep) -> dict:
     from . import emailer
-    people = audience(db, season, week)
+    left_out: set = set()
+    people = audience(db, season, week, left_out)
     report = {"week": week, "audience": len(people), "sent": 0, "failed": 0,
-              "errors": []}
+              "errors": [], "left_out": len(left_out)}
     log(f"[remind] week {week}: {len(people)} address(es) to remind")
+    log(f"[remind] left out: {len(left_out)} who made one paper in weeks "
+        f"{min(ONE_AND_DONE_WEEKS)}-{max(ONE_AND_DONE_WEEKS)} and never made another")
 
     lefts = [l.get("trial_left") for p in people for l in p["leagues"]]
     log(f"[remind] leagues: {sum(1 for x in lefts if x == 0)} trial used up, "

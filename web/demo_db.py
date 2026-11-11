@@ -1251,6 +1251,14 @@ def league_ids_with_paper(season: int, week: int) -> set:
     return {k[0] for k in _PAPERS if k[1] == int(season) and k[2] == int(week)}
 
 
+def paper_weeks_by_league(season: int) -> dict:
+    out: dict = {}
+    for k in _PAPERS:
+        if k[1] == int(season):
+            out.setdefault(k[0], set()).add(int(k[2]))
+    return out
+
+
 def email_optouts() -> set:
     out = {e.strip().lower() for e in _OPTOUTS}
     out |= {(s.get("email") or "").strip().lower() for s in _SUBSCRIBERS.values()
