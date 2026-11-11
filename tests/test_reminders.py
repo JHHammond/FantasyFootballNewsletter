@@ -196,7 +196,7 @@ def test_week_four_is_the_front_page(monkeypatch):
     blacked out, nobody named."""
     got = _capture(monkeypatch)
     _send_week(4, {"low": 62.3, "low_win": 88.1, "bench": 38.9, "blowout": 54.2, "top": 41})
-    assert got["subject"] == "Don't Let Week 4 Go Unreported"
+    assert got["subject"] == "Week 4 Is Final. The Presses Are Waiting on You."
     t, body = got["text"], got["body"]
     assert t.startswith("Someone in your league scored 62.3 points.")
     assert "Someone in your league scored 62.3. Names redacted" in body   # preheader
@@ -304,7 +304,7 @@ def _send_trial(left, week=5):
 def test_the_last_free_paper_says_so(monkeypatch):
     got = _capture(monkeypatch)
     _send_trial(1)
-    assert got["subject"] == "Don't Let Week 5 Go Unreported"
+    assert got["subject"] == "Week 5 Is Final. The Presses Are Waiting on You."
     assert "This is your last free edition. Make it count." in got["text"]
     assert "Print the Week 5 paper" in got["body"]
 
@@ -314,7 +314,7 @@ def test_a_used_up_trial_gets_the_usual_email_with_no_ask(monkeypatch):
     email says nothing about the trial or the price; the site sells."""
     got = _capture(monkeypatch)
     _send_trial(0)
-    assert got["subject"] == "Don't Let Week 5 Go Unreported"
+    assert got["subject"] == "Week 5 Is Final. The Presses Are Waiting on You."
     for said in (got["text"], got["body"]):
         assert "$" not in said and "4.99" not in said and "19.99" not in said
         assert "free edition" not in said.lower()
@@ -336,7 +336,7 @@ def test_plenty_left_or_unknown_is_the_usual_email(monkeypatch):
     got = _capture(monkeypatch)
     for left in (3, 2, None):
         _send_trial(left)
-        assert got["subject"] == "Don't Let Week 5 Go Unreported"
+        assert got["subject"] == "Week 5 Is Final. The Presses Are Waiting on You."
         assert "free edition" not in got["text"]
 
 

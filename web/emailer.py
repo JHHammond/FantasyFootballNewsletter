@@ -459,7 +459,8 @@ def _reminder_copy(week: int, facts: dict):
 # THE FRONT-PAGE REMINDER (John, 27 Oct). From Week 4 on, whenever the league
 # has a lowest score to lead with: a nameplate masthead, the low score as the
 # headline, and up to three numbers as a box-score strip with the names
-# blacked out. Subject "Don't Let Week N Go Unreported" (John's line), with
+# blacked out. Subject "Week N Is Final. The Presses Are Waiting on You." (John's pick,
+# 10 Nov; it was "Don't Let Week N Go Unreported" until then), with
 # the low score in the preheader so the inbox still shows a real number.
 # Designed on the "Reminder Email Redesign" canvas; Georgia and Helvetica
 # only, because webfonts don't load in Gmail.
@@ -492,10 +493,11 @@ def _front_page_reminder(w: int, facts: dict, *, base: str, buttons: str,
     e = html.escape
     red = "#b3141c"
     low = f"{facts['low']:.1f}"
-    subject = f"Don't Let Week {w} Go Unreported"
+    subject = f"Week {w} Is Final. The Presses Are Waiting on You."
     preheader = f"Someone in your league scored {low}. Names redacted until you print it."
-    deck = (f"Week {w} is final and your paper is ready to print. Here’s what’s "
-            f"already on the desk. Names stay redacted until you print it.")
+    # John, 10 Nov: one sentence. The two that followed ("Here's what's
+    # already on the desk. Names stay redacted...") said what the strip shows.
+    deck = f"Week {w} is final, and your paper is ready to print."
     picked = [(label, caption, f"{prefix}{facts[key]:.1f}")
               for key, label, caption, prefix in _STRIP
               if isinstance(facts.get(key), (int, float))][:3]
