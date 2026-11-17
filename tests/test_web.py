@@ -2740,7 +2740,7 @@ def _print_block(html):
 
 
 def test_every_theme_ships_a_print_stylesheet():
-    for theme in ("tabloid", "broadsheet", "gameday"):
+    for theme in ("tabloid", "broadsheet", "gameday", "modern"):
         html = _full_paper(dict(SAMPLE_AI), theme=theme)
         assert "@media print" in html, theme
         assert "@page" in html, theme
@@ -6611,3 +6611,19 @@ def test_the_ads_note_is_only_for_the_paying_owner_and_staff(league, free_league
     assert "Staff preview" in note and "/l/" not in note
     # No sponsor in the paper: nothing inserted.
     assert webapp._insert_ads_note("<p>plain</p>", note) == "<p>plain</p>"
+
+
+def test_modern_theme_is_offered_and_renders():
+    """Modern (17 Nov): Anton and the desktop columns, with the layout kept
+    above phone width so the compact phone layer still owns the phone."""
+    import themes
+    assert themes.resolve("Modern") == "modern"
+    assert any(t["key"] == "modern" for t in themes.choices())
+    html = _full_paper(dict(SAMPLE_AI), theme="modern")
+    assert "Anton" in html and "Source+Serif+4" in html
+    css = themes.css_for("modern")
+    desktop = css[css.index("@media screen and (min-width: 761px)"):]
+    for rule in (".front-page", ".stories-full", ".awards-grid-full", ".rankings-grid"):
+        assert rule in desktop, rule
+    # Nothing that moves columns around sits outside the desktop query.
+    assert "grid-template-columns" not in css[:css.index("@media screen and (min-width: 761px)")]

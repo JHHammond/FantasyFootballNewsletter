@@ -707,6 +707,16 @@ textarea { resize: vertical; }
     border-top: 2px solid #16f04e; padding-top: 5px;
 }
 .theme-sample-gameday .theme-sample-body { background: #9fb0c4; }
+.theme-sample-modern { background: #f4efe6; }
+.theme-sample-modern .theme-sample-masthead {
+    font-family: "Playfair Display", Georgia, serif; font-weight: 900; color: #111;
+    border-bottom: 3px solid #c40000; text-transform: none;
+}
+.theme-sample-modern .theme-sample-head {
+    font-family: "Anton", Impact, sans-serif; font-weight: 400; text-transform: uppercase; color: #111;
+    border-left: 3px solid #c40000; padding-left: 5px;
+}
+.theme-sample-modern .theme-sample-body { background: #3a332b; }
 
 @media (max-width: 640px) {
     .theme-row { flex-direction: column; }

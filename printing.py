@@ -615,10 +615,22 @@ GAMEDAY_PRINT_CSS = """
 """
 
 
+MODERN_PRINT_CSS = """
+@media print {
+    /* Paper ground, not the screen's cream, and a nameplate that fits a page. */
+    body, .page { background: #fff !important; }
+    .paper-name { font-size: 40pt !important; box-shadow: none !important; }
+    .headline { font-size: 26pt !important; }
+    .fc-head { background: #111 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+"""
+
+
 THEME_PRINT_CSS: dict[str, str] = {
     "tabloid": TABLOID_PRINT_CSS,
     "broadsheet": BROADSHEET_PRINT_CSS,
     "gameday": GAMEDAY_PRINT_CSS,
+    "modern": MODERN_PRINT_CSS,
 }
 
 

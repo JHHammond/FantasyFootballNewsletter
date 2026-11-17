@@ -540,6 +540,251 @@ thead tr { border-bottom-color: #16f04e !important; }
 
 
 # ---------------------------------------------------------------------------
+# MODERN — the phone layout's look, built out for a computer (17 Nov).
+#
+# John picked it from a design-canvas mockup of The Hands Times, week 10.
+# Anton capitals, red game labels, black bars, rank boxes, big red numbers,
+# rules instead of boxes. Type and colour apply everywhere; the multi-column
+# layout only above phone width, so web/compact.py still owns the phone.
+# ---------------------------------------------------------------------------
+
+MODERN_FONTS = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com" />'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />'
+    '<link href="https://fonts.googleapis.com/css2?'
+    'family=Anton'
+    '&family=Playfair+Display:ital,wght@0,700;0,900;1,700'
+    '&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400'
+    '&family=Barlow+Condensed:wght@600;700;800'
+    '&display=swap" rel="stylesheet" />'
+)
+
+MODERN_CSS = """
+/* ===== MODERN (17 Nov) =====
+   The phone layout's look, built out for a computer screen (John picked the
+   design-canvas mockup "The Hands Times – desktop redesign"): Anton tabloid
+   capitals for headlines, a red label saying what kind of game it was, black
+   bars on This Week and Fraud Watch, rank boxes, big red numbers, and rules
+   and white space where the tabloid draws boxes. Colours and type apply
+   everywhere; every LAYOUT change sits inside the desktop query, so the
+   phone layer (web/compact.py) and print are left alone. */
+:root { --accent: #c40000; }
+body { background: #f4efe6 !important; font-family: "Source Serif 4", Georgia, serif !important; }
+.page { background: #f4efe6 !important; box-shadow: none !important; border: 0 !important; }
+
+/* Nameplate: ink on paper over a red and a black rule, not the red band. */
+.masthead { background: transparent !important; border-bottom: 0 !important; padding: 26px 48px 0 !important; }
+.paper-name { font-family: "Playfair Display", Georgia, serif !important; font-weight: 900 !important;
+    text-transform: none !important; color: #111 !important; text-shadow: none !important;
+    letter-spacing: -1px !important; line-height: 1 !important;
+    padding-bottom: 14px; border-bottom: 6px solid var(--accent); box-shadow: 0 5px 0 #f4efe6, 0 7px 0 #111; }
+.edition-line { color: #5a5146 !important; border-top: 0 !important; margin-top: 18px !important;
+    font-family: "Barlow Condensed", sans-serif !important; font-weight: 700 !important;
+    letter-spacing: .16em !important; font-size: 13px !important; padding-top: 0 !important; }
+
+/* Front headline: Anton capitals, centred, a short rule under it. */
+.above-fold { border-bottom: 0 !important; }
+.headline { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important;
+    letter-spacing: 0 !important; border-bottom: 0 !important; text-wrap: balance;
+    max-width: 980px; margin-left: auto !important; margin-right: auto !important; }
+.headline::after { content: ""; display: block; width: 60px; height: 3px; background: #111; margin: 18px auto 0; }
+.dateline-bar { border-top: 1px solid #111; border-bottom: 1px solid #cfc6b6 !important;
+    font-family: "Barlow Condensed", sans-serif !important; font-weight: 700; letter-spacing: .12em !important; }
+.dateline-bar span:nth-child(2) { font-family: "Source Serif 4", Georgia, serif; font-weight: 400 !important;
+    letter-spacing: 0; text-transform: none; color: #3a332b !important; }
+.section-nav { background: transparent !important; border-color: #111 !important; }
+.section-nav a { font-family: "Barlow Condensed", sans-serif !important; font-weight: 700 !important; letter-spacing: .14em !important; }
+
+/* Section heads: Anton, under a heavy rule. This Week and Fraud Watch get a black bar. */
+.col-section-label, .wk-head, .section-title-full, .bp-label, .classifieds-title {
+    font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important;
+    letter-spacing: .02em !important; color: #111 !important; text-transform: uppercase !important;
+    background: none !important; text-align: left !important; }
+.front-col:first-child .col-section-label { background: #111 !important; color: #fff !important;
+    padding: 8px 12px !important; font-size: 20px !important; border: 0 !important; }
+
+/* This Week: a red stripe, the label in red, the teaser in Anton capitals. */
+.col-story { border-left: 5px solid var(--accent); padding: 12px 0 12px 14px !important;
+    border-bottom: 1px solid #cfc6b6 !important; margin: 0 !important; }
+.col-story-headline, .col-story-headline a { font-family: "Barlow Condensed", sans-serif !important;
+    font-weight: 700 !important; font-size: 13px !important; letter-spacing: .1em !important;
+    color: var(--accent) !important; text-transform: uppercase; }
+.col-story-teaser { font-family: "Anton", Impact, sans-serif !important; font-style: normal !important;
+    font-size: 20px !important; line-height: 1.08 !important; color: #111 !important; text-transform: uppercase; }
+.col-story-body { color: #5a5146 !important; }
+
+/* Lead story: big red first letter. */
+.lead-story > p:first-child::first-letter { float: left; font-family: "Anton", Impact, sans-serif;
+    font-size: 64px; line-height: .85; margin: 6px 8px 0 0; color: var(--accent); }
+.photo-caption { font-family: "Source Serif 4", Georgia, serif !important; text-transform: none !important;
+    letter-spacing: 0 !important; color: #5a5146 !important; font-size: 13px !important; }
+
+/* Standings: rank in a black box (red for first). */
+table.stats th { background: transparent !important; color: #5a5146 !important; border-bottom: 2px solid #111 !important;
+    font-family: "Barlow Condensed", sans-serif !important; letter-spacing: .1em; }
+table.stats td { border-bottom: 1px solid #cfc6b6 !important; background: transparent !important; }
+table.stats td.order-num { font-family: "Anton", Impact, sans-serif !important; color: #fff !important; width: 30px; }
+table.stats tbody tr td.order-num { background: #111 !important; text-align: center; box-shadow: inset 0 0 0 4px #f4efe6; }
+table.stats tbody tr:first-child td.order-num { background: var(--accent) !important; }
+table.stats td:nth-child(3) { font-family: "Anton", Impact, sans-serif !important; font-size: 17px !important; }
+
+/* The week in numbers: big red Anton figures. */
+.wk-num { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important; color: var(--accent) !important; }
+.wk-label { font-family: "Barlow Condensed", sans-serif !important; font-weight: 700 !important; color: #111 !important; }
+.stack-big { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important; color: var(--accent) !important; }
+
+/* Game stories: Anton headline under a short red rule, the label in red. */
+.story-card { border-color: #111 !important; }
+.story-label { font-family: "Barlow Condensed", sans-serif !important; font-weight: 700 !important;
+    letter-spacing: .14em !important; color: var(--accent) !important; background: none !important;
+    padding: 0 !important; border-top: 3px solid var(--accent); display: inline-block; padding-top: 8px !important; }
+.story-headline { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important; letter-spacing: 0 !important; }
+.story-subhead { font-family: "Source Serif 4", Georgia, serif !important; color: #5a5146 !important; }
+.story-scorebar { background: transparent !important; border: 0 !important; border-top: 2px solid #111 !important;
+    border-bottom: 1px solid #cfc6b6 !important; border-radius: 0 !important; }
+.story-margin .sm-num { font-family: "Anton", Impact, sans-serif !important; color: var(--accent) !important; }
+.pull-quote { font-family: "Playfair Display", Georgia, serif !important; font-style: italic !important;
+    font-weight: 700 !important; border-left: 0 !important; padding-left: 0 !important; }
+
+/* Honor Roll and Detention: ranked rows, not cards. */
+.hd-card { border: 0 !important; border-bottom: 1px solid #cfc6b6 !important; background: transparent !important;
+    box-shadow: none !important; border-radius: 0 !important; }
+.hd-num { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important; }
+.hd-honor .hd-num { color: #111 !important; }
+.hd-honor .hd-fill { background: #111 !important; }
+.hd-honor .hd-proj { background: var(--accent) !important; }
+.hd-rank { background: transparent !important; color: var(--accent) !important; font-family: "Anton", Impact, sans-serif !important;
+    font-size: 20px !important; border: 0 !important; }
+.hd-detention .hd-rank { color: #111 !important; }
+.hd-pos, .aw-pos { background: #111 !important; color: #fff !important; font-family: "Barlow Condensed", sans-serif !important; }
+
+/* Fraud Watch keeps its box, under a black bar with a flat red label. */
+.fraud-callout { border: 2px solid #111 !important; background: #fffdf8 !important; padding: 0 !important; box-shadow: none !important; }
+.fc-head { background: #111 !important; padding: 10px 20px !important; margin: 0 !important; }
+.fraud-callout-label { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important; color: #fff !important;
+    font-size: 24px !important; letter-spacing: .03em !important; }
+.fc-stamp { transform: none !important; border: 0 !important; background: var(--accent) !important; color: #fff !important;
+    font-family: "Barlow Condensed", sans-serif !important; font-weight: 700 !important; letter-spacing: .14em !important;
+    padding: 4px 10px !important; box-shadow: none !important; opacity: 1 !important; }
+.fc-file { background: transparent !important; border: 0 !important; margin: 18px 20px 0 !important; }
+.fc-name, .fc-fact b { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important; }
+.fraud-callout-body { padding: 12px 20px 20px !important; font-size: 18px !important; }
+
+/* Awards: four across, divided by rules, no cards. */
+.award-card { border: 0 !important; background: transparent !important; box-shadow: none !important; border-radius: 0 !important; }
+.award-title { font-family: "Barlow Condensed", sans-serif !important; font-weight: 700 !important;
+    letter-spacing: .12em !important; color: var(--accent) !important; border-bottom: 0 !important; }
+.aw-stat b { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important; font-size: 30px !important; }
+
+/* Power rankings: thin rows, a big rank number. */
+.rankings-section { background: transparent !important; }
+.ranking-card { border: 0 !important; background: transparent !important; box-shadow: none !important; border-radius: 0 !important; }
+.ranking-card-rank { font-family: "Anton", Impact, sans-serif !important; font-weight: 400 !important; color: #111 !important; }
+.rankings-row:first-child .ranking-card:first-child .ranking-card-rank { color: var(--accent) !important; }
+.ranking-card-comment { font-style: normal !important; color: #3a332b !important; opacity: 1 !important; }
+
+/* Back page */
+.obit-name { font-family: "Playfair Display", Georgia, serif !important; font-weight: 900 !important; font-size: 19px !important; }
+.obit { border-bottom: 1px solid #cfc6b6 !important; }
+.bp-obits.has-right { border-right: 1px solid #cfc6b6 !important; }
+.subscribe-block { background: #fffdf8 !important; border: 2px solid #111 !important; }
+.subscribe-head { font-family: "Playfair Display", Georgia, serif !important; }
+.subscribe-form button { background: var(--accent) !important; }
+.classified-heading { font-family: "Barlow Condensed", sans-serif !important; letter-spacing: .08em !important; }
+
+/* ===== Desktop layout ===== */
+@media screen and (min-width: 761px) {
+  .page { max-width: 1320px !important; margin: 0 auto !important; padding-bottom: 64px !important; }
+  main.page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 0; }
+  main.page > * { grid-column: 1 / -1; min-width: 0; }
+  .masthead, .above-fold, .full-section, .back-page, .classifieds-section, .subscribe-block { margin-left: 48px !important; margin-right: 48px !important; padding-left: 0 !important; padding-right: 0 !important; }
+  .masthead { padding-top: 26px !important; }
+  .paper-name { font-size: 96px !important; }
+  .headline { font-size: 60px !important; line-height: .98 !important; margin-top: 18px !important; }
+
+  .front-page { padding: 0 48px !important; display: grid !important;
+      grid-template-columns: 270px minmax(0, 1fr) 320px !important; gap: 40px !important; }
+  .front-col, .front-col-center { width: auto !important; padding: 0 !important; border: 0 !important; }
+  .lead-story { column-count: 2; column-gap: 32px; column-rule: 1px solid #cfc6b6; font-size: 17px; line-height: 1.6; }
+  .lead-story p { margin-top: 0; }
+
+  /* Honor Roll beside Detention. */
+  #honor-roll, #honor-roll + .full-section { grid-column: auto; margin-top: 52px !important; }
+  #honor-roll { margin-right: 24px !important; }
+  #honor-roll + .full-section { margin-left: 24px !important; }
+  .section-title-full { font-size: 30px !important; border-top: 4px solid #111 !important; border-bottom: 0 !important;
+      padding: 8px 0 0 !important; margin: 0 !important; }
+  #honor-roll + .full-section .section-title-full { color: var(--accent) !important; border-top-color: var(--accent) !important; }
+  .section-note { text-align: left !important; margin: 2px 0 6px !important; }
+  .hd-grid { display: flex !important; flex-direction: column !important; gap: 0 !important; overflow: visible !important; }
+  .hd-card { display: grid !important; grid-template-columns: 26px 52px minmax(0, 1fr) 130px 72px;
+      grid-template-areas: "rank photo name bar num" "rank photo team bar num" "rank photo sub bar num";
+      column-gap: 14px; align-items: center !important; text-align: left !important;
+      padding: 10px 0 !important; width: auto !important; min-width: 0 !important; }
+  .hd-rank { position: static !important; grid-area: rank; width: auto !important; height: auto !important; }
+  .hd-photo { grid-area: photo; width: 52px !important; height: 52px !important; }
+  .hd-name { grid-area: name; font-size: 17px !important; text-align: left !important; }
+  .hd-team { grid-area: team; text-align: left !important; }
+  .hd-sub { grid-area: sub; text-align: left !important; margin: 0 !important; }
+  .hd-bar { grid-area: bar; margin: 0 !important; }
+  .hd-num { grid-area: num; font-size: 28px !important; text-align: right; margin: 0 !important; }
+
+  /* Game stories keep the paper's own rhythm (lead, feature, a pair, briefs),
+     set wider: the photo beside the text, the text in two columns. */
+  #games .section-title-full, #awards .section-title-full, #rankings .section-title-full { font-size: 34px !important; }
+  .stories-full { display: block !important; }
+  .stories-full > .story-card { padding: 0 0 32px !important; margin: 30px 0 0 !important;
+      border: 0 !important; border-bottom: 1px solid #cfc6b6 !important; }
+  .stories-full > .story-lead { border-bottom: 1px solid #111 !important; }
+  .story-lead:has(> .image-wrap:not([style*="display: none"])) { display: grid; grid-template-columns: minmax(0, 1fr) 400px; column-gap: 40px; }
+  .story-lead:has(> .image-wrap:not([style*="display: none"])) > * { grid-column: 1; }
+  .story-lead:has(> .image-wrap:not([style*="display: none"])) > .image-wrap { grid-column: 2; grid-row: 1 / span 8; align-self: start; width: auto !important;
+      max-width: none !important; float: none !important; margin: 0 !important; }
+  .story-lead .story-body, .story-brief .story-body, .feature-main .story-body { column-count: 2; column-gap: 32px; column-rule: 1px solid #cfc6b6; }
+  .story-headline-lead { font-size: 54px !important; line-height: 1 !important; }
+  .story-headline-feature { font-size: 40px !important; line-height: 1.02 !important; }
+  .story-headline-small, .story-headline-brief { font-size: 30px !important; line-height: 1.04 !important; }
+  .feature-main:has(> .image-wrap:not([style*="display: none"])) { display: grid !important; grid-template-columns: 360px minmax(0, 1fr); column-gap: 36px; align-items: start; }
+  .feature-main > .image-wrap { grid-column: 1; width: auto !important; max-width: none !important; float: none !important; margin: 0 !important; }
+  .paired-stories { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; column-gap: 48px !important; }
+  .paired-col { min-width: 0; padding: 0 !important; border: 0 !important; }
+  .paired-col + .paired-col { border-left: 1px solid #cfc6b6 !important; padding-left: 24px !important; margin-left: -24px; }
+  .feature-main > .story-body { grid-column: 2; }
+  .story-body-small { font-size: 16px !important; }
+
+  /* This Week: rows sit at their own height, not stretched to the lead. */
+  .front-page.fp-fit > .front-col:first-child { display: block !important; }
+  .front-page .front-col:first-child .col-story { flex: none !important; }
+
+  .fraud-callout { margin: 56px 48px 0 !important; }
+
+  /* Awards in a row of four. */
+  .awards-grid-full { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)) !important; gap: 0 !important; }
+  .award-card { padding: 0 20px !important; border-right: 1px solid #cfc6b6 !important; }
+  .award-card:first-child { padding-left: 0 !important; }
+  .award-card:last-child { border-right: 0 !important; padding-right: 0 !important; }
+  .awards-grid-full > .award-card:last-child:nth-child(odd) { grid-column: auto !important; }
+  .aw-figure { flex-direction: row !important; }
+  #awards, #rankings { margin-top: 56px !important; }
+
+  /* Power rankings: two columns of rows. */
+  .rankings-grid { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 48px; }
+  .rankings-row { display: contents !important; }
+  .ranking-card { display: grid !important; grid-template-columns: 50px 44px minmax(0, 1fr); grid-template-areas: "rank img name" "rank img comment";
+      column-gap: 14px; align-items: center; text-align: left !important; padding: 12px 0 !important;
+      border-bottom: 1px solid #cfc6b6 !important; margin: 0 !important; width: auto !important; }
+  .ranking-card-rank { grid-area: rank; font-size: 38px !important; }
+  .ranking-card > img { grid-area: img; width: 44px !important; height: 44px !important; margin: 0 !important; }
+  .ranking-card-name { grid-area: name; font-size: 18px !important; text-align: left !important; }
+  .ranking-card-comment { grid-area: comment; font-size: 15px !important; text-align: left !important; }
+
+  .back-page { margin-top: 56px !important; border-top: 4px solid #111 !important; }
+  .subscribe-block { margin-top: 56px !important; }
+}
+"""
+
+
+# ---------------------------------------------------------------------------
 
 THEMES: dict[str, dict] = {
     "tabloid": {
@@ -559,6 +804,12 @@ THEMES: dict[str, dict] = {
         "blurb": "Broadcast graphics. Dark, condensed caps, enormous numbers.",
         "fonts": GAMEDAY_FONTS,
         "css": GAMEDAY_CSS,
+    },
+    "modern": {
+        "label": "Modern",
+        "blurb": "Tabloid capitals, clean rules and room to breathe on a big screen.",
+        "fonts": MODERN_FONTS,
+        "css": MODERN_CSS,
     },
 }
 
