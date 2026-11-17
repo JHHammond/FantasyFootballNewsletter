@@ -6618,7 +6618,10 @@ def test_modern_theme_is_offered_and_renders():
     above phone width so the compact phone layer still owns the phone."""
     import themes
     assert themes.resolve("Modern") == "modern"
-    assert any(t["key"] == "modern" for t in themes.choices())
+    # Hidden for now (17 Nov): not offered, and refused if posted anyway.
+    assert not any(t["key"] == "modern" for t in themes.choices())
+    assert themes.resolve_choice("modern") == "tabloid"
+    assert themes.resolve_choice("gameday") == "gameday"
     html = _full_paper(dict(SAMPLE_AI), theme="modern")
     assert "Anton" in html and "Source+Serif+4" in html
     css = themes.css_for("modern")
@@ -6627,3 +6630,8 @@ def test_modern_theme_is_offered_and_renders():
         assert rule in desktop, rule
     # Nothing that moves columns around sits outside the desktop query.
     assert "grid-template-columns" not in css[:css.index("@media screen and (min-width: 761px)")]
+
+
+def test_setup_will_not_save_the_hidden_modern_theme(client, league):
+    client.post("/l/secret-admin-token/setup", data={"theme": "modern"})
+    assert demo_db._LEAGUES[league["id"]]["theme"] != "modern"

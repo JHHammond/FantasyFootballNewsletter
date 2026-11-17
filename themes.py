@@ -810,6 +810,9 @@ THEMES: dict[str, dict] = {
         "blurb": "Tabloid capitals, clean rules and room to breathe on a big screen.",
         "fonts": MODERN_FONTS,
         "css": MODERN_CSS,
+        # 17 Nov: needs more work. Hidden from the picker and refused by the
+        # forms (resolve_choice); a league already set to it still renders.
+        "hidden": True,
     },
 }
 
@@ -864,6 +867,13 @@ def resolve(name: str | None) -> str:
     return key if key in THEMES else DEFAULT_THEME
 
 
+def resolve_choice(name: str | None) -> str:
+    """resolve(), for a theme someone is picking: hidden themes are refused,
+    so posting one straight at the form gets the default instead."""
+    key = resolve(name)
+    return DEFAULT_THEME if THEMES[key].get("hidden") else key
+
+
 def fonts_for(name: str | None) -> str:
     return THEMES[resolve(name)]["fonts"]
 
@@ -877,4 +887,5 @@ def choices() -> list[dict]:
     return [
         {"key": key, "label": theme["label"], "blurb": theme["blurb"]}
         for key, theme in THEMES.items()
+        if not theme.get("hidden")
     ]

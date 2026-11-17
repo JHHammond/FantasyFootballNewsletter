@@ -4277,7 +4277,7 @@ def update_settings(
         **ads,
         "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
         "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
-        "theme": plans.resolve_theme(plan, themes.resolve(theme)),
+        "theme": plans.resolve_theme(plan, themes.resolve_choice(theme)),
         "stakes": stakes.strip()[:300] or None,
         "punishment": punishment.strip()[:300] or None,
     }
@@ -4507,7 +4507,7 @@ def save_setup(
     db.update_league(league["id"], {
         "format": format if format in ("redraft", "keeper", "dynasty") else "redraft",
         "tone": tone if tone in ("friendly", "standard", "brutal") else "standard",
-        "theme": plans.resolve_theme(league_plan(league), themes.resolve(theme)),
+        "theme": plans.resolve_theme(league_plan(league), themes.resolve_choice(theme)),
         "founded_year": year,
         "stakes": stakes.strip()[:300] or None,
         "punishment": punishment.strip()[:300] or None,
